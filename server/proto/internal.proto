@@ -1,0 +1,21 @@
+syntax = "proto3";
+package proto;
+
+
+message RaftLog {
+    enum Op {
+        CREATE_STREAM = 0;
+    }
+    Op              op              = 1;
+    CreateStreamOp  createStreamOp  = 2;
+}
+
+message CreateStreamOp {
+    Stream stream = 1;
+}
+
+message Stream {
+    string subject              = 1;
+    string name                 = 2;
+    int32  replicationFactor    = 3;
+}
