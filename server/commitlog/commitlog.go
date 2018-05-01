@@ -1,7 +1,6 @@
 package commitlog
 
 import (
-	"encoding/binary"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 
 var (
 	ErrSegmentNotFound = errors.New("segment not found")
-	Encoding           = binary.BigEndian
 )
 
 const (

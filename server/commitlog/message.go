@@ -1,5 +1,7 @@
 package commitlog
 
+import "github.com/tylertreat/jetbridge/server/proto"
+
 type Message []byte
 
 func NewMessage(p []byte) Message {
@@ -7,7 +9,7 @@ func NewMessage(p []byte) Message {
 }
 
 func (m Message) Crc() int32 {
-	return int32(Encoding.Uint32(m))
+	return int32(proto.Encoding.Uint32(m))
 }
 
 func (m Message) MagicByte() int8 {
@@ -22,7 +24,7 @@ func (m Message) Timestamp() int64 {
 	if m.MagicByte() == 0 {
 		panic("v0 doesn't have timestamp")
 	}
-	return int64(Encoding.Uint64(m[6:]))
+	return int64(proto.Encoding.Uint64(m[6:]))
 }
 
 func (m Message) Key() []byte {
@@ -65,7 +67,7 @@ func (m Message) keyOffsets() (start, end, size int32) {
 	} else {
 		start = 14
 	}
-	size = int32(Encoding.Uint32(m[start:]))
+	size = int32(proto.Encoding.Uint32(m[start:]))
 	end = start + 4 + size
 	return
 }
@@ -73,7 +75,7 @@ func (m Message) keyOffsets() (start, end, size int32) {
 func (m Message) valueOffsets() (start, end, size int32) {
 	_, keyEnd, _ := m.keyOffsets()
 	start = keyEnd
-	size = int32(Encoding.Uint32(m[start:]))
+	size = int32(proto.Encoding.Uint32(m[start:]))
 	end = start + 4 + size
 	return
 }

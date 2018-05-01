@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+
+	"github.com/tylertreat/jetbridge/server/proto"
 )
 
 const (
@@ -103,7 +105,7 @@ loop:
 		if err != nil {
 			break loop
 		}
-		size := int64(Encoding.Uint32(b.Bytes()[8:12]))
+		size := int64(proto.Encoding.Uint32(b.Bytes()[8:12]))
 
 		_, err = io.CopyN(b, s.log, size)
 		if err != nil {
@@ -124,11 +126,6 @@ loop:
 
 		position += size + msgSetHeaderLen
 		nextOffset++
-
-		_, err = s.log.Seek(size, 1)
-		if err != nil {
-			break loop
-		}
 	}
 	if err == io.EOF {
 		s.NextOffset = nextOffset

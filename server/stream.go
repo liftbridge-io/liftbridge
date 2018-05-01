@@ -51,10 +51,15 @@ func (s *stream) close() error {
 func (s *stream) handleMsg(msg *nats.Msg) {
 	// TODO: do envelope check.
 
+	replyLen := len(msg.Reply)
+	buf := make([]byte, 4+replyLen+len(msg.Data))
+	proto.Encoding.PutUint32(buf[0:], uint32(replyLen))
+	copy(buf[4:], msg.Reply)
+	copy(buf[4+replyLen:], msg.Data)
 	ms := &proto.MessageSet{Messages: []*proto.Message{
 		&proto.Message{
 			MagicByte: 1,
-			Value:     msg.Data,
+			Value:     buf,
 			Timestamp: time.Now(),
 			// TODO: CRC
 		},

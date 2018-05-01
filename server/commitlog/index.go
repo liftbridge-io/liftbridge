@@ -8,8 +8,9 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-
 	"github.com/tysontate/gommap"
+
+	"github.com/tylertreat/jetbridge/server/proto"
 )
 
 var (
@@ -97,7 +98,7 @@ func NewIndex(opts options) (idx *Index, err error) {
 func (idx *Index) WriteEntry(entry Entry) (err error) {
 	b := new(bytes.Buffer)
 	relEntry := newRelEntry(entry, idx.baseOffset)
-	if err = binary.Write(b, Encoding, relEntry); err != nil {
+	if err = binary.Write(b, proto.Encoding, relEntry); err != nil {
 		return errors.Wrap(err, "binary write failed")
 	}
 	idx.WriteAt(b.Bytes(), idx.position)
@@ -117,7 +118,7 @@ func (idx *Index) ReadEntryAtFileOffset(e *Entry, fileOffset int64) (err error) 
 	}
 	b := bytes.NewReader(p)
 	rel := &relEntry{}
-	err = binary.Read(b, Encoding, rel)
+	err = binary.Read(b, proto.Encoding, rel)
 	if err != nil {
 		return errors.Wrap(err, "binary read failed")
 	}

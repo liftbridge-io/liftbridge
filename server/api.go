@@ -9,7 +9,6 @@ import (
 	client "github.com/tylertreat/go-jetbridge/proto"
 	"golang.org/x/net/context"
 
-	"github.com/tylertreat/jetbridge/server/commitlog"
 	"github.com/tylertreat/jetbridge/server/proto"
 )
 
@@ -101,8 +100,8 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 				errCh <- err
 				return
 			}
-			offset := int64(commitlog.Encoding.Uint64(headersBuf[0:]))
-			size := commitlog.Encoding.Uint32(headersBuf[8:])
+			offset := int64(proto.Encoding.Uint64(headersBuf[0:]))
+			size := proto.Encoding.Uint32(headersBuf[8:])
 			buf := make([]byte, size)
 			if _, err := reader.Read(buf); err != nil {
 				errCh <- err
@@ -113,8 +112,16 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 			if err := m.Decode(decoder); err != nil {
 				panic(err)
 			}
-			fmt.Println(offset, string(m.Value))
-			msg := &client.Message{Offset: offset, Key: m.Key, Value: m.Value}
+			var (
+				replySize = proto.Encoding.Uint32(m.Value[0:])
+				reply     = string(m.Value[4 : 4+replySize])
+				msg       = &client.Message{
+					Offset: offset,
+					Key:    m.Key,
+					Reply:  reply,
+					Value:  m.Value[4+replySize:],
+				}
+			)
 			ch <- msg
 		}
 	}()
