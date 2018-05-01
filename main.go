@@ -11,12 +11,16 @@ import (
 
 func main() {
 	config := server.Config{
-		Logger:        log.New(),
-		NATSOpts:      nats.GetDefaultOptions(),
-		Addr:          ":9292",
-		RaftSnapshots: 2,
-		RaftCacheSize: 512,
+		Logger:   log.New(),
+		NATSOpts: nats.GetDefaultOptions(),
+		Addr:     ":9292",
 	}
+	config.Logger.SetLevel(log.DebugLevel)
+	config.Clustering.NodeID = "test-node"
+	config.Clustering.RaftSnapshots = 2
+	config.Clustering.RaftCacheSize = 512
+	config.Clustering.Bootstrap = true
+	config.Clustering.RaftLogging = true
 	server := server.New(config)
 	if err := server.Start(); err != nil {
 		panic(err)

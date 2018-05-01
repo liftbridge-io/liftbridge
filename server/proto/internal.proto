@@ -15,7 +15,21 @@ message CreateStreamOp {
 }
 
 message Stream {
-    string subject              = 1;
-    string name                 = 2;
-    int32  replicationFactor    = 3;
+    string          subject             = 1;
+    string          name                = 2;
+    string          consumerGroup       = 3;
+    int32           replicationFactor   = 4;
+    repeated string participants        = 5;
+    string          leader              = 6;
+}
+
+// RaftJoinRequest is a request to join a Raft group.
+message RaftJoinRequest {
+    string NodeID   = 1; // ID of the joining node.
+    string NodeAddr = 2; // Address of the joining node.
+}
+
+// RaftJoinResponse is a response to a RaftJoinRequest.
+message RaftJoinResponse {
+    string Error = 1; // Error string, omitted if no error. 
 }
