@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
@@ -50,9 +51,19 @@ func (s *stream) close() error {
 func (s *stream) handleMsg(msg *nats.Msg) {
 	// TODO: do envelope check.
 
-	buf := make([]byte, len(msg.Data)+8)
-	copy(buf[8:], msg.Data)
-	if _, err := s.log.Append(buf); err != nil {
+	ms := &proto.MessageSet{Messages: []*proto.Message{
+		&proto.Message{
+			MagicByte: 1,
+			Value:     msg.Data,
+			Timestamp: time.Now(),
+			// TODO: CRC
+		},
+	}}
+	data, err := proto.Encode(ms)
+	if err != nil {
+		panic(err)
+	}
+	if _, err := s.log.Append(data); err != nil {
 		s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
 		return
 	}

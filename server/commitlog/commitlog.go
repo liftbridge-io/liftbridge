@@ -30,6 +30,8 @@ type CommitLog struct {
 	mu             sync.RWMutex
 	segments       []*Segment
 	vActiveSegment atomic.Value
+	waitersMu      sync.Mutex
+	waiters        map[*Reader]chan struct{}
 }
 
 type Options struct {
@@ -54,6 +56,7 @@ func New(opts Options) (*CommitLog, error) {
 		Options: opts,
 		name:    filepath.Base(path),
 		cleaner: NewDeleteCleaner(opts.MaxLogBytes),
+		waiters: make(map[*Reader]chan struct{}),
 	}
 
 	if err := l.init(); err != nil {
@@ -135,7 +138,17 @@ func (l *CommitLog) Append(b []byte) (offset int64, err error) {
 	if err := l.activeSegment().Index.WriteEntry(e); err != nil {
 		return offset, err
 	}
+	l.notifyWaiters()
 	return offset, nil
+}
+
+func (l *CommitLog) notifyWaiters() {
+	l.waitersMu.Lock()
+	for r, ch := range l.waiters {
+		close(ch)
+		delete(l.waiters, r)
+	}
+	l.waitersMu.Unlock()
 }
 
 func (l *CommitLog) Read(p []byte) (n int, err error) {
@@ -212,6 +225,7 @@ func (l *CommitLog) split() error {
 	segments := append(l.segments, segment)
 	segments, err = l.cleaner.Clean(segments)
 	if err != nil {
+		l.mu.Unlock()
 		return err
 	}
 	l.segments = segments

@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"math/rand"
 	"time"
 
@@ -11,6 +9,7 @@ import (
 	client "github.com/tylertreat/go-jetbridge/proto"
 	"golang.org/x/net/context"
 
+	"github.com/tylertreat/jetbridge/server/commitlog"
 	"github.com/tylertreat/jetbridge/server/proto"
 )
 
@@ -46,84 +45,81 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	return resp, nil
 }
 
-func (a *apiServer) FetchStream(ctx context.Context, req *client.FetchStreamRequest) (*client.FetchStreamResponse, error) {
-	resp := &client.FetchStreamResponse{}
-	a.logger.Debugf("FetchStream[subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
+func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.API_ConsumeStreamServer) error {
+	a.logger.Debugf("ConsumeStream[subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
 	a.mu.RLock()
 	streams := a.streams[req.Subject]
 	if streams == nil {
 		a.mu.RUnlock()
-		resp.Success = false
-		resp.Error = "No such stream"
-		return resp, nil
+		return errors.New("No such stream")
 	}
 	stream := streams[req.Name]
 	a.mu.RUnlock()
 	if stream == nil {
 		a.mu.RUnlock()
-		resp.Success = false
-		resp.Error = "No such stream"
-		return resp, nil
+		return errors.New("No such stream")
 	}
 
 	if stream.Leader != a.config.Clustering.NodeID {
-		resp.Success = false
-		resp.Error = "Node is not stream leader"
 		a.logger.Error("Failed to fetch stream: node is not stream leader")
-		return resp, nil
+		return errors.New("Node is not stream leader")
 	}
 
-	var err error
-	resp, err = a.fetchStream(ctx, stream, req)
+	ch, errCh, err := a.consumeStream(out.Context(), stream, req)
 	if err != nil {
-		resp.Success = false
-		resp.Error = err.Error()
 		a.logger.Errorf("Failed to fetch stream: %v", err)
-		return resp, nil
+		return err
 	}
-
-	return resp, nil
+	for {
+		select {
+		case <-out.Context().Done():
+			return nil
+		case m := <-ch:
+			if err := out.Send(m); err != nil {
+				return err
+			}
+		case err := <-errCh:
+			return err
+		}
+	}
 }
 
-func (a *apiServer) fetchStream(ctx context.Context, stream *stream, req *client.FetchStreamRequest) (*client.FetchStreamResponse, error) {
-	if req.MinBytes <= 0 {
-		req.MinBytes = 1
-	}
-	if req.MaxBytes < 0 {
-		return nil, fmt.Errorf("Invalid maxBytes %d", req.MaxBytes)
-	}
-	if req.MaxBytes == 0 {
-		req.MaxBytes = defaultFetchMaxBytes
+func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *client.ConsumeStreamRequest) (<-chan *client.Message, <-chan error, error) {
+	var (
+		ch          = make(chan *client.Message)
+		errCh       = make(chan error)
+		reader, err = stream.log.NewReaderContext(ctx, req.Offset)
+	)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "failed to create log reader")
 	}
 
-	fmt.Println(req.Offset, req.MaxBytes)
-	reader, err := stream.log.NewReader(req.Offset, req.MaxBytes)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create log reader")
-	}
-	var (
-		buf      = new(bytes.Buffer)
-		n        int32
-		received = time.Now()
-	)
-	for n < req.MinBytes {
-		if req.MaxWait != 0 && int32(time.Since(received).Nanoseconds()/1e6) > req.MaxWait {
-			break
+	go func() {
+		headersBuf := make([]byte, 12)
+		for {
+			if _, err := reader.Read(headersBuf); err != nil {
+				errCh <- err
+				return
+			}
+			offset := int64(commitlog.Encoding.Uint64(headersBuf[0:]))
+			size := commitlog.Encoding.Uint32(headersBuf[8:])
+			buf := make([]byte, size)
+			if _, err := reader.Read(buf); err != nil {
+				errCh <- err
+				return
+			}
+			m := &proto.Message{}
+			decoder := proto.NewDecoder(buf)
+			if err := m.Decode(decoder); err != nil {
+				panic(err)
+			}
+			fmt.Println(offset, string(m.Value))
+			msg := &client.Message{Offset: offset, Key: m.Key, Value: m.Value}
+			ch <- msg
 		}
-		num, err := io.Copy(buf, reader)
-		if err != nil && err != io.EOF {
-			return nil, errors.Wrap(err, "failed to read from log")
-		}
-		n += int32(num)
-		if err == io.EOF {
-			break
-		}
-	}
-	return &client.FetchStreamResponse{
-		Success: true,
-		Data:    buf.Bytes(),
-		Hw:      stream.log.NewestOffset(),
-	}, nil
+	}()
+
+	return ch, errCh, nil
 }
 
 func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRequest) error {
