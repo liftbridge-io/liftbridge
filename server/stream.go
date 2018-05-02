@@ -12,11 +12,6 @@ import (
 	"github.com/tylertreat/jetbridge/server/proto"
 )
 
-const (
-	defaultMaxSegmentBytes = 1073741824
-	defaultRetentionBytes  = -1
-)
-
 type stream struct {
 	*proto.Stream
 	sub *nats.Subscription
@@ -27,8 +22,8 @@ type stream struct {
 func (s *Server) newStream(st *proto.Stream) (*stream, error) {
 	log, err := commitlog.New(commitlog.Options{
 		Path:            filepath.Join(s.config.Clustering.RaftPath, st.Subject, st.Name),
-		MaxSegmentBytes: defaultMaxSegmentBytes, // TODO: make configurable
-		MaxLogBytes:     defaultRetentionBytes,  // TODO: make configurable
+		MaxSegmentBytes: s.config.Log.MaxSegmentBytes,
+		MaxLogBytes:     s.config.Log.RetentionBytes,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create commit log")

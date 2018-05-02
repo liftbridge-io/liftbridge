@@ -17,8 +17,9 @@ var (
 )
 
 const (
-	LogFileSuffix   = ".log"
-	IndexFileSuffix = ".index"
+	LogFileSuffix          = ".log"
+	IndexFileSuffix        = ".index"
+	defaultMaxSegmentBytes = 10485760
 )
 
 type CommitLog struct {
@@ -46,7 +47,7 @@ func New(opts Options) (*CommitLog, error) {
 	}
 
 	if opts.MaxSegmentBytes == 0 {
-		// TODO default here
+		opts.MaxSegmentBytes = defaultMaxSegmentBytes
 	}
 
 	path, _ := filepath.Abs(opts.Path)

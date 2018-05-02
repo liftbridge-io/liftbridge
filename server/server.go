@@ -36,9 +36,13 @@ type Server struct {
 }
 
 type Config struct {
-	Logger     *log.Logger
-	NATSOpts   nats.Options
-	Addr       string
+	Logger   *log.Logger
+	NATSOpts nats.Options
+	Addr     string
+	Log      struct {
+		RetentionBytes  int64
+		MaxSegmentBytes int64
+	}
 	Clustering struct {
 		NodeID         string
 		Namespace      string
