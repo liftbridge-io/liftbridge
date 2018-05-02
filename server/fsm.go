@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -22,45 +23,104 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		if err := s.createStream(stream); err != nil {
 			panic(err)
 		}
-		s.logger.Debugf("Applied stream create to Raft [subject=%s, name=%s, replicationFactor=%d]",
-			stream.Subject, stream.Name, stream.ReplicationFactor)
 	default:
 		panic(fmt.Sprintf("Unknown Raft operation: %s", log.Op))
 	}
 	return nil
 }
 
-func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
-	// TODO
-	return nil, nil
+type fsmSnapshot struct {
+	*proto.MetadataSnapshot
 }
 
-func (s *Server) Restore(r io.ReadCloser) error {
-	// TODO
+func (f *fsmSnapshot) Persist(sink raft.SnapshotSink) error {
+	err := func() error {
+		// Encode data.
+		b, err := f.Marshal()
+		if err != nil {
+			return err
+		}
+
+		// Write size and data to sink.
+		sizeBuf := make([]byte, 4)
+		binary.BigEndian.PutUint32(sizeBuf, uint32(len(b)))
+		if _, err := sink.Write(sizeBuf); err != nil {
+			return err
+		}
+		if _, err := sink.Write(b); err != nil {
+			return err
+		}
+
+		// Close the sink.
+		return sink.Close()
+	}()
+
+	if err != nil {
+		sink.Cancel()
+	}
+
+	return err
+}
+
+func (f *fsmSnapshot) Release() {}
+
+func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
+	var (
+		streams = s.metadata.GetStreams()
+		protos  = make([]*proto.Stream, len(streams))
+	)
+	for i, stream := range streams {
+		protos[i] = stream.Stream
+	}
+	return &fsmSnapshot{&proto.MetadataSnapshot{Streams: protos}}, nil
+}
+
+func (s *Server) Restore(snapshot io.ReadCloser) error {
+	defer snapshot.Close()
+
+	// Read snapshot size.
+	sizeBuf := make([]byte, 4)
+	if _, err := io.ReadFull(snapshot, sizeBuf); err != nil {
+		return err
+	}
+	// Read snapshot.
+	size := binary.BigEndian.Uint32(sizeBuf)
+	buf := make([]byte, size)
+	if _, err := io.ReadFull(snapshot, buf); err != nil {
+		return err
+	}
+	snap := &proto.MetadataSnapshot{}
+	if err := snap.Unmarshal(buf); err != nil {
+		return err
+	}
+
+	// Drop state and restore.
+	if err := s.metadata.Reset(); err != nil {
+		return err
+	}
+	for _, stream := range snap.Streams {
+		if err := s.createStream(stream); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (s *Server) createStream(protoStream *proto.Stream) error {
 	// Do idempotency check.
-	s.mu.RLock()
-	streams := s.streams[protoStream.Subject]
-	if streams != nil {
-		if _, ok := streams[protoStream.Name]; ok {
-			s.mu.RUnlock()
-			return nil
-		}
-	}
-	s.mu.RUnlock()
-
-	// TODO: do we need this store?
-	if err := s.metadata.AddStream(protoStream); err != nil {
-		return errors.Wrap(err, "failed to add stream to metadata store")
+	if stream := s.metadata.GetStream(protoStream.Subject, protoStream.Name); stream != nil {
+		return nil
 	}
 
 	// This will initialize/recover the durable commit log.
 	stream, err := s.newStream(protoStream)
 	if err != nil {
 		return errors.Wrap(err, "failed to create stream")
+	}
+
+	if err := s.metadata.AddStream(stream); err != nil {
+		return errors.Wrap(err, "failed to add stream to metadata store")
 	}
 
 	if stream.Leader == s.config.Clustering.NodeID {
@@ -76,14 +136,6 @@ func (s *Server) createStream(protoStream *proto.Stream) error {
 		// TODO
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	streams = s.streams[stream.Subject]
-	if streams == nil {
-		streams = make(subjectStreams)
-		s.streams[stream.Subject] = streams
-	}
-	streams[stream.Name] = stream
-
+	s.logger.Debugf("Created stream %s", stream)
 	return nil
 }

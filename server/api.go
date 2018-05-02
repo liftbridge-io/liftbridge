@@ -46,16 +46,8 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 
 func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.API_ConsumeStreamServer) error {
 	a.logger.Debugf("ConsumeStream[subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
-	a.mu.RLock()
-	streams := a.streams[req.Subject]
-	if streams == nil {
-		a.mu.RUnlock()
-		return errors.New("No such stream")
-	}
-	stream := streams[req.Name]
-	a.mu.RUnlock()
+	stream := a.metadata.GetStream(req.Subject, req.Name)
 	if stream == nil {
-		a.mu.RUnlock()
 		return errors.New("No such stream")
 	}
 

@@ -37,6 +37,9 @@ func (s *stream) String() string {
 }
 
 func (s *stream) close() error {
+	if err := s.log.Close(); err != nil {
+		return err
+	}
 	if s.sub != nil {
 		return s.sub.Unsubscribe()
 	}

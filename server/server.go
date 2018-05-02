@@ -3,7 +3,6 @@ package server
 import (
 	"net"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 
 	"github.com/hashicorp/raft"
@@ -13,13 +12,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/tylertreat/go-jetbridge/proto"
 	"google.golang.org/grpc"
-
-	"github.com/tylertreat/jetbridge/server/metadata"
 )
 
 const defaultNamespace = "jetbridge-default"
-
-type subjectStreams map[string]*stream
 
 type Server struct {
 	config     Config
@@ -28,11 +23,9 @@ type Server struct {
 	raftNats   *nats.Conn
 	logger     *log.Logger
 	api        *grpc.Server
-	metadata   metadata.MetadataStore
+	metadata   MetadataStore
 	shutdownCh chan struct{}
 	raft       *raftNode
-	streams    map[string]subjectStreams
-	mu         sync.RWMutex
 }
 
 type Config struct {
@@ -70,8 +63,7 @@ func New(config Config) *Server {
 	return &Server{
 		config:   config,
 		logger:   config.Logger,
-		metadata: metadata.NewMetadataStore(),
-		streams:  make(map[string]subjectStreams),
+		metadata: newMetadataStore(),
 	}
 }
 
@@ -187,16 +179,10 @@ func (s *Server) isLeader() bool {
 func (s *Server) Stop() error {
 	close(s.shutdownCh)
 	s.api.Stop()
-	s.mu.RLock()
-	for _, streams := range s.streams {
-		for _, stream := range streams {
-			if err := stream.close(); err != nil {
-				s.mu.RUnlock()
-				return err
-			}
-		}
+
+	if err := s.metadata.Reset(); err != nil {
+		return err
 	}
-	s.mu.RUnlock()
 
 	if err := s.raft.shutdown(); err != nil {
 		return err

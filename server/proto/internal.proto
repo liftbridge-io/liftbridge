@@ -33,3 +33,7 @@ message RaftJoinRequest {
 message RaftJoinResponse {
     string Error = 1; // Error string, omitted if no error. 
 }
+
+message MetadataSnapshot {
+    repeated Stream streams = 1;
+}

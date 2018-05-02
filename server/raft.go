@@ -231,6 +231,8 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 	config.LocalID = raft.ServerID(s.config.Clustering.NodeID)
 	logWriter := &raftLogger{s}
 	config.LogOutput = logWriter
+	config.SnapshotThreshold = 1
+	config.SnapshotInterval = time.Minute
 
 	// Setup a channel for reliable leader notifications.
 	raftNotifyCh := make(chan bool, 1)

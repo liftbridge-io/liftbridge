@@ -14,4 +14,5 @@ type CommitLog interface {
 	NewestOffset() int64
 	OldestOffset() int64
 	Append([]byte) (int64, error)
+	Close() error
 }
