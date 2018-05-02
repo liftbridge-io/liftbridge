@@ -113,14 +113,12 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 				panic(err)
 			}
 			var (
-				replySize = proto.Encoding.Uint32(m.Value[0:])
-				reply     = string(m.Value[4 : 4+replySize])
-				msg       = &client.Message{
+				msg = &client.Message{
 					Offset:    offset,
 					Key:       m.Key,
-					Value:     m.Value[4+replySize:],
-					Reply:     reply,
+					Value:     m.Value,
 					Timestamp: m.Timestamp.UnixNano(),
+					Headers:   m.Headers,
 				}
 			)
 			ch <- msg

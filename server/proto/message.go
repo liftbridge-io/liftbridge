@@ -9,6 +9,7 @@ type Message struct {
 	Timestamp  time.Time
 	Key        []byte
 	Value      []byte
+	Headers    map[string][]byte
 }
 
 func (m *Message) Encode(e PacketEncoder) error {
@@ -23,6 +24,17 @@ func (m *Message) Encode(e PacketEncoder) error {
 	}
 	if err := e.PutBytes(m.Value); err != nil {
 		return err
+	}
+	if m.MagicByte > 1 {
+		e.PutInt16(int16(len(m.Headers)))
+		for key, header := range m.Headers {
+			if err := e.PutString(key); err != nil {
+				return err
+			}
+			if err := e.PutBytes(header); err != nil {
+				return err
+			}
+		}
 	}
 	e.Pop()
 	return nil
@@ -51,6 +63,24 @@ func (m *Message) Decode(d PacketDecoder) error {
 	}
 	if m.Value, err = d.Bytes(); err != nil {
 		return err
+	}
+	if m.MagicByte > 1 {
+		numHeaders, err := d.Int16()
+		if err != nil {
+			return err
+		}
+		m.Headers = make(map[string][]byte, numHeaders)
+		for i := int16(0); i < numHeaders; i++ {
+			key, err := d.String()
+			if err != nil {
+				return err
+			}
+			value, err := d.Bytes()
+			if err != nil {
+				return err
+			}
+			m.Headers[key] = value
+		}
 	}
 	return d.Pop()
 }
