@@ -2,9 +2,11 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"math/rand"
 	"time"
 
+	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-jetbridge/proto"
 	"golang.org/x/net/context"
@@ -16,6 +18,8 @@ const (
 	raftApplyTimeout     = 30 * time.Second
 	defaultFetchMaxBytes = 1048576
 )
+
+var envelopeCookie = []byte("jetb")
 
 type apiServer struct {
 	*Server
@@ -75,6 +79,67 @@ func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.A
 	}
 }
 
+func (a *apiServer) Publish(stream client.API_PublishServer) error {
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		data, err := req.Msg.Marshal()
+		if err != nil {
+			return err
+		}
+		buf := make([]byte, 4+len(data))
+		copy(buf, envelopeCookie)
+		copy(buf[4:], data)
+
+		resp := &client.PublishResponse{}
+		if req.Ack {
+			timeout := 5 * time.Second
+			if req.AckWait != 0 {
+				timeout = time.Duration(req.AckWait) * time.Millisecond
+			}
+			ack, err := a.publishWithAck(req.Msg.Subject, req.Msg.Reply, buf, timeout)
+			if err == nil {
+				resp.Ack = ack
+			} else if err != nats.ErrTimeout {
+				return err
+			}
+		} else {
+			if err := a.nats.PublishRequest(req.Msg.Subject, req.Msg.Reply, buf); err != nil {
+				return err
+			}
+		}
+		if err := stream.Send(resp); err != nil {
+			return err
+		}
+	}
+}
+
+func (a *apiServer) publishWithAck(subject, reply string, data []byte, ackTimeout time.Duration) (*client.Ack, error) {
+	ackInbox := nats.NewInbox()
+	sub, err := a.nats.SubscribeSync(ackInbox)
+	if err != nil {
+		return nil, err
+	}
+	defer sub.Unsubscribe()
+	if err := a.nats.PublishRequest(subject, reply, data); err != nil {
+		return nil, err
+	}
+	resp, err := sub.NextMsg(ackTimeout)
+	if err != nil {
+		return nil, err
+	}
+	ack := &client.Ack{}
+	if err := ack.Unmarshal(resp.Data); err != nil {
+		return nil, err
+	}
+	return ack, nil
+}
+
 func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *client.ConsumeStreamRequest) (<-chan *client.Message, <-chan error, error) {
 	var (
 		ch          = make(chan *client.Message)
@@ -111,6 +176,8 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 					Value:     m.Value,
 					Timestamp: m.Timestamp.UnixNano(),
 					Headers:   m.Headers,
+					Subject:   string(m.Headers["subject"]),
+					Reply:     string(m.Headers["reply"]),
 				}
 			)
 			ch <- msg

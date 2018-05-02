@@ -39,6 +39,7 @@ type Options struct {
 	// new segment will be split off.
 	MaxSegmentBytes int64
 	MaxLogBytes     int64
+	Compact         bool
 }
 
 func New(opts Options) (*CommitLog, error) {
@@ -50,11 +51,18 @@ func New(opts Options) (*CommitLog, error) {
 		opts.MaxSegmentBytes = defaultMaxSegmentBytes
 	}
 
+	var cleaner Cleaner
+	if opts.Compact {
+		cleaner = NewCompactCleaner()
+	} else {
+		cleaner = NewDeleteCleaner(opts.MaxLogBytes)
+	}
+
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
 		Options: opts,
 		name:    filepath.Base(path),
-		cleaner: NewDeleteCleaner(opts.MaxLogBytes),
+		cleaner: cleaner,
 		waiters: make(map[*Reader]chan struct{}),
 	}
 

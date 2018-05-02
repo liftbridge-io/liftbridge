@@ -16,6 +16,8 @@ func main() {
 		Addr:     ":9292",
 	}
 	config.Logger.SetLevel(log.DebugLevel)
+	//config.Log.Compact = true
+	config.Log.MaxSegmentBytes = 60
 	config.Clustering.NodeID = "test-node"
 	config.Clustering.RaftSnapshots = 2
 	config.Clustering.RaftCacheSize = 512

@@ -35,6 +35,7 @@ type Config struct {
 	Log      struct {
 		RetentionBytes  int64
 		MaxSegmentBytes int64
+		Compact         bool
 	}
 	Clustering struct {
 		NodeID         string

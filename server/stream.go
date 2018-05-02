@@ -1,12 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"time"
 
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
+
+	client "github.com/tylertreat/go-jetbridge/proto"
 
 	"github.com/tylertreat/jetbridge/server/commitlog"
 	"github.com/tylertreat/jetbridge/server/proto"
@@ -24,6 +27,7 @@ func (s *Server) newStream(st *proto.Stream) (*stream, error) {
 		Path:            filepath.Join(s.config.Clustering.RaftPath, st.Subject, st.Name),
 		MaxSegmentBytes: s.config.Log.MaxSegmentBytes,
 		MaxLogBytes:     s.config.Log.RetentionBytes,
+		Compact:         s.config.Log.Compact,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create commit log")
@@ -47,26 +51,58 @@ func (s *stream) close() error {
 }
 
 func (s *stream) handleMsg(msg *nats.Msg) {
-	// TODO: do envelope check.
-
-	headers := map[string][]byte{"subject": []byte(msg.Reply)}
-	if msg.Reply != "" {
-		headers["reply"] = []byte(msg.Reply)
+	envelope := getEnvelope(msg.Data)
+	m := &proto.Message{
+		MagicByte: 2,
+		Timestamp: time.Now(),
+		Headers:   make(map[string][]byte),
 	}
-	ms := &proto.MessageSet{Messages: []*proto.Message{
-		&proto.Message{
-			MagicByte: 2,
-			Value:     msg.Data,
-			Timestamp: time.Now(),
-			Headers:   headers,
-		},
-	}}
+	if envelope != nil {
+		m.Key = envelope.Key
+		m.Value = envelope.Value
+		for key, value := range envelope.Headers {
+			m.Headers[key] = value
+		}
+	} else {
+		m.Value = msg.Data
+	}
+	m.Headers["subject"] = []byte(msg.Subject)
+	if msg.Reply != "" {
+		m.Headers["reply"] = []byte(msg.Reply)
+	}
+
+	ms := &proto.MessageSet{Messages: []*proto.Message{m}}
 	data, err := proto.Encode(ms)
 	if err != nil {
 		panic(err)
 	}
-	if _, err := s.log.Append(data); err != nil {
+	offset, err := s.log.Append(data)
+	if err != nil {
 		s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
 		return
 	}
+
+	// Publish ack.
+	if envelope != nil && envelope.AckInbox != "" {
+		ack := &client.Ack{Offset: offset}
+		data, err := ack.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		s.srv.nats.Publish(envelope.AckInbox, data)
+	}
+}
+
+func getEnvelope(data []byte) *client.Message {
+	if len(data) <= 4 {
+		return nil
+	}
+	if !bytes.Equal(data[0:4], envelopeCookie) {
+		return nil
+	}
+	msg := &client.Message{}
+	if err := msg.Unmarshal(data[4:]); err != nil {
+		return nil
+	}
+	return msg
 }
