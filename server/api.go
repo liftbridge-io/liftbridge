@@ -1,13 +1,14 @@
 package server
 
 import (
-	"fmt"
 	"math/rand"
 	"time"
 
 	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-jetbridge/proto"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/tylertreat/jetbridge/server/proto"
 )
@@ -27,20 +28,15 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		req.Subject, req.Name, req.ReplicationFactor)
 	if !a.isLeader() {
 		// TODO: forward request to leader.
-		resp.Success = false
-		resp.Error = "Node is not metadata leader"
 		a.logger.Error("Failed to create stream: node is not metadata leader")
-		return resp, nil
+		return nil, status.Error(codes.FailedPrecondition, "Node is not metadata leader")
 	}
 
 	if err := a.createStream(ctx, req); err != nil {
-		resp.Success = false
-		resp.Error = err.Error()
 		a.logger.Errorf("Failed to create stream: %v", err)
-		return resp, nil
+		return nil, err.Err()
 	}
 
-	resp.Success = true
 	return resp, nil
 }
 
@@ -59,7 +55,7 @@ func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.A
 	ch, errCh, err := a.consumeStream(out.Context(), stream, req)
 	if err != nil {
 		a.logger.Errorf("Failed to fetch stream: %v", err)
-		return err
+		return err.Err()
 	}
 	for {
 		select {
@@ -70,33 +66,33 @@ func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.A
 				return err
 			}
 		case err := <-errCh:
-			return err
+			return err.Err()
 		}
 	}
 }
 
-func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *client.ConsumeStreamRequest) (<-chan *client.Message, <-chan error, error) {
+func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *client.ConsumeStreamRequest) (<-chan *client.Message, <-chan *status.Status, *status.Status) {
 	var (
 		ch          = make(chan *client.Message)
-		errCh       = make(chan error)
+		errCh       = make(chan *status.Status)
 		reader, err = stream.log.NewReaderContext(ctx, req.Offset)
 	)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to create log reader")
+		return nil, nil, status.New(codes.Internal, "Failed to create stream reader")
 	}
 
 	go func() {
 		headersBuf := make([]byte, 12)
 		for {
 			if _, err := reader.Read(headersBuf); err != nil {
-				errCh <- err
+				errCh <- status.Convert(err)
 				return
 			}
 			offset := int64(proto.Encoding.Uint64(headersBuf[0:]))
 			size := proto.Encoding.Uint32(headersBuf[8:])
 			buf := make([]byte, size)
 			if _, err := reader.Read(buf); err != nil {
-				errCh <- err
+				errCh <- status.Convert(err)
 				return
 			}
 			m := &proto.Message{}
@@ -122,13 +118,13 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 	return ch, errCh, nil
 }
 
-func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRequest) error {
+func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
 	// Select replicationFactor nodes to participate in the stream.
 	// TODO: Currently this selection is random but could be made more
 	// intelligent, e.g. selecting based on current load.
-	replicas, err := a.getStreamReplicas(req.ReplicationFactor)
-	if err != nil {
-		errors.Wrap(err, "failed to select stream replicas")
+	replicas, st := a.getStreamReplicas(req.ReplicationFactor)
+	if st != nil {
+		return st
 	}
 
 	// Select a leader at random.
@@ -155,19 +151,24 @@ func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRe
 	}
 
 	// Wait on result of replication.
-	return a.raft.Apply(data, raftApplyTimeout).Error()
+	if err := a.raft.Apply(data, raftApplyTimeout).Error(); err != nil {
+		return status.New(codes.Internal, "Failed to replicate stream")
+	}
+
+	return nil
 }
 
-func (a *apiServer) getStreamReplicas(replicationFactor int32) ([]string, error) {
+func (a *apiServer) getStreamReplicas(replicationFactor int32) ([]string, *status.Status) {
 	ids, err := a.getClusterServerIDs()
 	if err != nil {
-		return nil, err
+		return nil, status.New(codes.Internal, err.Error())
 	}
 	if replicationFactor <= 0 {
-		return nil, fmt.Errorf("Invalid replicationFactor %d", replicationFactor)
+		return nil, status.Newf(codes.InvalidArgument, "Invalid replicationFactor %d", replicationFactor)
 	}
 	if replicationFactor > int32(len(ids)) {
-		return nil, fmt.Errorf("Invalid replicationFactor %d, cluster size %d", replicationFactor, len(ids))
+		return nil, status.Newf(codes.InvalidArgument, "Invalid replicationFactor %d, cluster size %d",
+			replicationFactor, len(ids))
 	}
 	var (
 		indexes  = rand.Perm(len(ids))
