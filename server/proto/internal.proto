@@ -15,12 +15,12 @@ message CreateStreamOp {
 }
 
 message Stream {
-    string          subject             = 1;
-    string          name                = 2;
-    string          consumerGroup       = 3;
-    int32           replicationFactor   = 4;
-    repeated string participants        = 5;
-    string          leader              = 6;
+    string          subject           = 1;
+    string          name              = 2;
+    string          consumerGroup     = 3;
+    int32           replicationFactor = 4;
+    repeated string replicas          = 5;
+    string          leader            = 6;
 }
 
 // RaftJoinRequest is a request to join a Raft group.

@@ -128,13 +128,13 @@ func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRe
 	// Select replicationFactor nodes to participate in the stream.
 	// TODO: Currently this selection is random but could be made more
 	// intelligent, e.g. selecting based on current load.
-	participants, err := a.getStreamParticipants(req.ReplicationFactor)
+	replicas, err := a.getStreamReplicas(req.ReplicationFactor)
 	if err != nil {
-		errors.Wrap(err, "failed to select stream participants")
+		errors.Wrap(err, "failed to select stream replicas")
 	}
 
 	// Select a leader at random.
-	leader := participants[rand.Intn(len(participants))]
+	leader := replicas[rand.Intn(len(replicas))]
 
 	// Replicate stream create through Raft.
 	op := &proto.RaftLog{
@@ -145,7 +145,7 @@ func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRe
 				Name:              req.Name,
 				ConsumerGroup:     req.ConsumerGroup,
 				ReplicationFactor: req.ReplicationFactor,
-				Participants:      participants,
+				Replicas:          replicas,
 				Leader:            leader,
 			},
 		},
@@ -160,7 +160,7 @@ func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRe
 	return a.raft.Apply(data, raftApplyTimeout).Error()
 }
 
-func (a *apiServer) getStreamParticipants(replicationFactor int32) ([]string, error) {
+func (a *apiServer) getStreamReplicas(replicationFactor int32) ([]string, error) {
 	ids, err := a.getClusterServerIDs()
 	if err != nil {
 		return nil, err
@@ -172,13 +172,13 @@ func (a *apiServer) getStreamParticipants(replicationFactor int32) ([]string, er
 		return nil, fmt.Errorf("Invalid replicationFactor %d, cluster size %d", replicationFactor, len(ids))
 	}
 	var (
-		indexes      = rand.Perm(len(ids))
-		participants = make([]string, replicationFactor)
+		indexes  = rand.Perm(len(ids))
+		replicas = make([]string, replicationFactor)
 	)
 	for i := int32(0); i < replicationFactor; i++ {
-		participants[i] = ids[indexes[i]]
+		replicas[i] = ids[indexes[i]]
 	}
-	return participants, nil
+	return replicas, nil
 }
 
 func (a *apiServer) getClusterServerIDs() ([]string, error) {
