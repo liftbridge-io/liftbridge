@@ -17,8 +17,6 @@ const (
 	defaultFetchMaxBytes = 1048576
 )
 
-var envelopeCookie = []byte("jetb")
-
 type apiServer struct {
 	*Server
 }

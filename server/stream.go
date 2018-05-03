@@ -15,6 +15,8 @@ import (
 	"github.com/tylertreat/jetbridge/server/proto"
 )
 
+var envelopeCookie = []byte("jetb")
+
 type stream struct {
 	*proto.Stream
 	sub *nats.Subscription
@@ -84,7 +86,12 @@ func (s *stream) handleMsg(msg *nats.Msg) {
 
 	// Publish ack.
 	if envelope != nil && envelope.AckInbox != "" {
-		ack := &client.Ack{Offset: offset}
+		ack := &client.Ack{
+			StreamSubject: s.Subject,
+			StreamName:    s.Name,
+			MsgSubject:    msg.Subject,
+			Offset:        offset,
+		}
 		data, err := ack.Marshal()
 		if err != nil {
 			panic(err)
