@@ -141,6 +141,7 @@ func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRe
 				ReplicationFactor: req.ReplicationFactor,
 				Replicas:          replicas,
 				Leader:            leader,
+				Isr:               replicas,
 			},
 		},
 	}

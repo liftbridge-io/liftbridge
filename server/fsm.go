@@ -124,18 +124,65 @@ func (s *Server) createStream(protoStream *proto.Stream) error {
 	}
 
 	if stream.Leader == s.config.Clustering.NodeID {
-		// If we are the stream leader, subscribe to the NATS subject and begin
-		// sequencing messages.
-		sub, err := s.nc.QueueSubscribe(stream.Subject, stream.ConsumerGroup, stream.handleMsg)
-		if err != nil {
-			return errors.Wrap(err, "failed to subscribe to NATS")
+		if err := s.onStreamLeader(stream); err != nil {
+			return err
 		}
-		stream.sub = sub
 	} else {
-		// Otherwise, start fetching messages from the leader's log.
-		// TODO
+		if err := s.onStreamFollower(stream); err != nil {
+			return err
+		}
 	}
 
 	s.logger.Debugf("Created stream %s", stream)
+	return nil
+}
+
+// onStreamLeader is called when the server has become the leader for the
+// given stream.
+func (s *Server) onStreamLeader(stream *stream) error {
+	// Subscribe to the NATS subject and begin sequencing messages.
+	sub, err := s.nc.QueueSubscribe(stream.Subject, stream.ConsumerGroup, stream.handleMsg)
+	if err != nil {
+		return errors.Wrap(err, "failed to subscribe to NATS")
+	}
+	stream.mu.Lock()
+	stream.sub = sub
+	stream.mu.Unlock()
+
+	// Start replicating to followers.
+	go stream.startReplicating()
+
+	// Also subscribe to the stream replication subject.
+	sub, err = s.ncRepl.Subscribe(stream.getReplicationInbox(), stream.handleReplicationRequest)
+	if err != nil {
+		return errors.Wrap(err, "failed to subscribe to replication inbox")
+	}
+	stream.mu.Lock()
+	stream.replSub = sub
+	stream.mu.Unlock()
+
+	return nil
+}
+
+// onStreamFollower is called when the server has become a follower for the
+// stream.
+func (s *Server) onStreamFollower(stream *stream) error {
+	stream.mu.Lock()
+	if stream.replSub != nil {
+		stream.replSub.Unsubscribe()
+		stream.replSub = nil
+	}
+	stream.mu.Unlock()
+
+	// If previously leader, stop replicating.
+	stream.stopReplicating()
+
+	// Truncate the log up to the latest HW. This removes any potentially
+	// uncommitted messages in the log.
+	// TODO
+
+	// Start fetching messages from the leader's log starting at the HW.
+	// TODO
+
 	return nil
 }

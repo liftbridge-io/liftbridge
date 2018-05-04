@@ -21,19 +21,26 @@ message Stream {
     int32           replicationFactor = 4;
     repeated string replicas          = 5;
     string          leader            = 6;
+    repeated string isr               = 7;
 }
 
 // RaftJoinRequest is a request to join a Raft group.
 message RaftJoinRequest {
-    string NodeID   = 1; // ID of the joining node.
-    string NodeAddr = 2; // Address of the joining node.
+    string nodeID   = 1; // ID of the joining node.
+    string nodeAddr = 2; // Address of the joining node.
 }
 
 // RaftJoinResponse is a response to a RaftJoinRequest.
 message RaftJoinResponse {
-    string Error = 1; // Error string, omitted if no error. 
+    string error = 1; // Error string, omitted if no error. 
 }
 
 message MetadataSnapshot {
     repeated Stream streams = 1;
+}
+
+message ReplicationRequest {
+    string replicaID     = 1;
+    int64  highWatermark = 2;
+    string inbox         = 3;
 }
