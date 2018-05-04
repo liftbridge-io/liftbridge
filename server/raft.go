@@ -130,7 +130,7 @@ func (s *Server) setupMetadataRaft() error {
 		s.logger.Debugf("Joining Raft group %s", name)
 		// Attempt to join up to 5 times before giving up.
 		for i := 0; i < 5; i++ {
-			r, err := s.raftNats.Request(fmt.Sprintf("%s.%s.join", s.config.Clustering.Namespace, name),
+			r, err := s.ncRaft.Request(fmt.Sprintf("%s.%s.join", s.config.Clustering.Namespace, name),
 				req, joinRaftGroupTimeout)
 			if err != nil {
 				time.Sleep(20 * time.Millisecond)
@@ -194,20 +194,20 @@ func (s *Server) bootstrapCluster(name string, node *raft.Raft) error {
 func (s *Server) detectBootstrapMisconfig(name string) {
 	srvID := []byte(s.config.Clustering.NodeID)
 	subj := fmt.Sprintf("%s.%s.bootstrap", s.config.Clustering.Namespace, name)
-	s.raftNats.Subscribe(subj, func(m *nats.Msg) {
+	s.ncRaft.Subscribe(subj, func(m *nats.Msg) {
 		if m.Data != nil && m.Reply != "" {
 			// Ignore message to ourself
 			if string(m.Data) != s.config.Clustering.NodeID {
-				s.raftNats.Publish(m.Reply, srvID)
+				s.ncRaft.Publish(m.Reply, srvID)
 				s.logger.Fatalf("Server %s was also started with -cluster_bootstrap", string(m.Data))
 			}
 		}
 	})
 	inbox := nats.NewInbox()
-	s.raftNats.Subscribe(inbox, func(m *nats.Msg) {
+	s.ncRaft.Subscribe(inbox, func(m *nats.Msg) {
 		s.logger.Fatalf("Server %s was also started with -cluster_bootstrap", string(m.Data))
 	})
-	if err := s.raftNats.Flush(); err != nil {
+	if err := s.ncRaft.Flush(); err != nil {
 		s.logger.Errorf("Error setting up bootstrap misconfiguration detection: %v", err)
 		return
 	}
@@ -218,7 +218,7 @@ func (s *Server) detectBootstrapMisconfig(name string) {
 			ticker.Stop()
 			return
 		case <-ticker.C:
-			s.raftNats.PublishRequest(subj, inbox, srvID)
+			s.ncRaft.PublishRequest(subj, inbox, srvID)
 		}
 	}
 }
@@ -240,7 +240,7 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 
 	// Setup Raft communication.
 	addr := s.getClusteringAddr(name)
-	tr, err := natslog.NewNATSTransport(addr, s.raftNats, 2*time.Second, logWriter)
+	tr, err := natslog.NewNATSTransport(addr, s.ncRaft, 2*time.Second, logWriter)
 	if err != nil {
 		return false, err
 	}
@@ -282,7 +282,7 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 
 	// Handle requests to join the cluster.
 	subj := fmt.Sprintf("%s.%s.join", s.config.Clustering.Namespace, name)
-	sub, err := s.raftNats.Subscribe(subj, func(msg *nats.Msg) {
+	sub, err := s.ncRaft.Subscribe(subj, func(msg *nats.Msg) {
 		// Drop the request if we're not the leader. There's no race condition
 		// after this check because even if we proceed with the cluster add, it
 		// will fail if the node is not the leader as cluster changes go
@@ -313,7 +313,7 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 		if err != nil {
 			panic(err)
 		}
-		s.raftNats.Publish(msg.Reply, r)
+		s.ncRaft.Publish(msg.Reply, r)
 	})
 	if err != nil {
 		node.Shutdown()

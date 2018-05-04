@@ -19,8 +19,9 @@ const defaultNamespace = "jetbridge-default"
 type Server struct {
 	config     Config
 	listener   net.Listener
-	nats       *nats.Conn
-	raftNats   *nats.Conn
+	nc         *nats.Conn
+	ncRaft     *nats.Conn
+	ncRepl     *nats.Conn
 	logger     *log.Logger
 	api        *grpc.Server
 	metadata   MetadataStore
@@ -74,24 +75,33 @@ func (s *Server) Start() error {
 		return errors.Wrap(err, "failed starting listener")
 	}
 	s.listener = l
+
+	// NATS connection used for stream data.
 	nc, err := s.config.NATSOpts.Connect()
 	if err != nil {
-		l.Close()
+		s.Stop()
 		return errors.Wrap(err, "failed to connect to NATS")
 	}
-	s.nats = nc
+	s.nc = nc
 
-	// Use a separate NATS connection for Raft.
+	// NATS connection used for Raft metadata replication.
 	ncr, err := s.config.NATSOpts.Connect()
 	if err != nil {
-		l.Close()
+		s.Stop()
 		return errors.Wrap(err, "failed to connect to NATS")
 	}
-	s.raftNats = ncr
+	s.ncRaft = ncr
+
+	// NATS connection used for stream replication.
+	ncRepl, err := s.config.NATSOpts.Connect()
+	if err != nil {
+		s.Stop()
+		return errors.Wrap(err, "failed to connect to NATS")
+	}
+	s.ncRepl = ncRepl
 
 	if err := s.startMetadataRaft(); err != nil {
-		l.Close()
-		nc.Close()
+		s.Stop()
 		return err
 	}
 
@@ -179,17 +189,29 @@ func (s *Server) isLeader() bool {
 
 func (s *Server) Stop() error {
 	close(s.shutdownCh)
-	s.api.Stop()
-
-	if err := s.metadata.Reset(); err != nil {
-		return err
+	if s.api != nil {
+		s.api.Stop()
 	}
 
-	if err := s.raft.shutdown(); err != nil {
-		return err
+	if s.listener != nil {
+		s.listener.Close()
 	}
-	s.nats.Close()
-	s.raftNats.Close()
+
+	if s.metadata != nil {
+		if err := s.metadata.Reset(); err != nil {
+			return err
+		}
+	}
+
+	if s.raft != nil {
+		if err := s.raft.shutdown(); err != nil {
+			return err
+		}
+	}
+
+	s.nc.Close()
+	s.ncRaft.Close()
+	s.ncRepl.Close()
 
 	return nil
 }

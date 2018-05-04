@@ -96,7 +96,7 @@ func (s *stream) handleMsg(msg *nats.Msg) {
 		if err != nil {
 			panic(err)
 		}
-		s.srv.nats.Publish(envelope.AckInbox, data)
+		s.srv.nc.Publish(envelope.AckInbox, data)
 	}
 }
 

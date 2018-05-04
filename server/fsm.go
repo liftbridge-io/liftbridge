@@ -126,7 +126,7 @@ func (s *Server) createStream(protoStream *proto.Stream) error {
 	if stream.Leader == s.config.Clustering.NodeID {
 		// If we are the stream leader, subscribe to the NATS subject and begin
 		// sequencing messages.
-		sub, err := s.nats.QueueSubscribe(stream.Subject, stream.ConsumerGroup, stream.handleMsg)
+		sub, err := s.nc.QueueSubscribe(stream.Subject, stream.ConsumerGroup, stream.handleMsg)
 		if err != nil {
 			return errors.Wrap(err, "failed to subscribe to NATS")
 		}
