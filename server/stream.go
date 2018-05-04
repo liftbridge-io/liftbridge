@@ -74,9 +74,11 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 			continue
 		}
 		replicators[replica] = &replicator{
-			stream:   st,
-			requests: make(chan *proto.ReplicationRequest),
-			hw:       -1,
+			replica:    replica,
+			stream:     st,
+			requests:   make(chan *proto.ReplicationRequest),
+			hw:         -1,
+			maxLagTime: s.config.Clustering.ReplicaMaxLagTime,
 		}
 	}
 
@@ -170,7 +172,7 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 		panic(fmt.Sprintf("No replicator for stream %s and replica %s", s, req.ReplicaID))
 	}
 	s.mu.Unlock()
-	replicator.replicate(req)
+	replicator.request(req)
 }
 
 func (s *stream) getReplicationInbox() string {
@@ -202,6 +204,19 @@ func (s *stream) stopReplicating() {
 	for _, replicator := range s.replicators {
 		replicator.stop()
 	}
+}
+
+func (s *stream) inISR(replica string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.isr[replica]
+	return ok
+}
+
+func (s *stream) removeFromISR(replica string) {
+	s.mu.Lock()
+	delete(s.isr, replica)
+	s.mu.Unlock()
 }
 
 func getEnvelope(data []byte) *client.Message {

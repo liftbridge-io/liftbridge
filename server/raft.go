@@ -16,7 +16,10 @@ import (
 	"github.com/tylertreat/jetbridge/server/proto"
 )
 
-const defaultJoinRaftGroupTimeout = time.Second
+const (
+	metadataRaftName            = "_metadata"
+	defaultJoinRaftGroupTimeout = time.Second
+)
 
 var joinRaftGroupTimeout = defaultJoinRaftGroupTimeout
 
@@ -100,7 +103,7 @@ func (rl *raftLogger) Close() error { return nil }
 
 func (s *Server) setupMetadataRaft() error {
 	var (
-		name               = "_metadata"
+		name               = metadataRaftName
 		addr               = s.getClusteringAddr(name)
 		existingState, err = s.createRaftNode(name)
 	)
@@ -130,7 +133,7 @@ func (s *Server) setupMetadataRaft() error {
 		s.logger.Debugf("Joining Raft group %s", name)
 		// Attempt to join up to 5 times before giving up.
 		for i := 0; i < 5; i++ {
-			r, err := s.ncRaft.Request(fmt.Sprintf("%s.%s.join", s.config.Clustering.Namespace, name),
+			r, err := s.ncRaft.Request(fmt.Sprintf("%s.%s.raft.join", s.config.Clustering.Namespace, name),
 				req, joinRaftGroupTimeout)
 			if err != nil {
 				time.Sleep(20 * time.Millisecond)
@@ -281,7 +284,7 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 	}
 
 	// Handle requests to join the cluster.
-	subj := fmt.Sprintf("%s.%s.join", s.config.Clustering.Namespace, name)
+	subj := fmt.Sprintf("%s.%s.raft.join", s.config.Clustering.Namespace, name)
 	sub, err := s.ncRaft.Subscribe(subj, func(msg *nats.Msg) {
 		// Drop the request if we're not the leader. There's no race condition
 		// after this check because even if we proceed with the cluster add, it

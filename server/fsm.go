@@ -18,9 +18,17 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		panic(err)
 	}
 	switch log.Op {
-	case proto.RaftLog_CREATE_STREAM:
+	case proto.Op_CREATE_STREAM:
 		stream := log.CreateStreamOp.Stream
 		if err := s.createStream(stream); err != nil {
+			panic(err)
+		}
+	case proto.Op_SHRINK_ISR:
+		var (
+			stream  = log.ShrinkISROp.Stream
+			replica = log.ShrinkISROp.ReplicaToRemove
+		)
+		if err := s.shrinkISR(stream, replica); err != nil {
 			panic(err)
 		}
 	default:
@@ -134,6 +142,16 @@ func (s *Server) createStream(protoStream *proto.Stream) error {
 	}
 
 	s.logger.Debugf("Created stream %s", stream)
+	return nil
+}
+
+func (s *Server) shrinkISR(protoStream *proto.Stream, replica string) error {
+	stream := s.metadata.GetStream(protoStream.Subject, protoStream.Name)
+	if stream == nil {
+		return fmt.Errorf("No such stream [subject=%s, name=%s]",
+			protoStream.Subject, protoStream.Name)
+	}
+	stream.removeFromISR(replica)
 	return nil
 }
 

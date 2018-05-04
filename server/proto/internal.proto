@@ -1,17 +1,27 @@
 syntax = "proto3";
 package proto;
 
+import "github.com/tylertreat/go-jetbridge/proto/messages.proto";
+
+    
+enum Op {
+    CREATE_STREAM = 0;
+    SHRINK_ISR    = 1;
+}
 
 message RaftLog {
-    enum Op {
-        CREATE_STREAM = 0;
-    }
-    Op              op              = 1;
-    CreateStreamOp  createStreamOp  = 2;
+    Op             op             = 1;
+    CreateStreamOp createStreamOp = 2;
+    ShrinkISROp    shrinkISROp    = 3;
 }
 
 message CreateStreamOp {
     Stream stream = 1;
+}
+
+message ShrinkISROp {
+    Stream stream          = 1;
+    string replicaToRemove = 2;
 }
 
 message Stream {
@@ -43,4 +53,22 @@ message ReplicationRequest {
     string replicaID     = 1;
     int64  highWatermark = 2;
     string inbox         = 3;
+}
+
+message PropagatedRequest {
+    Op                  op             = 1;
+    CreateStreamRequest createStreamOp = 2;
+    ShrinkISROp         shrinkISROp    = 3;
+}
+
+message Error {
+    uint32 code = 1;
+    string msg  = 2;
+}
+
+message PropagatedResponse {
+    Op                   op               = 1;
+    Error                error            = 2;
+    CreateStreamResponse createStreamResp = 3;
+    // Reserving = 4 for shrinkISRResp if needed.
 }

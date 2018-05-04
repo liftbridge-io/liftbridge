@@ -1,7 +1,6 @@
 package server
 
 import (
-	"math/rand"
 	"time"
 
 	"github.com/pkg/errors"
@@ -26,13 +25,8 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	resp := &client.CreateStreamResponse{}
 	a.logger.Debugf("CreateStream[subject=%s, name=%s, replicationFactor=%d]",
 		req.Subject, req.Name, req.ReplicationFactor)
-	if !a.isLeader() {
-		// TODO: forward request to leader.
-		a.logger.Error("Failed to create stream: node is not metadata leader")
-		return nil, status.Error(codes.FailedPrecondition, "Node is not metadata leader")
-	}
 
-	if err := a.createStream(ctx, req); err != nil {
+	if err := a.metadata.CreateStream(ctx, req); err != nil {
 		a.logger.Errorf("Failed to create stream: %v", err)
 		return nil, err.Err()
 	}
@@ -116,82 +110,4 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 	}()
 
 	return ch, errCh, nil
-}
-
-func (a *apiServer) createStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
-	// Select replicationFactor nodes to participate in the stream.
-	// TODO: Currently this selection is random but could be made more
-	// intelligent, e.g. selecting based on current load.
-	replicas, st := a.getStreamReplicas(req.ReplicationFactor)
-	if st != nil {
-		return st
-	}
-
-	// Select a leader at random.
-	leader := replicas[rand.Intn(len(replicas))]
-
-	// Replicate stream create through Raft.
-	op := &proto.RaftLog{
-		Op: proto.RaftLog_CREATE_STREAM,
-		CreateStreamOp: &proto.CreateStreamOp{
-			Stream: &proto.Stream{
-				Subject:           req.Subject,
-				Name:              req.Name,
-				ConsumerGroup:     req.ConsumerGroup,
-				ReplicationFactor: req.ReplicationFactor,
-				Replicas:          replicas,
-				Leader:            leader,
-				Isr:               replicas,
-			},
-		},
-	}
-
-	data, err := op.Marshal()
-	if err != nil {
-		panic(err)
-	}
-
-	// Wait on result of replication.
-	if err := a.raft.Apply(data, raftApplyTimeout).Error(); err != nil {
-		return status.New(codes.Internal, "Failed to replicate stream")
-	}
-
-	return nil
-}
-
-func (a *apiServer) getStreamReplicas(replicationFactor int32) ([]string, *status.Status) {
-	ids, err := a.getClusterServerIDs()
-	if err != nil {
-		return nil, status.New(codes.Internal, err.Error())
-	}
-	if replicationFactor <= 0 {
-		return nil, status.Newf(codes.InvalidArgument, "Invalid replicationFactor %d", replicationFactor)
-	}
-	if replicationFactor > int32(len(ids)) {
-		return nil, status.Newf(codes.InvalidArgument, "Invalid replicationFactor %d, cluster size %d",
-			replicationFactor, len(ids))
-	}
-	var (
-		indexes  = rand.Perm(len(ids))
-		replicas = make([]string, replicationFactor)
-	)
-	for i := int32(0); i < replicationFactor; i++ {
-		replicas[i] = ids[indexes[i]]
-	}
-	return replicas, nil
-}
-
-func (a *apiServer) getClusterServerIDs() ([]string, error) {
-	future := a.raft.GetConfiguration()
-	if err := future.Error(); err != nil {
-		return nil, errors.Wrap(err, "failed to get cluster configuration")
-	}
-	var (
-		servers = future.Configuration().Servers
-		ids     = make([]string, len(servers))
-	)
-	for i, server := range servers {
-		ids[i] = string(server.ID)
-	}
-	return ids, nil
 }

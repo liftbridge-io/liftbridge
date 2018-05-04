@@ -1,17 +1,22 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/nats-io/go-nats"
 	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"github.com/tylertreat/go-jetbridge/proto"
+	client "github.com/tylertreat/go-jetbridge/proto"
+	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+
+	"github.com/tylertreat/jetbridge/server/proto"
 )
 
 const defaultNamespace = "jetbridge-default"
@@ -24,9 +29,10 @@ type Server struct {
 	ncRepl     *nats.Conn
 	logger     *log.Logger
 	api        *grpc.Server
-	metadata   MetadataStore
+	metadata   *metadataAPI
 	shutdownCh chan struct{}
 	raft       *raftNode
+	leaderSub  *nats.Subscription
 }
 
 type Config struct {
@@ -39,14 +45,15 @@ type Config struct {
 		Compact         bool
 	}
 	Clustering struct {
-		NodeID         string
-		Namespace      string
-		RaftPath       string
-		RaftSnapshots  int
-		RaftCacheSize  int
-		Bootstrap      bool
-		BootstrapPeers []string
-		RaftLogging    bool
+		NodeID            string
+		Namespace         string
+		RaftPath          string
+		RaftSnapshots     int
+		RaftCacheSize     int
+		Bootstrap         bool
+		BootstrapPeers    []string
+		RaftLogging       bool
+		ReplicaMaxLagTime time.Duration
 	}
 }
 
@@ -62,11 +69,15 @@ func New(config Config) *Server {
 		config.Clustering.RaftPath = filepath.Join(
 			config.Clustering.Namespace, config.Clustering.NodeID)
 	}
-	return &Server{
-		config:   config,
-		logger:   config.Logger,
-		metadata: newMetadataStore(),
+	if config.Clustering.ReplicaMaxLagTime == 0 {
+		config.Clustering.ReplicaMaxLagTime = 10 * time.Second
 	}
+	s := &Server{
+		config: config,
+		logger: config.Logger,
+	}
+	s.metadata = newMetadataAPI(s)
+	return s
 }
 
 func (s *Server) Start() error {
@@ -107,7 +118,7 @@ func (s *Server) Start() error {
 
 	api := grpc.NewServer()
 	s.api = api
-	proto.RegisterAPIServer(api, &apiServer{s})
+	client.RegisterAPIServer(api, &apiServer{s})
 	s.logger.Info("Starting server...")
 	return api.Serve(s.listener)
 }
@@ -151,7 +162,9 @@ func (s *Server) startMetadataRaft() error {
 						}
 					}
 				} else {
-					s.leadershipLost()
+					if err := s.leadershipLost(); err != nil {
+						s.logger.Errorf("Error on metadata leadership lost: %v", err)
+					}
 				}
 			case <-s.shutdownCh:
 				// Signal channel here to handle edge case where we might
@@ -171,20 +184,89 @@ func (s *Server) leadershipAcquired() error {
 	s.logger.Infof("Server became metadata leader, performing leader promotion actions")
 	defer s.logger.Infof("Finished metadata leader promotion actions")
 
+	// Use a barrier to ensure all preceding operations are applied to the FSM.
+	if err := s.raft.Barrier(0).Error(); err != nil {
+		return err
+	}
+
+	// Subscribe to leader NATS subject for propagated requests.
+	sub, err := s.nc.Subscribe(s.getPropagateInbox(), s.handlePropagatedRequest)
+	if err != nil {
+		return err
+	}
+	s.leaderSub = sub
+
 	atomic.StoreInt64(&s.raft.leader, 1)
 	return nil
 }
 
 // leadershipLost should be called when this node loses leadership.
-func (s *Server) leadershipLost() {
+func (s *Server) leadershipLost() error {
 	s.logger.Infof("Sserver lost metadata leadership, performing leader stepdown actions")
 	defer s.logger.Infof("Finished metadata leader stepdown actions")
 
+	// Unsubscribe from leader NATS subject for propagated requests.
+	if s.leaderSub != nil {
+		if err := s.leaderSub.Unsubscribe(); err != nil {
+			return err
+		}
+		s.leaderSub = nil
+	}
+
 	atomic.StoreInt64(&s.raft.leader, 0)
+	return nil
 }
 
 func (s *Server) isLeader() bool {
 	return atomic.LoadInt64(&s.raft.leader) == 1
+}
+
+func (s *Server) getPropagateInbox() string {
+	return fmt.Sprintf("%s.%s.raft.propagate",
+		s.config.Clustering.Namespace, metadataRaftName)
+}
+
+func (s *Server) handlePropagatedRequest(m *nats.Msg) {
+	if m.Reply == "" {
+		s.logger.Warn("Invalid propagated request: no reply inbox")
+		return
+	}
+	req := &proto.PropagatedRequest{}
+	if err := req.Unmarshal(m.Data); err != nil {
+		s.logger.Warnf("Invalid propagated request: %v", err)
+		return
+	}
+	switch req.Op {
+	case proto.Op_CREATE_STREAM:
+		resp := &proto.PropagatedResponse{
+			Op:               req.Op,
+			CreateStreamResp: &client.CreateStreamResponse{},
+		}
+		// TODO: What should we do with the context here?
+		if err := s.metadata.CreateStream(context.TODO(), req.CreateStreamOp); err != nil {
+			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+		}
+		data, err := resp.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		s.nc.Publish(m.Reply, data)
+	case proto.Op_SHRINK_ISR:
+		resp := &proto.PropagatedResponse{
+			Op: req.Op,
+		}
+		// TODO: What should we do with the context here?
+		if err := s.metadata.ShrinkISR(context.TODO(), req.ShrinkISROp); err != nil {
+			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+		}
+		data, err := resp.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		s.nc.Publish(m.Reply, data)
+	default:
+		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
+	}
 }
 
 func (s *Server) Stop() error {
