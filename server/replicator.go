@@ -23,6 +23,11 @@ type replicator struct {
 	cancelReader func()
 }
 
+// TODO: Currently, the replicator will send messages to the follower even if
+// the follower has crashed permanently. The follower would be removed from
+// the ISR, but the reader would still be replicating, the messages just
+// wouldn't be getting consumed. We should rely on lastSeen to decide when to
+// stop replicating.
 func (r *replicator) start() {
 	r.mu.Lock()
 	if r.running {
@@ -38,13 +43,22 @@ func (r *replicator) start() {
 	go r.tick()
 
 	for req := range r.requests {
+		now := time.Now()
 		r.mu.Lock()
-		r.lastSeen = time.Now()
+		r.lastSeen = now
+
+		// Check if we're caught up.
+		if req.HighWatermark >= r.stream.log.NewestOffset() {
+			r.lastCaughtUp = now
+			r.mu.Unlock()
+			continue
+		}
 
 		// Cancel any pre-existing reader.
 		if r.cancelReader != nil {
 			r.cancelReader()
 		}
+
 		ctx, cancel := context.WithCancel(context.Background())
 		r.cancelReader = cancel
 		reader, err := r.stream.log.NewReaderContext(ctx, req.HighWatermark+1)
@@ -60,7 +74,7 @@ func (r *replicator) start() {
 		}
 		r.mu.Unlock()
 
-		go r.replicate(reader)
+		go r.replicate(reader, req.Inbox)
 	}
 }
 
@@ -132,6 +146,21 @@ func (r *replicator) tick() {
 	}
 }
 
-func (r *replicator) replicate(reader io.Reader) {
-	// TODO
+func (r *replicator) replicate(reader io.Reader, inbox string) {
+	headersBuf := make([]byte, 12)
+	for {
+		msg, err := consumeStreamMessage(reader, headersBuf)
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			r.stream.srv.logger.Errorf("Failed to read stream message while replicating: %v", err)
+			return
+		}
+		data, err := msg.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		r.stream.srv.ncRepl.Publish(inbox, data)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sync"
 	"time"
@@ -231,4 +232,34 @@ func getEnvelope(data []byte) *client.Message {
 		return nil
 	}
 	return msg
+}
+
+func consumeStreamMessage(reader io.Reader, headersBuf []byte) (*client.Message, error) {
+	if _, err := reader.Read(headersBuf); err != nil {
+		return nil, err
+	}
+	var (
+		offset = int64(proto.Encoding.Uint64(headersBuf[0:]))
+		size   = proto.Encoding.Uint32(headersBuf[8:])
+		buf    = make([]byte, size)
+	)
+	if _, err := reader.Read(buf); err != nil {
+		return nil, err
+	}
+	var (
+		m       = &proto.Message{}
+		decoder = proto.NewDecoder(buf)
+	)
+	if err := m.Decode(decoder); err != nil {
+		panic(err)
+	}
+	return &client.Message{
+		Offset:    offset,
+		Key:       m.Key,
+		Value:     m.Value,
+		Timestamp: m.Timestamp.UnixNano(),
+		Headers:   m.Headers,
+		Subject:   string(m.Headers["subject"]),
+		Reply:     string(m.Headers["reply"]),
+	}, nil
 }
