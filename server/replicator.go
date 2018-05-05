@@ -11,23 +11,18 @@ import (
 )
 
 type replicator struct {
-	stream       *stream
-	replica      string
-	hw           int64
-	maxLagTime   time.Duration
-	lastCaughtUp time.Time
-	lastSeen     time.Time
-	requests     chan *proto.ReplicationRequest
-	mu           sync.RWMutex
-	running      bool
-	cancelReader func()
+	stream            *stream
+	replica           string
+	hw                int64
+	maxLagTime        time.Duration
+	lastCaughtUp      time.Time
+	lastSeen          time.Time
+	requests          chan *proto.ReplicationRequest
+	mu                sync.RWMutex
+	running           bool
+	cancelReplication func()
 }
 
-// TODO: Currently, the replicator will send messages to the follower even if
-// the follower has crashed permanently. The follower would be removed from
-// the ISR, but the reader would still be replicating, the messages just
-// wouldn't be getting consumed. We should rely on lastSeen to decide when to
-// stop replicating.
 func (r *replicator) start() {
 	r.mu.Lock()
 	if r.running {
@@ -54,13 +49,11 @@ func (r *replicator) start() {
 			continue
 		}
 
-		// Cancel any pre-existing reader.
-		if r.cancelReader != nil {
-			r.cancelReader()
-		}
+		// Cancel previous replication.
+		r.cancelReplication()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		r.cancelReader = cancel
+		r.cancelReplication = cancel
 		reader, err := r.stream.log.NewReaderContext(ctx, req.HighWatermark+1)
 		if err != nil {
 			// TODO: if this errors, something is really screwed up. In
@@ -142,6 +135,14 @@ func (r *replicator) tick() {
 					"Removed replica %s for stream %s from ISR because it exceeded max lag time",
 					r.replica, r.stream)
 			}
+
+			if lastSeenElapsed > r.maxLagTime {
+				// If the follower has not sent a request in maxLagTime, stop
+				// replicating.
+				r.mu.Lock()
+				r.cancelReplication()
+				r.mu.Unlock()
+			}
 		}
 	}
 }
@@ -149,7 +150,7 @@ func (r *replicator) tick() {
 func (r *replicator) replicate(reader io.Reader, inbox string) {
 	headersBuf := make([]byte, 12)
 	for {
-		msg, err := consumeStreamMessage(reader, headersBuf)
+		buf, _, err := consumeStreamMessageSet(reader, headersBuf)
 		if err == io.EOF {
 			return
 		}
@@ -157,10 +158,6 @@ func (r *replicator) replicate(reader io.Reader, inbox string) {
 			r.stream.srv.logger.Errorf("Failed to read stream message while replicating: %v", err)
 			return
 		}
-		data, err := msg.Marshal()
-		if err != nil {
-			panic(err)
-		}
-		r.stream.srv.ncRepl.Publish(inbox, data)
+		r.stream.srv.ncRepl.Publish(inbox, buf)
 	}
 }

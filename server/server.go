@@ -45,15 +45,16 @@ type Config struct {
 		Compact         bool
 	}
 	Clustering struct {
-		NodeID            string
-		Namespace         string
-		RaftPath          string
-		RaftSnapshots     int
-		RaftCacheSize     int
-		Bootstrap         bool
-		BootstrapPeers    []string
-		RaftLogging       bool
-		ReplicaMaxLagTime time.Duration
+		NodeID               string
+		Namespace            string
+		RaftPath             string
+		RaftSnapshots        int
+		RaftCacheSize        int
+		Bootstrap            bool
+		BootstrapPeers       []string
+		RaftLogging          bool
+		ReplicaMaxLagTime    time.Duration
+		ReplicaFetchInterval time.Duration
 	}
 }
 
@@ -71,6 +72,9 @@ func New(config Config) *Server {
 	}
 	if config.Clustering.ReplicaMaxLagTime == 0 {
 		config.Clustering.ReplicaMaxLagTime = 10 * time.Second
+	}
+	if config.Clustering.ReplicaFetchInterval == 0 {
+		config.Clustering.ReplicaFetchInterval = time.Second
 	}
 	s := &Server{
 		config: config,

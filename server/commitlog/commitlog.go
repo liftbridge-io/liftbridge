@@ -165,7 +165,7 @@ func (l *CommitLog) Read(p []byte) (n int, err error) {
 }
 
 func (l *CommitLog) NewestOffset() int64 {
-	return l.activeSegment().NextOffset
+	return l.activeSegment().NextOffset - 1
 }
 
 func (l *CommitLog) OldestOffset() int64 {
@@ -224,7 +224,7 @@ func (l *CommitLog) checkSplit() bool {
 }
 
 func (l *CommitLog) split() error {
-	segment, err := NewSegment(l.Path, l.NewestOffset(), l.MaxSegmentBytes)
+	segment, err := NewSegment(l.Path, l.NewestOffset()+1, l.MaxSegmentBytes)
 	if err != nil {
 		return err
 	}

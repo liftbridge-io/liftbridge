@@ -22,16 +22,17 @@ var envelopeCookie = []byte("jetb")
 
 type stream struct {
 	*proto.Stream
-	mu          sync.RWMutex
-	sub         *nats.Subscription // Subscription to stream NATS subject
-	replSub     *nats.Subscription // Subscription for replication requests
-	log         CommitLog
-	srv         *Server
-	subjectHash string
-	replicating bool
-	replicas    map[string]struct{}
-	isr         map[string]struct{}
-	replicators map[string]*replicator
+	mu                    sync.RWMutex
+	sub                   *nats.Subscription // Subscription to stream NATS subject
+	replSub               *nats.Subscription // Subscription for replication requests
+	log                   CommitLog
+	srv                   *Server
+	subjectHash           string
+	replicating           bool
+	requestingReplication bool
+	replicas              map[string]struct{}
+	isr                   map[string]struct{}
+	replicators           map[string]*replicator
 }
 
 func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
@@ -75,11 +76,12 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 			continue
 		}
 		replicators[replica] = &replicator{
-			replica:    replica,
-			stream:     st,
-			requests:   make(chan *proto.ReplicationRequest),
-			hw:         -1,
-			maxLagTime: s.config.Clustering.ReplicaMaxLagTime,
+			replica:           replica,
+			stream:            st,
+			requests:          make(chan *proto.ReplicationRequest),
+			hw:                -1,
+			maxLagTime:        s.config.Clustering.ReplicaMaxLagTime,
+			cancelReplication: func() {}, // Intentional no-op initially
 		}
 	}
 
@@ -176,16 +178,33 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 	replicator.request(req)
 }
 
-func (s *stream) getReplicationInbox() string {
+func (s *stream) handleReplicationResponse(msg *nats.Msg) {
+	if len(msg.Data) <= 12 {
+		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
+		return
+	}
+	offset := int64(proto.Encoding.Uint64(msg.Data[:8]))
+	if offset > s.log.NewestOffset() {
+		if _, err := s.log.Append(msg.Data); err != nil {
+			s.srv.logger.Errorf("Failed to replicate data to log %s: %v", s, err)
+		}
+	}
+}
+
+func (s *stream) getReplicationRequestInbox() string {
 	return fmt.Sprintf("%s.%s.%s.replicate",
 		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
+}
+
+func (s *stream) getReplicationResponseInbox() string {
+	return fmt.Sprintf("%s.%s.%s.replicate.%s",
+		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name, s.srv.config.Clustering.NodeID)
 }
 
 func (s *stream) startReplicating() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	replicating := s.replicating
-	if replicating {
+	if s.replicating {
 		return
 	}
 	s.replicating = true
@@ -197,14 +216,53 @@ func (s *stream) startReplicating() {
 func (s *stream) stopReplicating() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	replicating := s.replicating
-	if !replicating {
+	if !s.replicating {
 		return
 	}
 	s.replicating = false
 	for _, replicator := range s.replicators {
 		replicator.stop()
 	}
+}
+
+func (s *stream) startReplicationRequests() {
+	s.mu.Lock()
+	if s.requestingReplication {
+		s.mu.Unlock()
+		return
+	}
+	s.requestingReplication = true
+	s.mu.Unlock()
+	ticker := time.NewTicker(s.srv.config.Clustering.ReplicaFetchInterval)
+	defer ticker.Stop()
+	for {
+		<-ticker.C
+		s.mu.RLock()
+		if !s.requestingReplication {
+			s.mu.RUnlock()
+			return
+		}
+		s.sendReplicationRequest()
+	}
+}
+
+func (s *stream) stopReplicationRequests() {
+	s.mu.Lock()
+	s.requestingReplication = false
+	s.mu.Unlock()
+}
+
+func (s *stream) sendReplicationRequest() {
+	// TODO: this needs to be newest committed offset.
+	data, err := (&proto.ReplicationRequest{
+		ReplicaID:     s.srv.config.Clustering.NodeID,
+		HighWatermark: s.log.NewestOffset(),
+		Inbox:         s.getReplicationResponseInbox(),
+	}).Marshal()
+	if err != nil {
+		panic(err)
+	}
+	s.srv.ncRepl.Publish(s.getReplicationRequestInbox(), data)
 }
 
 func (s *stream) inISR(replica string) bool {
@@ -234,32 +292,19 @@ func getEnvelope(data []byte) *client.Message {
 	return msg
 }
 
-func consumeStreamMessage(reader io.Reader, headersBuf []byte) (*client.Message, error) {
+func consumeStreamMessageSet(reader io.Reader, headersBuf []byte) ([]byte, int64, error) {
 	if _, err := reader.Read(headersBuf); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var (
 		offset = int64(proto.Encoding.Uint64(headersBuf[0:]))
 		size   = proto.Encoding.Uint32(headersBuf[8:])
-		buf    = make([]byte, size)
+		buf    = make([]byte, int(size)+len(headersBuf))
+		n      = copy(buf, headersBuf)
 	)
-	if _, err := reader.Read(buf); err != nil {
-		return nil, err
+	if _, err := reader.Read(buf[n:]); err != nil {
+		return nil, 0, err
 	}
-	var (
-		m       = &proto.Message{}
-		decoder = proto.NewDecoder(buf)
-	)
-	if err := m.Decode(decoder); err != nil {
-		panic(err)
-	}
-	return &client.Message{
-		Offset:    offset,
-		Key:       m.Key,
-		Value:     m.Value,
-		Timestamp: m.Timestamp.UnixNano(),
-		Headers:   m.Headers,
-		Subject:   string(m.Headers["subject"]),
-		Reply:     string(m.Headers["reply"]),
-	}, nil
+	return buf, offset, nil
+
 }

@@ -196,7 +196,7 @@ func (s *Server) bootstrapCluster(name string, node *raft.Raft) error {
 
 func (s *Server) detectBootstrapMisconfig(name string) {
 	srvID := []byte(s.config.Clustering.NodeID)
-	subj := fmt.Sprintf("%s.%s.bootstrap", s.config.Clustering.Namespace, name)
+	subj := fmt.Sprintf("%s.%s.raft.bootstrap", s.config.Clustering.Namespace, name)
 	s.ncRaft.Subscribe(subj, func(m *nats.Msg) {
 		if m.Data != nil && m.Reply != "" {
 			// Ignore message to ourself

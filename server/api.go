@@ -8,6 +8,8 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/tylertreat/jetbridge/server/proto"
 )
 
 const (
@@ -76,10 +78,26 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 	go func() {
 		headersBuf := make([]byte, 12)
 		for {
-			msg, err := consumeStreamMessage(reader, headersBuf)
+			buf, offset, err := consumeStreamMessageSet(reader, headersBuf)
 			if err != nil {
 				errCh <- status.Convert(err)
 				return
+			}
+			var (
+				m       = &proto.Message{}
+				decoder = proto.NewDecoder(buf)
+			)
+			if err := m.Decode(decoder); err != nil {
+				panic(err)
+			}
+			msg := &client.Message{
+				Offset:    offset,
+				Key:       m.Key,
+				Value:     m.Value,
+				Timestamp: m.Timestamp.UnixNano(),
+				Headers:   m.Headers,
+				Subject:   string(m.Headers["subject"]),
+				Reply:     string(m.Headers["reply"]),
 			}
 			ch <- msg
 		}

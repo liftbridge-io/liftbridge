@@ -165,19 +165,28 @@ func (s *Server) onStreamLeader(stream *stream) error {
 	}
 	stream.mu.Lock()
 	stream.sub = sub
+	if stream.replSub != nil {
+		stream.replSub.Unsubscribe()
+		stream.replSub = nil
+	}
 	stream.mu.Unlock()
+
+	// If previously follower, stop sending replication requests.
+	stream.stopReplicationRequests()
 
 	// Start replicating to followers.
 	go stream.startReplicating()
 
 	// Also subscribe to the stream replication subject.
-	sub, err = s.ncRepl.Subscribe(stream.getReplicationInbox(), stream.handleReplicationRequest)
+	sub, err = s.ncRepl.Subscribe(stream.getReplicationRequestInbox(), stream.handleReplicationRequest)
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to replication inbox")
 	}
 	stream.mu.Lock()
 	stream.replSub = sub
 	stream.mu.Unlock()
+
+	s.logger.Debugf("Server became leader for stream %s", stream)
 
 	return nil
 }
@@ -199,8 +208,19 @@ func (s *Server) onStreamFollower(stream *stream) error {
 	// uncommitted messages in the log.
 	// TODO
 
+	// Subscribe to the stream replication subject to receive messages.
+	sub, err := s.ncRepl.Subscribe(stream.getReplicationResponseInbox(), stream.handleReplicationResponse)
+	if err != nil {
+		return errors.Wrap(err, "failed to subscribe to replication inbox")
+	}
+	stream.mu.Lock()
+	stream.replSub = sub
+	stream.mu.Unlock()
+
 	// Start fetching messages from the leader's log starting at the HW.
-	// TODO
+	go stream.startReplicationRequests()
+
+	s.logger.Debugf("Server became follower for stream %s", stream)
 
 	return nil
 }
