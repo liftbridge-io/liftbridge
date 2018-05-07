@@ -186,7 +186,7 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) {
 	offset := int64(proto.Encoding.Uint64(msg.Data[:8]))
 	if offset > s.log.NewestOffset() {
 		if _, err := s.log.Append(msg.Data); err != nil {
-			s.srv.logger.Errorf("Failed to replicate data to log %s: %v", s, err)
+			panic(fmt.Errorf("Failed to replicate data to log %s: %v", s, err))
 		}
 	}
 }
