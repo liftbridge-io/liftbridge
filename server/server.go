@@ -77,8 +77,9 @@ func New(config Config) *Server {
 		config.Clustering.ReplicaFetchInterval = time.Second
 	}
 	s := &Server{
-		config: config,
-		logger: config.Logger,
+		config:     config,
+		logger:     config.Logger,
+		shutdownCh: make(chan struct{}),
 	}
 	s.metadata = newMetadataAPI(s)
 	return s

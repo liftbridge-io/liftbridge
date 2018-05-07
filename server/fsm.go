@@ -152,6 +152,7 @@ func (s *Server) shrinkISR(protoStream *proto.Stream, replica string) error {
 			protoStream.Subject, protoStream.Name)
 	}
 	stream.removeFromISR(replica)
+	s.logger.Warnf("Removed replica %s from ISR for stream %s", replica, stream)
 	return nil
 }
 

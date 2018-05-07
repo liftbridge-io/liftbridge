@@ -67,15 +67,15 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 		subjectHash: subjectHash,
 		replicas:    replicas,
 		isr:         isr,
+		replicators: make(map[string]*replicator, len(protoStream.Replicas)),
 	}
 
-	replicators := make(map[string]*replicator, len(protoStream.Replicas))
 	for _, replica := range protoStream.Replicas {
 		if replica == s.config.Clustering.NodeID {
 			// Don't replicate to ourselves.
 			continue
 		}
-		replicators[replica] = &replicator{
+		st.replicators[replica] = &replicator{
 			replica:           replica,
 			stream:            st,
 			requests:          make(chan *proto.ReplicationRequest),
