@@ -207,7 +207,9 @@ func (s *Server) onStreamFollower(stream *stream) error {
 
 	// Truncate the log up to the latest HW. This removes any potentially
 	// uncommitted messages in the log.
-	// TODO
+	if err := stream.truncateToHW(); err != nil {
+		return errors.Wrap(err, "failed to truncate log")
+	}
 
 	// Subscribe to the stream replication subject to receive messages.
 	sub, err := s.ncRepl.Subscribe(stream.getReplicationResponseInbox(), stream.handleReplicationResponse)

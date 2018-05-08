@@ -267,6 +267,13 @@ func (s *stream) sendReplicationRequest() {
 	s.srv.ncRepl.Publish(s.getReplicationRequestInbox(), data)
 }
 
+func (s *stream) truncateToHW() error {
+	// Truncate the log up to the latest HW. This removes any potentially
+	// uncommitted messages in the log.
+	// TODO
+	return nil
+}
+
 func (s *stream) inISR(replica string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
