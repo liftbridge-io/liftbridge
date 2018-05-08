@@ -208,6 +208,7 @@ func (s *stream) startReplicating() {
 		return
 	}
 	s.replicating = true
+	s.srv.logger.Debugf("Replicating stream %s to followers", s)
 	for _, replicator := range s.replicators {
 		go replicator.start()
 	}
@@ -233,6 +234,7 @@ func (s *stream) startReplicationRequests() {
 	}
 	s.requestingReplication = true
 	s.mu.Unlock()
+	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
 	ticker := time.NewTicker(s.srv.config.Clustering.ReplicaFetchInterval)
 	defer ticker.Stop()
 	for {

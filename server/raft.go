@@ -207,19 +207,19 @@ func (s *Server) detectBootstrapMisconfig(name string) {
 			// Ignore message to ourself
 			if string(m.Data) != s.config.Clustering.ServerID {
 				s.ncRaft.Publish(m.Reply, srvID)
-				s.logger.Fatalf("Server %s was also started with -cluster_bootstrap", string(m.Data))
+				s.logger.Fatalf("Server %s was also started with raft.bootstrap", string(m.Data))
 			}
 		}
 	})
 	inbox := nats.NewInbox()
 	s.ncRaft.Subscribe(inbox, func(m *nats.Msg) {
-		s.logger.Fatalf("Server %s was also started with -cluster_bootstrap", string(m.Data))
+		s.logger.Fatalf("Server %s was also started with raft.bootstrap", string(m.Data))
 	})
 	if err := s.ncRaft.Flush(); err != nil {
 		s.logger.Errorf("Error setting up bootstrap misconfiguration detection: %v", err)
 		return
 	}
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(10 * time.Second)
 	for {
 		select {
 		case <-s.shutdownCh:
