@@ -131,7 +131,7 @@ func (s *Server) createStream(protoStream *proto.Stream) error {
 		return errors.Wrap(err, "failed to add stream to metadata store")
 	}
 
-	if stream.Leader == s.config.Clustering.NodeID {
+	if stream.Leader == s.config.Clustering.ServerID {
 		if err := s.onStreamLeader(stream); err != nil {
 			return err
 		}

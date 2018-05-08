@@ -41,7 +41,7 @@ func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.A
 		return errors.New("No such stream")
 	}
 
-	if stream.Leader != a.config.Clustering.NodeID {
+	if stream.Leader != a.config.Clustering.ServerID {
 		a.logger.Error("Failed to fetch stream: node is not stream leader")
 		return errors.New("Node is not stream leader")
 	}

@@ -3,28 +3,36 @@
 package main
 
 import (
-	"github.com/nats-io/go-nats"
-	log "github.com/sirupsen/logrus"
+	"os"
+
+	"github.com/urfave/cli"
 
 	"github.com/tylertreat/jetbridge/server"
 )
 
+const version = "0.0.1"
+
 func main() {
-	config := server.Config{
-		Logger:   log.New(),
-		NATSOpts: nats.GetDefaultOptions(),
-		Addr:     ":9292",
+	app := cli.NewApp()
+	app.Name = "jetbridge"
+	app.Usage = "Durable stream augmentation for NATS"
+	app.Version = version
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "config, c",
+			Usage: "Load configuration from `FILE`",
+		},
 	}
-	config.Logger.SetLevel(log.DebugLevel)
-	//config.Log.Compact = true
-	config.Log.MaxSegmentBytes = 60
-	config.Clustering.NodeID = "test-node"
-	config.Clustering.RaftSnapshots = 2
-	config.Clustering.RaftCacheSize = 512
-	config.Clustering.Bootstrap = true
-	config.Clustering.RaftLogging = true
-	server := server.New(config)
-	if err := server.Start(); err != nil {
+	app.Action = func(c *cli.Context) error {
+		config, err := server.NewConfig(c.String("config"))
+		if err != nil {
+			return err
+		}
+		server := server.New(config)
+		return server.Start()
+	}
+
+	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
 }

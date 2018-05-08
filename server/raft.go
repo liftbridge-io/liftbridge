@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -114,7 +115,8 @@ func (s *Server) setupMetadataRaft() error {
 
 	// Bootstrap if there is no previous state and we are starting this node as
 	// a seed or a cluster configuration is provided.
-	bootstrap := !existingState && (s.config.Clustering.Bootstrap || len(s.config.Clustering.BootstrapPeers) > 0)
+	bootstrap := !existingState &&
+		(s.config.Clustering.RaftBootstrap || len(s.config.Clustering.RaftBootstrapPeers) > 0)
 	if bootstrap {
 		if err := s.bootstrapCluster(name, node.Raft); err != nil {
 			node.shutdown()
@@ -122,7 +124,10 @@ func (s *Server) setupMetadataRaft() error {
 		}
 	} else if !existingState {
 		// Attempt to join the cluster if we're not bootstrapping.
-		req, err := (&proto.RaftJoinRequest{NodeID: s.config.Clustering.NodeID, NodeAddr: addr}).Marshal()
+		req, err := (&proto.RaftJoinRequest{
+			NodeID:   s.config.Clustering.ServerID,
+			NodeAddr: addr,
+		}).Marshal()
 		if err != nil {
 			panic(err)
 		}
@@ -130,21 +135,21 @@ func (s *Server) setupMetadataRaft() error {
 			joined = false
 			resp   = &proto.RaftJoinResponse{}
 		)
-		s.logger.Debugf("Joining Raft group %s", name)
-		// Attempt to join up to 5 times before giving up.
-		for i := 0; i < 5; i++ {
+		// Attempt to join for up to 30 seconds before giving up.
+		for i := 0; i < 30; i++ {
+			s.logger.Debug("Attempting to join metadata Raft group...")
 			r, err := s.ncRaft.Request(fmt.Sprintf("%s.%s.raft.join", s.config.Clustering.Namespace, name),
 				req, joinRaftGroupTimeout)
 			if err != nil {
-				time.Sleep(20 * time.Millisecond)
+				time.Sleep(time.Second)
 				continue
 			}
 			if err := resp.Unmarshal(r.Data); err != nil {
-				time.Sleep(20 * time.Millisecond)
+				time.Sleep(time.Second)
 				continue
 			}
 			if resp.Error != "" {
-				time.Sleep(20 * time.Millisecond)
+				time.Sleep(time.Second)
 				continue
 			}
 			joined = true
@@ -152,10 +157,10 @@ func (s *Server) setupMetadataRaft() error {
 		}
 		if !joined {
 			node.shutdown()
-			return fmt.Errorf("failed to join Raft group %s", name)
+			return errors.New("failed to join metadata Raft group")
 		}
 	}
-	if s.config.Clustering.Bootstrap {
+	if s.config.Clustering.RaftBootstrap {
 		// If node is started with bootstrap, regardless if state exists or
 		// not, try to detect (and report) other nodes in same cluster started
 		// with bootstrap=true.
@@ -173,14 +178,14 @@ func (s *Server) bootstrapCluster(name string, node *raft.Raft) error {
 		addr = s.getClusteringAddr(name)
 		// Include ourself in the cluster.
 		servers = []raft.Server{raft.Server{
-			ID:      raft.ServerID(s.config.Clustering.NodeID),
+			ID:      raft.ServerID(s.config.Clustering.ServerID),
 			Address: raft.ServerAddress(addr),
 		}}
 	)
-	if len(s.config.Clustering.BootstrapPeers) > 0 {
+	if len(s.config.Clustering.RaftBootstrapPeers) > 0 {
 		// Bootstrap using provided cluster configuration.
 		s.logger.Debugf("Bootstrapping Raft group %s using provided configuration", name)
-		for _, peer := range s.config.Clustering.BootstrapPeers {
+		for _, peer := range s.config.Clustering.RaftBootstrapPeers {
 			servers = append(servers, raft.Server{
 				ID:      raft.ServerID(peer),
 				Address: raft.ServerAddress(s.getClusteringPeerAddr(name, peer)),
@@ -195,12 +200,12 @@ func (s *Server) bootstrapCluster(name string, node *raft.Raft) error {
 }
 
 func (s *Server) detectBootstrapMisconfig(name string) {
-	srvID := []byte(s.config.Clustering.NodeID)
+	srvID := []byte(s.config.Clustering.ServerID)
 	subj := fmt.Sprintf("%s.%s.raft.bootstrap", s.config.Clustering.Namespace, name)
 	s.ncRaft.Subscribe(subj, func(m *nats.Msg) {
 		if m.Data != nil && m.Reply != "" {
 			// Ignore message to ourself
-			if string(m.Data) != s.config.Clustering.NodeID {
+			if string(m.Data) != s.config.Clustering.ServerID {
 				s.ncRaft.Publish(m.Reply, srvID)
 				s.logger.Fatalf("Server %s was also started with -cluster_bootstrap", string(m.Data))
 			}
@@ -214,7 +219,7 @@ func (s *Server) detectBootstrapMisconfig(name string) {
 		s.logger.Errorf("Error setting up bootstrap misconfiguration detection: %v", err)
 		return
 	}
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	for {
 		select {
 		case <-s.shutdownCh:
@@ -231,7 +236,7 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 
 	// Configure Raft.
 	config := raft.DefaultConfig()
-	config.LocalID = raft.ServerID(s.config.Clustering.NodeID)
+	config.LocalID = raft.ServerID(s.config.Clustering.ServerID)
 	logWriter := &raftLogger{s}
 	config.LogOutput = logWriter
 	config.SnapshotThreshold = 1
@@ -302,7 +307,7 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 		// Add the node as a voter. This is idempotent. No-op if the request
 		// came from ourselves.
 		resp := &proto.RaftJoinResponse{}
-		if req.NodeID != s.config.Clustering.NodeID {
+		if req.NodeID != s.config.Clustering.ServerID {
 			future := node.AddVoter(
 				raft.ServerID(req.NodeID),
 				raft.ServerAddress(req.NodeAddr), 0, 0)
@@ -338,7 +343,7 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 }
 
 func (s *Server) getClusteringAddr(raftName string) string {
-	return s.getClusteringPeerAddr(raftName, s.config.Clustering.NodeID)
+	return s.getClusteringPeerAddr(raftName, s.config.Clustering.ServerID)
 }
 
 func (s *Server) getClusteringPeerAddr(raftName, nodeID string) string {

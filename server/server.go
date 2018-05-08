@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
-	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/nats-io/go-nats"
-	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	client "github.com/tylertreat/go-jetbridge/proto"
@@ -19,10 +18,8 @@ import (
 	"github.com/tylertreat/jetbridge/server/proto"
 )
 
-const defaultNamespace = "jetbridge-default"
-
 type Server struct {
-	config     Config
+	config     *Config
 	listener   net.Listener
 	nc         *nats.Conn
 	ncRaft     *nats.Conn
@@ -35,50 +32,17 @@ type Server struct {
 	leaderSub  *nats.Subscription
 }
 
-type Config struct {
-	Logger   *log.Logger
-	NATSOpts nats.Options
-	Addr     string
-	Log      struct {
-		RetentionBytes  int64
-		MaxSegmentBytes int64
-		Compact         bool
-	}
-	Clustering struct {
-		NodeID               string
-		Namespace            string
-		RaftPath             string
-		RaftSnapshots        int
-		RaftCacheSize        int
-		Bootstrap            bool
-		BootstrapPeers       []string
-		RaftLogging          bool
-		ReplicaMaxLagTime    time.Duration
-		ReplicaFetchInterval time.Duration
-	}
-}
-
-func New(config Config) *Server {
-	if config.Clustering.NodeID == "" {
-		config.Clustering.NodeID = nuid.Next()
-	}
-	if config.Clustering.Namespace == "" {
-		config.Clustering.Namespace = defaultNamespace
-	}
-	// Default Raft log path to ./<namespace>/<node-id> if not set.
+func New(config *Config) *Server {
+	// Default Raft log path to /tmp/<namespace>/<server-id> if not set.
 	if config.Clustering.RaftPath == "" {
 		config.Clustering.RaftPath = filepath.Join(
-			config.Clustering.Namespace, config.Clustering.NodeID)
+			"/tmp", config.Clustering.Namespace, config.Clustering.ServerID)
 	}
-	if config.Clustering.ReplicaMaxLagTime == 0 {
-		config.Clustering.ReplicaMaxLagTime = 10 * time.Second
-	}
-	if config.Clustering.ReplicaFetchInterval == 0 {
-		config.Clustering.ReplicaFetchInterval = time.Second
-	}
+	logger := log.New()
+	logger.SetLevel(log.Level(config.LogLevel))
 	s := &Server{
 		config:     config,
-		logger:     config.Logger,
+		logger:     logger,
 		shutdownCh: make(chan struct{}),
 	}
 	s.metadata = newMetadataAPI(s)
@@ -86,14 +50,15 @@ func New(config Config) *Server {
 }
 
 func (s *Server) Start() error {
-	l, err := net.Listen("tcp", s.config.Addr)
+	hp := net.JoinHostPort(s.config.Host, strconv.Itoa(s.config.Port))
+	l, err := net.Listen("tcp", hp)
 	if err != nil {
 		return errors.Wrap(err, "failed starting listener")
 	}
 	s.listener = l
 
 	// NATS connection used for stream data.
-	nc, err := s.config.NATSOpts.Connect()
+	nc, err := s.config.NATS.Connect()
 	if err != nil {
 		s.Stop()
 		return errors.Wrap(err, "failed to connect to NATS")
@@ -101,7 +66,7 @@ func (s *Server) Start() error {
 	s.nc = nc
 
 	// NATS connection used for Raft metadata replication.
-	ncr, err := s.config.NATSOpts.Connect()
+	ncr, err := s.config.NATS.Connect()
 	if err != nil {
 		s.Stop()
 		return errors.Wrap(err, "failed to connect to NATS")
@@ -109,7 +74,7 @@ func (s *Server) Start() error {
 	s.ncRaft = ncr
 
 	// NATS connection used for stream replication.
-	ncRepl, err := s.config.NATSOpts.Connect()
+	ncRepl, err := s.config.NATS.Connect()
 	if err != nil {
 		s.Stop()
 		return errors.Wrap(err, "failed to connect to NATS")
@@ -118,13 +83,16 @@ func (s *Server) Start() error {
 
 	if err := s.startMetadataRaft(); err != nil {
 		s.Stop()
-		return err
+		return errors.Wrap(err, "failed to start Raft node")
 	}
 
 	api := grpc.NewServer()
 	s.api = api
 	client.RegisterAPIServer(api, &apiServer{s})
-	s.logger.Info("Starting server...")
+	s.logger.Debugf("Server ID: %s", s.config.Clustering.ServerID)
+	s.logger.Debugf("Namespace: %s", s.config.Clustering.Namespace)
+	s.logger.Infof("Starting server on %s...",
+		net.JoinHostPort(s.config.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
 	return api.Serve(s.listener)
 }
 
@@ -296,9 +264,15 @@ func (s *Server) Stop() error {
 		}
 	}
 
-	s.nc.Close()
-	s.ncRaft.Close()
-	s.ncRepl.Close()
+	if s.nc != nil {
+		s.nc.Close()
+	}
+	if s.ncRaft != nil {
+		s.ncRaft.Close()
+	}
+	if s.ncRepl != nil {
+		s.ncRepl.Close()
+	}
 
 	return nil
 }

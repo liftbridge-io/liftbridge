@@ -38,8 +38,8 @@ type stream struct {
 func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 	log, err := commitlog.New(commitlog.Options{
 		Path:            filepath.Join(s.config.Clustering.RaftPath, protoStream.Subject, protoStream.Name),
-		MaxSegmentBytes: s.config.Log.MaxSegmentBytes,
-		MaxLogBytes:     s.config.Log.RetentionBytes,
+		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
+		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		Compact:         s.config.Log.Compact,
 	})
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 	}
 
 	for _, replica := range protoStream.Replicas {
-		if replica == s.config.Clustering.NodeID {
+		if replica == s.config.Clustering.ServerID {
 			// Don't replicate to ourselves.
 			continue
 		}
@@ -198,7 +198,7 @@ func (s *stream) getReplicationRequestInbox() string {
 
 func (s *stream) getReplicationResponseInbox() string {
 	return fmt.Sprintf("%s.%s.%s.replicate.%s",
-		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name, s.srv.config.Clustering.NodeID)
+		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name, s.srv.config.Clustering.ServerID)
 }
 
 func (s *stream) startReplicating() {
@@ -255,7 +255,7 @@ func (s *stream) stopReplicationRequests() {
 func (s *stream) sendReplicationRequest() {
 	// TODO: this needs to be newest committed offset.
 	data, err := (&proto.ReplicationRequest{
-		ReplicaID:     s.srv.config.Clustering.NodeID,
+		ReplicaID:     s.srv.config.Clustering.ServerID,
 		HighWatermark: s.log.NewestOffset(),
 		Inbox:         s.getReplicationResponseInbox(),
 	}).Marshal()
