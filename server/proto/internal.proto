@@ -1,7 +1,7 @@
 syntax = "proto3";
 package proto;
 
-import "github.com/tylertreat/go-jetbridge/proto/messages.proto";
+import "github.com/tylertreat/go-jetbridge/proto/api.proto";
 
     
 enum Op {
@@ -50,9 +50,9 @@ message MetadataSnapshot {
 }
 
 message ReplicationRequest {
-    string replicaID     = 1;
-    int64  highWatermark = 2;
-    string inbox         = 3;
+    string replicaID = 1;
+    int64  offset    = 2;
+    string inbox     = 3;
 }
 
 message PropagatedRequest {

@@ -10,6 +10,13 @@ func findSegment(segments []*Segment, offset int64) (*Segment, int) {
 	if idx == n {
 		return nil, idx
 	}
+	if segments[idx].BaseOffset == offset {
+		return segments[idx], idx
+	}
+	idx--
+	if idx < 0 {
+		return nil, idx
+	}
 	return segments[idx], idx
 }
 

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Workiva/go-datastructures/queue"
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
-
 	client "github.com/tylertreat/go-jetbridge/proto"
 
 	"github.com/tylertreat/jetbridge/server/commitlog"
@@ -19,6 +19,21 @@ import (
 )
 
 var envelopeCookie = []byte("jetb")
+
+type replica struct {
+	mu     sync.RWMutex
+	offset int64
+}
+
+func (r *replica) updateLatestOffset(offset int64) (updated bool) {
+	r.mu.Lock()
+	if offset > r.offset {
+		r.offset = offset
+		updated = true
+	}
+	r.mu.Unlock()
+	return
+}
 
 type stream struct {
 	*proto.Stream
@@ -31,8 +46,10 @@ type stream struct {
 	replicating           bool
 	requestingReplication bool
 	replicas              map[string]struct{}
-	isr                   map[string]struct{}
+	isr                   map[string]*replica
 	replicators           map[string]*replicator
+	commitQueue           *queue.Queue
+	commitCheck           chan struct{}
 }
 
 func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
@@ -55,9 +72,9 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 		replicas[replica] = struct{}{}
 	}
 
-	isr := make(map[string]struct{}, len(protoStream.Isr))
-	for _, replica := range protoStream.Isr {
-		isr[replica] = struct{}{}
+	isr := make(map[string]*replica, len(protoStream.Isr))
+	for _, rep := range protoStream.Isr {
+		isr[rep] = &replica{offset: -1}
 	}
 
 	st := &stream{
@@ -68,6 +85,7 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 		replicas:    replicas,
 		isr:         isr,
 		replicators: make(map[string]*replicator, len(protoStream.Replicas)),
+		commitCheck: make(chan struct{}, 1),
 	}
 
 	for _, replica := range protoStream.Replicas {
@@ -109,6 +127,9 @@ func (s *stream) close() error {
 	return nil
 }
 
+// TODO: I think there is potential for a race where this broker loses
+// leadership for the stream while it's receiving messages here. Look into
+// this.
 func (s *stream) handleMsg(msg *nats.Msg) {
 	envelope := getEnvelope(msg.Data)
 	m := &proto.Message{
@@ -135,25 +156,27 @@ func (s *stream) handleMsg(msg *nats.Msg) {
 	if err != nil {
 		panic(err)
 	}
+
+	// Write uncommitted message to log.
 	offset, err := s.log.Append(data)
 	if err != nil {
 		s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
 		return
 	}
 
-	// Publish ack.
+	// Update this replica's latest offset.
+	s.updateISRLatestOffset(s.srv.config.Clustering.ServerID, offset)
+
+	// If there is an AckInbox, add the pending message to the commit queue. If
+	// there isn't one, we don't care whether the message is committed or not.
 	if envelope != nil && envelope.AckInbox != "" {
-		ack := &client.Ack{
+		s.commitQueue.Put(&client.Ack{
 			StreamSubject: s.Subject,
 			StreamName:    s.Name,
 			MsgSubject:    msg.Subject,
 			Offset:        offset,
-		}
-		data, err := ack.Marshal()
-		if err != nil {
-			panic(err)
-		}
-		s.srv.nc.Publish(envelope.AckInbox, data)
+			AckInbox:      envelope.AckInbox,
+		})
 	}
 }
 
@@ -179,6 +202,7 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 }
 
 func (s *stream) handleReplicationResponse(msg *nats.Msg) {
+	// TODO: need to get piggybacked HW to use for committing.
 	if len(msg.Data) <= 12 {
 		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
 		return
@@ -208,7 +232,9 @@ func (s *stream) startReplicating() {
 		return
 	}
 	s.replicating = true
+	s.commitQueue = queue.New(100) // TODO: hint should be ~steady state inflight messages
 	s.srv.logger.Debugf("Replicating stream %s to followers", s)
+	go s.startCommitLoop()
 	for _, replicator := range s.replicators {
 		go replicator.start()
 	}
@@ -223,6 +249,64 @@ func (s *stream) stopReplicating() {
 	s.replicating = false
 	for _, replicator := range s.replicators {
 		replicator.stop()
+	}
+
+	s.commitQueue.Dispose()
+}
+
+func (s *stream) startCommitLoop() {
+	for {
+		<-s.commitCheck
+		s.mu.RLock()
+		replicating := s.replicating
+		s.mu.RUnlock()
+		if !replicating {
+			return
+		}
+
+		// Commit all messages in the queue that have been replicated by all
+		// replicas in the ISR. Do this by taking the min of all latest offsets
+		// in the ISR.
+		s.mu.RLock()
+		var (
+			latestOffsets = make([]int64, len(s.isr))
+			i             = 0
+		)
+		for _, replica := range s.isr {
+			replica.mu.RLock()
+			latestOffsets[i] = replica.offset
+			replica.mu.RUnlock()
+			i++
+		}
+		s.mu.RUnlock()
+		var (
+			minLatest     = min(latestOffsets)
+			toCommit, err = s.commitQueue.TakeUntil(func(pending interface{}) bool {
+				return pending.(*client.Ack).Offset <= minLatest
+			})
+		)
+
+		// An error here indicates the queue was disposed as a result of the
+		// leader stepping down.
+		if err != nil {
+			return
+		}
+
+		if len(toCommit) == 0 {
+			continue
+		}
+
+		// Commit by updating the HW and sending acks.
+		hw := toCommit[len(toCommit)-1].(*client.Ack).Offset
+		s.log.SetHighWatermark(hw)
+		for _, ackIface := range toCommit {
+			ack := ackIface.(*client.Ack)
+			data, err := ack.Marshal()
+			if err != nil {
+				panic(err)
+			}
+			s.srv.nc.Publish(ack.AckInbox, data)
+		}
 	}
 }
 
@@ -240,8 +324,9 @@ func (s *stream) startReplicationRequests() {
 	for {
 		<-ticker.C
 		s.mu.RLock()
-		if !s.requestingReplication {
-			s.mu.RUnlock()
+		requestingReplication := s.requestingReplication
+		s.mu.RUnlock()
+		if !requestingReplication {
 			return
 		}
 		s.sendReplicationRequest()
@@ -255,11 +340,10 @@ func (s *stream) stopReplicationRequests() {
 }
 
 func (s *stream) sendReplicationRequest() {
-	// TODO: this needs to be newest committed offset.
 	data, err := (&proto.ReplicationRequest{
-		ReplicaID:     s.srv.config.Clustering.ServerID,
-		HighWatermark: s.log.NewestOffset(),
-		Inbox:         s.getReplicationResponseInbox(),
+		ReplicaID: s.srv.config.Clustering.ServerID,
+		Offset:    s.log.NewestOffset(),
+		Inbox:     s.getReplicationResponseInbox(),
 	}).Marshal()
 	if err != nil {
 		panic(err)
@@ -267,11 +351,25 @@ func (s *stream) sendReplicationRequest() {
 	s.srv.ncRepl.Publish(s.getReplicationRequestInbox(), data)
 }
 
+// truncateToHW truncates the log up to the latest high watermark. This removes
+// any potentially uncommitted messages in the log.
+//
+// TODO: There are a couple edge cases with this method of truncating the log
+// that could result in data loss or replica divergence. These can be solved by
+// using a leader epoch rather than the high watermark for truncation. This
+// solution was implemented in Kafka and is described here:
+// https://cwiki.apache.org/confluence/x/oQQIB
 func (s *stream) truncateToHW() error {
-	// Truncate the log up to the latest HW. This removes any potentially
-	// uncommitted messages in the log.
-	// TODO
-	return nil
+	var (
+		newestOffset = s.log.NewestOffset()
+		hw           = s.log.HighWatermark()
+	)
+	if newestOffset == hw {
+		return nil
+	}
+	s.srv.logger.Debugf("Truncating log for stream %s up to HW %d", s, hw)
+	// Add 1 because we don't want to truncate the HW itself.
+	return s.log.Truncate(hw + 1)
 }
 
 func (s *stream) inISR(replica string) bool {
@@ -285,6 +383,23 @@ func (s *stream) removeFromISR(replica string) {
 	s.mu.Lock()
 	delete(s.isr, replica)
 	s.mu.Unlock()
+}
+
+func (s *stream) updateISRLatestOffset(replica string, offset int64) {
+	s.mu.RLock()
+	rep, ok := s.isr[replica]
+	s.mu.RUnlock()
+	if !ok {
+		// Replica is not currently in ISR.
+		return
+	}
+	if rep.updateLatestOffset(offset) {
+		// If offset updated, we may need to commit messages.
+		select {
+		case s.commitCheck <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func getEnvelope(data []byte) *client.Message {
@@ -316,4 +431,16 @@ func consumeStreamMessageSet(reader io.Reader, headersBuf []byte) ([]byte, int64
 	}
 	return buf, offset, nil
 
+}
+
+func min(v []int64) (m int64) {
+	if len(v) > 0 {
+		m = v[0]
+	}
+	for i := 1; i < len(v); i++ {
+		if v[i] < m {
+			m = v[i]
+		}
+	}
+	return
 }

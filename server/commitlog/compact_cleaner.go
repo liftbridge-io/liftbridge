@@ -19,7 +19,6 @@ func (c *CompactCleaner) Clean(segments []*Segment) (cleaned []*Segment, err err
 	if len(segments) == 0 {
 		return segments, nil
 	}
-	println("compacting...")
 
 	var ss *SegmentScanner
 	var ms MessageSet

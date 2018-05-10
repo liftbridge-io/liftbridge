@@ -13,6 +13,8 @@ type CommitLog interface {
 	Truncate(int64) error
 	NewestOffset() int64
 	OldestOffset() int64
+	SetHighWatermark(int64)
+	HighWatermark() int64
 	Append([]byte) (int64, error)
 	Close() error
 }

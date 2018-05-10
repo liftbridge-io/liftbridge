@@ -42,8 +42,12 @@ func (r *replicator) start() {
 		r.mu.Lock()
 		r.lastSeen = now
 
+		// Update the ISR replica's latest offset for the stream. This is used
+		// by the leader to know when to commit messages.
+		r.stream.updateISRLatestOffset(r.replica, req.Offset)
+
 		// Check if we're caught up.
-		if req.HighWatermark >= r.stream.log.NewestOffset() {
+		if req.Offset >= r.stream.log.NewestOffset() {
 			r.lastCaughtUp = now
 			r.mu.Unlock()
 			continue
@@ -54,7 +58,7 @@ func (r *replicator) start() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		r.cancelReplication = cancel
-		reader, err := r.stream.log.NewReaderContext(ctx, req.HighWatermark+1)
+		reader, err := r.stream.log.NewReaderContext(ctx, req.Offset+1)
 		if err != nil {
 			// TODO: if this errors, something is really screwed up. In
 			// particular, it probably means the offset does not exist. We
@@ -158,6 +162,7 @@ func (r *replicator) replicate(reader io.Reader, inbox string) {
 			r.stream.srv.logger.Errorf("Failed to read stream message while replicating: %v", err)
 			return
 		}
+		// TODO: need to piggyback HW here.
 		r.stream.srv.ncRepl.Publish(inbox, buf)
 	}
 }

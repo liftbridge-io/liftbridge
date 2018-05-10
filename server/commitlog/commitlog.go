@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	atomic_file "github.com/natefinch/atomic"
 	"github.com/pkg/errors"
 )
 
@@ -17,9 +19,11 @@ var (
 )
 
 const (
-	LogFileSuffix          = ".log"
-	IndexFileSuffix        = ".index"
-	defaultMaxSegmentBytes = 10485760
+	LogFileSuffix               = ".log"
+	IndexFileSuffix             = ".index"
+	hwFileName                  = "replication-offset-checkpoint"
+	defaultMaxSegmentBytes      = 10485760
+	defaultHWCheckpointInterval = 5 * time.Second
 )
 
 type CommitLog struct {
@@ -27,6 +31,8 @@ type CommitLog struct {
 	cleaner        Cleaner
 	name           string
 	mu             sync.RWMutex
+	hw             int64
+	flushHW        chan struct{}
 	segments       []*Segment
 	vActiveSegment atomic.Value
 	waitersMu      sync.Mutex
@@ -37,9 +43,10 @@ type Options struct {
 	Path string
 	// MaxSegmentBytes is the max number of bytes a segment can contain, once the limit is hit a
 	// new segment will be split off.
-	MaxSegmentBytes int64
-	MaxLogBytes     int64
-	Compact         bool
+	MaxSegmentBytes      int64
+	MaxLogBytes          int64
+	Compact              bool
+	hwCheckpointInterval time.Duration
 }
 
 func New(opts Options) (*CommitLog, error) {
@@ -49,6 +56,9 @@ func New(opts Options) (*CommitLog, error) {
 
 	if opts.MaxSegmentBytes == 0 {
 		opts.MaxSegmentBytes = defaultMaxSegmentBytes
+	}
+	if opts.hwCheckpointInterval == 0 {
+		opts.hwCheckpointInterval = defaultHWCheckpointInterval
 	}
 
 	var cleaner Cleaner
@@ -64,6 +74,8 @@ func New(opts Options) (*CommitLog, error) {
 		name:    filepath.Base(path),
 		cleaner: cleaner,
 		waiters: make(map[*Reader]chan struct{}),
+		hw:      -1,
+		flushHW: make(chan struct{}),
 	}
 
 	if err := l.init(); err != nil {
@@ -73,6 +85,8 @@ func New(opts Options) (*CommitLog, error) {
 	if err := l.open(); err != nil {
 		return nil, err
 	}
+
+	go l.checkpointHW()
 
 	return l, nil
 }
@@ -112,6 +126,17 @@ func (l *CommitLog) open() error {
 				return err
 			}
 			l.segments = append(l.segments, segment)
+		} else if file.Name() == hwFileName {
+			// Recover high watermark.
+			b, err := ioutil.ReadFile(filepath.Join(l.Path, file.Name()))
+			if err != nil {
+				return errors.Wrap(err, "read high watermark file failed")
+			}
+			hw, err := strconv.ParseInt(string(b), 10, 64)
+			if err != nil {
+				return errors.Wrap(err, "parse high watermark file failed")
+			}
+			l.hw = hw
 		}
 	}
 	if len(l.segments) == 0 {
@@ -174,6 +199,19 @@ func (l *CommitLog) OldestOffset() int64 {
 	return l.segments[0].BaseOffset
 }
 
+func (l *CommitLog) SetHighWatermark(hw int64) {
+	l.mu.Lock()
+	l.hw = hw
+	l.mu.Unlock()
+	// TODO: should we flush the HW to disk here?
+}
+
+func (l *CommitLog) HighWatermark() int64 {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.hw
+}
+
 func (l *CommitLog) activeSegment() *Segment {
 	return l.vActiveSegment.Load().(*Segment)
 }
@@ -186,6 +224,8 @@ func (l *CommitLog) Close() error {
 			return err
 		}
 	}
+	l.flushHW <- struct{}{}
+	close(l.flushHW)
 	return nil
 }
 
@@ -199,15 +239,59 @@ func (l *CommitLog) Delete() error {
 func (l *CommitLog) Truncate(offset int64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	var segments []*Segment
-	for _, segment := range l.segments {
-		if segment.BaseOffset < offset {
-			if err := segment.Delete(); err != nil {
-				return err
-			}
-		} else {
-			segments = append(segments, segment)
+	segment, idx := findSegment(l.segments, offset)
+	if segment == nil {
+		// Nothing to truncate.
+		return nil
+	}
+
+	// Delete all following segments.
+	deleted := 0
+	for i := idx + 1; i < len(l.segments); i++ {
+		if err := l.segments[i].Delete(); err != nil {
+			return err
 		}
+		deleted++
+	}
+
+	// Delete the segment if its base offset is the target offset.
+	if segment.BaseOffset == offset {
+		if err := segment.Delete(); err != nil {
+			return err
+		}
+		deleted++
+	}
+
+	// Retain all preceding segments.
+	segments := make([]*Segment, len(l.segments)-deleted)
+	for i := 0; i < idx; i++ {
+		segments[i] = l.segments[i]
+	}
+
+	// Replace segment containing offset with truncated segment.
+	if segment.BaseOffset != offset {
+		var (
+			ss              = NewSegmentScanner(segment)
+			newSegment, err = NewSegment(
+				segment.path, segment.BaseOffset,
+				segment.maxBytes, truncatedSuffix)
+		)
+		if err != nil {
+			return err
+		}
+		for ms, err := ss.Scan(); err == nil; ms, err = ss.Scan() {
+			if ms.Offset() < offset {
+				if _, err = newSegment.Write(ms); err != nil {
+					return err
+				}
+			} else {
+				break
+			}
+		}
+		if err = newSegment.Replace(segment); err != nil {
+			return err
+		}
+		segments[idx] = newSegment
 	}
 	l.segments = segments
 	return nil
@@ -239,4 +323,28 @@ func (l *CommitLog) split() error {
 	l.mu.Unlock()
 	l.vActiveSegment.Store(segment)
 	return nil
+}
+
+func (l *CommitLog) checkpointHW() {
+	var (
+		ticker = time.NewTicker(l.hwCheckpointInterval)
+		file   = filepath.Join(l.Path, hwFileName)
+	)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+		case _, ok := <-l.flushHW:
+			if !ok {
+				return
+			}
+		}
+		var (
+			hw = l.HighWatermark()
+			r  = strings.NewReader(strconv.FormatInt(hw, 10))
+		)
+		if err := atomic_file.WriteFile(file, r); err != nil {
+			panic(errors.Wrap(err, "failed to checkpoint high watermark"))
+		}
+	}
 }

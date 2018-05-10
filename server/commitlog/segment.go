@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	fileFormat    = "%020d%s"
-	logSuffix     = ".log"
-	cleanedSuffix = ".cleaned"
-	indexSuffix   = ".index"
+	fileFormat      = "%020d%s"
+	logSuffix       = ".log"
+	cleanedSuffix   = ".cleaned"
+	truncatedSuffix = ".truncated"
+	indexSuffix     = ".index"
 )
 
 type Segment struct {
@@ -215,10 +216,16 @@ func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 		_ = s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth))
 		return e.Offset >= offset || e.Offset == 0
 	})
-	if idx == n {
+	if idx < n && e.Offset == offset {
+		return e, nil
+	}
+	if err := s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth)); err != nil {
 		return nil, errors.New("entry not found")
 	}
-	return e, nil
+	if e.Offset == offset {
+		return e, nil
+	}
+	return nil, errors.New("entry not found")
 }
 
 func (s *Segment) Delete() error {

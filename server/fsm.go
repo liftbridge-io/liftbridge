@@ -159,6 +159,12 @@ func (s *Server) shrinkISR(protoStream *proto.Stream, replica string) error {
 // onStreamLeader is called when the server has become the leader for the
 // given stream.
 func (s *Server) onStreamLeader(stream *stream) error {
+	// If previously follower, stop sending replication requests.
+	stream.stopReplicationRequests()
+
+	// Start replicating to followers.
+	stream.startReplicating()
+
 	// Subscribe to the NATS subject and begin sequencing messages.
 	sub, err := s.nc.QueueSubscribe(stream.Subject, stream.ConsumerGroup, stream.handleMsg)
 	if err != nil {
@@ -171,12 +177,6 @@ func (s *Server) onStreamLeader(stream *stream) error {
 		stream.replSub = nil
 	}
 	stream.mu.Unlock()
-
-	// If previously follower, stop sending replication requests.
-	stream.stopReplicationRequests()
-
-	// Start replicating to followers.
-	go stream.startReplicating()
 
 	// Also subscribe to the stream replication subject.
 	sub, err = s.ncRepl.Subscribe(stream.getReplicationRequestInbox(), stream.handleReplicationRequest)
