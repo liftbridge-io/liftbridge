@@ -15,6 +15,7 @@ type Reader struct {
 	ctx context.Context
 }
 
+// TODO: for regular consumers, needs to read only up to HW.
 func (r *Reader) Read(p []byte) (n int, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -39,8 +40,13 @@ LOOP:
 			break
 		}
 
-		// Wait for segment to be written to (or split).
+		// We hit the end of the segment.
 		if err == io.EOF && !waiting {
+			// Check if there are more segments.
+			if len(segments) > r.idx+1 {
+				goto NEXT_SEGMENT
+			}
+			// Otherwise, wait for segment to be written to (or split).
 			waiting = true
 			if !r.waitForData() {
 				err = io.EOF
@@ -60,6 +66,7 @@ LOOP:
 			segments = r.cl.Segments()
 		}
 
+	NEXT_SEGMENT:
 		r.idx++
 		segment = segments[r.idx]
 		r.pos = 0
