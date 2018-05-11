@@ -209,7 +209,6 @@ func (l *CommitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
 	l.hw = hw
 	l.mu.Unlock()
-	l.Logger.Debugf("Updated high watermark for %s to %d", l.Path, hw)
 	// TODO: should we flush the HW to disk here?
 }
 
