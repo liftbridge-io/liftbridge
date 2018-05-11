@@ -200,6 +200,7 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 	replicator.request(req)
 }
 
+// TODO: need to detect leader failures.
 func (s *stream) handleReplicationResponse(msg *nats.Msg) {
 	// We should have at least 8 bytes for HW.
 	if len(msg.Data) < 8 {
