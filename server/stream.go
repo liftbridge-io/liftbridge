@@ -58,6 +58,7 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		Compact:         s.config.Log.Compact,
+		Logger:          s.logger,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create commit log")
@@ -200,14 +201,29 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 }
 
 func (s *stream) handleReplicationResponse(msg *nats.Msg) {
-	// TODO: need to get piggybacked HW to use for committing.
-	if len(msg.Data) <= 12 {
+	// We should have at least 8 bytes for HW.
+	if len(msg.Data) < 8 {
 		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
 		return
 	}
-	offset := int64(proto.Encoding.Uint64(msg.Data[:8]))
+
+	// Update HW from leader's HW.
+	hw := int64(proto.Encoding.Uint64(msg.Data[:8]))
+	s.log.SetHighWatermark(hw)
+
+	data := msg.Data[8:]
+	if len(data) == 0 {
+		return
+	}
+
+	// We should have at least 12 bytes for headers.
+	if len(data) <= 12 {
+		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
+		return
+	}
+	offset := int64(proto.Encoding.Uint64(data[:8]))
 	if offset > s.log.NewestOffset() {
-		if _, err := s.log.Append(msg.Data); err != nil {
+		if _, err := s.log.Append(data); err != nil {
 			panic(fmt.Errorf("Failed to replicate data to log %s: %v", s, err))
 		}
 	}
@@ -231,7 +247,9 @@ func (s *stream) startReplicating() {
 	}
 	s.replicating = true
 	s.commitQueue = queue.New(100) // TODO: hint should be ~steady state inflight messages
-	s.srv.logger.Debugf("Replicating stream %s to followers", s)
+	if s.ReplicationFactor > 1 {
+		s.srv.logger.Debugf("Replicating stream %s to followers", s)
+	}
 	go s.startCommitLoop()
 	for _, replicator := range s.replicators {
 		go replicator.start()
@@ -374,6 +392,13 @@ func (s *stream) inISR(replica string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	_, ok := s.isr[replica]
+	return ok
+}
+
+func (s *stream) inReplicas(id string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.replicas[id]
 	return ok
 }
 

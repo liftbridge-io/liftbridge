@@ -135,7 +135,7 @@ func (s *Server) createStream(protoStream *proto.Stream) error {
 		if err := s.onStreamLeader(stream); err != nil {
 			return err
 		}
-	} else {
+	} else if stream.inReplicas(s.config.Clustering.ServerID) {
 		if err := s.onStreamFollower(stream); err != nil {
 			return err
 		}

@@ -175,8 +175,8 @@ func (s *Server) leadershipAcquired() error {
 
 // leadershipLost should be called when this node loses leadership.
 func (s *Server) leadershipLost() error {
-	s.logger.Infof("Sserver lost metadata leadership, performing leader stepdown actions")
-	defer s.logger.Infof("Finished metadata leader stepdown actions")
+	s.logger.Warn("Server lost metadata leadership, performing leader stepdown actions")
+	defer s.logger.Warn("Finished metadata leader stepdown actions")
 
 	// Unsubscribe from leader NATS subject for propagated requests.
 	if s.leaderSub != nil {

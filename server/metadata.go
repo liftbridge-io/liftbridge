@@ -3,6 +3,7 @@ package server
 import (
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-jetbridge/proto"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/tylertreat/jetbridge/server/proto"
 )
+
+const defaultPropagateTimeout = 5 * time.Second
 
 type subjectStreams map[string]*stream
 
@@ -201,11 +204,18 @@ func (m *metadataAPI) propagateCreateStream(ctx context.Context, req *client.Cre
 	if err != nil {
 		panic(err)
 	}
-	// TODO: set timeout on context?
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultPropagateTimeout)
+		defer cancel()
+	}
+
 	resp, err := m.nc.RequestWithContext(ctx, m.getPropagateInbox(), propagate)
 	if err != nil {
 		return status.New(codes.Internal, err.Error())
 	}
+
 	r := &proto.PropagatedResponse{}
 	if err := r.Unmarshal(resp.Data); err != nil {
 		m.logger.Errorf("Invalid response for propagated request: %v", err)
@@ -213,11 +223,12 @@ func (m *metadataAPI) propagateCreateStream(ctx context.Context, req *client.Cre
 	if r.Error != nil {
 		return status.New(codes.Code(r.Error.Code), r.Error.Msg)
 	}
+
 	return nil
 }
 
 func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *status.Status {
-	m.logger.Info("Server is not metadata leader, propagating CreateStream request")
+	m.logger.Info("Server is not metadata leader, propagating ShrinkISR request")
 	propagate, err := (&proto.PropagatedRequest{
 		Op:          proto.Op_SHRINK_ISR,
 		ShrinkISROp: req,
@@ -225,11 +236,18 @@ func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkI
 	if err != nil {
 		panic(err)
 	}
-	// TODO: set timeout on context?
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultPropagateTimeout)
+		defer cancel()
+	}
+
 	resp, err := m.nc.RequestWithContext(ctx, m.getPropagateInbox(), propagate)
 	if err != nil {
 		return status.New(codes.Internal, err.Error())
 	}
+
 	r := &proto.PropagatedResponse{}
 	if err := r.Unmarshal(resp.Data); err != nil {
 		m.logger.Errorf("Invalid response for propagated request: %v", err)
@@ -237,5 +255,6 @@ func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkI
 	if r.Error != nil {
 		return status.New(codes.Code(r.Error.Code), r.Error.Msg)
 	}
+
 	return nil
 }

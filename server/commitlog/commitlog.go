@@ -12,6 +12,7 @@ import (
 
 	atomic_file "github.com/natefinch/atomic"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -46,7 +47,8 @@ type Options struct {
 	MaxSegmentBytes      int64
 	MaxLogBytes          int64
 	Compact              bool
-	hwCheckpointInterval time.Duration
+	HWCheckpointInterval time.Duration
+	Logger               *log.Logger
 }
 
 func New(opts Options) (*CommitLog, error) {
@@ -54,11 +56,15 @@ func New(opts Options) (*CommitLog, error) {
 		return nil, errors.New("path is empty")
 	}
 
+	if opts.Logger == nil {
+		opts.Logger = &log.Logger{Out: ioutil.Discard}
+	}
+
 	if opts.MaxSegmentBytes == 0 {
 		opts.MaxSegmentBytes = defaultMaxSegmentBytes
 	}
-	if opts.hwCheckpointInterval == 0 {
-		opts.hwCheckpointInterval = defaultHWCheckpointInterval
+	if opts.HWCheckpointInterval == 0 {
+		opts.HWCheckpointInterval = defaultHWCheckpointInterval
 	}
 
 	var cleaner Cleaner
@@ -203,6 +209,7 @@ func (l *CommitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
 	l.hw = hw
 	l.mu.Unlock()
+	l.Logger.Debugf("Updated high watermark for %s to %d", l.Path, hw)
 	// TODO: should we flush the HW to disk here?
 }
 
@@ -308,7 +315,9 @@ func (l *CommitLog) checkSplit() bool {
 }
 
 func (l *CommitLog) split() error {
-	segment, err := NewSegment(l.Path, l.NewestOffset()+1, l.MaxSegmentBytes)
+	offset := l.NewestOffset() + 1
+	l.Logger.Debugf("Appending new log segment for %s with base offset %d", l.Path, offset)
+	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes)
 	if err != nil {
 		return err
 	}
@@ -327,7 +336,7 @@ func (l *CommitLog) split() error {
 
 func (l *CommitLog) checkpointHW() {
 	var (
-		ticker = time.NewTicker(l.hwCheckpointInterval)
+		ticker = time.NewTicker(l.HWCheckpointInterval)
 		file   = filepath.Join(l.Path, hwFileName)
 	)
 	defer ticker.Stop()

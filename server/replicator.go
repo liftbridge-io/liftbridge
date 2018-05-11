@@ -20,7 +20,7 @@ type replicator struct {
 	requests          chan *proto.ReplicationRequest
 	mu                sync.RWMutex
 	running           bool
-	cancelReplication func()
+	cancelReplication context.CancelFunc
 }
 
 func (r *replicator) start() {
@@ -50,6 +50,7 @@ func (r *replicator) start() {
 		if req.Offset >= r.stream.log.NewestOffset() {
 			r.lastCaughtUp = now
 			r.mu.Unlock()
+			r.sendHW(req.Inbox)
 			continue
 		}
 
@@ -125,6 +126,9 @@ func (r *replicator) tick() {
 		if (lastSeenElapsed > r.maxLagTime || lastCaughtUpElapsed > r.maxLagTime) && r.stream.inISR(r.replica) {
 			// Follower has not sent a request or has not caught up in
 			// maxLagTime, so remove it from the ISR.
+			r.stream.srv.logger.Errorf("Replica %s for stream %s exceeded max lag time "+
+				"(last seen: %s, last caught up: %s), removing from ISR",
+				r.replica, r.stream, lastSeenElapsed, lastCaughtUpElapsed)
 			req := &proto.ShrinkISROp{
 				Stream:          r.stream.Stream,
 				ReplicaToRemove: r.replica,
@@ -132,11 +136,11 @@ func (r *replicator) tick() {
 			// TODO: set timeout on context.
 			if err := r.stream.srv.metadata.ShrinkISR(context.TODO(), req); err != nil {
 				r.stream.srv.logger.Errorf(
-					"Failed to remove replica %s for stream %s from ISR after exceeding max lag time: %v",
+					"Failed to remove replica %s for stream %s from ISR: %v",
 					r.replica, r.stream, err.Err())
 			} else {
 				r.stream.srv.logger.Warnf(
-					"Removed replica %s for stream %s from ISR because it exceeded max lag time",
+					"Removed replica %s for stream %s from ISR",
 					r.replica, r.stream)
 			}
 
@@ -154,7 +158,7 @@ func (r *replicator) tick() {
 func (r *replicator) replicate(reader io.Reader, inbox string) {
 	headersBuf := make([]byte, 12)
 	for {
-		buf, _, err := consumeStreamMessageSet(reader, headersBuf)
+		ms, _, err := consumeStreamMessageSet(reader, headersBuf)
 		if err == io.EOF {
 			return
 		}
@@ -162,7 +166,16 @@ func (r *replicator) replicate(reader io.Reader, inbox string) {
 			r.stream.srv.logger.Errorf("Failed to read stream message while replicating: %v", err)
 			return
 		}
-		// TODO: need to piggyback HW here.
+		// Piggyback HW in the first 8 bytes.
+		buf := make([]byte, 8+len(ms))
+		proto.Encoding.PutUint64(buf, uint64(r.stream.log.HighWatermark()))
+		copy(buf[8:], ms)
 		r.stream.srv.ncRepl.Publish(inbox, buf)
 	}
+}
+
+func (r *replicator) sendHW(inbox string) {
+	buf := make([]byte, 8)
+	proto.Encoding.PutUint64(buf, uint64(r.stream.log.HighWatermark()))
+	r.stream.srv.ncRepl.Publish(inbox, buf)
 }
