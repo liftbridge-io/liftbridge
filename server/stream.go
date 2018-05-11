@@ -147,9 +147,7 @@ func (s *stream) handleMsg(msg *nats.Msg) {
 		m.Value = msg.Data
 	}
 	m.Headers["subject"] = []byte(msg.Subject)
-	if msg.Reply != "" {
-		m.Headers["reply"] = []byte(msg.Reply)
-	}
+	m.Headers["reply"] = []byte(msg.Reply)
 
 	ms := &proto.MessageSet{Messages: []*proto.Message{m}}
 	data, err := proto.Encode(ms)

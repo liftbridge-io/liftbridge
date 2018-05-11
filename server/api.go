@@ -83,22 +83,26 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 				errCh <- status.Convert(err)
 				return
 			}
+			// TODO: this could be more efficient.
 			var (
-				m       = &proto.Message{}
+				ms      = &proto.MessageSet{}
 				decoder = proto.NewDecoder(buf)
 			)
-			if err := m.Decode(decoder); err != nil {
+			if err := ms.Decode(decoder); err != nil {
 				panic(err)
 			}
-			msg := &client.Message{
-				Offset:    offset,
-				Key:       m.Key,
-				Value:     m.Value,
-				Timestamp: m.Timestamp.UnixNano(),
-				Headers:   m.Headers,
-				Subject:   string(m.Headers["subject"]),
-				Reply:     string(m.Headers["reply"]),
-			}
+			var (
+				m   = ms.Messages[0]
+				msg = &client.Message{
+					Offset:    offset,
+					Key:       m.Key,
+					Value:     m.Value,
+					Timestamp: m.Timestamp.UnixNano(),
+					Headers:   m.Headers,
+					Subject:   string(m.Headers["subject"]),
+					Reply:     string(m.Headers["reply"]),
+				}
+			)
 			ch <- msg
 		}
 	}()
