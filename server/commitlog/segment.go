@@ -207,8 +207,8 @@ func (s *Segment) Replace(old *Segment) (err error) {
 	return s.SetupIndex()
 }
 
-// findEntry returns the entry with the given offset or an error if no such
-// entry exists.
+// findEntry returns the nearest entry whose offset is greater than or equal to
+// the given offset.
 func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 	s.Lock()
 	defer s.Unlock()
@@ -218,16 +218,11 @@ func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 		_ = s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth))
 		return e.Offset >= offset || e.Offset == 0
 	})
-	if idx < n && e.Offset == offset {
-		return e, nil
-	}
-	if err := s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth)); err != nil {
+	if idx == n {
 		return nil, errors.New("entry not found")
 	}
-	if e.Offset == offset {
-		return e, nil
-	}
-	return nil, errors.New("entry not found")
+	_ = s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth))
+	return e, nil
 }
 
 func (s *Segment) Delete() error {
