@@ -11,6 +11,9 @@
 		RaftLog
 		CreateStreamOp
 		ShrinkISROp
+		ExpandISROp
+		ReportLeaderOp
+		ChangeLeaderOp
 		Stream
 		RaftJoinRequest
 		RaftJoinResponse
@@ -45,15 +48,24 @@ type Op int32
 const (
 	Op_CREATE_STREAM Op = 0
 	Op_SHRINK_ISR    Op = 1
+	Op_REPORT_LEADER Op = 2
+	Op_CHANGE_LEADER Op = 3
+	Op_EXPAND_ISR    Op = 4
 )
 
 var Op_name = map[int32]string{
 	0: "CREATE_STREAM",
 	1: "SHRINK_ISR",
+	2: "REPORT_LEADER",
+	3: "CHANGE_LEADER",
+	4: "EXPAND_ISR",
 }
 var Op_value = map[string]int32{
 	"CREATE_STREAM": 0,
 	"SHRINK_ISR":    1,
+	"REPORT_LEADER": 2,
+	"CHANGE_LEADER": 3,
+	"EXPAND_ISR":    4,
 }
 
 func (x Op) String() string {
@@ -65,6 +77,8 @@ type RaftLog struct {
 	Op             Op              `protobuf:"varint,1,opt,name=op,proto3,enum=proto.Op" json:"op,omitempty"`
 	CreateStreamOp *CreateStreamOp `protobuf:"bytes,2,opt,name=createStreamOp" json:"createStreamOp,omitempty"`
 	ShrinkISROp    *ShrinkISROp    `protobuf:"bytes,3,opt,name=shrinkISROp" json:"shrinkISROp,omitempty"`
+	ChangeLeaderOp *ChangeLeaderOp `protobuf:"bytes,4,opt,name=changeLeaderOp" json:"changeLeaderOp,omitempty"`
+	ExpandISROp    *ExpandISROp    `protobuf:"bytes,5,opt,name=expandISROp" json:"expandISROp,omitempty"`
 }
 
 func (m *RaftLog) Reset()                    { *m = RaftLog{} }
@@ -89,6 +103,20 @@ func (m *RaftLog) GetCreateStreamOp() *CreateStreamOp {
 func (m *RaftLog) GetShrinkISROp() *ShrinkISROp {
 	if m != nil {
 		return m.ShrinkISROp
+	}
+	return nil
+}
+
+func (m *RaftLog) GetChangeLeaderOp() *ChangeLeaderOp {
+	if m != nil {
+		return m.ChangeLeaderOp
+	}
+	return nil
+}
+
+func (m *RaftLog) GetExpandISROp() *ExpandISROp {
+	if m != nil {
+		return m.ExpandISROp
 	}
 	return nil
 }
@@ -133,6 +161,78 @@ func (m *ShrinkISROp) GetReplicaToRemove() string {
 	return ""
 }
 
+type ExpandISROp struct {
+	Stream       *Stream `protobuf:"bytes,1,opt,name=stream" json:"stream,omitempty"`
+	ReplicaToAdd string  `protobuf:"bytes,2,opt,name=replicaToAdd,proto3" json:"replicaToAdd,omitempty"`
+}
+
+func (m *ExpandISROp) Reset()                    { *m = ExpandISROp{} }
+func (m *ExpandISROp) String() string            { return proto1.CompactTextString(m) }
+func (*ExpandISROp) ProtoMessage()               {}
+func (*ExpandISROp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{3} }
+
+func (m *ExpandISROp) GetStream() *Stream {
+	if m != nil {
+		return m.Stream
+	}
+	return nil
+}
+
+func (m *ExpandISROp) GetReplicaToAdd() string {
+	if m != nil {
+		return m.ReplicaToAdd
+	}
+	return ""
+}
+
+type ReportLeaderOp struct {
+	Stream  *Stream `protobuf:"bytes,1,opt,name=stream" json:"stream,omitempty"`
+	Replica string  `protobuf:"bytes,2,opt,name=replica,proto3" json:"replica,omitempty"`
+}
+
+func (m *ReportLeaderOp) Reset()                    { *m = ReportLeaderOp{} }
+func (m *ReportLeaderOp) String() string            { return proto1.CompactTextString(m) }
+func (*ReportLeaderOp) ProtoMessage()               {}
+func (*ReportLeaderOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{4} }
+
+func (m *ReportLeaderOp) GetStream() *Stream {
+	if m != nil {
+		return m.Stream
+	}
+	return nil
+}
+
+func (m *ReportLeaderOp) GetReplica() string {
+	if m != nil {
+		return m.Replica
+	}
+	return ""
+}
+
+type ChangeLeaderOp struct {
+	Stream *Stream `protobuf:"bytes,1,opt,name=stream" json:"stream,omitempty"`
+	Leader string  `protobuf:"bytes,2,opt,name=leader,proto3" json:"leader,omitempty"`
+}
+
+func (m *ChangeLeaderOp) Reset()                    { *m = ChangeLeaderOp{} }
+func (m *ChangeLeaderOp) String() string            { return proto1.CompactTextString(m) }
+func (*ChangeLeaderOp) ProtoMessage()               {}
+func (*ChangeLeaderOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{5} }
+
+func (m *ChangeLeaderOp) GetStream() *Stream {
+	if m != nil {
+		return m.Stream
+	}
+	return nil
+}
+
+func (m *ChangeLeaderOp) GetLeader() string {
+	if m != nil {
+		return m.Leader
+	}
+	return ""
+}
+
 type Stream struct {
 	Subject           string   `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
 	Name              string   `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
@@ -141,12 +241,13 @@ type Stream struct {
 	Replicas          []string `protobuf:"bytes,5,rep,name=replicas" json:"replicas,omitempty"`
 	Leader            string   `protobuf:"bytes,6,opt,name=leader,proto3" json:"leader,omitempty"`
 	Isr               []string `protobuf:"bytes,7,rep,name=isr" json:"isr,omitempty"`
+	LeaderEpoch       uint64   `protobuf:"varint,8,opt,name=leaderEpoch,proto3" json:"leaderEpoch,omitempty"`
 }
 
 func (m *Stream) Reset()                    { *m = Stream{} }
 func (m *Stream) String() string            { return proto1.CompactTextString(m) }
 func (*Stream) ProtoMessage()               {}
-func (*Stream) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{3} }
+func (*Stream) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{6} }
 
 func (m *Stream) GetSubject() string {
 	if m != nil {
@@ -197,6 +298,13 @@ func (m *Stream) GetIsr() []string {
 	return nil
 }
 
+func (m *Stream) GetLeaderEpoch() uint64 {
+	if m != nil {
+		return m.LeaderEpoch
+	}
+	return 0
+}
+
 // RaftJoinRequest is a request to join a Raft group.
 type RaftJoinRequest struct {
 	NodeID   string `protobuf:"bytes,1,opt,name=nodeID,proto3" json:"nodeID,omitempty"`
@@ -206,7 +314,7 @@ type RaftJoinRequest struct {
 func (m *RaftJoinRequest) Reset()                    { *m = RaftJoinRequest{} }
 func (m *RaftJoinRequest) String() string            { return proto1.CompactTextString(m) }
 func (*RaftJoinRequest) ProtoMessage()               {}
-func (*RaftJoinRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{4} }
+func (*RaftJoinRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{7} }
 
 func (m *RaftJoinRequest) GetNodeID() string {
 	if m != nil {
@@ -230,7 +338,7 @@ type RaftJoinResponse struct {
 func (m *RaftJoinResponse) Reset()                    { *m = RaftJoinResponse{} }
 func (m *RaftJoinResponse) String() string            { return proto1.CompactTextString(m) }
 func (*RaftJoinResponse) ProtoMessage()               {}
-func (*RaftJoinResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{5} }
+func (*RaftJoinResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{8} }
 
 func (m *RaftJoinResponse) GetError() string {
 	if m != nil {
@@ -246,7 +354,7 @@ type MetadataSnapshot struct {
 func (m *MetadataSnapshot) Reset()                    { *m = MetadataSnapshot{} }
 func (m *MetadataSnapshot) String() string            { return proto1.CompactTextString(m) }
 func (*MetadataSnapshot) ProtoMessage()               {}
-func (*MetadataSnapshot) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{6} }
+func (*MetadataSnapshot) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{9} }
 
 func (m *MetadataSnapshot) GetStreams() []*Stream {
 	if m != nil {
@@ -264,7 +372,7 @@ type ReplicationRequest struct {
 func (m *ReplicationRequest) Reset()                    { *m = ReplicationRequest{} }
 func (m *ReplicationRequest) String() string            { return proto1.CompactTextString(m) }
 func (*ReplicationRequest) ProtoMessage()               {}
-func (*ReplicationRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{7} }
+func (*ReplicationRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{10} }
 
 func (m *ReplicationRequest) GetReplicaID() string {
 	if m != nil {
@@ -291,12 +399,14 @@ type PropagatedRequest struct {
 	Op             Op                          `protobuf:"varint,1,opt,name=op,proto3,enum=proto.Op" json:"op,omitempty"`
 	CreateStreamOp *proto2.CreateStreamRequest `protobuf:"bytes,2,opt,name=createStreamOp" json:"createStreamOp,omitempty"`
 	ShrinkISROp    *ShrinkISROp                `protobuf:"bytes,3,opt,name=shrinkISROp" json:"shrinkISROp,omitempty"`
+	ReportLeaderOp *ReportLeaderOp             `protobuf:"bytes,4,opt,name=reportLeaderOp" json:"reportLeaderOp,omitempty"`
+	ExpandISROp    *ExpandISROp                `protobuf:"bytes,5,opt,name=expandISROp" json:"expandISROp,omitempty"`
 }
 
 func (m *PropagatedRequest) Reset()                    { *m = PropagatedRequest{} }
 func (m *PropagatedRequest) String() string            { return proto1.CompactTextString(m) }
 func (*PropagatedRequest) ProtoMessage()               {}
-func (*PropagatedRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{8} }
+func (*PropagatedRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{11} }
 
 func (m *PropagatedRequest) GetOp() Op {
 	if m != nil {
@@ -319,6 +429,20 @@ func (m *PropagatedRequest) GetShrinkISROp() *ShrinkISROp {
 	return nil
 }
 
+func (m *PropagatedRequest) GetReportLeaderOp() *ReportLeaderOp {
+	if m != nil {
+		return m.ReportLeaderOp
+	}
+	return nil
+}
+
+func (m *PropagatedRequest) GetExpandISROp() *ExpandISROp {
+	if m != nil {
+		return m.ExpandISROp
+	}
+	return nil
+}
+
 type Error struct {
 	Code uint32 `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
 	Msg  string `protobuf:"bytes,2,opt,name=msg,proto3" json:"msg,omitempty"`
@@ -327,7 +451,7 @@ type Error struct {
 func (m *Error) Reset()                    { *m = Error{} }
 func (m *Error) String() string            { return proto1.CompactTextString(m) }
 func (*Error) ProtoMessage()               {}
-func (*Error) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{9} }
+func (*Error) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{12} }
 
 func (m *Error) GetCode() uint32 {
 	if m != nil {
@@ -352,7 +476,7 @@ type PropagatedResponse struct {
 func (m *PropagatedResponse) Reset()                    { *m = PropagatedResponse{} }
 func (m *PropagatedResponse) String() string            { return proto1.CompactTextString(m) }
 func (*PropagatedResponse) ProtoMessage()               {}
-func (*PropagatedResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{10} }
+func (*PropagatedResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{13} }
 
 func (m *PropagatedResponse) GetOp() Op {
 	if m != nil {
@@ -379,6 +503,9 @@ func init() {
 	proto1.RegisterType((*RaftLog)(nil), "proto.RaftLog")
 	proto1.RegisterType((*CreateStreamOp)(nil), "proto.CreateStreamOp")
 	proto1.RegisterType((*ShrinkISROp)(nil), "proto.ShrinkISROp")
+	proto1.RegisterType((*ExpandISROp)(nil), "proto.ExpandISROp")
+	proto1.RegisterType((*ReportLeaderOp)(nil), "proto.ReportLeaderOp")
+	proto1.RegisterType((*ChangeLeaderOp)(nil), "proto.ChangeLeaderOp")
 	proto1.RegisterType((*Stream)(nil), "proto.Stream")
 	proto1.RegisterType((*RaftJoinRequest)(nil), "proto.RaftJoinRequest")
 	proto1.RegisterType((*RaftJoinResponse)(nil), "proto.RaftJoinResponse")
@@ -429,6 +556,26 @@ func (m *RaftLog) MarshalTo(dAtA []byte) (int, error) {
 		}
 		i += n2
 	}
+	if m.ChangeLeaderOp != nil {
+		dAtA[i] = 0x22
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.ChangeLeaderOp.Size()))
+		n3, err := m.ChangeLeaderOp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n3
+	}
+	if m.ExpandISROp != nil {
+		dAtA[i] = 0x2a
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.ExpandISROp.Size()))
+		n4, err := m.ExpandISROp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n4
+	}
 	return i, nil
 }
 
@@ -451,11 +598,11 @@ func (m *CreateStreamOp) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.Stream.Size()))
-		n3, err := m.Stream.MarshalTo(dAtA[i:])
+		n5, err := m.Stream.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n3
+		i += n5
 	}
 	return i, nil
 }
@@ -479,17 +626,119 @@ func (m *ShrinkISROp) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.Stream.Size()))
-		n4, err := m.Stream.MarshalTo(dAtA[i:])
+		n6, err := m.Stream.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n4
+		i += n6
 	}
 	if len(m.ReplicaToRemove) > 0 {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(len(m.ReplicaToRemove)))
 		i += copy(dAtA[i:], m.ReplicaToRemove)
+	}
+	return i, nil
+}
+
+func (m *ExpandISROp) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ExpandISROp) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Stream != nil {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.Stream.Size()))
+		n7, err := m.Stream.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n7
+	}
+	if len(m.ReplicaToAdd) > 0 {
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(len(m.ReplicaToAdd)))
+		i += copy(dAtA[i:], m.ReplicaToAdd)
+	}
+	return i, nil
+}
+
+func (m *ReportLeaderOp) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ReportLeaderOp) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Stream != nil {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.Stream.Size()))
+		n8, err := m.Stream.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n8
+	}
+	if len(m.Replica) > 0 {
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(len(m.Replica)))
+		i += copy(dAtA[i:], m.Replica)
+	}
+	return i, nil
+}
+
+func (m *ChangeLeaderOp) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ChangeLeaderOp) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Stream != nil {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.Stream.Size()))
+		n9, err := m.Stream.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n9
+	}
+	if len(m.Leader) > 0 {
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(len(m.Leader)))
+		i += copy(dAtA[i:], m.Leader)
 	}
 	return i, nil
 }
@@ -567,6 +816,11 @@ func (m *Stream) MarshalTo(dAtA []byte) (int, error) {
 			i++
 			i += copy(dAtA[i:], s)
 		}
+	}
+	if m.LeaderEpoch != 0 {
+		dAtA[i] = 0x40
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.LeaderEpoch))
 	}
 	return i, nil
 }
@@ -714,21 +968,41 @@ func (m *PropagatedRequest) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.CreateStreamOp.Size()))
-		n5, err := m.CreateStreamOp.MarshalTo(dAtA[i:])
+		n10, err := m.CreateStreamOp.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n5
+		i += n10
 	}
 	if m.ShrinkISROp != nil {
 		dAtA[i] = 0x1a
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.ShrinkISROp.Size()))
-		n6, err := m.ShrinkISROp.MarshalTo(dAtA[i:])
+		n11, err := m.ShrinkISROp.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n6
+		i += n11
+	}
+	if m.ReportLeaderOp != nil {
+		dAtA[i] = 0x22
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.ReportLeaderOp.Size()))
+		n12, err := m.ReportLeaderOp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n12
+	}
+	if m.ExpandISROp != nil {
+		dAtA[i] = 0x2a
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.ExpandISROp.Size()))
+		n13, err := m.ExpandISROp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n13
 	}
 	return i, nil
 }
@@ -786,21 +1060,21 @@ func (m *PropagatedResponse) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.Error.Size()))
-		n7, err := m.Error.MarshalTo(dAtA[i:])
+		n14, err := m.Error.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n7
+		i += n14
 	}
 	if m.CreateStreamResp != nil {
 		dAtA[i] = 0x1a
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.CreateStreamResp.Size()))
-		n8, err := m.CreateStreamResp.MarshalTo(dAtA[i:])
+		n15, err := m.CreateStreamResp.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n8
+		i += n15
 	}
 	return i, nil
 }
@@ -828,6 +1102,14 @@ func (m *RaftLog) Size() (n int) {
 		l = m.ShrinkISROp.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
+	if m.ChangeLeaderOp != nil {
+		l = m.ChangeLeaderOp.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	if m.ExpandISROp != nil {
+		l = m.ExpandISROp.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
 	return n
 }
 
@@ -849,6 +1131,48 @@ func (m *ShrinkISROp) Size() (n int) {
 		n += 1 + l + sovInternal(uint64(l))
 	}
 	l = len(m.ReplicaToRemove)
+	if l > 0 {
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	return n
+}
+
+func (m *ExpandISROp) Size() (n int) {
+	var l int
+	_ = l
+	if m.Stream != nil {
+		l = m.Stream.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	l = len(m.ReplicaToAdd)
+	if l > 0 {
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	return n
+}
+
+func (m *ReportLeaderOp) Size() (n int) {
+	var l int
+	_ = l
+	if m.Stream != nil {
+		l = m.Stream.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	l = len(m.Replica)
+	if l > 0 {
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	return n
+}
+
+func (m *ChangeLeaderOp) Size() (n int) {
+	var l int
+	_ = l
+	if m.Stream != nil {
+		l = m.Stream.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	l = len(m.Leader)
 	if l > 0 {
 		n += 1 + l + sovInternal(uint64(l))
 	}
@@ -888,6 +1212,9 @@ func (m *Stream) Size() (n int) {
 			l = len(s)
 			n += 1 + l + sovInternal(uint64(l))
 		}
+	}
+	if m.LeaderEpoch != 0 {
+		n += 1 + sovInternal(uint64(m.LeaderEpoch))
 	}
 	return n
 }
@@ -957,6 +1284,14 @@ func (m *PropagatedRequest) Size() (n int) {
 	}
 	if m.ShrinkISROp != nil {
 		l = m.ShrinkISROp.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	if m.ReportLeaderOp != nil {
+		l = m.ReportLeaderOp.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	if m.ExpandISROp != nil {
+		l = m.ExpandISROp.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
 	return n
@@ -1116,6 +1451,72 @@ func (m *RaftLog) Unmarshal(dAtA []byte) error {
 				m.ShrinkISROp = &ShrinkISROp{}
 			}
 			if err := m.ShrinkISROp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ChangeLeaderOp", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ChangeLeaderOp == nil {
+				m.ChangeLeaderOp = &ChangeLeaderOp{}
+			}
+			if err := m.ChangeLeaderOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ExpandISROp", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ExpandISROp == nil {
+				m.ExpandISROp = &ExpandISROp{}
+			}
+			if err := m.ExpandISROp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -1313,6 +1714,342 @@ func (m *ShrinkISROp) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.ReplicaToRemove = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipInternal(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthInternal
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ExpandISROp) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowInternal
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ExpandISROp: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ExpandISROp: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Stream", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Stream == nil {
+				m.Stream = &Stream{}
+			}
+			if err := m.Stream.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReplicaToAdd", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ReplicaToAdd = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipInternal(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthInternal
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ReportLeaderOp) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowInternal
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ReportLeaderOp: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ReportLeaderOp: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Stream", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Stream == nil {
+				m.Stream = &Stream{}
+			}
+			if err := m.Stream.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Replica", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Replica = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipInternal(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthInternal
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ChangeLeaderOp) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowInternal
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ChangeLeaderOp: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ChangeLeaderOp: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Stream", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Stream == nil {
+				m.Stream = &Stream{}
+			}
+			if err := m.Stream.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Leader", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Leader = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -1557,6 +2294,25 @@ func (m *Stream) Unmarshal(dAtA []byte) error {
 			}
 			m.Isr = append(m.Isr, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LeaderEpoch", wireType)
+			}
+			m.LeaderEpoch = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LeaderEpoch |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipInternal(dAtA[iNdEx:])
@@ -2087,6 +2843,72 @@ func (m *PropagatedRequest) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReportLeaderOp", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ReportLeaderOp == nil {
+				m.ReportLeaderOp = &ReportLeaderOp{}
+			}
+			if err := m.ReportLeaderOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ExpandISROp", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ExpandISROp == nil {
+				m.ExpandISROp = &ExpandISROp{}
+			}
+			if err := m.ExpandISROp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipInternal(dAtA[iNdEx:])
@@ -2449,45 +3271,55 @@ var (
 func init() { proto1.RegisterFile("server/proto/internal.proto", fileDescriptorInternal) }
 
 var fileDescriptorInternal = []byte{
-	// 635 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x53, 0xc1, 0x6e, 0x13, 0x3d,
-	0x10, 0xae, 0x93, 0x26, 0xf9, 0x33, 0xf9, 0x93, 0x6e, 0x2d, 0x40, 0x4b, 0x8b, 0xa2, 0x68, 0x05,
-	0x6a, 0x84, 0x68, 0x23, 0x05, 0x24, 0x0e, 0x88, 0x43, 0x5b, 0x42, 0x09, 0x50, 0x82, 0xbc, 0x3d,
-	0x53, 0x9c, 0x5d, 0x37, 0xdd, 0x92, 0xac, 0x8d, 0xed, 0x54, 0xf0, 0x26, 0x20, 0xf1, 0x00, 0x3c,
-	0x0a, 0xc7, 0x3e, 0x02, 0x2a, 0x2f, 0x82, 0xec, 0xf5, 0x36, 0x4d, 0x5b, 0x2a, 0x0e, 0x9c, 0x76,
-	0xbe, 0x19, 0xcf, 0x37, 0xf3, 0xf9, 0x5b, 0xc3, 0xaa, 0x62, 0xf2, 0x98, 0xc9, 0x8e, 0x90, 0x5c,
-	0xf3, 0x4e, 0x92, 0x6a, 0x26, 0x53, 0x3a, 0xde, 0xb0, 0x10, 0x97, 0xec, 0x67, 0xa5, 0x3b, 0x4a,
-	0xf4, 0xe1, 0x74, 0xb8, 0x11, 0xf1, 0x49, 0x47, 0x7f, 0x1e, 0x33, 0xa9, 0x25, 0xa3, 0xba, 0x33,
-	0xe2, 0xeb, 0x47, 0x4c, 0x0f, 0x65, 0x12, 0x8f, 0x98, 0xeb, 0xa7, 0x22, 0xc9, 0x5a, 0x83, 0xaf,
-	0x08, 0x2a, 0x84, 0x1e, 0xe8, 0xd7, 0x7c, 0x84, 0x6f, 0x43, 0x81, 0x0b, 0x1f, 0xb5, 0x50, 0xbb,
-	0xd1, 0xad, 0x66, 0xf5, 0x8d, 0x81, 0x20, 0x05, 0x2e, 0xf0, 0x53, 0x68, 0x44, 0x86, 0x8c, 0x85,
-	0x86, 0x73, 0x32, 0x10, 0x7e, 0xa1, 0x85, 0xda, 0xb5, 0xee, 0x4d, 0x77, 0x6c, 0x7b, 0xae, 0x48,
-	0x2e, 0x1c, 0xc6, 0x8f, 0xa0, 0xa6, 0x0e, 0x65, 0x92, 0x7e, 0xe8, 0x87, 0x64, 0x20, 0xfc, 0xa2,
-	0xed, 0xc5, 0xae, 0x37, 0x9c, 0x55, 0xc8, 0xf9, 0x63, 0xc1, 0x63, 0x68, 0xcc, 0xf3, 0xe2, 0x7b,
-	0x50, 0x56, 0x36, 0xb6, 0x5b, 0xd6, 0xba, 0xf5, 0x9c, 0xc2, 0x26, 0x89, 0x2b, 0x06, 0xef, 0xa0,
-	0x76, 0x8e, 0xf4, 0x2f, 0xbb, 0x70, 0x1b, 0x96, 0x24, 0x13, 0xe3, 0x24, 0xa2, 0x7b, 0x9c, 0xb0,
-	0x09, 0x3f, 0x66, 0x56, 0x64, 0x95, 0x5c, 0x4c, 0x07, 0x27, 0x08, 0xca, 0x59, 0x33, 0xf6, 0xa1,
-	0xa2, 0xa6, 0xc3, 0x23, 0x16, 0x69, 0x4b, 0x5e, 0x25, 0x39, 0xc4, 0x18, 0x16, 0x53, 0x3a, 0xc9,
-	0x39, 0x6c, 0x8c, 0xef, 0x42, 0x3d, 0xe2, 0xa9, 0x9a, 0x4e, 0x98, 0xdc, 0x91, 0x7c, 0x9a, 0xdd,
-	0x44, 0x95, 0xcc, 0x27, 0xf1, 0x03, 0x58, 0x76, 0x13, 0x75, 0xc2, 0xd3, 0xe7, 0x34, 0xd2, 0x5c,
-	0xfa, 0x8b, 0x2d, 0xd4, 0x2e, 0x91, 0xcb, 0x05, 0xbc, 0x02, 0xff, 0xb9, 0xa4, 0xf2, 0x4b, 0xad,
-	0x62, 0xbb, 0x4a, 0xce, 0x30, 0xbe, 0x05, 0xe5, 0x31, 0xa3, 0x31, 0x93, 0x7e, 0xd9, 0x0e, 0x72,
-	0x08, 0x7b, 0x50, 0x4c, 0x94, 0xf4, 0x2b, 0xf6, 0xb8, 0x09, 0x83, 0x1e, 0x2c, 0x99, 0xdf, 0xe0,
-	0x25, 0x4f, 0x52, 0xc2, 0x3e, 0x4e, 0x99, 0xd2, 0xa6, 0x39, 0xe5, 0x31, 0xeb, 0x3f, 0x73, 0xca,
-	0x1c, 0x32, 0x03, 0x4d, 0xb4, 0x19, 0xc7, 0xd2, 0x89, 0x3b, 0xc3, 0x41, 0x1b, 0xbc, 0x19, 0x8d,
-	0x12, 0x3c, 0x55, 0x0c, 0xdf, 0x80, 0x12, 0x93, 0x92, 0x4b, 0x47, 0x93, 0x81, 0xe0, 0x09, 0x78,
-	0xbb, 0x4c, 0xd3, 0x98, 0x6a, 0x1a, 0xa6, 0x54, 0xa8, 0x43, 0xae, 0xf1, 0x1a, 0x54, 0x32, 0x2f,
-	0x94, 0x8f, 0x5a, 0xc5, 0xcb, 0x4e, 0xe5, 0xd5, 0xe0, 0x3d, 0x60, 0x32, 0xbb, 0x88, 0x7c, 0xe1,
-	0x3b, 0x50, 0x75, 0xca, 0xcf, 0x76, 0x9e, 0x25, 0x8c, 0x1c, 0x7e, 0x70, 0xa0, 0x98, 0xb6, 0x4b,
-	0x17, 0x89, 0x43, 0x66, 0xbd, 0x24, 0x1d, 0xf2, 0x4f, 0xce, 0x8b, 0x0c, 0x04, 0xdf, 0x11, 0x2c,
-	0xbf, 0x95, 0x5c, 0xd0, 0x11, 0xd5, 0x2c, 0xce, 0x27, 0x5c, 0xf3, 0x42, 0xb6, 0xfe, 0xf0, 0x42,
-	0x56, 0xae, 0x78, 0x21, 0x8e, 0xee, 0x1f, 0x3d, 0x93, 0x75, 0x28, 0xf5, 0xcc, 0x95, 0x9a, 0x3f,
-	0x2e, 0xe2, 0x31, 0xb3, 0xfb, 0xd5, 0x89, 0x8d, 0x8d, 0xd3, 0x13, 0x35, 0x72, 0x3e, 0x99, 0x30,
-	0xf8, 0x86, 0x00, 0x9f, 0x57, 0xe6, 0x5c, 0xba, 0x46, 0x5a, 0x90, 0x1b, 0x98, 0x29, 0xfa, 0xdf,
-	0x55, 0xed, 0x50, 0x67, 0x27, 0xde, 0x01, 0x2f, 0x9a, 0x53, 0xa8, 0xf2, 0xfd, 0x57, 0xaf, 0xbc,
-	0x80, 0x6c, 0x2a, 0xb9, 0xd4, 0x74, 0x7f, 0x0d, 0x0a, 0x03, 0x81, 0x97, 0xa1, 0xbe, 0x4d, 0x7a,
-	0x9b, 0x7b, 0xbd, 0xfd, 0x70, 0x8f, 0xf4, 0x36, 0x77, 0xbd, 0x05, 0xdc, 0x00, 0x08, 0x5f, 0x90,
-	0xfe, 0x9b, 0x57, 0xfb, 0xfd, 0x90, 0x78, 0x68, 0xcb, 0xfb, 0x71, 0xda, 0x44, 0x27, 0xa7, 0x4d,
-	0xf4, 0xf3, 0xb4, 0x89, 0xbe, 0xfc, 0x6a, 0x2e, 0x0c, 0xcb, 0x76, 0xd0, 0xc3, 0xdf, 0x01, 0x00,
-	0x00, 0xff, 0xff, 0xd3, 0xb2, 0x92, 0x95, 0x2c, 0x05, 0x00, 0x00,
+	// 786 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x54, 0xcd, 0x6e, 0xeb, 0x44,
+	0x14, 0xbe, 0xce, 0xef, 0xcd, 0xc9, 0x4d, 0xae, 0x3b, 0x02, 0x64, 0x7a, 0x51, 0x14, 0x59, 0x20,
+	0x22, 0xc4, 0x6d, 0xa4, 0x80, 0xc4, 0x02, 0xb1, 0xc8, 0x6d, 0x4d, 0x1b, 0x68, 0x9b, 0x32, 0xce,
+	0xa2, 0x1b, 0x28, 0x13, 0x7b, 0x9a, 0xb8, 0x24, 0x9e, 0x61, 0x3c, 0xa9, 0xca, 0x4b, 0xb0, 0x66,
+	0x01, 0xef, 0xc3, 0x92, 0x47, 0x40, 0xe5, 0x0d, 0x78, 0x02, 0x34, 0xe3, 0x71, 0x62, 0xa7, 0xa5,
+	0x8a, 0x10, 0x2b, 0x9f, 0xdf, 0xef, 0x9c, 0xf3, 0xcd, 0xf1, 0x81, 0x57, 0x09, 0x15, 0xb7, 0x54,
+	0xf4, 0xb9, 0x60, 0x92, 0xf5, 0xa3, 0x58, 0x52, 0x11, 0x93, 0xc5, 0x81, 0x56, 0x51, 0x55, 0x7f,
+	0xf6, 0x07, 0xb3, 0x48, 0xce, 0x57, 0xd3, 0x83, 0x80, 0x2d, 0xfb, 0xf2, 0xa7, 0x05, 0x15, 0x52,
+	0x50, 0x22, 0xfb, 0x33, 0xf6, 0xfa, 0x86, 0xca, 0xa9, 0x88, 0xc2, 0x19, 0x35, 0xf9, 0x84, 0x47,
+	0x69, 0xaa, 0xfb, 0x73, 0x09, 0xea, 0x98, 0x5c, 0xcb, 0x53, 0x36, 0x43, 0xef, 0x42, 0x89, 0x71,
+	0xc7, 0xea, 0x5a, 0xbd, 0xf6, 0xa0, 0x91, 0xfa, 0x0f, 0xc6, 0x1c, 0x97, 0x18, 0x47, 0x5f, 0x40,
+	0x3b, 0x50, 0x60, 0xd4, 0x57, 0x98, 0xcb, 0x31, 0x77, 0x4a, 0x5d, 0xab, 0xd7, 0x1c, 0xbc, 0x6d,
+	0xc2, 0x0e, 0x0b, 0x4e, 0xbc, 0x15, 0x8c, 0x3e, 0x85, 0x66, 0x32, 0x17, 0x51, 0xfc, 0xc3, 0xc8,
+	0xc7, 0x63, 0xee, 0x94, 0x75, 0x2e, 0x32, 0xb9, 0xfe, 0xc6, 0x83, 0xf3, 0x61, 0xba, 0xe8, 0x9c,
+	0xc4, 0x33, 0x7a, 0x4a, 0x49, 0x48, 0xc5, 0x98, 0x3b, 0x95, 0x62, 0xd1, 0x82, 0x13, 0x6f, 0x05,
+	0xab, 0xa2, 0xf4, 0x8e, 0x93, 0x38, 0x4c, 0x8b, 0x56, 0x0b, 0x45, 0xbd, 0x8d, 0x07, 0xe7, 0xc3,
+	0xdc, 0xcf, 0xa0, 0x5d, 0x1c, 0x06, 0x7d, 0x00, 0xb5, 0x44, 0xcb, 0x9a, 0x9a, 0xe6, 0xa0, 0x95,
+	0xf5, 0xad, 0x8d, 0xd8, 0x38, 0xdd, 0xef, 0xa0, 0x99, 0x9b, 0x64, 0xc7, 0x2c, 0xd4, 0x83, 0x97,
+	0x82, 0xf2, 0x45, 0x14, 0x90, 0x09, 0xc3, 0x74, 0xc9, 0x6e, 0xa9, 0x66, 0xb6, 0x81, 0xb7, 0xcd,
+	0xee, 0x25, 0x34, 0x73, 0x4d, 0xef, 0x8a, 0xef, 0xc2, 0x8b, 0x35, 0xd0, 0x30, 0x0c, 0x0d, 0x78,
+	0xc1, 0xe6, 0x7e, 0x03, 0x6d, 0x4c, 0x39, 0x13, 0x72, 0x4d, 0xdd, 0x8e, 0xe0, 0x0e, 0xd4, 0x0d,
+	0x90, 0xc1, 0xcd, 0x54, 0x77, 0x0c, 0xed, 0xe2, 0xeb, 0xec, 0x0a, 0xf9, 0x0e, 0xd4, 0x16, 0x3a,
+	0xc5, 0x20, 0x1a, 0xcd, 0xfd, 0xdb, 0x82, 0x9a, 0xbf, 0xae, 0x9a, 0xac, 0xa6, 0x37, 0x34, 0x90,
+	0x1a, 0xaa, 0x81, 0x33, 0x15, 0x21, 0xa8, 0xc4, 0x64, 0x99, 0x31, 0xa8, 0x65, 0xf4, 0x3e, 0xb4,
+	0x02, 0x16, 0x27, 0xab, 0x25, 0x15, 0xc7, 0x82, 0xad, 0xd2, 0xe5, 0x6b, 0xe0, 0xa2, 0x11, 0x7d,
+	0x0c, 0x7b, 0xa6, 0x75, 0x19, 0xb1, 0xf8, 0x4b, 0x12, 0x48, 0x26, 0xf4, 0xb6, 0x55, 0xf1, 0x43,
+	0x07, 0xda, 0x87, 0xe7, 0xc6, 0x98, 0x38, 0xd5, 0x6e, 0xb9, 0xd7, 0xc0, 0x6b, 0x3d, 0x37, 0x40,
+	0x2d, 0x3f, 0x00, 0xb2, 0xa1, 0x1c, 0x25, 0xc2, 0xa9, 0xeb, 0x70, 0x25, 0xa2, 0x2e, 0x34, 0x53,
+	0x9f, 0xc7, 0x59, 0x30, 0x77, 0x9e, 0x77, 0xad, 0x5e, 0x05, 0xe7, 0x4d, 0xae, 0x07, 0x2f, 0xd5,
+	0xbf, 0xf9, 0x15, 0x8b, 0x62, 0x4c, 0x7f, 0x5c, 0xd1, 0x44, 0x2a, 0xf8, 0x98, 0x85, 0x74, 0x74,
+	0x64, 0x66, 0x37, 0x9a, 0x6a, 0x49, 0x49, 0xc3, 0x30, 0xcc, 0x98, 0x5b, 0xeb, 0x6e, 0x0f, 0xec,
+	0x0d, 0x4c, 0xc2, 0x59, 0x9c, 0x50, 0xf4, 0x16, 0x54, 0xa9, 0x10, 0x4c, 0x18, 0x98, 0x54, 0x71,
+	0x3f, 0x07, 0xfb, 0x8c, 0x4a, 0x12, 0x12, 0x49, 0xfc, 0x98, 0xf0, 0x64, 0xce, 0x24, 0xfa, 0x10,
+	0xea, 0xe9, 0xdb, 0x24, 0x8e, 0xd5, 0x2d, 0x3f, 0x7c, 0xb9, 0xcc, 0xeb, 0x7e, 0x0f, 0x08, 0x6f,
+	0xa8, 0xca, 0x1a, 0x7e, 0x0f, 0x1a, 0x86, 0x9b, 0x75, 0xcf, 0x1b, 0x83, 0x1a, 0x87, 0x5d, 0x5f,
+	0x27, 0x54, 0xea, 0xa6, 0xcb, 0xd8, 0x68, 0xaa, 0xbd, 0x28, 0x9e, 0xb2, 0x3b, 0xf3, 0x5a, 0xa9,
+	0xe2, 0xfe, 0x56, 0x82, 0xbd, 0x0b, 0xc1, 0x38, 0x99, 0x11, 0x49, 0xc3, 0xac, 0xc2, 0x13, 0x67,
+	0xeb, 0xcd, 0xbf, 0x9c, 0xad, 0xfd, 0x47, 0xce, 0x96, 0x81, 0xfb, 0xff, 0x6e, 0x97, 0x28, 0xfc,
+	0x53, 0x5b, 0xb7, 0xab, 0xf8, 0xc3, 0xe1, 0xad, 0xe0, 0xff, 0x78, 0xbb, 0x5e, 0x43, 0xd5, 0x53,
+	0xef, 0xa8, 0x7e, 0x84, 0x80, 0x85, 0x54, 0x93, 0xd2, 0xc2, 0x5a, 0x56, 0x0b, 0xb8, 0x4c, 0x66,
+	0x66, 0x39, 0x94, 0xe8, 0xfe, 0x6a, 0x01, 0xca, 0xd3, 0x69, 0x56, 0xe3, 0x09, 0x3e, 0xdd, 0x6c,
+	0x6b, 0x52, 0x1a, 0x5f, 0x64, 0x0d, 0x29, 0x9b, 0xd9, 0x21, 0x74, 0x0c, 0x76, 0x50, 0xa0, 0x35,
+	0xc9, 0x48, 0x7b, 0xf5, 0x28, 0xeb, 0x69, 0x55, 0xfc, 0x20, 0xe9, 0xa3, 0x6f, 0xa1, 0x34, 0xe6,
+	0x68, 0x0f, 0x5a, 0x87, 0xd8, 0x1b, 0x4e, 0xbc, 0x2b, 0x7f, 0x82, 0xbd, 0xe1, 0x99, 0xfd, 0x0c,
+	0xb5, 0x01, 0xfc, 0x13, 0x3c, 0x3a, 0xff, 0xfa, 0x6a, 0xe4, 0x63, 0xdb, 0x52, 0x21, 0xd8, 0xbb,
+	0x18, 0xe3, 0xc9, 0xd5, 0xa9, 0x37, 0x3c, 0xf2, 0xb0, 0x5d, 0xd2, 0x59, 0x27, 0xc3, 0xf3, 0x63,
+	0x2f, 0x33, 0x95, 0x55, 0x96, 0x77, 0x79, 0x31, 0x3c, 0x3f, 0xd2, 0x59, 0x95, 0x37, 0xf6, 0xef,
+	0xf7, 0x1d, 0xeb, 0x8f, 0xfb, 0x8e, 0xf5, 0xe7, 0x7d, 0xc7, 0xfa, 0xe5, 0xaf, 0xce, 0xb3, 0x69,
+	0x4d, 0xb7, 0xf7, 0xc9, 0x3f, 0x01, 0x00, 0x00, 0xff, 0xff, 0xc2, 0x12, 0xe3, 0xc5, 0x6c, 0x07,
+	0x00, 0x00,
 }

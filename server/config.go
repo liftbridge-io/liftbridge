@@ -23,16 +23,17 @@ type LogConfig struct {
 }
 
 type ClusteringConfig struct {
-	ServerID             string
-	Namespace            string
-	RaftPath             string
-	RaftSnapshots        int
-	RaftCacheSize        int
-	RaftBootstrap        bool
-	RaftBootstrapPeers   []string
-	RaftLogging          bool
-	ReplicaMaxLagTime    time.Duration
-	ReplicaFetchInterval time.Duration
+	ServerID                string
+	Namespace               string
+	RaftPath                string
+	RaftSnapshots           int
+	RaftCacheSize           int
+	RaftBootstrap           bool
+	RaftBootstrapPeers      []string
+	RaftLogging             bool
+	ReplicaMaxLagTime       time.Duration
+	ReplicaFetchInterval    time.Duration
+	ReplicaMaxLeaderTimeout time.Duration
 }
 
 type Config struct {
@@ -54,6 +55,8 @@ func NewConfig(configFile string) (*Config, error) {
 	config.Clustering.Namespace = defaultNamespace
 	config.Clustering.ReplicaMaxLagTime = 10 * time.Second
 	config.Clustering.ReplicaFetchInterval = time.Second
+	config.Clustering.ReplicaMaxLeaderTimeout = 10 * time.Second
+	config.Log.RetentionMaxBytes = -1
 
 	if configFile == "" {
 		return config, nil

@@ -186,6 +186,7 @@ func (s *Server) leadershipLost() error {
 		s.leaderSub = nil
 	}
 
+	s.metadata.LostLeadership()
 	atomic.StoreInt64(&s.raft.leader, 0)
 	return nil
 }
@@ -230,6 +231,32 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		}
 		// TODO: What should we do with the context here?
 		if err := s.metadata.ShrinkISR(context.TODO(), req.ShrinkISROp); err != nil {
+			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+		}
+		data, err := resp.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		s.nc.Publish(m.Reply, data)
+	case proto.Op_REPORT_LEADER:
+		resp := &proto.PropagatedResponse{
+			Op: req.Op,
+		}
+		// TODO: What should we do with the context here?
+		if err := s.metadata.ReportLeader(context.TODO(), req.ReportLeaderOp); err != nil {
+			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+		}
+		data, err := resp.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		s.nc.Publish(m.Reply, data)
+	case proto.Op_EXPAND_ISR:
+		resp := &proto.PropagatedResponse{
+			Op: req.Op,
+		}
+		// TODO: What should we do with the context here?
+		if err := s.metadata.ExpandISR(context.TODO(), req.ExpandISROp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
 		data, err := resp.Marshal()

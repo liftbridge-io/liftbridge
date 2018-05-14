@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-jetbridge/proto"
+	"golang.org/x/net/context"
 
 	"github.com/tylertreat/jetbridge/server/commitlog"
 	"github.com/tylertreat/jetbridge/server/proto"
@@ -37,19 +38,22 @@ func (r *replica) updateLatestOffset(offset int64) (updated bool) {
 
 type stream struct {
 	*proto.Stream
-	mu                    sync.RWMutex
-	sub                   *nats.Subscription // Subscription to stream NATS subject
-	replSub               *nats.Subscription // Subscription for replication requests
-	log                   CommitLog
-	srv                   *Server
-	subjectHash           string
-	replicating           bool
-	requestingReplication bool
-	replicas              map[string]struct{}
-	isr                   map[string]*replica
-	replicators           map[string]*replicator
-	commitQueue           *queue.Queue
-	commitCheck           chan struct{}
+	mu              sync.RWMutex
+	sub             *nats.Subscription // Subscription to stream NATS subject
+	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
+	followerReplSub *nats.Subscription // Subscription for replication responses from leader
+	log             CommitLog
+	srv             *Server
+	subjectHash     string
+	isLeading       bool
+	isFollowing     bool
+	replicas        map[string]struct{}
+	isr             map[string]*replica
+	replicators     map[string]*replicator
+	commitQueue     *queue.Queue
+	commitCheck     chan struct{}
+	leaderLastSeen  time.Time
+	leaderEpoch     uint64
 }
 
 func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
@@ -122,9 +126,118 @@ func (s *stream) close() error {
 			return err
 		}
 	}
-	if s.replSub != nil {
-		return s.replSub.Unsubscribe()
+	if s.leaderReplSub != nil {
+		if err := s.leaderReplSub.Unsubscribe(); err != nil {
+			return err
+		}
 	}
+	if s.followerReplSub != nil {
+		return s.followerReplSub.Unsubscribe()
+	}
+	return nil
+}
+
+func (s *stream) setLeader(leader string, epoch uint64) {
+	s.mu.Lock()
+	s.Leader = leader
+	s.LeaderEpoch = epoch
+	s.mu.Unlock()
+}
+
+func (s *stream) getLeader() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Leader
+}
+
+// becomeLeader is called when the server has become the leader for this
+// stream.
+func (s *stream) becomeLeader() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.isLeading {
+		return nil
+	}
+
+	// If previously follower, unsubscribe from replication subject.
+	if s.isFollowing {
+		if err := s.followerReplSub.Unsubscribe(); err != nil {
+			return err
+		}
+	}
+
+	// Start replicating to followers.
+	s.startReplicating()
+
+	// Subscribe to the NATS subject and begin sequencing messages.
+	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.ConsumerGroup, s.handleMsg)
+	if err != nil {
+		return errors.Wrap(err, "failed to subscribe to NATS")
+	}
+	s.sub = sub
+
+	// Also subscribe to the stream replication subject.
+	sub, err = s.srv.ncRepl.Subscribe(s.getReplicationRequestInbox(), s.handleReplicationRequest)
+	if err != nil {
+		return errors.Wrap(err, "failed to subscribe to replication inbox")
+	}
+	s.leaderReplSub = sub
+
+	s.srv.logger.Debugf("Server became leader for stream %s", s)
+	s.isLeading = true
+	s.isFollowing = false
+
+	return nil
+}
+
+// becomeFollower is called when the server has become a follower for this
+// stream.
+func (s *stream) becomeFollower() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.isFollowing {
+		return nil
+	}
+
+	// If previously leader...
+	if s.isLeading {
+		// ...unsubscribe from NATS subject.
+		if err := s.sub.Unsubscribe(); err != nil {
+			return err
+		}
+
+		// ...unsubscribe from replication subject.
+		if err := s.leaderReplSub.Unsubscribe(); err != nil {
+			return err
+		}
+
+		// ...and stop replicating.
+		s.stopReplicating()
+	}
+
+	// Truncate the log up to the latest HW. This removes any potentially
+	// uncommitted messages in the log.
+	if err := s.truncateToHW(); err != nil {
+		return errors.Wrap(err, "failed to truncate log")
+	}
+
+	// Subscribe to the stream replication subject to receive messages.
+	sub, err := s.srv.ncRepl.Subscribe(s.getReplicationResponseInbox(), s.handleReplicationResponse)
+	if err != nil {
+		return errors.Wrap(err, "failed to subscribe to replication inbox")
+	}
+	s.followerReplSub = sub
+
+	// Start fetching messages from the leader's log starting at the HW.
+	go s.startReplicationRequests()
+	go s.startLeaderFailureDetectorLoop()
+
+	s.srv.logger.Debugf("Server became follower for stream %s", s)
+	s.isFollowing = true
+	s.isLeading = false
+
 	return nil
 }
 
@@ -200,8 +313,13 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 	replicator.request(req)
 }
 
-// TODO: need to detect leader failures.
 func (s *stream) handleReplicationResponse(msg *nats.Msg) {
+	// TODO: check leader epoch.
+
+	s.mu.Lock()
+	s.leaderLastSeen = time.Now()
+	s.mu.Unlock()
+
 	// We should have at least 8 bytes for HW.
 	if len(msg.Data) < 8 {
 		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
@@ -241,12 +359,6 @@ func (s *stream) getReplicationResponseInbox() string {
 }
 
 func (s *stream) startReplicating() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.replicating {
-		return
-	}
-	s.replicating = true
 	s.commitQueue = queue.New(100) // TODO: hint should be ~steady state inflight messages
 	if s.ReplicationFactor > 1 {
 		s.srv.logger.Debugf("Replicating stream %s to followers", s)
@@ -258,16 +370,9 @@ func (s *stream) startReplicating() {
 }
 
 func (s *stream) stopReplicating() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.replicating {
-		return
-	}
-	s.replicating = false
 	for _, replicator := range s.replicators {
 		replicator.stop()
 	}
-
 	s.commitQueue.Dispose()
 }
 
@@ -275,9 +380,9 @@ func (s *stream) startCommitLoop() {
 	for {
 		<-s.commitCheck
 		s.mu.RLock()
-		replicating := s.replicating
+		isLeading := s.isLeading
 		s.mu.RUnlock()
-		if !replicating {
+		if !isLeading {
 			return
 		}
 
@@ -328,32 +433,57 @@ func (s *stream) startCommitLoop() {
 }
 
 func (s *stream) startReplicationRequests() {
-	s.mu.Lock()
-	if s.requestingReplication {
-		s.mu.Unlock()
-		return
-	}
-	s.requestingReplication = true
-	s.mu.Unlock()
 	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
 	ticker := time.NewTicker(s.srv.config.Clustering.ReplicaFetchInterval)
 	defer ticker.Stop()
 	for {
 		<-ticker.C
 		s.mu.RLock()
-		requestingReplication := s.requestingReplication
+		isFollowing := s.isFollowing
 		s.mu.RUnlock()
-		if !requestingReplication {
+		if !isFollowing {
 			return
 		}
 		s.sendReplicationRequest()
 	}
 }
 
-func (s *stream) stopReplicationRequests() {
+func (s *stream) startLeaderFailureDetectorLoop() {
 	s.mu.Lock()
-	s.requestingReplication = false
+	s.leaderLastSeen = time.Now()
 	s.mu.Unlock()
+	ticker := time.NewTicker(s.srv.config.Clustering.ReplicaMaxLeaderTimeout)
+	defer ticker.Stop()
+	for {
+		now := <-ticker.C
+		s.mu.RLock()
+		var (
+			isFollowing     = s.isFollowing
+			lastSeenElapsed = now.Sub(s.leaderLastSeen)
+		)
+		s.mu.RUnlock()
+		if !isFollowing {
+			return
+		}
+
+		if lastSeenElapsed > s.srv.config.Clustering.ReplicaMaxLeaderTimeout {
+			// Leader has not sent a response in ReplicaMaxLeaderTimeout, so
+			// report it to controller.
+			s.srv.logger.Errorf("Leader %s for stream %s exceeded max leader timeout "+
+				"(last seen: %s), reporting leader to controller",
+				s.getLeader(), s, lastSeenElapsed)
+			req := &proto.ReportLeaderOp{
+				Stream:  s.Stream,
+				Replica: s.srv.config.Clustering.ServerID,
+			}
+			if err := s.srv.metadata.ReportLeader(context.Background(), req); err != nil {
+				s.srv.logger.Errorf("Failed to report leader %s for stream %s: %s",
+					s.getLeader(), s, err.Err())
+			} else {
+				s.srv.logger.Debugf("Reported leader %s for stream %s", s.getLeader(), s)
+			}
+		}
+	}
 }
 
 func (s *stream) sendReplicationRequest() {
@@ -407,6 +537,29 @@ func (s *stream) removeFromISR(replica string) {
 	s.mu.Lock()
 	delete(s.isr, replica)
 	s.mu.Unlock()
+}
+
+func (s *stream) addToISR(rep string) {
+	s.mu.Lock()
+	s.isr[rep] = &replica{offset: -1}
+	s.mu.Unlock()
+}
+
+func (s *stream) isrSize() int {
+	s.mu.RLock()
+	size := len(s.isr)
+	s.mu.RUnlock()
+	return size
+}
+
+func (s *stream) getISR() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	isr := make([]string, 0, len(s.isr))
+	for replica, _ := range s.isr {
+		isr = append(isr, replica)
+	}
+	return isr
 }
 
 func (s *stream) updateISRLatestOffset(replica string, offset int64) {

@@ -20,6 +20,8 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 	switch log.Op {
 	case proto.Op_CREATE_STREAM:
 		stream := log.CreateStreamOp.Stream
+		// Make sure to set the leader epoch on the stream.
+		stream.LeaderEpoch = l.Term
 		if err := s.createStream(stream); err != nil {
 			panic(err)
 		}
@@ -29,6 +31,21 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 			replica = log.ShrinkISROp.ReplicaToRemove
 		)
 		if err := s.shrinkISR(stream, replica); err != nil {
+			panic(err)
+		}
+	case proto.Op_CHANGE_LEADER:
+		stream := log.ChangeLeaderOp.Stream
+		if err := s.changeStreamLeader(
+			stream.Subject, stream.Name,
+			log.ChangeLeaderOp.Leader, l.Term); err != nil {
+			panic(err)
+		}
+	case proto.Op_EXPAND_ISR:
+		var (
+			stream  = log.ExpandISROp.Stream
+			replica = log.ExpandISROp.ReplicaToAdd
+		)
+		if err := s.expandISR(stream, replica); err != nil {
 			panic(err)
 		}
 	default:
@@ -117,6 +134,7 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 
 func (s *Server) createStream(protoStream *proto.Stream) error {
 	// Do idempotency check.
+	// TODO: return error.
 	if stream := s.metadata.GetStream(protoStream.Subject, protoStream.Name); stream != nil {
 		return nil
 	}
@@ -131,12 +149,12 @@ func (s *Server) createStream(protoStream *proto.Stream) error {
 		return errors.Wrap(err, "failed to add stream to metadata store")
 	}
 
-	if stream.Leader == s.config.Clustering.ServerID {
-		if err := s.onStreamLeader(stream); err != nil {
+	if stream.getLeader() == s.config.Clustering.ServerID {
+		if err := stream.becomeLeader(); err != nil {
 			return err
 		}
 	} else if stream.inReplicas(s.config.Clustering.ServerID) {
-		if err := s.onStreamFollower(stream); err != nil {
+		if err := stream.becomeFollower(); err != nil {
 			return err
 		}
 	}
@@ -151,79 +169,46 @@ func (s *Server) shrinkISR(protoStream *proto.Stream, replica string) error {
 		return fmt.Errorf("No such stream [subject=%s, name=%s]",
 			protoStream.Subject, protoStream.Name)
 	}
+	if !stream.inReplicas(replica) {
+		return fmt.Errorf("Cannot remove %s from stream %s ISR, not a replica", replica, stream)
+	}
 	stream.removeFromISR(replica)
 	s.logger.Warnf("Removed replica %s from ISR for stream %s", replica, stream)
 	return nil
 }
 
-// onStreamLeader is called when the server has become the leader for the
-// given stream.
-func (s *Server) onStreamLeader(stream *stream) error {
-	// If previously follower, stop sending replication requests.
-	stream.stopReplicationRequests()
-
-	// Start replicating to followers.
-	stream.startReplicating()
-
-	// Subscribe to the NATS subject and begin sequencing messages.
-	sub, err := s.nc.QueueSubscribe(stream.Subject, stream.ConsumerGroup, stream.handleMsg)
-	if err != nil {
-		return errors.Wrap(err, "failed to subscribe to NATS")
+func (s *Server) expandISR(protoStream *proto.Stream, replica string) error {
+	stream := s.metadata.GetStream(protoStream.Subject, protoStream.Name)
+	if stream == nil {
+		return fmt.Errorf("No such stream [subject=%s, name=%s]",
+			protoStream.Subject, protoStream.Name)
 	}
-	stream.mu.Lock()
-	stream.sub = sub
-	if stream.replSub != nil {
-		stream.replSub.Unsubscribe()
-		stream.replSub = nil
+	if !stream.inReplicas(replica) {
+		return fmt.Errorf("Cannot add %s to stream %s ISR, not a replica", replica, stream)
 	}
-	stream.mu.Unlock()
-
-	// Also subscribe to the stream replication subject.
-	sub, err = s.ncRepl.Subscribe(stream.getReplicationRequestInbox(), stream.handleReplicationRequest)
-	if err != nil {
-		return errors.Wrap(err, "failed to subscribe to replication inbox")
-	}
-	stream.mu.Lock()
-	stream.replSub = sub
-	stream.mu.Unlock()
-
-	s.logger.Debugf("Server became leader for stream %s", stream)
-
+	stream.addToISR(replica)
+	s.logger.Warnf("Added replica %s to ISR for stream %s", replica, stream)
 	return nil
 }
 
-// onStreamFollower is called when the server has become a follower for the
-// stream.
-func (s *Server) onStreamFollower(stream *stream) error {
-	stream.mu.Lock()
-	if stream.replSub != nil {
-		stream.replSub.Unsubscribe()
-		stream.replSub = nil
-	}
-	stream.mu.Unlock()
-
-	// If previously leader, stop replicating.
-	stream.stopReplicating()
-
-	// Truncate the log up to the latest HW. This removes any potentially
-	// uncommitted messages in the log.
-	if err := stream.truncateToHW(); err != nil {
-		return errors.Wrap(err, "failed to truncate log")
+func (s *Server) changeStreamLeader(subject, name string, leader string, epoch uint64) error {
+	stream := s.metadata.GetStream(subject, name)
+	if stream == nil {
+		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
 	}
 
-	// Subscribe to the stream replication subject to receive messages.
-	sub, err := s.ncRepl.Subscribe(stream.getReplicationResponseInbox(), stream.handleReplicationResponse)
-	if err != nil {
-		return errors.Wrap(err, "failed to subscribe to replication inbox")
+	stream.setLeader(leader, epoch)
+
+	if leader == s.config.Clustering.ServerID {
+		if err := stream.becomeLeader(); err != nil {
+			return err
+		}
+	} else if stream.inReplicas(s.config.Clustering.ServerID) {
+		if err := stream.becomeFollower(); err != nil {
+			return err
+		}
 	}
-	stream.mu.Lock()
-	stream.replSub = sub
-	stream.mu.Unlock()
 
-	// Start fetching messages from the leader's log starting at the HW.
-	go stream.startReplicationRequests()
-
-	s.logger.Debugf("Server became follower for stream %s", stream)
-
+	s.logger.Debugf("Changed leader for stream %s to %s", stream, leader)
 	return nil
 }

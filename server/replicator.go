@@ -78,13 +78,12 @@ func (r *replicator) start() {
 
 func (r *replicator) stop() {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if !r.running {
-		r.mu.Unlock()
 		return
 	}
 	r.running = false
 	close(r.requests)
-	r.mu.Unlock()
 }
 
 func (r *replicator) request(req *proto.ReplicationRequest) {
@@ -123,26 +122,15 @@ func (r *replicator) tick() {
 			lastCaughtUpElapsed = now.Sub(r.lastCaughtUp)
 		)
 		r.mu.RUnlock()
-		if (lastSeenElapsed > r.maxLagTime || lastCaughtUpElapsed > r.maxLagTime) && r.stream.inISR(r.replica) {
+		outOfSync := lastSeenElapsed > r.maxLagTime || lastCaughtUpElapsed > r.maxLagTime
+		if outOfSync && r.stream.inISR(r.replica) {
 			// Follower has not sent a request or has not caught up in
 			// maxLagTime, so remove it from the ISR.
 			r.stream.srv.logger.Errorf("Replica %s for stream %s exceeded max lag time "+
 				"(last seen: %s, last caught up: %s), removing from ISR",
 				r.replica, r.stream, lastSeenElapsed, lastCaughtUpElapsed)
-			req := &proto.ShrinkISROp{
-				Stream:          r.stream.Stream,
-				ReplicaToRemove: r.replica,
-			}
-			// TODO: set timeout on context.
-			if err := r.stream.srv.metadata.ShrinkISR(context.TODO(), req); err != nil {
-				r.stream.srv.logger.Errorf(
-					"Failed to remove replica %s for stream %s from ISR: %v",
-					r.replica, r.stream, err.Err())
-			} else {
-				r.stream.srv.logger.Warnf(
-					"Removed replica %s for stream %s from ISR",
-					r.replica, r.stream)
-			}
+
+			r.shrinkISR()
 
 			if lastSeenElapsed > r.maxLagTime {
 				// If the follower has not sent a request in maxLagTime, stop
@@ -151,7 +139,42 @@ func (r *replicator) tick() {
 				r.cancelReplication()
 				r.mu.Unlock()
 			}
+		} else if !outOfSync && !r.stream.inISR(r.replica) {
+			// Add replica back into ISR.
+			r.stream.srv.logger.Warnf("Replica %s for stream %s caught back up with leader, "+
+				"rejoining ISR", r.replica, r.stream)
+			r.expandISR()
 		}
+	}
+}
+
+func (r *replicator) shrinkISR() {
+	req := &proto.ShrinkISROp{
+		Stream:          r.stream.Stream,
+		ReplicaToRemove: r.replica,
+	}
+	if err := r.stream.srv.metadata.ShrinkISR(context.Background(), req); err != nil {
+		r.stream.srv.logger.Errorf(
+			"Failed to remove replica %s for stream %s from ISR: %v",
+			r.replica, r.stream, err.Err())
+	} else {
+		r.stream.srv.logger.Debugf(
+			"Removed replica %s for stream %s from ISR", r.replica, r.stream)
+	}
+}
+
+func (r *replicator) expandISR() {
+	req := &proto.ExpandISROp{
+		Stream:       r.stream.Stream,
+		ReplicaToAdd: r.replica,
+	}
+	if err := r.stream.srv.metadata.ExpandISR(context.Background(), req); err != nil {
+		r.stream.srv.logger.Errorf(
+			"Failed to add replica %s for stream %s to ISR: %v",
+			r.replica, r.stream, err.Err())
+	} else {
+		r.stream.srv.logger.Debugf(
+			"Added replica %s for stream %s to ISR", r.replica, r.stream)
 	}
 }
 

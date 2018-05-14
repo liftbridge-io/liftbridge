@@ -7,12 +7,17 @@ import "github.com/tylertreat/go-jetbridge/proto/api.proto";
 enum Op {
     CREATE_STREAM = 0;
     SHRINK_ISR    = 1;
+    REPORT_LEADER = 2;
+    CHANGE_LEADER = 3;
+    EXPAND_ISR    = 4;
 }
 
 message RaftLog {
     Op             op             = 1;
     CreateStreamOp createStreamOp = 2;
     ShrinkISROp    shrinkISROp    = 3;
+    ChangeLeaderOp changeLeaderOp = 4;
+    ExpandISROp    expandISROp    = 5;
 }
 
 message CreateStreamOp {
@@ -24,6 +29,21 @@ message ShrinkISROp {
     string replicaToRemove = 2;
 }
 
+message ExpandISROp {
+    Stream stream       = 1;
+    string replicaToAdd = 2;
+}
+
+message ReportLeaderOp {
+    Stream stream  = 1;
+    string replica = 2;
+}
+
+message ChangeLeaderOp {
+    Stream stream = 1;
+    string leader = 2;
+}
+
 message Stream {
     string          subject           = 1;
     string          name              = 2;
@@ -32,6 +52,7 @@ message Stream {
     repeated string replicas          = 5;
     string          leader            = 6;
     repeated string isr               = 7;
+    uint64          leaderEpoch       = 8;
 }
 
 // RaftJoinRequest is a request to join a Raft group.
@@ -59,6 +80,8 @@ message PropagatedRequest {
     Op                  op             = 1;
     CreateStreamRequest createStreamOp = 2;
     ShrinkISROp         shrinkISROp    = 3;
+    ReportLeaderOp      reportLeaderOp = 4;
+    ExpandISROp         expandISROp    = 5;
 }
 
 message Error {
@@ -71,4 +94,6 @@ message PropagatedResponse {
     Error                error            = 2;
     CreateStreamResponse createStreamResp = 3;
     // Reserving = 4 for shrinkISRResp if needed.
+    // Reserving = 5 for reportLeaderResp if needed.
+    // Reserving = 6 for expandISRResp if needed.
 }
