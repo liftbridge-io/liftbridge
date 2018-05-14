@@ -207,6 +207,8 @@ func (s *Segment) Replace(old *Segment) (err error) {
 	return s.SetupIndex()
 }
 
+// findEntry returns the entry with the given offset or an error if no such
+// entry exists.
 func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 	s.Lock()
 	defer s.Unlock()

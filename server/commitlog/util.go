@@ -2,6 +2,8 @@ package commitlog
 
 import "sort"
 
+// findSegment returns the segment and segment index containing the given
+// offset or nil if there is no such segment.
 func findSegment(segments []*Segment, offset int64) (*Segment, int) {
 	n := len(segments)
 	idx := sort.Search(n, func(i int) bool {
