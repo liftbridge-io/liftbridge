@@ -57,7 +57,7 @@ type stream struct {
 	recovered       bool
 }
 
-func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
+func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
 	log, err := commitlog.New(commitlog.Options{
 		Path:            filepath.Join(s.config.DataPath, "streams", protoStream.Subject, protoStream.Name),
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
@@ -83,9 +83,6 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 		isr[rep] = &replica{offset: -1}
 	}
 
-	s.mu.RLock()
-	recovered := s.recovering
-	s.mu.RUnlock()
 	st := &stream{
 		Stream:      protoStream,
 		log:         log,
@@ -166,17 +163,17 @@ func (s *stream) SetLeader(leader string, epoch uint64) error {
 	return s.startLeaderOrFollowerLoop()
 }
 
-func (s *stream) StartRecovered() error {
+func (s *stream) StartRecovered() (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.recovered {
-		return nil
+		return false, nil
 	}
 	if err := s.startLeaderOrFollowerLoop(); err != nil {
-		return err
+		return false, err
 	}
 	s.recovered = false
-	return nil
+	return true, nil
 }
 
 func (s *stream) startLeaderOrFollowerLoop() error {

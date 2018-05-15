@@ -5,7 +5,6 @@ import (
 	"net"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"sync/atomic"
 
 	"github.com/hashicorp/raft"
@@ -20,19 +19,19 @@ import (
 )
 
 type Server struct {
-	config     *Config
-	listener   net.Listener
-	nc         *nats.Conn
-	ncRaft     *nats.Conn
-	ncRepl     *nats.Conn
-	logger     *log.Logger
-	api        *grpc.Server
-	metadata   *metadataAPI
-	shutdownCh chan struct{}
-	raft       *raftNode
-	leaderSub  *nats.Subscription
-	mu         sync.RWMutex
-	recovering bool
+	config             *Config
+	listener           net.Listener
+	nc                 *nats.Conn
+	ncRaft             *nats.Conn
+	ncRepl             *nats.Conn
+	logger             *log.Logger
+	api                *grpc.Server
+	metadata           *metadataAPI
+	shutdownCh         chan struct{}
+	raft               *raftNode
+	leaderSub          *nats.Subscription
+	startedRecovery    bool
+	latestRecoveredLog *raft.Log
 }
 
 func New(config *Config) *Server {
@@ -48,15 +47,11 @@ func New(config *Config) *Server {
 		logger:     logger,
 		shutdownCh: make(chan struct{}),
 	}
+	s.metadata = newMetadataAPI(s)
 	return s
 }
 
 func (s *Server) Start() error {
-	metadata, err := newMetadataAPI(s)
-	if err != nil {
-		return errors.Wrap(err, "failed to initialize metadata API")
-	}
-	s.metadata = metadata
 	hp := net.JoinHostPort(s.config.Host, strconv.Itoa(s.config.Port))
 	l, err := net.Listen("tcp", hp)
 	if err != nil {
@@ -93,21 +88,9 @@ func (s *Server) Start() error {
 	s.logger.Infof("Starting server on %s...",
 		net.JoinHostPort(s.config.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
 
-	// Recover any previous metadata state.
-	//recovered, err := s.metadata.Recover()
-	//if err != nil {
-	//	return errors.Wrap(err, "failed to recover metadata state")
-	//}
-	//s.logger.Infof("Recovered %d streams", recovered)
-
 	if err := s.startMetadataRaft(); err != nil {
 		s.Stop()
 		return errors.Wrap(err, "failed to start Raft node")
-	}
-
-	if err := s.startRecoveredStreams(); err != nil {
-		s.Stop()
-		return errors.Wrap(err, "failed to start recovered stream")
 	}
 
 	api := grpc.NewServer()
@@ -116,13 +99,18 @@ func (s *Server) Start() error {
 	return api.Serve(s.listener)
 }
 
-func (s *Server) startRecoveredStreams() error {
+func (s *Server) finishedRecovery() (int, error) {
+	count := 0
 	for _, stream := range s.metadata.GetStreams() {
-		if err := stream.StartRecovered(); err != nil {
-			return err
+		recovered, err := stream.StartRecovered()
+		if err != nil {
+			return 0, err
+		}
+		if recovered {
+			count++
 		}
 	}
-	return nil
+	return count, nil
 }
 
 func (s *Server) startMetadataRaft() error {
@@ -307,7 +295,7 @@ func (s *Server) Stop() error {
 	}
 
 	if s.metadata != nil {
-		if err := s.metadata.Close(); err != nil {
+		if err := s.metadata.Reset(); err != nil {
 			return err
 		}
 	}

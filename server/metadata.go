@@ -3,12 +3,9 @@ package server
 import (
 	"fmt"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-jetbridge/proto"
 	"golang.org/x/net/context"
@@ -18,10 +15,7 @@ import (
 	"github.com/tylertreat/jetbridge/server/proto"
 )
 
-const (
-	defaultPropagateTimeout = 5 * time.Second
-	streamsBucket           = "streams"
-)
+const defaultPropagateTimeout = 5 * time.Second
 
 var ErrStreamExists = errors.New("stream already exists")
 
@@ -80,56 +74,14 @@ type metadataAPI struct {
 	streams       map[string]subjectStreams
 	mu            sync.RWMutex
 	leaderReports map[*stream]*leaderReported
-	db            *bolt.DB
-	dbFile        string
 }
 
-func newMetadataAPI(s *Server) (*metadataAPI, error) {
-	path := filepath.Join(s.config.DataPath, "metadata")
-	if err := os.MkdirAll(path, 0755); err != nil {
-		return nil, errors.Wrap(err, "failed to create database directory")
-	}
-	var (
-		dbFile  = filepath.Join(path, "metadata.db")
-		db, err = bolt.Open(dbFile, 0666, nil)
-	)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to open metadata database")
-	}
-
-	m := &metadataAPI{
+func newMetadataAPI(s *Server) *metadataAPI {
+	return &metadataAPI{
 		Server:        s,
 		streams:       make(map[string]subjectStreams),
 		leaderReports: make(map[*stream]*leaderReported),
-		db:            db,
-		dbFile:        dbFile,
 	}
-	err = m.initializeDB()
-	return m, err
-}
-
-func (m *metadataAPI) Recover() (int, error) {
-	// Restore any previous state.
-	recovered := 0
-	if err := m.db.View(func(tx *bolt.Tx) error {
-		streams := tx.Bucket([]byte(streamsBucket))
-		return streams.ForEach(func(subject, _ []byte) error {
-			return streams.Bucket(subject).ForEach(func(name, protobuf []byte) error {
-				stream := &proto.Stream{}
-				if err := stream.Unmarshal(protobuf); err != nil {
-					panic(err)
-				}
-				_, err := m.addStream(stream, true)
-				if err == nil {
-					recovered++
-				}
-				return err
-			})
-		})
-	}); err != nil {
-		return 0, err
-	}
-	return recovered, nil
 }
 
 func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
@@ -293,11 +245,7 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	return reported.addWitness(req.Replica)
 }
 
-func (m *metadataAPI) AddStream(protoStream *proto.Stream) (*stream, error) {
-	return m.addStream(protoStream, false)
-}
-
-func (m *metadataAPI) addStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -312,24 +260,9 @@ func (m *metadataAPI) addStream(protoStream *proto.Stream, recovered bool) (*str
 	}
 
 	// This will initialize/recover the durable commit log.
-	stream, err := m.newStream(protoStream)
+	stream, err := m.newStream(protoStream, recovered)
 	if err != nil {
 		return nil, err
-	}
-
-	// Write the proto to the db if we're not recovering.
-	if !recovered {
-		serialized := stream.Marshal()
-		if err := m.db.Update(func(tx *bolt.Tx) error {
-			streams := tx.Bucket([]byte(streamsBucket))
-			b, err := streams.CreateBucketIfNotExists([]byte(stream.Subject))
-			if err != nil {
-				return err
-			}
-			return b.Put([]byte(stream.Name), serialized)
-		}); err != nil {
-			return nil, err
-		}
 	}
 
 	streams[stream.Name] = stream
@@ -338,29 +271,6 @@ func (m *metadataAPI) addStream(protoStream *proto.Stream, recovered bool) (*str
 	leader, epoch := stream.getLeader()
 	err = stream.SetLeader(leader, epoch)
 	return stream, err
-}
-
-func (m *metadataAPI) CheckpointStream(stream *stream) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	streams := m.streams[stream.Subject]
-	if streams == nil {
-		return errors.New("stream does not exist")
-	}
-	if _, ok := streams[stream.Name]; !ok {
-		return errors.New("stream does not exist")
-	}
-
-	data := stream.Marshal()
-	return m.db.Update(func(tx *bolt.Tx) error {
-		streams := tx.Bucket([]byte(streamsBucket))
-		b := streams.Bucket([]byte(stream.Subject))
-		if b == nil {
-			return errors.New("stream does not exist")
-		}
-		return b.Put([]byte(stream.Name), data)
-	})
 }
 
 func (m *metadataAPI) GetStreams() []*stream {
@@ -392,27 +302,6 @@ func (m *metadataAPI) GetStream(subject, name string) *stream {
 func (m *metadataAPI) Reset() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.close(); err != nil {
-		return err
-	}
-	if err := os.Remove(m.dbFile); err != nil {
-		return err
-	}
-	db, err := bolt.Open(m.dbFile, 0666, nil)
-	if err != nil {
-		return err
-	}
-	m.db = db
-	return m.initializeDB()
-}
-
-func (m *metadataAPI) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.close()
-}
-
-func (m *metadataAPI) close() error {
 	for _, streams := range m.streams {
 		for _, stream := range streams {
 			if err := stream.close(); err != nil {
@@ -425,9 +314,6 @@ func (m *metadataAPI) close() error {
 		report.cancel()
 	}
 	m.leaderReports = make(map[*stream]*leaderReported)
-	if err := m.db.Close(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -589,14 +475,6 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 	}
 
 	return nil
-}
-
-func (m *metadataAPI) initializeDB() error {
-	return m.db.Update(func(tx *bolt.Tx) error {
-		// Initialize streams bucket if it doesn't already exist.
-		_, err := tx.CreateBucketIfNotExists([]byte(streamsBucket))
-		return err
-	})
 }
 
 // selectRandomReplica selects a random replica from the list of replicas.

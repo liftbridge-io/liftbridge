@@ -275,18 +275,12 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 	}
 
 	// Instantiate the Raft node.
-	s.mu.Lock()
-	s.recovering = true
-	s.mu.Unlock()
 	node, err := raft.NewRaft(config, s, cacheStore, logStore, snapshots, tr)
 	if err != nil {
 		tr.Close()
 		logStore.Close()
 		return false, fmt.Errorf("new raft: %s", err)
 	}
-	s.mu.Lock()
-	s.recovering = false
-	s.mu.Unlock()
 
 	existingState, err := raft.HasExistingState(cacheStore, logStore, snapshots)
 	if err != nil {
