@@ -23,11 +23,11 @@ type apiServer struct {
 
 func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRequest) (*client.CreateStreamResponse, error) {
 	resp := &client.CreateStreamResponse{}
-	a.logger.Debugf("CreateStream[subject=%s, name=%s, replicationFactor=%d]",
+	a.logger.Debugf("api: CreateStream [subject=%s, name=%s, replicationFactor=%d]",
 		req.Subject, req.Name, req.ReplicationFactor)
 
 	if err := a.metadata.CreateStream(ctx, req); err != nil {
-		a.logger.Errorf("Failed to create stream: %v", err.Err())
+		a.logger.Errorf("api: Failed to create stream: %v", err.Err())
 		return nil, err.Err()
 	}
 
@@ -35,20 +35,20 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 }
 
 func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.API_ConsumeStreamServer) error {
-	a.logger.Debugf("ConsumeStream[subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
+	a.logger.Debugf("api: ConsumeStream [subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
 	stream := a.metadata.GetStream(req.Subject, req.Name)
 	if stream == nil {
 		return errors.New("No such stream")
 	}
 
 	if stream.Leader != a.config.Clustering.ServerID {
-		a.logger.Error("Failed to fetch stream: node is not stream leader")
+		a.logger.Error("api: Failed to fetch stream: node is not stream leader")
 		return errors.New("Node is not stream leader")
 	}
 
 	ch, errCh, err := a.consumeStream(out.Context(), stream, req)
 	if err != nil {
-		a.logger.Errorf("Failed to fetch stream: %v", err)
+		a.logger.Errorf("api: Failed to fetch stream: %v", err)
 		return err.Err()
 	}
 	for {

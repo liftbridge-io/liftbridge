@@ -22,6 +22,7 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		stream := log.CreateStreamOp.Stream
 		// Make sure to set the leader epoch on the stream.
 		stream.LeaderEpoch = l.Index
+		stream.Epoch = l.Index
 		err := s.applyCreateStream(stream)
 		if err == ErrStreamExists {
 			return err
@@ -35,7 +36,7 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 			name    = log.ShrinkISROp.Name
 			replica = log.ShrinkISROp.ReplicaToRemove
 		)
-		if err := s.applyShrinkISR(subject, name, replica); err != nil {
+		if err := s.applyShrinkISR(subject, name, replica, l.Index); err != nil {
 			panic(err)
 		}
 	case proto.Op_CHANGE_LEADER:
@@ -53,7 +54,7 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 			name    = log.ExpandISROp.Name
 			replica = log.ExpandISROp.ReplicaToAdd
 		)
-		if err := s.applyExpandISR(subject, name, replica); err != nil {
+		if err := s.applyExpandISR(subject, name, replica, l.Index); err != nil {
 			panic(err)
 		}
 	default:
@@ -133,6 +134,11 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 	}
 	for _, stream := range snap.Streams {
 		if err := s.applyCreateStream(stream); err != nil {
+			if err == ErrStreamExists {
+				// We can hit this if we recovered the stream, in which case
+				// this is idempotent.
+				continue
+			}
 			return err
 		}
 	}
@@ -148,33 +154,59 @@ func (s *Server) applyCreateStream(protoStream *proto.Stream) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to add stream to metadata store")
 	}
-	s.logger.Debugf("Created stream %s", stream)
+	s.logger.Debugf("fsm: Created stream %s", stream)
 	return nil
 }
 
-func (s *Server) applyShrinkISR(subject, name, replica string) error {
+func (s *Server) applyShrinkISR(subject, name, replica string, epoch uint64) error {
 	stream := s.metadata.GetStream(subject, name)
 	if stream == nil {
 		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
 	}
-	if !stream.InReplicas(replica) {
-		return fmt.Errorf("Cannot remove %s from stream %s ISR, not a replica", replica, stream)
+
+	// Idempotency check.
+	if stream.GetEpoch() >= epoch {
+		return nil
 	}
-	stream.removeFromISR(replica)
-	s.logger.Warnf("Removed replica %s from ISR for stream %s", replica, stream)
+
+	if err := stream.RemoveFromISR(replica); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to remove %s from ISR for stream %s",
+			replica, stream))
+	}
+
+	stream.SetEpoch(epoch)
+
+	if err := s.metadata.CheckpointStream(stream); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to write stream %s to disk", stream))
+	}
+
+	s.logger.Warnf("fsm: Removed replica %s from ISR for stream %s", replica, stream)
 	return nil
 }
 
-func (s *Server) applyExpandISR(subject, name, replica string) error {
+func (s *Server) applyExpandISR(subject, name, replica string, epoch uint64) error {
 	stream := s.metadata.GetStream(subject, name)
 	if stream == nil {
 		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
 	}
-	if !stream.InReplicas(replica) {
-		return fmt.Errorf("Cannot add %s to stream %s ISR, not a replica", replica, stream)
+
+	// Idempotency check.
+	if stream.GetEpoch() >= epoch {
+		return nil
 	}
-	stream.addToISR(replica)
-	s.logger.Warnf("Added replica %s to ISR for stream %s", replica, stream)
+
+	if err := stream.AddToISR(replica); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to add %s to ISR for stream %s",
+			replica, stream))
+	}
+
+	stream.SetEpoch(epoch)
+
+	if err := s.metadata.CheckpointStream(stream); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to write stream %s to disk", stream))
+	}
+
+	s.logger.Warnf("fsm: Added replica %s to ISR for stream %s", replica, stream)
 	return nil
 }
 
@@ -184,10 +216,21 @@ func (s *Server) applyChangeStreamLeader(subject, name string, leader string, ep
 		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
 	}
 
-	if err := stream.setLeader(leader, epoch); err != nil {
+	// Idempotency check.
+	if stream.GetEpoch() >= epoch {
+		return nil
+	}
+
+	if err := stream.SetLeader(leader, epoch); err != nil {
 		return errors.Wrap(err, "failed to change stream leader")
 	}
 
-	s.logger.Debugf("Changed leader for stream %s to %s", stream, leader)
+	stream.SetEpoch(epoch)
+
+	if err := s.metadata.CheckpointStream(stream); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to write stream %s to disk", stream))
+	}
+
+	s.logger.Debugf("fsm: Changed leader for stream %s to %s", stream, leader)
 	return nil
 }

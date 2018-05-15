@@ -239,8 +239,9 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 	config.LocalID = raft.ServerID(s.config.Clustering.ServerID)
 	logWriter := &raftLogger{s}
 	config.LogOutput = logWriter
-	config.SnapshotThreshold = 1
-	config.SnapshotInterval = time.Minute
+	if s.config.Clustering.RaftSnapshotThreshold != 0 {
+		config.SnapshotThreshold = s.config.Clustering.RaftSnapshotThreshold
+	}
 
 	// Setup a channel for reliable leader notifications.
 	raftNotifyCh := make(chan bool, 1)
@@ -256,25 +257,36 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 	// Create the snapshot store. This allows the Raft to truncate the log.
 	snapshots, err := raft.NewFileSnapshotStore(path, s.config.Clustering.RaftSnapshots, logWriter)
 	if err != nil {
+		tr.Close()
 		return false, fmt.Errorf("file snapshot store: %s", err)
 	}
 
 	// Create the log store and stable store.
 	logStore, err := raftboltdb.NewBoltStore(filepath.Join(path, "raft.db"))
 	if err != nil {
+		tr.Close()
 		return false, fmt.Errorf("new bolt store: %s", err)
 	}
 	cacheStore, err := raft.NewLogCache(s.config.Clustering.RaftCacheSize, logStore)
 	if err != nil {
+		tr.Close()
 		logStore.Close()
 		return false, err
 	}
 
 	// Instantiate the Raft node.
+	s.mu.Lock()
+	s.recovering = true
+	s.mu.Unlock()
 	node, err := raft.NewRaft(config, s, cacheStore, logStore, snapshots, tr)
 	if err != nil {
+		tr.Close()
+		logStore.Close()
 		return false, fmt.Errorf("new raft: %s", err)
 	}
+	s.mu.Lock()
+	s.recovering = false
+	s.mu.Unlock()
 
 	existingState, err := raft.HasExistingState(cacheStore, logStore, snapshots)
 	if err != nil {

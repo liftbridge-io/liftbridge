@@ -108,7 +108,7 @@ func newMetadataAPI(s *Server) (*metadataAPI, error) {
 	return m, err
 }
 
-func (m *metadataAPI) Recover() error {
+func (m *metadataAPI) Recover() (int, error) {
 	// Restore any previous state.
 	recovered := 0
 	if err := m.db.View(func(tx *bolt.Tx) error {
@@ -127,10 +127,9 @@ func (m *metadataAPI) Recover() error {
 			})
 		})
 	}); err != nil {
-		return err
+		return 0, err
 	}
-	m.logger.Infof("Recovered %d streams", recovered)
-	return nil
+	return recovered, nil
 }
 
 func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
@@ -202,7 +201,7 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 	if req.Leader != leader || req.LeaderEpoch != epoch {
 		return status.New(
 			codes.FailedPrecondition,
-			fmt.Sprintf("Leader generation mismatch, expected leader: %s epoch: %d, got leader: %s epoch: %d",
+			fmt.Sprintf("Leader generation mismatch, current leader: %s epoch: %d, got leader: %s epoch: %d",
 				leader, epoch, req.Leader, req.LeaderEpoch))
 	}
 
@@ -243,7 +242,7 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 	if req.Leader != leader || req.LeaderEpoch != epoch {
 		return status.New(
 			codes.FailedPrecondition,
-			fmt.Sprintf("Leader generation mismatch, expected leader: %s epoch: %d, got leader: %s epoch: %d",
+			fmt.Sprintf("Leader generation mismatch, current leader: %s epoch: %d, got leader: %s epoch: %d",
 				leader, epoch, req.Leader, req.LeaderEpoch))
 	}
 
@@ -320,10 +319,7 @@ func (m *metadataAPI) addStream(protoStream *proto.Stream, recovered bool) (*str
 
 	// Write the proto to the db if we're not recovering.
 	if !recovered {
-		serialized, err := protoStream.Marshal()
-		if err != nil {
-			panic(err)
-		}
+		serialized := stream.Marshal()
 		if err := m.db.Update(func(tx *bolt.Tx) error {
 			streams := tx.Bucket([]byte(streamsBucket))
 			b, err := streams.CreateBucketIfNotExists([]byte(stream.Subject))
@@ -340,8 +336,31 @@ func (m *metadataAPI) addStream(protoStream *proto.Stream, recovered bool) (*str
 
 	// Start leader/follower loop if necessary.
 	leader, epoch := stream.getLeader()
-	err = stream.setLeader(leader, epoch)
+	err = stream.SetLeader(leader, epoch)
 	return stream, err
+}
+
+func (m *metadataAPI) CheckpointStream(stream *stream) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	streams := m.streams[stream.Subject]
+	if streams == nil {
+		return errors.New("stream does not exist")
+	}
+	if _, ok := streams[stream.Name]; !ok {
+		return errors.New("stream does not exist")
+	}
+
+	data := stream.Marshal()
+	return m.db.Update(func(tx *bolt.Tx) error {
+		streams := tx.Bucket([]byte(streamsBucket))
+		b := streams.Bucket([]byte(stream.Subject))
+		if b == nil {
+			return errors.New("stream does not exist")
+		}
+		return b.Put([]byte(stream.Name), data)
+	})
 }
 
 func (m *metadataAPI) GetStreams() []*stream {
@@ -512,7 +531,6 @@ func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
 }
 
 func (m *metadataAPI) propagateCreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
-	m.logger.Debug("Server is not metadata leader, propagating CreateStream request")
 	propagate := &proto.PropagatedRequest{
 		Op:             proto.Op_CREATE_STREAM,
 		CreateStreamOp: req,
@@ -521,7 +539,6 @@ func (m *metadataAPI) propagateCreateStream(ctx context.Context, req *client.Cre
 }
 
 func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *status.Status {
-	m.logger.Debug("Server is not metadata leader, propagating ShrinkISR request")
 	propagate := &proto.PropagatedRequest{
 		Op:          proto.Op_SHRINK_ISR,
 		ShrinkISROp: req,
@@ -530,7 +547,6 @@ func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkI
 }
 
 func (m *metadataAPI) propagateExpandISR(ctx context.Context, req *proto.ExpandISROp) *status.Status {
-	m.logger.Debug("Server is not metadata leader, propagating ExpandISR request")
 	propagate := &proto.PropagatedRequest{
 		Op:          proto.Op_EXPAND_ISR,
 		ExpandISROp: req,
@@ -539,7 +555,6 @@ func (m *metadataAPI) propagateExpandISR(ctx context.Context, req *proto.ExpandI
 }
 
 func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.ReportLeaderOp) *status.Status {
-	m.logger.Debug("Server is not metadata leader, propagating ReportLeader request")
 	propagate := &proto.PropagatedRequest{
 		Op:             proto.Op_REPORT_LEADER,
 		ReportLeaderOp: req,
@@ -566,7 +581,8 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 
 	r := &proto.PropagatedResponse{}
 	if err := r.Unmarshal(resp.Data); err != nil {
-		m.logger.Errorf("Invalid response for propagated request: %v", err)
+		m.logger.Errorf("metadata: Invalid response for propagated request: %v", err)
+		return status.New(codes.Internal, "invalid response")
 	}
 	if r.Error != nil {
 		return status.New(codes.Code(r.Error.Code), r.Error.Msg)

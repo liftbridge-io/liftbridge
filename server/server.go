@@ -5,6 +5,7 @@ import (
 	"net"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/hashicorp/raft"
@@ -30,6 +31,8 @@ type Server struct {
 	shutdownCh chan struct{}
 	raft       *raftNode
 	leaderSub  *nats.Subscription
+	mu         sync.RWMutex
+	recovering bool
 }
 
 func New(config *Config) *Server {
@@ -85,24 +88,41 @@ func (s *Server) Start() error {
 	}
 	s.ncRepl = ncRepl
 
+	s.logger.Infof("Server ID: %s", s.config.Clustering.ServerID)
+	s.logger.Infof("Namespace: %s", s.config.Clustering.Namespace)
+	s.logger.Infof("Starting server on %s...",
+		net.JoinHostPort(s.config.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
+
 	// Recover any previous metadata state.
-	if err := s.metadata.Recover(); err != nil {
-		return errors.Wrap(err, "failed to recover metadata state")
-	}
+	//recovered, err := s.metadata.Recover()
+	//if err != nil {
+	//	return errors.Wrap(err, "failed to recover metadata state")
+	//}
+	//s.logger.Infof("Recovered %d streams", recovered)
 
 	if err := s.startMetadataRaft(); err != nil {
 		s.Stop()
 		return errors.Wrap(err, "failed to start Raft node")
 	}
 
+	if err := s.startRecoveredStreams(); err != nil {
+		s.Stop()
+		return errors.Wrap(err, "failed to start recovered stream")
+	}
+
 	api := grpc.NewServer()
 	s.api = api
 	client.RegisterAPIServer(api, &apiServer{s})
-	s.logger.Debugf("Server ID: %s", s.config.Clustering.ServerID)
-	s.logger.Debugf("Namespace: %s", s.config.Clustering.Namespace)
-	s.logger.Infof("Starting server on %s...",
-		net.JoinHostPort(s.config.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
 	return api.Serve(s.listener)
+}
+
+func (s *Server) startRecoveredStreams() error {
+	for _, stream := range s.metadata.GetStreams() {
+		if err := stream.StartRecovered(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Server) startMetadataRaft() error {
@@ -164,7 +184,6 @@ func (s *Server) startMetadataRaft() error {
 // leadershipAcquired should be called when this node is elected leader.
 func (s *Server) leadershipAcquired() error {
 	s.logger.Infof("Server became metadata leader, performing leader promotion actions")
-	defer s.logger.Infof("Finished metadata leader promotion actions")
 
 	// Use a barrier to ensure all preceding operations are applied to the FSM.
 	if err := s.raft.Barrier(0).Error(); err != nil {
@@ -185,7 +204,6 @@ func (s *Server) leadershipAcquired() error {
 // leadershipLost should be called when this node loses leadership.
 func (s *Server) leadershipLost() error {
 	s.logger.Warn("Server lost metadata leadership, performing leader stepdown actions")
-	defer s.logger.Warn("Finished metadata leader stepdown actions")
 
 	// Unsubscribe from leader NATS subject for propagated requests.
 	if s.leaderSub != nil {

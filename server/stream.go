@@ -54,6 +54,7 @@ type stream struct {
 	commitCheck     chan struct{}
 	leaderLastSeen  time.Time
 	leaderEpoch     uint64
+	recovered       bool
 }
 
 func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
@@ -82,6 +83,9 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 		isr[rep] = &replica{offset: -1}
 	}
 
+	s.mu.RLock()
+	recovered := s.recovering
+	s.mu.RUnlock()
 	st := &stream{
 		Stream:      protoStream,
 		log:         log,
@@ -91,6 +95,7 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 		isr:         isr,
 		replicators: make(map[string]*replicator, len(protoStream.Replicas)),
 		commitCheck: make(chan struct{}, 1),
+		recovered:   recovered,
 	}
 
 	for _, replica := range protoStream.Replicas {
@@ -135,12 +140,16 @@ func (s *stream) close() error {
 	if s.followerReplSub != nil {
 		return s.followerReplSub.Unsubscribe()
 	}
+	if s.isLeading {
+		s.stopReplicating()
+	}
 	return nil
 }
 
-func (s *stream) setLeader(leader string, epoch uint64) error {
+func (s *stream) SetLeader(leader string, epoch uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	if epoch < s.LeaderEpoch {
 		return fmt.Errorf("proposed leader epoch %d is less than current epoch %d",
 			epoch, s.LeaderEpoch)
@@ -148,16 +157,42 @@ func (s *stream) setLeader(leader string, epoch uint64) error {
 	s.Leader = leader
 	s.LeaderEpoch = epoch
 
-	if leader == s.srv.config.Clustering.ServerID {
-		if err := s.becomeLeader(epoch); err != nil {
+	if s.recovered {
+		// If this stream is being recovered, we will start the leader/follower
+		// loop later.
+		return nil
+	}
+
+	return s.startLeaderOrFollowerLoop()
+}
+
+func (s *stream) StartRecovered() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.recovered {
+		return nil
+	}
+	if err := s.startLeaderOrFollowerLoop(); err != nil {
+		return err
+	}
+	s.recovered = false
+	return nil
+}
+
+func (s *stream) startLeaderOrFollowerLoop() error {
+	if s.Leader == s.srv.config.Clustering.ServerID {
+		s.srv.logger.Debugf("Server becoming leader for stream %s", s)
+		if err := s.becomeLeader(s.LeaderEpoch); err != nil {
+			s.srv.logger.Errorf("Server failed becoming leader for stream %s: %v", s, err)
 			return err
 		}
 	} else if s.inReplicas(s.srv.config.Clustering.ServerID) {
+		s.srv.logger.Debugf("Server becoming follower for stream %s", s)
 		if err := s.becomeFollower(); err != nil {
+			s.srv.logger.Errorf("Server failed becoming follower for stream %s: %v", s, err)
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -198,7 +233,6 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	}
 	s.leaderReplSub = sub
 
-	s.srv.logger.Debugf("Server became leader for stream %s", s)
 	s.isLeading = true
 	s.isFollowing = false
 
@@ -245,7 +279,6 @@ func (s *stream) becomeFollower() error {
 	go s.startReplicationRequests()
 	go s.startLeaderFailureDetectorLoop()
 
-	s.srv.logger.Debugf("Server became follower for stream %s", s)
 	s.isFollowing = true
 	s.isLeading = false
 
@@ -496,8 +529,6 @@ func (s *stream) startLeaderFailureDetectorLoop() {
 			if err := s.srv.metadata.ReportLeader(context.Background(), req); err != nil {
 				s.srv.logger.Errorf("Failed to report leader %s for stream %s: %s",
 					leader, s, err.Err())
-			} else {
-				s.srv.logger.Debugf("Reported leader %s for stream %s", leader, s)
 			}
 		}
 	}
@@ -543,27 +574,51 @@ func (s *stream) inISR(replica string) bool {
 	return ok
 }
 
-func (s *stream) InReplicas(id string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.inReplicas(id)
-}
-
 func (s *stream) inReplicas(id string) bool {
 	_, ok := s.replicas[id]
 	return ok
 }
 
-func (s *stream) removeFromISR(replica string) {
+func (s *stream) RemoveFromISR(replica string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.inReplicas(replica) {
+		return fmt.Errorf("%s not a replica", replica)
+	}
 	delete(s.isr, replica)
+	return nil
+}
+
+func (s *stream) AddToISR(rep string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.inReplicas(rep) {
+		return fmt.Errorf("%s not a replica", rep)
+	}
+	s.isr[rep] = &replica{offset: -1}
+	return nil
+}
+
+func (s *stream) GetEpoch() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Epoch
+}
+
+func (s *stream) SetEpoch(epoch uint64) {
+	s.mu.Lock()
+	s.Epoch = epoch
 	s.mu.Unlock()
 }
 
-func (s *stream) addToISR(rep string) {
-	s.mu.Lock()
-	s.isr[rep] = &replica{offset: -1}
-	s.mu.Unlock()
+func (s *stream) Marshal() []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data, err := s.Stream.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
 func (s *stream) isrSize() int {

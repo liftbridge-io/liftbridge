@@ -61,6 +61,7 @@ message Stream {
     string          leader            = 6;
     repeated string isr               = 7;
     uint64          leaderEpoch       = 8;
+    uint64          epoch             = 9;
 }
 
 // RaftJoinRequest is a request to join a Raft group.

@@ -26,6 +26,7 @@ type ClusteringConfig struct {
 	ServerID                string
 	Namespace               string
 	RaftSnapshots           int
+	RaftSnapshotThreshold   uint64
 	RaftCacheSize           int
 	RaftBootstrap           bool
 	RaftBootstrapPeers      []string
@@ -56,6 +57,7 @@ func NewConfig(configFile string) (*Config, error) {
 	config.Clustering.ReplicaMaxLagTime = 10 * time.Second
 	config.Clustering.ReplicaFetchInterval = time.Second
 	config.Clustering.ReplicaMaxLeaderTimeout = 10 * time.Second
+	config.Clustering.RaftSnapshots = 2
 	config.Log.RetentionMaxBytes = -1
 
 	if configFile == "" {
@@ -159,8 +161,10 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 			config.Clustering.ServerID = v.(string)
 		case "namespace":
 			config.Clustering.Namespace = v.(string)
-		case "raft.snapshots":
+		case "raft.snapshot.retain":
 			config.Clustering.RaftSnapshots = int(v.(int64))
+		case "raft.snapshot.threshold":
+			config.Clustering.RaftSnapshotThreshold = uint64(v.(int64))
 		case "raft.cache.size":
 			config.Clustering.RaftCacheSize = int(v.(int64))
 		case "raft.bootstrap":

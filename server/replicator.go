@@ -160,9 +160,6 @@ func (r *replicator) shrinkISR() {
 		r.stream.srv.logger.Errorf(
 			"Failed to remove replica %s for stream %s from ISR: %v",
 			r.replica, r.stream, err.Err())
-	} else {
-		r.stream.srv.logger.Debugf(
-			"Removed replica %s for stream %s from ISR", r.replica, r.stream)
 	}
 }
 
@@ -178,9 +175,6 @@ func (r *replicator) expandISR() {
 		r.stream.srv.logger.Errorf(
 			"Failed to add replica %s for stream %s to ISR: %v",
 			r.replica, r.stream, err.Err())
-	} else {
-		r.stream.srv.logger.Debugf(
-			"Added replica %s for stream %s to ISR", r.replica, r.stream)
 	}
 }
 
