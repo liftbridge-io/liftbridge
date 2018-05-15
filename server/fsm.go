@@ -21,31 +21,39 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 	case proto.Op_CREATE_STREAM:
 		stream := log.CreateStreamOp.Stream
 		// Make sure to set the leader epoch on the stream.
-		stream.LeaderEpoch = l.Term
-		if err := s.createStream(stream); err != nil {
+		stream.LeaderEpoch = l.Index
+		err := s.applyCreateStream(stream)
+		if err == ErrStreamExists {
+			return err
+		}
+		if err != nil {
 			panic(err)
 		}
 	case proto.Op_SHRINK_ISR:
 		var (
-			stream  = log.ShrinkISROp.Stream
+			subject = log.ShrinkISROp.Subject
+			name    = log.ShrinkISROp.Name
 			replica = log.ShrinkISROp.ReplicaToRemove
 		)
-		if err := s.shrinkISR(stream, replica); err != nil {
+		if err := s.applyShrinkISR(subject, name, replica); err != nil {
 			panic(err)
 		}
 	case proto.Op_CHANGE_LEADER:
-		stream := log.ChangeLeaderOp.Stream
-		if err := s.changeStreamLeader(
-			stream.Subject, stream.Name,
-			log.ChangeLeaderOp.Leader, l.Term); err != nil {
+		var (
+			subject = log.ChangeLeaderOp.Subject
+			name    = log.ChangeLeaderOp.Name
+			leader  = log.ChangeLeaderOp.Leader
+		)
+		if err := s.applyChangeStreamLeader(subject, name, leader, l.Index); err != nil {
 			panic(err)
 		}
 	case proto.Op_EXPAND_ISR:
 		var (
-			stream  = log.ExpandISROp.Stream
+			subject = log.ExpandISROp.Subject
+			name    = log.ExpandISROp.Name
 			replica = log.ExpandISROp.ReplicaToAdd
 		)
-		if err := s.expandISR(stream, replica); err != nil {
+		if err := s.applyExpandISR(subject, name, replica); err != nil {
 			panic(err)
 		}
 	default:
@@ -124,7 +132,7 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 		return err
 	}
 	for _, stream := range snap.Streams {
-		if err := s.createStream(stream); err != nil {
+		if err := s.applyCreateStream(stream); err != nil {
 			return err
 		}
 	}
@@ -132,44 +140,24 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 	return nil
 }
 
-func (s *Server) createStream(protoStream *proto.Stream) error {
-	// Do idempotency check.
-	// TODO: return error.
-	if stream := s.metadata.GetStream(protoStream.Subject, protoStream.Name); stream != nil {
-		return nil
+func (s *Server) applyCreateStream(protoStream *proto.Stream) error {
+	stream, err := s.metadata.AddStream(protoStream)
+	if err == ErrStreamExists {
+		return err
 	}
-
-	// This will initialize/recover the durable commit log.
-	stream, err := s.newStream(protoStream)
 	if err != nil {
-		return errors.Wrap(err, "failed to create stream")
-	}
-
-	if err := s.metadata.AddStream(stream); err != nil {
 		return errors.Wrap(err, "failed to add stream to metadata store")
 	}
-
-	if stream.getLeader() == s.config.Clustering.ServerID {
-		if err := stream.becomeLeader(); err != nil {
-			return err
-		}
-	} else if stream.inReplicas(s.config.Clustering.ServerID) {
-		if err := stream.becomeFollower(); err != nil {
-			return err
-		}
-	}
-
 	s.logger.Debugf("Created stream %s", stream)
 	return nil
 }
 
-func (s *Server) shrinkISR(protoStream *proto.Stream, replica string) error {
-	stream := s.metadata.GetStream(protoStream.Subject, protoStream.Name)
+func (s *Server) applyShrinkISR(subject, name, replica string) error {
+	stream := s.metadata.GetStream(subject, name)
 	if stream == nil {
-		return fmt.Errorf("No such stream [subject=%s, name=%s]",
-			protoStream.Subject, protoStream.Name)
+		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
 	}
-	if !stream.inReplicas(replica) {
+	if !stream.InReplicas(replica) {
 		return fmt.Errorf("Cannot remove %s from stream %s ISR, not a replica", replica, stream)
 	}
 	stream.removeFromISR(replica)
@@ -177,13 +165,12 @@ func (s *Server) shrinkISR(protoStream *proto.Stream, replica string) error {
 	return nil
 }
 
-func (s *Server) expandISR(protoStream *proto.Stream, replica string) error {
-	stream := s.metadata.GetStream(protoStream.Subject, protoStream.Name)
+func (s *Server) applyExpandISR(subject, name, replica string) error {
+	stream := s.metadata.GetStream(subject, name)
 	if stream == nil {
-		return fmt.Errorf("No such stream [subject=%s, name=%s]",
-			protoStream.Subject, protoStream.Name)
+		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
 	}
-	if !stream.inReplicas(replica) {
+	if !stream.InReplicas(replica) {
 		return fmt.Errorf("Cannot add %s to stream %s ISR, not a replica", replica, stream)
 	}
 	stream.addToISR(replica)
@@ -191,22 +178,14 @@ func (s *Server) expandISR(protoStream *proto.Stream, replica string) error {
 	return nil
 }
 
-func (s *Server) changeStreamLeader(subject, name string, leader string, epoch uint64) error {
+func (s *Server) applyChangeStreamLeader(subject, name string, leader string, epoch uint64) error {
 	stream := s.metadata.GetStream(subject, name)
 	if stream == nil {
 		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
 	}
 
-	stream.setLeader(leader, epoch)
-
-	if leader == s.config.Clustering.ServerID {
-		if err := stream.becomeLeader(); err != nil {
-			return err
-		}
-	} else if stream.inReplicas(s.config.Clustering.ServerID) {
-		if err := stream.becomeFollower(); err != nil {
-			return err
-		}
+	if err := stream.setLeader(leader, epoch); err != nil {
+		return errors.Wrap(err, "failed to change stream leader")
 	}
 
 	s.logger.Debugf("Changed leader for stream %s to %s", stream, leader)

@@ -58,7 +58,7 @@ type stream struct {
 
 func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 	log, err := commitlog.New(commitlog.Options{
-		Path:            filepath.Join(s.config.Clustering.RaftPath, protoStream.Subject, protoStream.Name),
+		Path:            filepath.Join(s.config.DataPath, "streams", protoStream.Subject, protoStream.Name),
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		Compact:         s.config.Log.Compact,
@@ -104,6 +104,7 @@ func (s *Server) newStream(protoStream *proto.Stream) (*stream, error) {
 			requests:          make(chan *proto.ReplicationRequest),
 			hw:                -1,
 			maxLagTime:        s.config.Clustering.ReplicaMaxLagTime,
+			leader:            s.config.Clustering.ServerID,
 			cancelReplication: func() {}, // Intentional no-op initially
 		}
 	}
@@ -137,25 +138,38 @@ func (s *stream) close() error {
 	return nil
 }
 
-func (s *stream) setLeader(leader string, epoch uint64) {
-	s.mu.Lock()
-	s.Leader = leader
-	s.LeaderEpoch = epoch
-	s.mu.Unlock()
-}
-
-func (s *stream) getLeader() string {
+func (s *stream) setLeader(leader string, epoch uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.Leader
+	if epoch < s.LeaderEpoch {
+		return fmt.Errorf("proposed leader epoch %d is less than current epoch %d",
+			epoch, s.LeaderEpoch)
+	}
+	s.Leader = leader
+	s.LeaderEpoch = epoch
+
+	if leader == s.srv.config.Clustering.ServerID {
+		if err := s.becomeLeader(epoch); err != nil {
+			return err
+		}
+	} else if s.inReplicas(s.srv.config.Clustering.ServerID) {
+		if err := s.becomeFollower(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *stream) getLeader() (string, uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Leader, s.LeaderEpoch
 }
 
 // becomeLeader is called when the server has become the leader for this
 // stream.
-func (s *stream) becomeLeader() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+func (s *stream) becomeLeader(epoch uint64) error {
 	if s.isLeading {
 		return nil
 	}
@@ -168,7 +182,7 @@ func (s *stream) becomeLeader() error {
 	}
 
 	// Start replicating to followers.
-	s.startReplicating()
+	s.startReplicating(epoch)
 
 	// Subscribe to the NATS subject and begin sequencing messages.
 	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.ConsumerGroup, s.handleMsg)
@@ -194,9 +208,6 @@ func (s *stream) becomeLeader() error {
 // becomeFollower is called when the server has become a follower for this
 // stream.
 func (s *stream) becomeFollower() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.isFollowing {
 		return nil
 	}
@@ -358,14 +369,14 @@ func (s *stream) getReplicationResponseInbox() string {
 		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name, s.srv.config.Clustering.ServerID)
 }
 
-func (s *stream) startReplicating() {
+func (s *stream) startReplicating(epoch uint64) {
 	s.commitQueue = queue.New(100) // TODO: hint should be ~steady state inflight messages
 	if s.ReplicationFactor > 1 {
 		s.srv.logger.Debugf("Replicating stream %s to followers", s)
 	}
 	go s.startCommitLoop()
 	for _, replicator := range s.replicators {
-		go replicator.start()
+		go replicator.start(epoch)
 	}
 }
 
@@ -452,12 +463,17 @@ func (s *stream) startLeaderFailureDetectorLoop() {
 	s.mu.Lock()
 	s.leaderLastSeen = time.Now()
 	s.mu.Unlock()
-	ticker := time.NewTicker(s.srv.config.Clustering.ReplicaMaxLeaderTimeout)
+	interval := s.srv.config.Clustering.ReplicaMaxLeaderTimeout / 2
+	if interval == 0 {
+		interval = s.srv.config.Clustering.ReplicaMaxLeaderTimeout
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		now := <-ticker.C
 		s.mu.RLock()
 		var (
+			leader          = s.Leader
 			isFollowing     = s.isFollowing
 			lastSeenElapsed = now.Sub(s.leaderLastSeen)
 		)
@@ -471,16 +487,17 @@ func (s *stream) startLeaderFailureDetectorLoop() {
 			// report it to controller.
 			s.srv.logger.Errorf("Leader %s for stream %s exceeded max leader timeout "+
 				"(last seen: %s), reporting leader to controller",
-				s.getLeader(), s, lastSeenElapsed)
+				leader, s, lastSeenElapsed)
 			req := &proto.ReportLeaderOp{
-				Stream:  s.Stream,
+				Subject: s.Subject,
+				Name:    s.Name,
 				Replica: s.srv.config.Clustering.ServerID,
 			}
 			if err := s.srv.metadata.ReportLeader(context.Background(), req); err != nil {
 				s.srv.logger.Errorf("Failed to report leader %s for stream %s: %s",
-					s.getLeader(), s, err.Err())
+					leader, s, err.Err())
 			} else {
-				s.srv.logger.Debugf("Reported leader %s for stream %s", s.getLeader(), s)
+				s.srv.logger.Debugf("Reported leader %s for stream %s", leader, s)
 			}
 		}
 	}
@@ -526,9 +543,13 @@ func (s *stream) inISR(replica string) bool {
 	return ok
 }
 
-func (s *stream) inReplicas(id string) bool {
+func (s *stream) InReplicas(id string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.inReplicas(id)
+}
+
+func (s *stream) inReplicas(id string) bool {
 	_, ok := s.replicas[id]
 	return ok
 }

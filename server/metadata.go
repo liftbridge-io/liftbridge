@@ -3,9 +3,12 @@ package server
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-jetbridge/proto"
 	"golang.org/x/net/context"
@@ -15,7 +18,12 @@ import (
 	"github.com/tylertreat/jetbridge/server/proto"
 )
 
-const defaultPropagateTimeout = 5 * time.Second
+const (
+	defaultPropagateTimeout = 5 * time.Second
+	streamsBucket           = "streams"
+)
+
+var ErrStreamExists = errors.New("stream already exists")
 
 type subjectStreams map[string]*stream
 
@@ -72,14 +80,57 @@ type metadataAPI struct {
 	streams       map[string]subjectStreams
 	mu            sync.RWMutex
 	leaderReports map[*stream]*leaderReported
+	db            *bolt.DB
+	dbFile        string
 }
 
-func newMetadataAPI(s *Server) *metadataAPI {
-	return &metadataAPI{
+func newMetadataAPI(s *Server) (*metadataAPI, error) {
+	path := filepath.Join(s.config.DataPath, "metadata")
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return nil, errors.Wrap(err, "failed to create database directory")
+	}
+	var (
+		dbFile  = filepath.Join(path, "metadata.db")
+		db, err = bolt.Open(dbFile, 0666, nil)
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to open metadata database")
+	}
+
+	m := &metadataAPI{
 		Server:        s,
 		streams:       make(map[string]subjectStreams),
 		leaderReports: make(map[*stream]*leaderReported),
+		db:            db,
+		dbFile:        dbFile,
 	}
+	err = m.initializeDB()
+	return m, err
+}
+
+func (m *metadataAPI) Recover() error {
+	// Restore any previous state.
+	recovered := 0
+	if err := m.db.View(func(tx *bolt.Tx) error {
+		streams := tx.Bucket([]byte(streamsBucket))
+		return streams.ForEach(func(subject, _ []byte) error {
+			return streams.Bucket(subject).ForEach(func(name, protobuf []byte) error {
+				stream := &proto.Stream{}
+				if err := stream.Unmarshal(protobuf); err != nil {
+					panic(err)
+				}
+				_, err := m.addStream(stream, true)
+				if err == nil {
+					recovered++
+				}
+				return err
+			})
+		})
+	}); err != nil {
+		return err
+	}
+	m.logger.Infof("Recovered %d streams", recovered)
+	return nil
 }
 
 func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
@@ -119,8 +170,15 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStream
 	}
 
 	// Wait on result of replication.
-	if err := m.raft.Apply(data, raftApplyTimeout).Error(); err != nil {
+	future := m.raft.Apply(data, raftApplyTimeout)
+	if err := future.Error(); err != nil {
 		return status.New(codes.Internal, "Failed to replicate stream")
+	}
+
+	// If there is a response, it's an ErrStreamExists.
+	if resp := future.Response(); resp != nil {
+		err := resp.(error)
+		return status.New(codes.AlreadyExists, err.Error())
 	}
 
 	return nil
@@ -133,9 +191,19 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 	}
 
 	// Verify the stream exists.
-	if stream := m.GetStream(req.Stream.Subject, req.Stream.Name); stream == nil {
+	stream := m.GetStream(req.Subject, req.Name)
+	if stream == nil {
 		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such stream [subject=%s, name=%s]",
-			req.Stream.Subject, req.Stream.Name))
+			req.Subject, req.Name))
+	}
+
+	// Check the leader epoch.
+	leader, epoch := stream.getLeader()
+	if req.Leader != leader || req.LeaderEpoch != epoch {
+		return status.New(
+			codes.FailedPrecondition,
+			fmt.Sprintf("Leader generation mismatch, expected leader: %s epoch: %d, got leader: %s epoch: %d",
+				leader, epoch, req.Leader, req.LeaderEpoch))
 	}
 
 	// Replicate ISR shrink through Raft.
@@ -164,9 +232,19 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 	}
 
 	// Verify the stream exists.
-	if stream := m.GetStream(req.Stream.Subject, req.Stream.Name); stream == nil {
+	stream := m.GetStream(req.Subject, req.Name)
+	if stream == nil {
 		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such stream [subject=%s, name=%s]",
-			req.Stream.Subject, req.Stream.Name))
+			req.Subject, req.Name))
+	}
+
+	// Check the leader epoch.
+	leader, epoch := stream.getLeader()
+	if req.Leader != leader || req.LeaderEpoch != epoch {
+		return status.New(
+			codes.FailedPrecondition,
+			fmt.Sprintf("Leader generation mismatch, expected leader: %s epoch: %d, got leader: %s epoch: %d",
+				leader, epoch, req.Leader, req.LeaderEpoch))
 	}
 
 	// Replicate ISR expand through Raft.
@@ -195,10 +273,10 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	}
 
 	// Verify the stream exists.
-	stream := m.GetStream(req.Stream.Subject, req.Stream.Name)
+	stream := m.GetStream(req.Subject, req.Name)
 	if stream == nil {
 		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such stream [subject=%s, name=%s]",
-			req.Stream.Subject, req.Stream.Name))
+			req.Subject, req.Name))
 	}
 
 	m.mu.Lock()
@@ -216,20 +294,54 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	return reported.addWitness(req.Replica)
 }
 
-func (m *metadataAPI) AddStream(stream *stream) error {
+func (m *metadataAPI) AddStream(protoStream *proto.Stream) (*stream, error) {
+	return m.addStream(protoStream, false)
+}
+
+func (m *metadataAPI) addStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	streams := m.streams[stream.Subject]
+
+	streams := m.streams[protoStream.Subject]
 	if streams == nil {
 		streams = make(subjectStreams)
-		m.streams[stream.Subject] = streams
+		m.streams[protoStream.Subject] = streams
 	}
-	if _, ok := streams[stream.Name]; ok {
+	if _, ok := streams[protoStream.Name]; ok {
 		// Stream for subject with name already exists.
-		return nil
+		return nil, ErrStreamExists
 	}
+
+	// This will initialize/recover the durable commit log.
+	stream, err := m.newStream(protoStream)
+	if err != nil {
+		return nil, err
+	}
+
+	// Write the proto to the db if we're not recovering.
+	if !recovered {
+		serialized, err := protoStream.Marshal()
+		if err != nil {
+			panic(err)
+		}
+		if err := m.db.Update(func(tx *bolt.Tx) error {
+			streams := tx.Bucket([]byte(streamsBucket))
+			b, err := streams.CreateBucketIfNotExists([]byte(stream.Subject))
+			if err != nil {
+				return err
+			}
+			return b.Put([]byte(stream.Name), serialized)
+		}); err != nil {
+			return nil, err
+		}
+	}
+
 	streams[stream.Name] = stream
-	return nil
+
+	// Start leader/follower loop if necessary.
+	leader, epoch := stream.getLeader()
+	err = stream.setLeader(leader, epoch)
+	return stream, err
 }
 
 func (m *metadataAPI) GetStreams() []*stream {
@@ -261,6 +373,27 @@ func (m *metadataAPI) GetStream(subject, name string) *stream {
 func (m *metadataAPI) Reset() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.close(); err != nil {
+		return err
+	}
+	if err := os.Remove(m.dbFile); err != nil {
+		return err
+	}
+	db, err := bolt.Open(m.dbFile, 0666, nil)
+	if err != nil {
+		return err
+	}
+	m.db = db
+	return m.initializeDB()
+}
+
+func (m *metadataAPI) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.close()
+}
+
+func (m *metadataAPI) close() error {
 	for _, streams := range m.streams {
 		for _, stream := range streams {
 			if err := stream.close(); err != nil {
@@ -273,6 +406,9 @@ func (m *metadataAPI) Reset() error {
 		report.cancel()
 	}
 	m.leaderReports = make(map[*stream]*leaderReported)
+	if err := m.db.Close(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -334,9 +470,12 @@ func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
 	if len(isr) == 1 {
 		return status.New(codes.FailedPrecondition, "No ISR candidates")
 	}
-	candidates := make([]string, 0, len(isr)-1)
+	var (
+		candidates = make([]string, 0, len(isr)-1)
+		leader, _  = stream.getLeader()
+	)
 	for _, candidate := range isr {
-		if candidate == stream.getLeader() {
+		if candidate == leader {
 			continue
 		}
 		candidates = append(candidates, candidate)
@@ -347,14 +486,15 @@ func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
 	}
 
 	// Select a new leader at random.
-	leader := selectRandomReplica(candidates)
+	leader = selectRandomReplica(candidates)
 
 	// Replicate leader change through Raft.
 	op := &proto.RaftLog{
 		Op: proto.Op_CHANGE_LEADER,
 		ChangeLeaderOp: &proto.ChangeLeaderOp{
-			Stream: stream.Stream,
-			Leader: leader,
+			Subject: stream.Subject,
+			Name:    stream.Name,
+			Leader:  leader,
 		},
 	}
 
@@ -433,6 +573,14 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 	}
 
 	return nil
+}
+
+func (m *metadataAPI) initializeDB() error {
+	return m.db.Update(func(tx *bolt.Tx) error {
+		// Initialize streams bucket if it doesn't already exist.
+		_, err := tx.CreateBucketIfNotExists([]byte(streamsBucket))
+		return err
+	})
 }
 
 // selectRandomReplica selects a random replica from the list of replicas.

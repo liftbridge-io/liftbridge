@@ -232,7 +232,7 @@ func (s *Server) detectBootstrapMisconfig(name string) {
 }
 
 func (s *Server) createRaftNode(name string) (bool, error) {
-	path := filepath.Join(s.config.Clustering.RaftPath, name)
+	path := filepath.Join(s.config.DataPath, "raft")
 
 	// Configure Raft.
 	config := raft.DefaultConfig()

@@ -21,14 +21,17 @@ type replicator struct {
 	mu                sync.RWMutex
 	running           bool
 	cancelReplication context.CancelFunc
+	leader            string
+	epoch             uint64
 }
 
-func (r *replicator) start() {
+func (r *replicator) start(epoch uint64) {
 	r.mu.Lock()
 	if r.running {
 		r.mu.Unlock()
 		return
 	}
+	r.epoch = epoch
 	r.running = true
 	now := time.Now()
 	r.lastSeen = now
@@ -108,15 +111,12 @@ func (r *replicator) tick() {
 	ticker := time.NewTicker(r.maxLagTime)
 	defer ticker.Stop()
 	for {
+		now := <-ticker.C
 		r.mu.RLock()
 		if !r.running {
 			r.mu.RUnlock()
 			return
 		}
-		r.mu.RUnlock()
-
-		now := <-ticker.C
-		r.mu.RLock()
 		var (
 			lastSeenElapsed     = now.Sub(r.lastSeen)
 			lastCaughtUpElapsed = now.Sub(r.lastCaughtUp)
@@ -150,8 +150,11 @@ func (r *replicator) tick() {
 
 func (r *replicator) shrinkISR() {
 	req := &proto.ShrinkISROp{
-		Stream:          r.stream.Stream,
+		Subject:         r.stream.Subject,
+		Name:            r.stream.Name,
 		ReplicaToRemove: r.replica,
+		Leader:          r.leader,
+		LeaderEpoch:     r.epoch,
 	}
 	if err := r.stream.srv.metadata.ShrinkISR(context.Background(), req); err != nil {
 		r.stream.srv.logger.Errorf(
@@ -165,8 +168,11 @@ func (r *replicator) shrinkISR() {
 
 func (r *replicator) expandISR() {
 	req := &proto.ExpandISROp{
-		Stream:       r.stream.Stream,
+		Subject:      r.stream.Subject,
+		Name:         r.stream.Name,
 		ReplicaToAdd: r.replica,
+		Leader:       r.leader,
+		LeaderEpoch:  r.epoch,
 	}
 	if err := r.stream.srv.metadata.ExpandISR(context.Background(), req); err != nil {
 		r.stream.srv.logger.Errorf(

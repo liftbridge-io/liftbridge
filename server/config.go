@@ -25,7 +25,6 @@ type LogConfig struct {
 type ClusteringConfig struct {
 	ServerID                string
 	Namespace               string
-	RaftPath                string
 	RaftSnapshots           int
 	RaftCacheSize           int
 	RaftBootstrap           bool
@@ -40,6 +39,7 @@ type Config struct {
 	Host       string
 	Port       int
 	LogLevel   uint32
+	DataPath   string
 	NATS       nats.Options
 	Log        LogConfig
 	Clustering ClusteringConfig
@@ -92,6 +92,8 @@ func NewConfig(configFile string) (*Config, error) {
 			default:
 				return nil, fmt.Errorf("Invalid log.level setting %q", v.(string))
 			}
+		case "data.path":
+			config.DataPath = v.(string)
 		case "nats":
 			if err := parseNATSConfig(v.(map[string]interface{}), config.NATS); err != nil {
 				return nil, err
@@ -157,8 +159,6 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 			config.Clustering.ServerID = v.(string)
 		case "namespace":
 			config.Clustering.Namespace = v.(string)
-		case "raft.path":
-			config.Clustering.RaftPath = v.(string)
 		case "raft.snapshots":
 			config.Clustering.RaftSnapshots = int(v.(int64))
 		case "raft.cache.size":

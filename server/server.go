@@ -33,9 +33,9 @@ type Server struct {
 }
 
 func New(config *Config) *Server {
-	// Default Raft log path to /tmp/<namespace>/<server-id> if not set.
-	if config.Clustering.RaftPath == "" {
-		config.Clustering.RaftPath = filepath.Join(
+	// Default data path to /tmp/<namespace>/<server-id> if not set.
+	if config.DataPath == "" {
+		config.DataPath = filepath.Join(
 			"/tmp", config.Clustering.Namespace, config.Clustering.ServerID)
 	}
 	logger := log.New()
@@ -45,11 +45,15 @@ func New(config *Config) *Server {
 		logger:     logger,
 		shutdownCh: make(chan struct{}),
 	}
-	s.metadata = newMetadataAPI(s)
 	return s
 }
 
 func (s *Server) Start() error {
+	metadata, err := newMetadataAPI(s)
+	if err != nil {
+		return errors.Wrap(err, "failed to initialize metadata API")
+	}
+	s.metadata = metadata
 	hp := net.JoinHostPort(s.config.Host, strconv.Itoa(s.config.Port))
 	l, err := net.Listen("tcp", hp)
 	if err != nil {
@@ -80,6 +84,11 @@ func (s *Server) Start() error {
 		return errors.Wrap(err, "failed to connect to NATS")
 	}
 	s.ncRepl = ncRepl
+
+	// Recover any previous metadata state.
+	if err := s.metadata.Recover(); err != nil {
+		return errors.Wrap(err, "failed to recover metadata state")
+	}
 
 	if err := s.startMetadataRaft(); err != nil {
 		s.Stop()
@@ -280,7 +289,7 @@ func (s *Server) Stop() error {
 	}
 
 	if s.metadata != nil {
-		if err := s.metadata.Reset(); err != nil {
+		if err := s.metadata.Close(); err != nil {
 			return err
 		}
 	}

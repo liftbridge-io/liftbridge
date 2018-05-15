@@ -25,23 +25,31 @@ message CreateStreamOp {
 }
 
 message ShrinkISROp {
-    Stream stream          = 1;
-    string replicaToRemove = 2;
+    string subject         = 1;
+    string name            = 2;
+    string replicaToRemove = 3;
+    string leader          = 4;
+    uint64 leaderEpoch     = 5;
 }
 
 message ExpandISROp {
-    Stream stream       = 1;
-    string replicaToAdd = 2;
+    string subject      = 1;
+    string name         = 2;
+    string replicaToAdd = 3;
+    string leader       = 4;
+    uint64 leaderEpoch  = 5;
 }
 
 message ReportLeaderOp {
-    Stream stream  = 1;
-    string replica = 2;
+    string subject = 1;
+    string name    = 2;
+    string replica = 3;
 }
 
 message ChangeLeaderOp {
-    Stream stream = 1;
-    string leader = 2;
+    string subject = 1;
+    string name    = 2;
+    string leader  = 3;
 }
 
 message Stream {
