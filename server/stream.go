@@ -193,7 +193,7 @@ func (s *stream) startLeaderOrFollowerLoop() error {
 	return nil
 }
 
-func (s *stream) getLeader() (string, uint64) {
+func (s *stream) GetLeader() (string, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Leader, s.LeaderEpoch
@@ -355,23 +355,27 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 }
 
 func (s *stream) handleReplicationResponse(msg *nats.Msg) {
-	// TODO: check leader epoch.
-
-	s.mu.Lock()
-	s.leaderLastSeen = time.Now()
-	s.mu.Unlock()
-
-	// We should have at least 8 bytes for HW.
-	if len(msg.Data) < 8 {
+	// We should have at least 16 bytes, 8 for leader epoch and 8 for HW.
+	if len(msg.Data) < 16 {
 		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
 		return
 	}
 
+	leaderEpoch := proto.Encoding.Uint64(msg.Data[:8])
+
+	s.mu.Lock()
+	if s.LeaderEpoch != leaderEpoch {
+		s.mu.Unlock()
+		return
+	}
+	s.leaderLastSeen = time.Now()
+	s.mu.Unlock()
+
 	// Update HW from leader's HW.
-	hw := int64(proto.Encoding.Uint64(msg.Data[:8]))
+	hw := int64(proto.Encoding.Uint64(msg.Data[8:]))
 	s.log.SetHighWatermark(hw)
 
-	data := msg.Data[8:]
+	data := msg.Data[16:]
 	if len(data) == 0 {
 		return
 	}

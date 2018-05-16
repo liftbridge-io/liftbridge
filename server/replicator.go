@@ -141,7 +141,7 @@ func (r *replicator) tick() {
 			}
 		} else if !outOfSync && !r.stream.inISR(r.replica) {
 			// Add replica back into ISR.
-			r.stream.srv.logger.Warnf("Replica %s for stream %s caught back up with leader, "+
+			r.stream.srv.logger.Infof("Replica %s for stream %s caught back up with leader, "+
 				"rejoining ISR", r.replica, r.stream)
 			r.expandISR()
 		}
@@ -189,16 +189,18 @@ func (r *replicator) replicate(reader io.Reader, inbox string) {
 			r.stream.srv.logger.Errorf("Failed to read stream message while replicating: %v", err)
 			return
 		}
-		// Piggyback HW in the first 8 bytes.
-		buf := make([]byte, 8+len(ms))
-		proto.Encoding.PutUint64(buf, uint64(r.stream.log.HighWatermark()))
-		copy(buf[8:], ms)
+		// Write leader epoch, HW, followed by message data.
+		buf := make([]byte, 16+len(ms))
+		proto.Encoding.PutUint64(buf[:8], r.epoch)
+		proto.Encoding.PutUint64(buf[8:], uint64(r.stream.log.HighWatermark()))
+		copy(buf[16:], ms)
 		r.stream.srv.ncRepl.Publish(inbox, buf)
 	}
 }
 
 func (r *replicator) sendHW(inbox string) {
-	buf := make([]byte, 8)
-	proto.Encoding.PutUint64(buf, uint64(r.stream.log.HighWatermark()))
+	buf := make([]byte, 16)
+	proto.Encoding.PutUint64(buf[:8], r.epoch)
+	proto.Encoding.PutUint64(buf[8:], uint64(r.stream.log.HighWatermark()))
 	r.stream.srv.ncRepl.Publish(inbox, buf)
 }

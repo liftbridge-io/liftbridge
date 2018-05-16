@@ -253,7 +253,7 @@ func (s *Server) applyExpandISR(subject, name, replica string, epoch uint64) err
 
 	stream.SetEpoch(epoch)
 
-	s.logger.Warnf("fsm: Added replica %s to ISR for stream %s", replica, stream)
+	s.logger.Infof("fsm: Added replica %s to ISR for stream %s", replica, stream)
 	return nil
 }
 

@@ -149,7 +149,7 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 	}
 
 	// Check the leader epoch.
-	leader, epoch := stream.getLeader()
+	leader, epoch := stream.GetLeader()
 	if req.Leader != leader || req.LeaderEpoch != epoch {
 		return status.New(
 			codes.FailedPrecondition,
@@ -190,7 +190,7 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 	}
 
 	// Check the leader epoch.
-	leader, epoch := stream.getLeader()
+	leader, epoch := stream.GetLeader()
 	if req.Leader != leader || req.LeaderEpoch != epoch {
 		return status.New(
 			codes.FailedPrecondition,
@@ -268,7 +268,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 	streams[stream.Name] = stream
 
 	// Start leader/follower loop if necessary.
-	leader, epoch := stream.getLeader()
+	leader, epoch := stream.GetLeader()
 	err = stream.SetLeader(leader, epoch)
 	return stream, err
 }
@@ -377,7 +377,7 @@ func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
 	}
 	var (
 		candidates = make([]string, 0, len(isr)-1)
-		leader, _  = stream.getLeader()
+		leader, _  = stream.GetLeader()
 	)
 	for _, candidate := range isr {
 		if candidate == leader {
