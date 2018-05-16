@@ -119,25 +119,12 @@ func (s *Server) startMetadataRaft() error {
 	}
 	node := s.raft
 
-	leaderWait := make(chan struct{}, 1)
-	leaderReady := func() {
-		select {
-		case leaderWait <- struct{}{}:
-		default:
-		}
-	}
-	if node.State() != raft.Leader {
-		leaderReady()
-	}
-
 	go func() {
 		for {
 			select {
 			case isLeader := <-node.notifyCh:
 				if isLeader {
-					err := s.leadershipAcquired()
-					leaderReady()
-					if err != nil {
+					if err := s.leadershipAcquired(); err != nil {
 						s.logger.Errorf("Error on metadata leadership acquired: %v", err)
 						switch {
 						case err == raft.ErrRaftShutdown:
@@ -157,15 +144,11 @@ func (s *Server) startMetadataRaft() error {
 					}
 				}
 			case <-s.shutdownCh:
-				// Signal channel here to handle edge case where we might
-				// otherwise block forever on the channel when shutdown.
-				leaderReady()
 				return
 			}
 		}
 	}()
 
-	<-leaderWait
 	return nil
 }
 
@@ -231,8 +214,7 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 			Op:               req.Op,
 			CreateStreamResp: &client.CreateStreamResponse{},
 		}
-		// TODO: What should we do with the context here?
-		if err := s.metadata.CreateStream(context.TODO(), req.CreateStreamOp); err != nil {
+		if err := s.metadata.CreateStream(context.Background(), req.CreateStreamOp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
 		data, err := resp.Marshal()
@@ -244,8 +226,7 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		resp := &proto.PropagatedResponse{
 			Op: req.Op,
 		}
-		// TODO: What should we do with the context here?
-		if err := s.metadata.ShrinkISR(context.TODO(), req.ShrinkISROp); err != nil {
+		if err := s.metadata.ShrinkISR(context.Background(), req.ShrinkISROp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
 		data, err := resp.Marshal()
@@ -257,8 +238,7 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		resp := &proto.PropagatedResponse{
 			Op: req.Op,
 		}
-		// TODO: What should we do with the context here?
-		if err := s.metadata.ReportLeader(context.TODO(), req.ReportLeaderOp); err != nil {
+		if err := s.metadata.ReportLeader(context.Background(), req.ReportLeaderOp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
 		data, err := resp.Marshal()
@@ -270,8 +250,7 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		resp := &proto.PropagatedResponse{
 			Op: req.Op,
 		}
-		// TODO: What should we do with the context here?
-		if err := s.metadata.ExpandISR(context.TODO(), req.ExpandISROp); err != nil {
+		if err := s.metadata.ExpandISR(context.Background(), req.ExpandISROp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
 		data, err := resp.Marshal()

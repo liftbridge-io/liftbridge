@@ -64,10 +64,10 @@ func (r *replicator) start(epoch uint64) {
 		r.cancelReplication = cancel
 		reader, err := r.stream.log.NewReaderContext(ctx, req.Offset+1)
 		if err != nil {
-			// TODO: if this errors, something is really screwed up. In
-			// particular, it probably means the offset does not exist. We
-			// could send a message back to the follower indicating this. For
-			// now, log it and do nothing.
+			// If this errors, something is really screwed up. In particular,
+			// it probably means the offset does not exist. We could send a
+			// message back to the follower indicating this. For now, log it
+			// and do nothing.
 			r.stream.srv.logger.Errorf("Failed to create replicator reader for stream %s and replica %s: %v",
 				r.stream, r.replica, err)
 			r.mu.Unlock()
