@@ -7,14 +7,14 @@ import (
 
 	"github.com/urfave/cli"
 
-	"github.com/tylertreat/jetbridge/server"
+	"github.com/tylertreat/liftbridge/server"
 )
 
 const version = "0.0.1"
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "jetbridge"
+	app.Name = "liftbridge"
 	app.Usage = "Durable stream augmentation for NATS"
 	app.Version = version
 	app.Flags = []cli.Flag{

@@ -11,11 +11,11 @@ import (
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	client "github.com/tylertreat/go-jetbridge/proto"
+	client "github.com/tylertreat/go-liftbridge/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	"github.com/tylertreat/jetbridge/server/proto"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 type Server struct {

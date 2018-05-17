@@ -1,7 +1,7 @@
 syntax = "proto3";
 package proto;
 
-import "github.com/tylertreat/go-jetbridge/proto/api.proto";
+import "github.com/tylertreat/go-liftbridge/proto/api.proto";
 
     
 enum Op {

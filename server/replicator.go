@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/tylertreat/jetbridge/server/proto"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 type replicator struct {

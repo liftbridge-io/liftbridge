@@ -11,10 +11,10 @@ import (
 	"github.com/nats-io/nuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/tylertreat/jetbridge/server/conf"
+	"github.com/tylertreat/liftbridge/server/conf"
 )
 
-const defaultNamespace = "jetbridge-default"
+const defaultNamespace = "liftbridge-default"
 
 type LogConfig struct {
 	RetentionMaxBytes int64

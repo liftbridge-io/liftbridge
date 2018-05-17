@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/pkg/errors"
 
-	"github.com/tylertreat/jetbridge/server/proto"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 func (s *Server) recoverLatestCommittedFSMLog(applyIndex uint64) (*raft.Log, error) {

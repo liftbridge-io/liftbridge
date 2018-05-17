@@ -12,11 +12,11 @@ import (
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
-	client "github.com/tylertreat/go-jetbridge/proto"
+	client "github.com/tylertreat/go-liftbridge/proto"
 	"golang.org/x/net/context"
 
-	"github.com/tylertreat/jetbridge/server/commitlog"
-	"github.com/tylertreat/jetbridge/server/proto"
+	"github.com/tylertreat/liftbridge/server/commitlog"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 var envelopeCookie = []byte("jetb")

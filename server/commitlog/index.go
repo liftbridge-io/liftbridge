@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tysontate/gommap"
 
-	"github.com/tylertreat/jetbridge/server/proto"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 var (

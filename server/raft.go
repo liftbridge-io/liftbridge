@@ -14,7 +14,7 @@ import (
 	"github.com/nats-io/go-nats"
 	"github.com/tylertreat/nats-on-a-log"
 
-	"github.com/tylertreat/jetbridge/server/proto"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 const (

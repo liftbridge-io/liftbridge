@@ -4,12 +4,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	client "github.com/tylertreat/go-jetbridge/proto"
+	client "github.com/tylertreat/go-liftbridge/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/tylertreat/jetbridge/server/proto"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 const (
