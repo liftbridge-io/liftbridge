@@ -11,7 +11,7 @@ import (
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
-func TestCompactCleaner(t *testing.T) {
+func TestDeleteCleaner(t *testing.T) {
 	req := require.New(t)
 	var err error
 
@@ -70,50 +70,31 @@ func TestCompactCleaner(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, msgSets[0], ms)
 
-	cc := commitlog.NewCompactCleaner()
+	// want to clean the last two msg sets
+	cc := commitlog.NewDeleteCleaner(int64(len(msgSets[2]) + len(msgSets[3])))
 	cleaned, err := cc.Clean(segments)
 	req.NoError(err)
-	req.Equal(2, len(cleaned))
+	req.Equal(1, len(cleaned))
 
 	scanner = commitlog.NewSegmentScanner(cleaned[0])
-
 	var count int
-	for {
-		ms, err = scanner.Scan()
-		if err != nil {
-			break
-		}
-		req.Equal(1, len(ms.Messages()))
-		req.Equal([]byte("another"), ms.Messages()[0].Key())
-		req.Equal([]byte("one another"), ms.Messages()[0].Value())
-		count++
-	}
-	req.Equal(1, count)
 
-	scanner = commitlog.NewSegmentScanner(cleaned[1])
-	count = 0
-	for {
-		ms, err = scanner.Scan()
-		if err != nil {
-			break
-		}
-		req.Equal(1, len(ms.Messages()))
-		req.Equal([]byte("travisjeffery"), ms.Messages()[0].Key())
-		req.Equal([]byte("two tj"), ms.Messages()[0].Value())
-		count++
-	}
-	req.Equal(1, count)
+	ms, err = scanner.Scan()
+	req.NoError(err)
+	req.Equal(1, len(ms.Messages()))
+	req.Equal(int64(2), ms.Offset())
+	req.Equal([]byte("travisjeffery"), ms.Messages()[0].Key())
+	req.Equal([]byte("two tj"), ms.Messages()[0].Value())
+	count++
 
-}
+	ms, err = scanner.Scan()
+	req.NoError(err)
+	req.Equal(1, len(ms.Messages()))
+	req.Equal(int64(3), ms.Offset())
+	req.Equal([]byte("again another"), ms.Messages()[0].Key())
+	req.Equal([]byte("again another"), ms.Messages()[0].Value())
+	count++
 
-func newMessageSet(offset uint64, pmsgs ...*proto.Message) commitlog.MessageSet {
-	cmsgs := make([]commitlog.Message, 0, len(pmsgs))
-	for _, msg := range pmsgs {
-		b, err := proto.Encode(msg)
-		if err != nil {
-			panic(err)
-		}
-		cmsgs = append(cmsgs, b)
-	}
-	return commitlog.NewMessageSet(offset, cmsgs...)
+	req.Equal(2, count)
+
 }
