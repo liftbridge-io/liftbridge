@@ -91,7 +91,7 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 		replicas:    replicas,
 		isr:         isr,
 		replicators: make(map[string]*replicator, len(protoStream.Replicas)),
-		commitCheck: make(chan struct{}, 1),
+		commitCheck: make(chan struct{}, len(protoStream.Replicas)),
 		recovered:   recovered,
 	}
 
