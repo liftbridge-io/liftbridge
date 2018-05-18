@@ -1,6 +1,7 @@
 package commitlog
 
 import (
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -37,7 +38,8 @@ type CommitLog struct {
 	segments       []*Segment
 	vActiveSegment atomic.Value
 	waitersMu      sync.Mutex
-	waiters        map[*Reader]chan struct{}
+	dataWaiters    map[io.Reader]chan struct{}
+	hwWaiters      map[io.Reader]chan struct{}
 }
 
 type Options struct {
@@ -76,12 +78,13 @@ func New(opts Options) (*CommitLog, error) {
 
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
-		Options: opts,
-		name:    filepath.Base(path),
-		cleaner: cleaner,
-		waiters: make(map[*Reader]chan struct{}),
-		hw:      -1,
-		flushHW: make(chan struct{}),
+		Options:     opts,
+		name:        filepath.Base(path),
+		cleaner:     cleaner,
+		dataWaiters: make(map[io.Reader]chan struct{}),
+		hwWaiters:   make(map[io.Reader]chan struct{}),
+		hw:          -1,
+		flushHW:     make(chan struct{}),
 	}
 
 	if err := l.init(); err != nil {
@@ -163,40 +166,46 @@ func (l *CommitLog) Append(b []byte) (offset int64, err error) {
 			return offset, err
 		}
 	}
-	position := l.activeSegment().Position
-	offset = l.activeSegment().NextOffset
+	segment := l.activeSegment()
+	position := segment.Position()
+	offset = segment.NextOffset()
 	ms.PutOffset(offset)
-	if _, err := l.activeSegment().Write(ms); err != nil {
+	if _, err := segment.Write(ms); err != nil {
 		return offset, err
 	}
 	e := Entry{
 		Offset:   offset,
 		Position: position,
 	}
-	if err := l.activeSegment().Index.WriteEntry(e); err != nil {
+	if err := segment.Index.WriteEntry(e); err != nil {
 		return offset, err
 	}
-	l.notifyWaiters()
+	l.waitersMu.Lock()
+	l.notifyDataWaiters()
+	l.waitersMu.Unlock()
 	return offset, nil
 }
 
-func (l *CommitLog) notifyWaiters() {
-	l.waitersMu.Lock()
-	for r, ch := range l.waiters {
+func (l *CommitLog) notifyDataWaiters() {
+	for r, ch := range l.dataWaiters {
 		close(ch)
-		delete(l.waiters, r)
+		delete(l.dataWaiters, r)
 	}
-	l.waitersMu.Unlock()
+}
+
+func (l *CommitLog) notifyHWWaiters() {
+	for r, ch := range l.hwWaiters {
+		close(ch)
+		delete(l.hwWaiters, r)
+	}
 }
 
 func (l *CommitLog) Read(p []byte) (n int, err error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	return l.activeSegment().Read(p)
 }
 
 func (l *CommitLog) NewestOffset() int64 {
-	return l.activeSegment().NextOffset - 1
+	return l.activeSegment().NextOffset() - 1
 }
 
 func (l *CommitLog) OldestOffset() int64 {
@@ -207,7 +216,10 @@ func (l *CommitLog) OldestOffset() int64 {
 
 func (l *CommitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
-	l.hw = hw
+	if hw > l.hw {
+		l.hw = hw
+		l.notifyHWWaiters()
+	}
 	l.mu.Unlock()
 	// TODO: should we flush the HW to disk here?
 }
@@ -304,8 +316,8 @@ func (l *CommitLog) Truncate(offset int64) error {
 }
 
 func (l *CommitLog) Segments() []*Segment {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 	return l.segments
 }
 

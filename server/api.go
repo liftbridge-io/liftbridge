@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -48,7 +49,7 @@ func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.A
 
 	ch, errCh, err := a.consumeStream(out.Context(), stream, req)
 	if err != nil {
-		a.logger.Errorf("api: Failed to fetch stream: %v", err)
+		a.logger.Errorf("api: Failed to fetch stream: %v", err.Err())
 		return err.Err()
 	}
 	for {
@@ -69,10 +70,10 @@ func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *clie
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
-		reader, err = stream.log.NewReaderContext(ctx, req.Offset)
+		reader, err = stream.log.NewReaderCommitted(ctx, req.Offset)
 	)
 	if err != nil {
-		return nil, nil, status.New(codes.Internal, "Failed to create stream reader")
+		return nil, nil, status.New(codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
 	}
 
 	go func() {

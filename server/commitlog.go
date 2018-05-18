@@ -8,8 +8,8 @@ import (
 
 type CommitLog interface {
 	Delete() error
-	NewReader(offset int64, maxBytes int32) (io.Reader, error)
-	NewReaderContext(ctx context.Context, offset int64) (io.Reader, error)
+	NewReaderUncommitted(ctx context.Context, offset int64) (io.Reader, error)
+	NewReaderCommitted(ctx context.Context, offset int64) (io.Reader, error)
 	Truncate(int64) error
 	NewestOffset() int64
 	OldestOffset() int64

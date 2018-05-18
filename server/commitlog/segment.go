@@ -28,13 +28,13 @@ type Segment struct {
 	log        *os.File
 	Index      *Index
 	BaseOffset int64
-	NextOffset int64
-	Position   int64
+	nextOffset int64
+	position   int64
 	maxBytes   int64
 	path       string
 	suffix     string
 
-	sync.Mutex
+	sync.RWMutex
 }
 
 func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*Segment, error) {
@@ -45,7 +45,7 @@ func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*
 	s := &Segment{
 		maxBytes:   maxBytes,
 		BaseOffset: baseOffset,
-		NextOffset: baseOffset,
+		nextOffset: baseOffset,
 		path:       path,
 		suffix:     suffix,
 	}
@@ -129,17 +129,29 @@ loop:
 		nextOffset++
 	}
 	if err == io.EOF {
-		s.NextOffset = nextOffset
-		s.Position = position
+		s.nextOffset = nextOffset
+		s.position = position
 		return nil
 	}
 	return err
 }
 
 func (s *Segment) IsFull() bool {
-	s.Lock()
-	defer s.Unlock()
-	return s.Position >= s.maxBytes
+	s.RLock()
+	defer s.RUnlock()
+	return s.position >= s.maxBytes
+}
+
+func (s *Segment) NextOffset() int64 {
+	s.RLock()
+	defer s.RUnlock()
+	return s.nextOffset
+}
+
+func (s *Segment) Position() int64 {
+	s.RLock()
+	defer s.RUnlock()
+	return s.position
 }
 
 // Write writes a byte slice to the log at the current position.
@@ -151,20 +163,20 @@ func (s *Segment) Write(p []byte) (n int, err error) {
 	if err != nil {
 		return n, errors.Wrap(err, "log write failed")
 	}
-	s.NextOffset++
-	s.Position += int64(n)
+	s.nextOffset++
+	s.position += int64(n)
 	return n, nil
 }
 
 func (s *Segment) Read(p []byte) (n int, err error) {
-	s.Lock()
-	defer s.Unlock()
+	s.RLock()
+	defer s.RUnlock()
 	return s.reader.Read(p)
 }
 
 func (s *Segment) ReadAt(p []byte, off int64) (n int, err error) {
-	s.Lock()
-	defer s.Unlock()
+	s.RLock()
+	defer s.RUnlock()
 	return s.log.ReadAt(p, off)
 }
 
@@ -210,8 +222,8 @@ func (s *Segment) Replace(old *Segment) (err error) {
 // findEntry returns the nearest entry whose offset is greater than or equal to
 // the given offset.
 func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
-	s.Lock()
-	defer s.Unlock()
+	s.RLock()
+	defer s.RUnlock()
 	e = &Entry{}
 	n := int(s.Index.bytes / entryWidth)
 	idx := sort.Search(n, func(i int) bool {
@@ -225,6 +237,7 @@ func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 	return e, nil
 }
 
+// Delete closes the segment and then deletes its log and index files.
 func (s *Segment) Delete() error {
 	if err := s.Close(); err != nil {
 		return err
@@ -249,6 +262,8 @@ func NewSegmentScanner(segment *Segment) *SegmentScanner {
 	return &SegmentScanner{s: segment, is: NewIndexScanner(segment.Index)}
 }
 
+// Scan should be called repeatedly to iterate over the messages in the
+// segment, it will return io.EOF when there are no more messages.
 func (s *SegmentScanner) Scan() (ms MessageSet, err error) {
 	entry, err := s.is.Scan()
 	if err != nil {

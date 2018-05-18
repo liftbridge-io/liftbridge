@@ -62,7 +62,7 @@ func (r *replicator) start(epoch uint64) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		r.cancelReplication = cancel
-		reader, err := r.stream.log.NewReaderContext(ctx, req.Offset+1)
+		reader, err := r.stream.log.NewReaderUncommitted(ctx, req.Offset+1)
 		if err != nil {
 			// If this errors, something is really screwed up. In particular,
 			// it probably means the offset does not exist. We could send a
