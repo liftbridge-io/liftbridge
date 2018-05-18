@@ -44,7 +44,9 @@ func TestNewCommitLog(t *testing.T) {
 		require.NoError(t, err)
 	}
 	maxBytes := msgSets[0].Size()
-	r, err := l.NewReaderUncommitted(context.Background(), 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
 
 	for i, exp := range msgSets {
@@ -95,7 +97,9 @@ func TestTruncate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(l.Segments()))
 
-	r, err := l.NewReaderUncommitted(context.Background(), 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
 
 	for _, m := range msgSets[:1] {
