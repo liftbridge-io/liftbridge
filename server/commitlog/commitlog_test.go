@@ -2,10 +2,8 @@ package commitlog_test
 
 import (
 	"bytes"
-	"fmt"
-	"math/rand"
+	"io/ioutil"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -25,8 +23,16 @@ var (
 		commitlog.NewMessageSet(0, msgs...),
 		commitlog.NewMessageSet(1, msgs...),
 	}
-	path = filepath.Join(os.TempDir(), fmt.Sprintf("commitlogtest%d", rand.Int63()))
+	path string
 )
+
+func init() {
+	p, err := ioutil.TempDir("", "commitlogtest")
+	if err != nil {
+		panic(err)
+	}
+	path = p
+}
 
 func TestNewCommitLog(t *testing.T) {
 	var err error
