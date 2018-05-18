@@ -78,7 +78,7 @@ func TestCompactCleaner(t *testing.T) {
 	scanner = commitlog.NewSegmentScanner(cleaned[0])
 
 	var count int
-	for {
+	for i := 0; i < 1; i++ {
 		ms, err = scanner.Scan()
 		if err != nil {
 			break
@@ -92,7 +92,7 @@ func TestCompactCleaner(t *testing.T) {
 
 	scanner = commitlog.NewSegmentScanner(cleaned[1])
 	count = 0
-	for {
+	for i := 0; i < 1; i++ {
 		ms, err = scanner.Scan()
 		if err != nil {
 			break
@@ -104,6 +104,18 @@ func TestCompactCleaner(t *testing.T) {
 	}
 	req.Equal(1, count)
 
+	count = 0
+	for i := 0; i < 1; i++ {
+		ms, err = scanner.Scan()
+		if err != nil {
+			break
+		}
+		req.Equal(1, len(ms.Messages()))
+		req.Equal([]byte("again another"), ms.Messages()[0].Key())
+		req.Equal([]byte("again another"), ms.Messages()[0].Value())
+		count++
+	}
+	req.Equal(1, count)
 }
 
 func newMessageSet(offset uint64, pmsgs ...*proto.Message) commitlog.MessageSet {
