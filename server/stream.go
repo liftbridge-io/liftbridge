@@ -221,6 +221,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to NATS")
 	}
+	sub.SetPendingLimits(-1, -1)
 	s.sub = sub
 
 	// Also subscribe to the stream replication subject.
@@ -228,6 +229,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to replication inbox")
 	}
+	sub.SetPendingLimits(-1, -1)
 	s.leaderReplSub = sub
 
 	s.isLeading = true
@@ -270,6 +272,7 @@ func (s *stream) becomeFollower() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to replication inbox")
 	}
+	sub.SetPendingLimits(-1, -1)
 	s.followerReplSub = sub
 
 	// Start fetching messages from the leader's log starting at the HW.
