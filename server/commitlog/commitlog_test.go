@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	//"golang.org/x/net/context"
+	"golang.org/x/net/context"
 
 	"github.com/tylertreat/liftbridge/server/commitlog"
 )
@@ -28,36 +28,36 @@ var (
 	path = filepath.Join(os.TempDir(), fmt.Sprintf("commitlogtest%d", rand.Int63()))
 )
 
-//func TestNewCommitLog(t *testing.T) {
-//	var err error
-//	l := setup(t)
-//	defer cleanup(t)
-//
-//	for _, exp := range msgSets {
-//		_, err = l.Append(exp)
-//		require.NoError(t, err)
-//	}
-//	maxBytes := msgSets[0].Size()
-//	r, err := l.NewReaderUncommitted(context.Background(), 0)
-//	require.NoError(t, err)
-//
-//	for i, exp := range msgSets {
-//		p := make([]byte, maxBytes)
-//		_, err = r.Read(p)
-//		require.NoError(t, err)
-//
-//		act := commitlog.MessageSet(p)
-//		require.Equal(t, exp, act)
-//		require.Equal(t, int64(i), act.Offset())
-//
-//		payload := act.Payload()
-//		var offset int
-//		for _, msg := range msgs {
-//			require.Equal(t, []byte(msg), payload[offset:offset+len(msg)])
-//			offset += len(msg)
-//		}
-//	}
-//}
+func TestNewCommitLog(t *testing.T) {
+	var err error
+	l := setup(t)
+	defer cleanup(t)
+
+	for _, exp := range msgSets {
+		_, err = l.Append(exp)
+		require.NoError(t, err)
+	}
+	maxBytes := msgSets[0].Size()
+	r, err := l.NewReaderUncommitted(context.Background(), 0)
+	require.NoError(t, err)
+
+	for i, exp := range msgSets {
+		p := make([]byte, maxBytes)
+		_, err = r.Read(p)
+		require.NoError(t, err)
+
+		act := commitlog.MessageSet(p)
+		require.Equal(t, exp, act)
+		require.Equal(t, int64(i), act.Offset())
+
+		payload := act.Payload()
+		var offset int
+		for _, msg := range msgs {
+			require.Equal(t, []byte(msg), payload[offset:offset+len(msg)])
+			offset += len(msg)
+		}
+	}
+}
 
 func BenchmarkCommitLog(b *testing.B) {
 	var err error
@@ -72,46 +72,35 @@ func BenchmarkCommitLog(b *testing.B) {
 	}
 }
 
-//func TestTruncate(t *testing.T) {
-//	var err error
-//	l := setup(t)
-//	defer cleanup(t)
-//
-//	for _, msgSet := range msgSets {
-//		_, err = l.Append(msgSet)
-//		require.NoError(t, err)
-//	}
-//	require.Equal(t, int64(2), l.NewestOffset())
-//	require.Equal(t, 2, len(l.Segments()))
-//
-//	err = l.Truncate(int64(1))
-//	require.NoError(t, err)
-//	require.Equal(t, 1, len(l.Segments()))
-//
-//	maxBytes := msgSets[0].Size()
-//	_, err = l.NewReaderUncommitted(context.Background(), 0)
-//	// should find next segment above
-//	require.NoError(t, err)
-//
-//	r, err := l.NewReaderUncommitted(context.Background(), 1)
-//	require.NoError(t, err)
-//
-//	for i := range msgSets[1:] {
-//		p := make([]byte, maxBytes)
-//		_, err = r.Read(p)
-//		require.NoError(t, err)
-//
-//		ms := commitlog.MessageSet(p)
-//		require.Equal(t, int64(i+1), ms.Offset())
-//
-//		payload := ms.Payload()
-//		var offset int
-//		for _, msg := range msgs {
-//			require.Equal(t, []byte(msg), payload[offset:offset+len(msg)])
-//			offset += len(msg)
-//		}
-//	}
-//}
+func TestTruncate(t *testing.T) {
+	var err error
+	l := setup(t)
+	defer cleanup(t)
+
+	for i, msgSet := range msgSets {
+		_, err = l.Append(msgSet)
+		require.Equal(t, int64(i), l.NewestOffset())
+		require.NoError(t, err)
+	}
+	require.Equal(t, int64(1), l.NewestOffset())
+	require.Equal(t, 2, len(l.Segments()))
+
+	err = l.Truncate(int64(1))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(l.Segments()))
+
+	r, err := l.NewReaderUncommitted(context.Background(), 0)
+	require.NoError(t, err)
+
+	for _, m := range msgSets[:1] {
+		p := make([]byte, m.Size())
+		_, err = r.Read(p)
+		require.NoError(t, err)
+
+		ms := commitlog.MessageSet(p)
+		require.Equal(t, m, ms)
+	}
+}
 
 func TestCleaner(t *testing.T) {
 	var err error
