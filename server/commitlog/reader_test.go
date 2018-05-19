@@ -116,56 +116,78 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	require.Equal(t, ms, commitlog.MessageSet(p))
 }
 
-func TestReaderCommittedStartOffset(t *testing.T) {
-	for _, test := range segmentSizeTests {
-		t.Run(test.name, func(t *testing.T) {
-			var err error
-			l := setupWithOptions(t, commitlog.Options{
-				Path:            path,
-				MaxSegmentBytes: test.segmentSize,
-				MaxLogBytes:     -1,
-			})
-			defer cleanup(t)
-
-			numMsgs := 10
-			msgs := make([]commitlog.MessageSet, numMsgs)
-			for i := 0; i < numMsgs; i++ {
-				msgs[i] = commitlog.NewMessageSet(
-					uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-				)
-			}
-			for _, ms := range msgs {
-				_, err := l.Append(ms)
-				require.NoError(t, err)
-			}
-			l.SetHighWatermark(4)
-			idx := 2
-			r, err := l.NewReaderCommitted(context.Background(), int64(idx))
-			require.NoError(t, err)
-
-			p := make([]byte, msgs[idx].Size())
-			read, err := r.Read(p)
-			require.NoError(t, err)
-			require.Equal(t, msgs[idx].Size(), int32(read))
-			act := commitlog.MessageSet(p)
-			require.Equal(t, int64(idx), act.Offset())
-		})
-	}
-}
-
-func TestReaderCommittedBlockCancel(t *testing.T) {
+func TestReaderUncommittedReadError(t *testing.T) {
 	l := setupWithOptions(t, commitlog.Options{
 		Path:            path,
-		MaxSegmentBytes: 10,
+		MaxSegmentBytes: 100,
 		MaxLogBytes:     -1,
 	})
 	defer cleanup(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	r, err := l.NewReaderCommitted(ctx, 0)
+	ms := commitlog.NewMessageSet(0, commitlog.NewMessage([]byte("hi")))
+	_, err := l.Append(ms)
 	require.NoError(t, err)
-	p := make([]byte, 100)
-	go cancel()
+
+	r, err := l.NewReaderUncommitted(context.Background(), 0)
+	require.NoError(t, err)
+
+	require.NoError(t, l.Close())
+
+	p := make([]byte, 10)
 	_, err = r.Read(p)
-	require.Equal(t, io.EOF, err)
+	require.Error(t, err)
 }
+
+//func TestReaderCommittedStartOffset(t *testing.T) {
+//	for _, test := range segmentSizeTests {
+//		t.Run(test.name, func(t *testing.T) {
+//			var err error
+//			l := setupWithOptions(t, commitlog.Options{
+//				Path:            path,
+//				MaxSegmentBytes: test.segmentSize,
+//				MaxLogBytes:     -1,
+//			})
+//			defer cleanup(t)
+//
+//			numMsgs := 10
+//			msgs := make([]commitlog.MessageSet, numMsgs)
+//			for i := 0; i < numMsgs; i++ {
+//				msgs[i] = commitlog.NewMessageSet(
+//					uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
+//				)
+//			}
+//			for _, ms := range msgs {
+//				_, err := l.Append(ms)
+//				require.NoError(t, err)
+//			}
+//			l.SetHighWatermark(4)
+//			idx := 2
+//			r, err := l.NewReaderCommitted(context.Background(), int64(idx))
+//			require.NoError(t, err)
+//
+//			p := make([]byte, msgs[idx].Size())
+//			read, err := r.Read(p)
+//			require.NoError(t, err)
+//			require.Equal(t, msgs[idx].Size(), int32(read))
+//			act := commitlog.MessageSet(p)
+//			require.Equal(t, int64(idx), act.Offset())
+//		})
+//	}
+//}
+//
+//func TestReaderCommittedBlockCancel(t *testing.T) {
+//	l := setupWithOptions(t, commitlog.Options{
+//		Path:            path,
+//		MaxSegmentBytes: 10,
+//		MaxLogBytes:     -1,
+//	})
+//	defer cleanup(t)
+//
+//	ctx, cancel := context.WithCancel(context.Background())
+//	r, err := l.NewReaderCommitted(ctx, 0)
+//	require.NoError(t, err)
+//	p := make([]byte, 100)
+//	go cancel()
+//	_, err = r.Read(p)
+//	require.Equal(t, io.EOF, err)
+//}

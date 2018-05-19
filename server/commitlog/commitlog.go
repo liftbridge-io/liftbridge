@@ -1,7 +1,6 @@
 package commitlog
 
 import (
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -37,9 +36,6 @@ type CommitLog struct {
 	flushHW        chan struct{}
 	segments       []*Segment
 	vActiveSegment atomic.Value
-	waitersMu      sync.Mutex
-	dataWaiters    map[io.Reader]chan struct{}
-	hwWaiters      map[io.Reader]chan struct{}
 }
 
 type Options struct {
@@ -78,13 +74,11 @@ func New(opts Options) (*CommitLog, error) {
 
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
-		Options:     opts,
-		name:        filepath.Base(path),
-		cleaner:     cleaner,
-		dataWaiters: make(map[io.Reader]chan struct{}),
-		hwWaiters:   make(map[io.Reader]chan struct{}),
-		hw:          -1,
-		flushHW:     make(chan struct{}),
+		Options: opts,
+		name:    filepath.Base(path),
+		cleaner: cleaner,
+		hw:      -1,
+		flushHW: make(chan struct{}),
 	}
 
 	if err := l.init(); err != nil {
@@ -180,24 +174,7 @@ func (l *CommitLog) Append(b []byte) (offset int64, err error) {
 	if err := segment.Index.WriteEntry(e); err != nil {
 		return offset, err
 	}
-	l.waitersMu.Lock()
-	l.notifyDataWaiters()
-	l.waitersMu.Unlock()
 	return offset, nil
-}
-
-func (l *CommitLog) notifyDataWaiters() {
-	for r, ch := range l.dataWaiters {
-		close(ch)
-		delete(l.dataWaiters, r)
-	}
-}
-
-func (l *CommitLog) notifyHWWaiters() {
-	for r, ch := range l.hwWaiters {
-		close(ch)
-		delete(l.hwWaiters, r)
-	}
 }
 
 func (l *CommitLog) NewestOffset() int64 {
@@ -214,7 +191,6 @@ func (l *CommitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
 	if hw > l.hw {
 		l.hw = hw
-		l.notifyHWWaiters()
 	}
 	l.mu.Unlock()
 	// TODO: should we flush the HW to disk here?

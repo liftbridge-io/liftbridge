@@ -33,6 +33,7 @@ type Segment struct {
 	maxBytes   int64
 	path       string
 	suffix     string
+	waiters    map[io.Reader]chan struct{}
 
 	sync.RWMutex
 }
@@ -48,6 +49,7 @@ func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*
 		nextOffset: baseOffset,
 		path:       path,
 		suffix:     suffix,
+		waiters:    make(map[io.Reader]chan struct{}),
 	}
 	log, err := os.OpenFile(s.logPath(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -165,19 +167,40 @@ func (s *Segment) Write(p []byte) (n int, err error) {
 	}
 	s.nextOffset++
 	s.position += int64(n)
+	s.notifyWaiters()
 	return n, nil
-}
-
-func (s *Segment) Read(p []byte) (n int, err error) {
-	s.RLock()
-	defer s.RUnlock()
-	return s.reader.Read(p)
 }
 
 func (s *Segment) ReadAt(p []byte, off int64) (n int, err error) {
 	s.RLock()
 	defer s.RUnlock()
 	return s.log.ReadAt(p, off)
+}
+
+func (s *Segment) notifyWaiters() {
+	for r, ch := range s.waiters {
+		close(ch)
+		delete(s.waiters, r)
+	}
+}
+
+func (s *Segment) waitForData(r io.Reader, pos int64) <-chan struct{} {
+	wait := make(chan struct{})
+	s.Lock()
+	// Check if data has been written and/or the segment was filled.
+	if s.position > pos || s.position >= s.maxBytes {
+		close(wait)
+	} else {
+		s.waiters[r] = wait
+	}
+	s.Unlock()
+	return wait
+}
+
+func (s *Segment) removeWaiter(r io.Reader) {
+	s.Lock()
+	delete(s.waiters, r)
+	s.Unlock()
 }
 
 func (s *Segment) Close() error {
