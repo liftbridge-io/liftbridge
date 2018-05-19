@@ -10,7 +10,7 @@ import (
 	"github.com/tylertreat/liftbridge/server/commitlog"
 )
 
-var readerTests = []struct {
+var segmentSizeTests = []struct {
 	name        string
 	segmentSize int64
 }{
@@ -21,7 +21,7 @@ var readerTests = []struct {
 }
 
 func TestReaderStartOffset(t *testing.T) {
-	for _, test := range readerTests {
+	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
 			var err error
 			l := setupWithOptions(t, commitlog.Options{

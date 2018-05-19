@@ -95,7 +95,7 @@ func New(opts Options) (*CommitLog, error) {
 		return nil, err
 	}
 
-	go l.checkpointHW()
+	go l.checkpointHWLoop()
 
 	return l, nil
 }
@@ -242,7 +242,9 @@ func (l *CommitLog) Close() error {
 			return err
 		}
 	}
-	l.flushHW <- struct{}{}
+	if err := l.checkpointHW(); err != nil {
+		return err
+	}
 	close(l.flushHW)
 	return nil
 }
@@ -345,10 +347,9 @@ func (l *CommitLog) split() error {
 	return nil
 }
 
-func (l *CommitLog) checkpointHW() {
+func (l *CommitLog) checkpointHWLoop() {
 	var (
 		ticker = time.NewTicker(l.HWCheckpointInterval)
-		file   = filepath.Join(l.Path, hwFileName)
 	)
 	defer ticker.Stop()
 	for {
@@ -358,13 +359,20 @@ func (l *CommitLog) checkpointHW() {
 			if !ok {
 				return
 			}
-		}
-		var (
-			hw = l.HighWatermark()
-			r  = strings.NewReader(strconv.FormatInt(hw, 10))
-		)
-		if err := atomic_file.WriteFile(file, r); err != nil {
-			panic(errors.Wrap(err, "failed to checkpoint high watermark"))
+			l.mu.RLock()
+			if err := l.checkpointHW(); err != nil {
+				panic(errors.Wrap(err, "failed to checkpoint high watermark"))
+			}
+			l.mu.RUnlock()
 		}
 	}
+}
+
+func (l *CommitLog) checkpointHW() error {
+	var (
+		hw   = l.hw
+		r    = strings.NewReader(strconv.FormatInt(hw, 10))
+		file = filepath.Join(l.Path, hwFileName)
+	)
+	return atomic_file.WriteFile(file, r)
 }
