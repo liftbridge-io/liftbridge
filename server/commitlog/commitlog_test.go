@@ -163,7 +163,7 @@ func TestTruncate(t *testing.T) {
 	require.Equal(t, int64(1), l.NewestOffset())
 	require.Equal(t, 2, len(l.Segments()))
 
-	err = l.Truncate(int64(1))
+	err = l.Truncate(1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(l.Segments()))
 
@@ -180,6 +180,160 @@ func TestTruncate(t *testing.T) {
 		ms := commitlog.MessageSet(p)
 		require.Equal(t, m, ms)
 	}
+}
+
+func TestTruncateNothing(t *testing.T) {
+	var err error
+	l := setup(t)
+	defer cleanup(t)
+
+	for i, msgSet := range msgSets {
+		_, err = l.Append(msgSet)
+		require.Equal(t, int64(i), l.NewestOffset())
+		require.NoError(t, err)
+	}
+	require.Equal(t, int64(1), l.NewestOffset())
+	require.Equal(t, 2, len(l.Segments()))
+
+	err = l.Truncate(2)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(l.Segments()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := l.NewReaderUncommitted(ctx, 0)
+	require.NoError(t, err)
+
+	for _, m := range msgSets {
+		p := make([]byte, m.Size())
+		_, err = r.Read(p)
+		require.NoError(t, err)
+
+		ms := commitlog.MessageSet(p)
+		require.Equal(t, m, ms)
+	}
+}
+
+func TestTruncateRemoveSegments(t *testing.T) {
+	var err error
+	l := setupWithOptions(t, commitlog.Options{
+		Path:            path,
+		MaxSegmentBytes: 15,
+		MaxLogBytes:     -1,
+	})
+	defer cleanup(t)
+
+	numMsgs := 10
+	msgs := make([]commitlog.MessageSet, numMsgs)
+	for i := 0; i < numMsgs; i++ {
+		msgs[i] = commitlog.NewMessageSet(
+			uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
+		)
+	}
+	for _, ms := range msgs {
+		_, err := l.Append(ms)
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, int64(9), l.NewestOffset())
+	require.Equal(t, 5, len(l.Segments()))
+
+	err = l.Truncate(4)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(l.Segments()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := l.NewReaderUncommitted(ctx, 0)
+	require.NoError(t, err)
+
+	for _, m := range msgs[:3] {
+		p := make([]byte, m.Size())
+		_, err = r.Read(p)
+		require.NoError(t, err)
+
+		ms := commitlog.MessageSet(p)
+		require.Equal(t, m, ms)
+	}
+}
+
+func TestTruncateReplaceContainingSegment(t *testing.T) {
+	var err error
+	l := setupWithOptions(t, commitlog.Options{
+		Path:            path,
+		MaxSegmentBytes: 20,
+		MaxLogBytes:     -1,
+	})
+	defer cleanup(t)
+
+	numMsgs := 5
+	msgs := make([]commitlog.MessageSet, numMsgs)
+	for i := 0; i < numMsgs; i++ {
+		msgs[i] = commitlog.NewMessageSet(
+			uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
+		)
+	}
+	for _, ms := range msgs {
+		_, err := l.Append(ms)
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, int64(4), l.NewestOffset())
+	require.Equal(t, 3, len(l.Segments()))
+
+	err = l.Truncate(1)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(l.Segments()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := l.NewReaderUncommitted(ctx, 0)
+	require.NoError(t, err)
+
+	for _, m := range msgs[:1] {
+		p := make([]byte, m.Size())
+		_, err = r.Read(p)
+		require.NoError(t, err)
+
+		ms := commitlog.MessageSet(p)
+		require.Equal(t, m, ms)
+	}
+}
+
+func TestOffsets(t *testing.T) {
+	l := setupWithOptions(t, commitlog.Options{
+		Path:            path,
+		MaxSegmentBytes: 20,
+		MaxLogBytes:     -1,
+	})
+	defer cleanup(t)
+	require.Equal(t, int64(0), l.OldestOffset())
+	require.Equal(t, int64(-1), l.NewestOffset())
+
+	numMsgs := 5
+	msgs := make([]commitlog.MessageSet, numMsgs)
+	for i := 0; i < numMsgs; i++ {
+		msgs[i] = commitlog.NewMessageSet(
+			uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
+		)
+	}
+	for _, ms := range msgs {
+		_, err := l.Append(ms)
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, int64(0), l.OldestOffset())
+	require.Equal(t, int64(4), l.NewestOffset())
+}
+
+func TestDelete(t *testing.T) {
+	l := setup(t)
+	defer cleanup(t)
+	_, err := os.Stat(path)
+	require.False(t, os.IsNotExist(err))
+	require.NoError(t, l.Delete())
+	_, err = os.Stat(path)
+	require.True(t, os.IsNotExist(err))
 }
 
 func TestCleaner(t *testing.T) {

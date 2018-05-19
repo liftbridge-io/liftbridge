@@ -200,10 +200,6 @@ func (l *CommitLog) notifyHWWaiters() {
 	}
 }
 
-func (l *CommitLog) Read(p []byte) (n int, err error) {
-	return l.activeSegment().Read(p)
-}
-
 func (l *CommitLog) NewestOffset() int64 {
 	return l.activeSegment().NextOffset() - 1
 }
