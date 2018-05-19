@@ -121,6 +121,7 @@ loop:
 		entry := Entry{
 			Offset:   nextOffset,
 			Position: position,
+			Size:     int32(size + msgSetHeaderLen),
 		}
 		err = s.Index.WriteEntry(entry)
 		if err != nil {
@@ -250,14 +251,16 @@ func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 	e = &Entry{}
 	n := int(s.Index.bytes / entryWidth)
 	idx := sort.Search(n, func(i int) bool {
-		_ = s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth))
+		if err := s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth)); err != nil {
+			return true
+		}
 		return e.Offset >= offset || e.Offset == 0
 	})
 	if idx == n {
 		return nil, errors.New("entry not found")
 	}
-	_ = s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth))
-	return e, nil
+	err = s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth))
+	return e, err
 }
 
 // Delete closes the segment and then deletes its log and index files.

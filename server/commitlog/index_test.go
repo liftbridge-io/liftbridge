@@ -35,6 +35,7 @@ func TestIndex(t *testing.T) {
 		entries = append(entries, Entry{
 			int64(i),
 			int64(i * 5),
+			msgSetHeaderLen,
 		})
 	}
 	for _, e := range entries {
@@ -96,6 +97,7 @@ func TestIndexScanner(t *testing.T) {
 		entries = append(entries, Entry{
 			int64(i),
 			int64(i * 5),
+			msgSetHeaderLen,
 		})
 	}
 	for _, e := range entries {

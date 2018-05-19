@@ -24,7 +24,10 @@ const (
 	positionWidth  = 4
 	positionOffset = offsetWidth
 
-	entryWidth = offsetWidth + positionWidth
+	sizeWidth  = 4
+	sizeOffset = offsetWidth + positionWidth
+
+	entryWidth = offsetWidth + positionWidth + sizeWidth
 )
 
 type Index struct {
@@ -38,24 +41,28 @@ type Index struct {
 type Entry struct {
 	Offset   int64
 	Position int64
+	Size     int32
 }
 
 // relEntry is an Entry relative to the base fileOffset
 type relEntry struct {
 	Offset   int32
 	Position int32
+	Size     int32
 }
 
 func newRelEntry(e Entry, baseOffset int64) relEntry {
 	return relEntry{
 		Offset:   int32(e.Offset - baseOffset),
 		Position: int32(e.Position),
+		Size:     e.Size,
 	}
 }
 
 func (rel relEntry) fill(e *Entry, baseOffset int64) {
 	e.Offset = baseOffset + int64(rel.Offset)
 	e.Position = int64(rel.Position)
+	e.Size = rel.Size
 }
 
 type options struct {

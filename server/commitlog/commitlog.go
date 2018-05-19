@@ -1,6 +1,7 @@
 package commitlog
 
 import (
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -36,6 +37,7 @@ type CommitLog struct {
 	flushHW        chan struct{}
 	segments       []*Segment
 	vActiveSegment atomic.Value
+	hwWaiters      map[io.Reader]chan struct{}
 }
 
 type Options struct {
@@ -74,11 +76,12 @@ func New(opts Options) (*CommitLog, error) {
 
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
-		Options: opts,
-		name:    filepath.Base(path),
-		cleaner: cleaner,
-		hw:      -1,
-		flushHW: make(chan struct{}),
+		Options:   opts,
+		name:      filepath.Base(path),
+		cleaner:   cleaner,
+		hw:        -1,
+		flushHW:   make(chan struct{}),
+		hwWaiters: make(map[io.Reader]chan struct{}),
 	}
 
 	if err := l.init(); err != nil {
@@ -170,6 +173,7 @@ func (l *CommitLog) Append(b []byte) (offset int64, err error) {
 	e := Entry{
 		Offset:   offset,
 		Position: position,
+		Size:     int32(len(b)),
 	}
 	if err := segment.Index.WriteEntry(e); err != nil {
 		return offset, err
@@ -191,9 +195,36 @@ func (l *CommitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
 	if hw > l.hw {
 		l.hw = hw
+		l.notifyHWWaiters()
 	}
 	l.mu.Unlock()
 	// TODO: should we flush the HW to disk here?
+}
+
+func (l *CommitLog) notifyHWWaiters() {
+	for r, ch := range l.hwWaiters {
+		close(ch)
+		delete(l.hwWaiters, r)
+	}
+}
+
+func (c *CommitLog) waitForHW(r io.Reader, hw int64) <-chan struct{} {
+	wait := make(chan struct{})
+	c.mu.Lock()
+	// Check if HW has changed.
+	if c.hw != hw {
+		close(wait)
+	} else {
+		c.hwWaiters[r] = wait
+	}
+	c.mu.Unlock()
+	return wait
+}
+
+func (c *CommitLog) removeHWWaiter(r io.Reader) {
+	c.mu.Lock()
+	delete(c.hwWaiters, r)
+	c.mu.Unlock()
 }
 
 func (l *CommitLog) HighWatermark() int64 {
@@ -209,15 +240,15 @@ func (l *CommitLog) activeSegment() *Segment {
 func (l *CommitLog) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if err := l.checkpointHW(); err != nil {
+		return err
+	}
+	close(l.flushHW)
 	for _, segment := range l.segments {
 		if err := segment.Close(); err != nil {
 			return err
 		}
 	}
-	if err := l.checkpointHW(); err != nil {
-		return err
-	}
-	close(l.flushHW)
 	return nil
 }
 

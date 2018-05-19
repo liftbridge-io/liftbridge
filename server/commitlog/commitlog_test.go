@@ -24,21 +24,13 @@ var (
 		commitlog.NewMessageSet(0, msgs...),
 		commitlog.NewMessageSet(1, msgs...),
 	}
-	path string
 )
-
-func init() {
-	p, err := ioutil.TempDir("", "commitlogtest")
-	if err != nil {
-		panic(err)
-	}
-	path = p
-}
 
 func TestNewCommitLog(t *testing.T) {
 	var err error
-	l := setup(t)
-	defer cleanup(t)
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
 
 	for _, exp := range msgSets {
 		_, err = l.Append(exp)
@@ -72,12 +64,13 @@ func TestCommitLogRecover(t *testing.T) {
 	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
 			var err error
-			l := setupWithOptions(t, commitlog.Options{
-				Path:            path,
+			opts := commitlog.Options{
+				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
 				MaxLogBytes:     -1,
-			})
-			defer cleanup(t)
+			}
+			l, cleanup := setupWithOptions(t, opts)
+			defer cleanup()
 
 			// Append some messages.
 			numMsgs := 10
@@ -107,11 +100,9 @@ func TestCommitLogRecover(t *testing.T) {
 			// Close the log and reopen, then ensure we read back the same
 			// messages.
 			require.NoError(t, l.Close())
-			l = setupWithOptions(t, commitlog.Options{
-				Path:            path,
-				MaxSegmentBytes: test.segmentSize,
-				MaxLogBytes:     -1,
-			})
+			l, cleanup = setupWithOptions(t, opts)
+			defer cleanup()
+			defer l.Close()
 
 			ctx, cancel = context.WithCancel(context.Background())
 			defer cancel()
@@ -128,19 +119,27 @@ func TestCommitLogRecover(t *testing.T) {
 }
 
 func TestCommitLogRecoverHW(t *testing.T) {
-	l := setup(t)
-	defer cleanup(t)
+	opts := commitlog.Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+		MaxLogBytes:     100,
+	}
+	l, cleanup := setupWithOptions(t, opts)
+	defer cleanup()
 	l.SetHighWatermark(100)
 	require.Equal(t, int64(100), l.HighWatermark())
 	require.NoError(t, l.Close())
-	l = setup(t)
+	l, cleanup = setupWithOptions(t, opts)
+	defer cleanup()
+	defer l.Close()
 	require.Equal(t, int64(100), l.HighWatermark())
 }
 
 func BenchmarkCommitLog(b *testing.B) {
 	var err error
-	l := setup(b)
-	defer cleanup(b)
+	l, cleanup := setup(b)
+	defer l.Close()
+	defer cleanup()
 
 	msgSet := msgSets[0]
 
@@ -152,8 +151,9 @@ func BenchmarkCommitLog(b *testing.B) {
 
 func TestTruncate(t *testing.T) {
 	var err error
-	l := setup(t)
-	defer cleanup(t)
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
 
 	for i, msgSet := range msgSets {
 		_, err = l.Append(msgSet)
@@ -184,8 +184,9 @@ func TestTruncate(t *testing.T) {
 
 func TestTruncateNothing(t *testing.T) {
 	var err error
-	l := setup(t)
-	defer cleanup(t)
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
 
 	for i, msgSet := range msgSets {
 		_, err = l.Append(msgSet)
@@ -216,12 +217,13 @@ func TestTruncateNothing(t *testing.T) {
 
 func TestTruncateRemoveSegments(t *testing.T) {
 	var err error
-	l := setupWithOptions(t, commitlog.Options{
-		Path:            path,
+	l, cleanup := setupWithOptions(t, commitlog.Options{
+		Path:            tempDir(t),
 		MaxSegmentBytes: 15,
 		MaxLogBytes:     -1,
 	})
-	defer cleanup(t)
+	defer l.Close()
+	defer cleanup()
 
 	numMsgs := 10
 	msgs := make([]commitlog.MessageSet, numMsgs)
@@ -259,12 +261,13 @@ func TestTruncateRemoveSegments(t *testing.T) {
 
 func TestTruncateReplaceContainingSegment(t *testing.T) {
 	var err error
-	l := setupWithOptions(t, commitlog.Options{
-		Path:            path,
+	l, cleanup := setupWithOptions(t, commitlog.Options{
+		Path:            tempDir(t),
 		MaxSegmentBytes: 20,
 		MaxLogBytes:     -1,
 	})
-	defer cleanup(t)
+	defer l.Close()
+	defer cleanup()
 
 	numMsgs := 5
 	msgs := make([]commitlog.MessageSet, numMsgs)
@@ -301,12 +304,13 @@ func TestTruncateReplaceContainingSegment(t *testing.T) {
 }
 
 func TestOffsets(t *testing.T) {
-	l := setupWithOptions(t, commitlog.Options{
-		Path:            path,
+	l, cleanup := setupWithOptions(t, commitlog.Options{
+		Path:            tempDir(t),
 		MaxSegmentBytes: 20,
 		MaxLogBytes:     -1,
 	})
-	defer cleanup(t)
+	defer l.Close()
+	defer cleanup()
 	require.Equal(t, int64(0), l.OldestOffset())
 	require.Equal(t, int64(-1), l.NewestOffset())
 
@@ -327,19 +331,20 @@ func TestOffsets(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
-	l := setup(t)
-	defer cleanup(t)
-	_, err := os.Stat(path)
+	l, cleanup := setup(t)
+	defer cleanup()
+	_, err := os.Stat(l.Path)
 	require.False(t, os.IsNotExist(err))
 	require.NoError(t, l.Delete())
-	_, err = os.Stat(path)
+	_, err = os.Stat(l.Path)
 	require.True(t, os.IsNotExist(err))
 }
 
 func TestCleaner(t *testing.T) {
 	var err error
-	l := setup(t)
-	defer cleanup(t)
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
 
 	for _, msgSet := range msgSets {
 		_, err = l.Append(msgSet)
@@ -364,22 +369,32 @@ func check(t require.TestingT, got, want []byte) {
 	}
 }
 
-func setup(t require.TestingT) *commitlog.CommitLog {
+func setup(t require.TestingT) (*commitlog.CommitLog, func()) {
 	opts := commitlog.Options{
-		Path:            path,
+		Path:            tempDir(t),
 		MaxSegmentBytes: 6,
 		MaxLogBytes:     30,
 	}
 	return setupWithOptions(t, opts)
 }
 
-func setupWithOptions(t require.TestingT, opts commitlog.Options) *commitlog.CommitLog {
+func setupWithOptions(t require.TestingT, opts commitlog.Options) (*commitlog.CommitLog, func()) {
 	l, err := commitlog.New(opts)
 	require.NoError(t, err)
-	return l
+	return l, func() {
+		remove(t, opts.Path)
+	}
 }
 
-func cleanup(t require.TestingT) {
+func tempDir(t require.TestingT) string {
+	p, err := ioutil.TempDir("", "commitlogtest")
+	if err != nil {
+		require.NoError(t, err)
+	}
+	return p
+}
+
+func remove(t require.TestingT, path string) {
 	os.RemoveAll(path)
 	os.MkdirAll(path, 0755)
 }
