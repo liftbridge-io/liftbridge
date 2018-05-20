@@ -50,7 +50,8 @@ func (r *replicator) start(epoch uint64) {
 		r.stream.updateISRLatestOffset(r.replica, req.Offset)
 
 		// Check if we're caught up.
-		if req.Offset >= r.stream.log.NewestOffset() {
+		newest := r.stream.log.NewestOffset()
+		if req.Offset >= newest {
 			r.lastCaughtUp = now
 			r.mu.Unlock()
 			r.sendHW(req.Inbox)
@@ -64,14 +65,10 @@ func (r *replicator) start(epoch uint64) {
 		r.cancelReplication = cancel
 		reader, err := r.stream.log.NewReaderUncommitted(ctx, req.Offset+1)
 		if err != nil {
-			// If this errors, something is really screwed up. In particular,
-			// it probably means the offset does not exist. We could send a
-			// message back to the follower indicating this. For now, log it
-			// and do nothing.
 			r.stream.srv.logger.Errorf(
 				"Failed to create replication reader for stream %s "+
 					"and replica %s (requested offset %d, latest %d): %v",
-				r.stream, r.replica, req.Offset+1, r.stream.log.NewestOffset(), err)
+				r.stream, r.replica, req.Offset+1, newest, err)
 			r.mu.Unlock()
 			continue
 		}
