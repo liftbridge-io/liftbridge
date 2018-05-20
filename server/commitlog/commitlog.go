@@ -362,12 +362,12 @@ func (l *CommitLog) checkpointHWLoop() {
 			if !ok {
 				return
 			}
-			l.mu.RLock()
-			if err := l.checkpointHW(); err != nil {
-				panic(errors.Wrap(err, "failed to checkpoint high watermark"))
-			}
-			l.mu.RUnlock()
 		}
+		l.mu.RLock()
+		if err := l.checkpointHW(); err != nil {
+			panic(errors.Wrap(err, "failed to checkpoint high watermark"))
+		}
+		l.mu.RUnlock()
 	}
 }
 
