@@ -17,12 +17,7 @@ import (
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
-const (
-	metadataRaftName            = "_metadata"
-	defaultJoinRaftGroupTimeout = time.Second
-)
-
-var joinRaftGroupTimeout = defaultJoinRaftGroupTimeout
+const defaultJoinRaftGroupTimeout = time.Second
 
 // raftNode is a handle to a member in a Raft consensus group.
 type raftNode struct {
@@ -103,11 +98,7 @@ func (r *raftLogger) Write(b []byte) (int, error) {
 func (rl *raftLogger) Close() error { return nil }
 
 func (s *Server) setupMetadataRaft() error {
-	var (
-		name               = metadataRaftName
-		addr               = s.getClusteringAddr(name)
-		existingState, err = s.createRaftNode(name)
-	)
+	existingState, err := s.createRaftNode()
 	if err != nil {
 		return err
 	}
@@ -118,7 +109,7 @@ func (s *Server) setupMetadataRaft() error {
 	bootstrap := !existingState &&
 		(s.config.Clustering.RaftBootstrap || len(s.config.Clustering.RaftBootstrapPeers) > 0)
 	if bootstrap {
-		if err := s.bootstrapCluster(name, node.Raft); err != nil {
+		if err := s.bootstrapCluster(node.Raft); err != nil {
 			node.shutdown()
 			return err
 		}
@@ -126,7 +117,7 @@ func (s *Server) setupMetadataRaft() error {
 		// Attempt to join the cluster if we're not bootstrapping.
 		req, err := (&proto.RaftJoinRequest{
 			NodeID:   s.config.Clustering.ServerID,
-			NodeAddr: addr,
+			NodeAddr: s.config.Clustering.ServerID, // NATS transport uses ID for addr.
 		}).Marshal()
 		if err != nil {
 			panic(err)
@@ -138,8 +129,8 @@ func (s *Server) setupMetadataRaft() error {
 		// Attempt to join for up to 30 seconds before giving up.
 		for i := 0; i < 30; i++ {
 			s.logger.Debug("Attempting to join metadata Raft group...")
-			r, err := s.ncRaft.Request(fmt.Sprintf("%s.%s.raft.join", s.config.Clustering.Namespace, name),
-				req, joinRaftGroupTimeout)
+			r, err := s.ncRaft.Request(fmt.Sprintf("%s.join", s.baseMetadataRaftSubject()),
+				req, defaultJoinRaftGroupTimeout)
 			if err != nil {
 				time.Sleep(time.Second)
 				continue
@@ -164,7 +155,7 @@ func (s *Server) setupMetadataRaft() error {
 		// If node is started with bootstrap, regardless if state exists or
 		// not, try to detect (and report) other nodes in same cluster started
 		// with bootstrap=true.
-		go s.detectBootstrapMisconfig(name)
+		go s.detectBootstrapMisconfig()
 	}
 
 	return nil
@@ -173,35 +164,32 @@ func (s *Server) setupMetadataRaft() error {
 // bootstrapCluster bootstraps the node for the provided Raft group either as a
 // seed node or with the given peer configuration, depending on configuration
 // and with the latter taking precedence.
-func (s *Server) bootstrapCluster(name string, node *raft.Raft) error {
-	var (
-		addr = s.getClusteringAddr(name)
-		// Include ourself in the cluster.
-		servers = []raft.Server{raft.Server{
-			ID:      raft.ServerID(s.config.Clustering.ServerID),
-			Address: raft.ServerAddress(addr),
-		}}
-	)
+func (s *Server) bootstrapCluster(node *raft.Raft) error {
+	// Include ourself in the cluster.
+	servers := []raft.Server{raft.Server{
+		ID:      raft.ServerID(s.config.Clustering.ServerID),
+		Address: raft.ServerAddress(s.config.Clustering.ServerID),
+	}}
 	if len(s.config.Clustering.RaftBootstrapPeers) > 0 {
 		// Bootstrap using provided cluster configuration.
-		s.logger.Debugf("Bootstrapping Raft group %s using provided configuration", name)
+		s.logger.Debug("Bootstrapping metadata Raft group using provided configuration")
 		for _, peer := range s.config.Clustering.RaftBootstrapPeers {
 			servers = append(servers, raft.Server{
 				ID:      raft.ServerID(peer),
-				Address: raft.ServerAddress(s.getClusteringPeerAddr(name, peer)),
+				Address: raft.ServerAddress(peer), // NATS transport uses ID as addr.
 			})
 		}
 	} else {
 		// Bootstrap as a seed node.
-		s.logger.Debugf("Bootstrapping Raft group %s as seed node", name)
+		s.logger.Debug("Bootstrapping metadata Raft group as seed node")
 	}
 	config := raft.Configuration{Servers: servers}
 	return node.BootstrapCluster(config).Error()
 }
 
-func (s *Server) detectBootstrapMisconfig(name string) {
+func (s *Server) detectBootstrapMisconfig() {
 	srvID := []byte(s.config.Clustering.ServerID)
-	subj := fmt.Sprintf("%s.%s.raft.bootstrap", s.config.Clustering.Namespace, name)
+	subj := fmt.Sprintf("%s.bootstrap", s.baseMetadataRaftSubject())
 	s.ncRaft.Subscribe(subj, func(m *nats.Msg) {
 		if m.Data != nil && m.Reply != "" {
 			// Ignore message to ourself
@@ -220,10 +208,10 @@ func (s *Server) detectBootstrapMisconfig(name string) {
 		return
 	}
 	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-s.shutdownCh:
-			ticker.Stop()
 			return
 		case <-ticker.C:
 			s.ncRaft.PublishRequest(subj, inbox, srvID)
@@ -231,7 +219,7 @@ func (s *Server) detectBootstrapMisconfig(name string) {
 	}
 }
 
-func (s *Server) createRaftNode(name string) (bool, error) {
+func (s *Server) createRaftNode() (bool, error) {
 	path := filepath.Join(s.config.DataPath, "raft")
 
 	// Configure Raft.
@@ -248,8 +236,8 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 	config.NotifyCh = raftNotifyCh
 
 	// Setup Raft communication.
-	addr := s.getClusteringAddr(name)
-	tr, err := natslog.NewNATSTransport(addr, s.ncRaft, 2*time.Second, logWriter)
+	tr, err := natslog.NewNATSTransport(s.config.Clustering.ServerID, s.baseMetadataRaftSubject()+".",
+		s.ncRaft, 2*time.Second, logWriter)
 	if err != nil {
 		return false, err
 	}
@@ -291,11 +279,11 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 	}
 
 	if existingState {
-		s.logger.Debugf("Loaded existing state for Raft group %s", name)
+		s.logger.Debug("Loaded existing state for metadata Raft group")
 	}
 
 	// Handle requests to join the cluster.
-	subj := fmt.Sprintf("%s.%s.raft.join", s.config.Clustering.Namespace, name)
+	subj := fmt.Sprintf("%s.join", s.baseMetadataRaftSubject())
 	sub, err := s.ncRaft.Subscribe(subj, func(msg *nats.Msg) {
 		// Drop the request if we're not the leader. There's no race condition
 		// after this check because even if we proceed with the cluster add, it
@@ -306,7 +294,7 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 		}
 		req := &proto.RaftJoinRequest{}
 		if err := req.Unmarshal(msg.Data); err != nil {
-			s.logger.Errorf("Invalid join request for Raft group %s", name)
+			s.logger.Warn("Invalid join request for metadata Raft group")
 			return
 		}
 
@@ -348,10 +336,6 @@ func (s *Server) createRaftNode(name string) (bool, error) {
 	return existingState, nil
 }
 
-func (s *Server) getClusteringAddr(raftName string) string {
-	return s.getClusteringPeerAddr(raftName, s.config.Clustering.ServerID)
-}
-
-func (s *Server) getClusteringPeerAddr(raftName, nodeID string) string {
-	return fmt.Sprintf("%s.%s.%s", s.config.Clustering.Namespace, raftName, nodeID)
+func (s *Server) baseMetadataRaftSubject() string {
+	return fmt.Sprintf("%s.raft.metadata", s.config.Clustering.Namespace)
 }

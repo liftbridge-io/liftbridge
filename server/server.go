@@ -194,8 +194,7 @@ func (s *Server) isLeader() bool {
 }
 
 func (s *Server) getPropagateInbox() string {
-	return fmt.Sprintf("%s.%s.raft.propagate",
-		s.config.Clustering.Namespace, metadataRaftName)
+	return fmt.Sprintf("%s.propagate", s.baseMetadataRaftSubject())
 }
 
 func (s *Server) handlePropagatedRequest(m *nats.Msg) {
