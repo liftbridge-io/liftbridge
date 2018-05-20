@@ -215,6 +215,26 @@ func TestTruncateNothing(t *testing.T) {
 	}
 }
 
+func TestTruncateEverything(t *testing.T) {
+	var err error
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
+
+	for i, msgSet := range msgSets {
+		_, err = l.Append(msgSet)
+		require.Equal(t, int64(i), l.NewestOffset())
+		require.NoError(t, err)
+	}
+	require.Equal(t, int64(1), l.NewestOffset())
+	require.Equal(t, 2, len(l.Segments()))
+
+	err = l.Truncate(0)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(l.Segments()))
+	require.Equal(t, int64(-1), l.NewestOffset())
+}
+
 func TestTruncateRemoveSegments(t *testing.T) {
 	var err error
 	l, cleanup := setupWithOptions(t, commitlog.Options{

@@ -68,8 +68,10 @@ func (r *replicator) start(epoch uint64) {
 			// it probably means the offset does not exist. We could send a
 			// message back to the follower indicating this. For now, log it
 			// and do nothing.
-			r.stream.srv.logger.Errorf("Failed to create replicator reader for stream %s and replica %s: %v",
-				r.stream, r.replica, err)
+			r.stream.srv.logger.Errorf(
+				"Failed to create replication reader for stream %s "+
+					"and replica %s (requested offset %d, latest %d): %v",
+				r.stream, r.replica, req.Offset+1, r.stream.log.NewestOffset(), err)
 			r.mu.Unlock()
 			continue
 		}

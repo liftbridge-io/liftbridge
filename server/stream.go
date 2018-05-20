@@ -566,8 +566,8 @@ func (s *stream) truncateToHW() error {
 	if newestOffset == hw {
 		return nil
 	}
-	s.srv.logger.Debugf("Truncating log for stream %s up to HW %d", s, hw)
 	// Add 1 because we don't want to truncate the HW itself.
+	s.srv.logger.Debugf("Truncating log for stream %s to HW %d", s, hw+1)
 	return s.log.Truncate(hw + 1)
 }
 

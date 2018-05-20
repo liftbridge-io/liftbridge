@@ -277,12 +277,21 @@ func (l *CommitLog) Truncate(offset int64) error {
 		deleted++
 	}
 
-	// Delete the segment if its base offset is the target offset.
+	var replace bool
+
+	// Delete the segment if its base offset is the target offset, provided
+	// it's not the first segment.
 	if segment.BaseOffset == offset {
-		if err := segment.Delete(); err != nil {
-			return err
+		if idx == 0 {
+			replace = true
+		} else {
+			if err := segment.Delete(); err != nil {
+				return err
+			}
+			deleted++
 		}
-		deleted++
+	} else {
+		replace = true
 	}
 
 	// Retain all preceding segments.
@@ -292,7 +301,7 @@ func (l *CommitLog) Truncate(offset int64) error {
 	}
 
 	// Replace segment containing offset with truncated segment.
-	if segment.BaseOffset != offset {
+	if replace {
 		var (
 			ss              = NewSegmentScanner(segment)
 			newSegment, err = NewSegment(
@@ -316,6 +325,7 @@ func (l *CommitLog) Truncate(offset int64) error {
 		}
 		segments[idx] = newSegment
 	}
+	l.vActiveSegment.Store(segments[len(segments)-1])
 	l.segments = segments
 	return nil
 }
