@@ -106,3 +106,13 @@ message PropagatedResponse {
     // Reserving = 5 for reportLeaderResp if needed.
     // Reserving = 6 for expandISRResp if needed.
 }
+
+message AdvertiseQueryRequest {
+    string id = 1;
+}
+
+message AdvertiseQueryResponse {
+    string id   = 1;
+    string host = 2;
+    int32  port = 3;
+}

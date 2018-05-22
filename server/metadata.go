@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-liftbridge/proto"
 	"golang.org/x/net/context"
@@ -37,7 +38,7 @@ func (l *leaderReported) addWitness(replica string) *status.Status {
 
 	var (
 		// Subtract 1 to exclude leader.
-		isrSize      = l.stream.isrSize() - 1
+		isrSize      = l.stream.ISRSize() - 1
 		leaderFailed = len(l.witnessReplicas) >= isrSize/2+1
 	)
 
@@ -82,6 +83,113 @@ func newMetadataAPI(s *Server) *metadataAPI {
 		streams:       make(map[string]subjectStreams),
 		leaderReports: make(map[*stream]*leaderReported),
 	}
+}
+
+func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
+	*client.FetchMetadataResponse, *status.Status) {
+
+	resp := m.createMetadataResponse(req.Streams)
+
+	servers, err := m.getClusterServerIDs()
+	if err != nil {
+		return nil, status.New(codes.Internal, err.Error())
+	}
+	numPeers := len(servers) - 1
+	if numPeers == 0 {
+		return resp, nil
+	}
+
+	// Query broker info from peers.
+	// TODO: cache this?
+	if err := m.fetchBrokerInfo(ctx, resp, numPeers); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMetadataResponse,
+	numPeers int) *status.Status {
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultPropagateTimeout)
+		defer cancel()
+	}
+	inbox := nats.NewInbox()
+	sub, err := m.ncRaft.SubscribeSync(inbox)
+	if err != nil {
+		return status.New(codes.Internal, err.Error())
+	}
+	defer sub.Unsubscribe()
+
+	queryReq, err := (&proto.AdvertiseQueryRequest{
+		Id: m.config.Clustering.ServerID,
+	}).Marshal()
+	if err != nil {
+		panic(err)
+	}
+	m.ncRaft.PublishRequest(m.advertiseInbox(), inbox, queryReq)
+
+	for i := 0; i < numPeers; i++ {
+		msg, err := sub.NextMsgWithContext(ctx)
+		if err != nil {
+			break
+		}
+		queryResp := &proto.AdvertiseQueryResponse{}
+		if err := queryResp.Unmarshal(msg.Data); err != nil {
+			m.logger.Warnf("Received invalid advertise query response: %v", err)
+			continue
+		}
+		resp.Brokers = append(resp.Brokers, &client.Broker{
+			Id:   queryResp.Id,
+			Host: queryResp.Host,
+			Port: queryResp.Port,
+		})
+	}
+
+	return nil
+}
+
+func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor) *client.FetchMetadataResponse {
+	brokers := []*client.Broker{&client.Broker{
+		Id:   m.config.Clustering.ServerID,
+		Host: m.config.Host,
+		Port: int32(m.config.Port),
+	}}
+
+	// If no descriptors were provided, fetch metadata for all streams.
+	if len(streams) == 0 {
+		for _, stream := range m.GetStreams() {
+			streams = append(streams, &client.StreamDescriptor{
+				Subject: stream.Subject,
+				Name:    stream.Name,
+			})
+		}
+	}
+
+	metadata := make([]*client.StreamMetadata, len(streams))
+
+	for i, descriptor := range streams {
+		stream := m.GetStream(descriptor.Subject, descriptor.Name)
+		if stream == nil {
+			// Stream does not exist.
+			metadata[i] = &client.StreamMetadata{
+				Stream: descriptor,
+				Error:  client.StreamMetadata_UNKNOWN_STREAM,
+			}
+		} else {
+			leader, _ := stream.GetLeader()
+			metadata[i] = &client.StreamMetadata{
+				Stream:   descriptor,
+				Leader:   leader,
+				Replicas: stream.GetReplicas(),
+				Isr:      stream.GetISR(),
+			}
+		}
+	}
+
+	return &client.FetchMetadataResponse{Brokers: brokers, Metadata: metadata}
 }
 
 func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
@@ -371,7 +479,7 @@ func (m *metadataAPI) getClusterServerIDs() ([]string, error) {
 // update to the Raft group, and notifies the replica set. This will fail if
 // the current broker is not the metadata leader.
 func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
-	isr := stream.getISR()
+	isr := stream.GetISR()
 	if len(isr) == 1 {
 		return status.New(codes.FailedPrecondition, "No ISR candidates")
 	}

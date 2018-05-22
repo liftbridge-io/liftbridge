@@ -103,6 +103,11 @@ func (s *Server) Start() error {
 		return errors.Wrap(err, "failed to start Raft node")
 	}
 
+	if _, err := s.ncRaft.Subscribe(s.advertiseInbox(), s.handleAdvertiseQuery); err != nil {
+		s.Stop()
+		return errors.Wrap(err, "failed to subscribe to advertise subject")
+	}
+
 	api := grpc.NewServer()
 	s.api = api
 	client.RegisterAPIServer(api, &apiServer{s})
@@ -182,7 +187,6 @@ func (s *Server) startMetadataRaft() error {
 			}
 		}
 	}()
-
 	return nil
 }
 
@@ -352,4 +356,36 @@ func (s *Server) natsClosedHandler(nc *nats.Conn) {
 func (s *Server) natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err error) {
 	s.logger.Errorf("Asynchronous error on connection %s, subject %s: %s",
 		nc.Opts.Name, sub.Subject, err)
+}
+
+func (s *Server) handleAdvertiseQuery(m *nats.Msg) {
+	if m.Reply == "" {
+		s.logger.Warn("Dropping advertise query request with no reply inbox")
+		return
+	}
+	req := &proto.AdvertiseQueryRequest{}
+	if err := req.Unmarshal(m.Data); err != nil {
+		s.logger.Warn("Dropping invalid advertise query request: %v", err)
+		return
+	}
+
+	// Ignore requests from ourself.
+	if req.Id == s.config.Clustering.ServerID {
+		return
+	}
+
+	data, err := (&proto.AdvertiseQueryResponse{
+		Id:   s.config.Clustering.ServerID,
+		Host: s.config.Host,
+		Port: int32(s.config.Port),
+	}).Marshal()
+	if err != nil {
+		panic(err)
+	}
+
+	s.ncRaft.Publish(m.Reply, data)
+}
+
+func (s *Server) advertiseInbox() string {
+	return fmt.Sprintf("%s.advertise", s.baseMetadataRaftSubject())
 }

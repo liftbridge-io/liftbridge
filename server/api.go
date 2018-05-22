@@ -22,7 +22,9 @@ type apiServer struct {
 	*Server
 }
 
-func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRequest) (*client.CreateStreamResponse, error) {
+func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRequest) (
+	*client.CreateStreamResponse, error) {
+
 	resp := &client.CreateStreamResponse{}
 	a.logger.Debugf("api: CreateStream [subject=%s, name=%s, replicationFactor=%d]",
 		req.Subject, req.Name, req.ReplicationFactor)
@@ -66,7 +68,21 @@ func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.A
 	}
 }
 
-func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *client.ConsumeStreamRequest) (<-chan *client.Message, <-chan *status.Status, *status.Status) {
+func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
+	*client.FetchMetadataResponse, error) {
+
+	resp, err := a.metadata.FetchMetadata(ctx, req)
+	if err != nil {
+		a.logger.Errorf("api: Failed to fetch metadata: %v", err.Err())
+		return nil, err.Err()
+	}
+
+	return resp, nil
+}
+
+func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *client.ConsumeStreamRequest) (
+	<-chan *client.Message, <-chan *status.Status, *status.Status) {
+
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)

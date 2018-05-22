@@ -649,14 +649,14 @@ func (s *stream) Marshal() []byte {
 	return data
 }
 
-func (s *stream) isrSize() int {
+func (s *stream) ISRSize() int {
 	s.mu.RLock()
 	size := len(s.isr)
 	s.mu.RUnlock()
 	return size
 }
 
-func (s *stream) getISR() []string {
+func (s *stream) GetISR() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	isr := make([]string, 0, len(s.isr))
@@ -664,6 +664,16 @@ func (s *stream) getISR() []string {
 		isr = append(isr, replica)
 	}
 	return isr
+}
+
+func (s *stream) GetReplicas() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	replicas := make([]string, 0, len(s.replicas))
+	for replica, _ := range s.replicas {
+		replicas = append(replicas, replica)
+	}
+	return replicas
 }
 
 func (s *stream) updateISRLatestOffset(replica string, offset int64) {
