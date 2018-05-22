@@ -72,9 +72,12 @@ func (l *leaderReported) cancel() {
 
 type metadataAPI struct {
 	*Server
-	streams       map[string]subjectStreams
-	mu            sync.RWMutex
-	leaderReports map[*stream]*leaderReported
+	streams         map[string]subjectStreams
+	mu              sync.RWMutex
+	leaderReports   map[*stream]*leaderReported
+	cachedBrokers   []*client.Broker
+	cachedServerIDs map[string]struct{}
+	lastCached      time.Time
 }
 
 func newMetadataAPI(s *Server) *metadataAPI {
@@ -99,17 +102,65 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 		return resp, nil
 	}
 
-	// Query broker info from peers.
-	// TODO: cache this?
-	if err := m.fetchBrokerInfo(ctx, resp, numPeers); err != nil {
-		return nil, err
+	serverIDs := make(map[string]struct{}, numPeers)
+	for _, id := range servers {
+		serverIDs[id] = struct{}{}
+	}
+
+	// Check if we can use cached broker info.
+	if cached, ok := m.brokerCache(serverIDs); ok {
+		resp.Brokers = cached
+	} else {
+		// Query broker info from peers.
+		brokers, err := m.fetchBrokerInfo(ctx, resp, numPeers)
+		if err != nil {
+			return nil, err
+		}
+		resp.Brokers = brokers
+
+		// Update the cache.
+		m.mu.Lock()
+		m.cachedBrokers = brokers
+		m.cachedServerIDs = serverIDs
+		m.lastCached = time.Now()
+		m.mu.Unlock()
 	}
 
 	return resp, nil
 }
 
+func (m *metadataAPI) brokerCache(serverIDs map[string]struct{}) ([]*client.Broker, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	serversChanged := false
+	if len(serverIDs) != len(m.cachedServerIDs) {
+		serversChanged = true
+	} else {
+		for id, _ := range serverIDs {
+			if _, ok := m.cachedServerIDs[id]; !ok {
+				serversChanged = true
+				break
+			}
+		}
+	}
+	useCache := len(m.cachedBrokers) > 0 &&
+		!serversChanged &&
+		time.Since(m.lastCached) <= m.config.MetadataCacheMaxAge
+	if useCache {
+		return m.cachedBrokers, true
+	}
+	return nil, false
+}
+
 func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMetadataResponse,
-	numPeers int) *status.Status {
+	numPeers int) ([]*client.Broker, *status.Status) {
+
+	// Add ourselves.
+	brokers := []*client.Broker{&client.Broker{
+		Id:   m.config.Clustering.ServerID,
+		Host: m.config.Host,
+		Port: int32(m.config.Port),
+	}}
 
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
@@ -119,7 +170,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMet
 	inbox := nats.NewInbox()
 	sub, err := m.ncRaft.SubscribeSync(inbox)
 	if err != nil {
-		return status.New(codes.Internal, err.Error())
+		return nil, status.New(codes.Internal, err.Error())
 	}
 	defer sub.Unsubscribe()
 
@@ -141,23 +192,17 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMet
 			m.logger.Warnf("Received invalid advertise query response: %v", err)
 			continue
 		}
-		resp.Brokers = append(resp.Brokers, &client.Broker{
+		brokers = append(brokers, &client.Broker{
 			Id:   queryResp.Id,
 			Host: queryResp.Host,
 			Port: queryResp.Port,
 		})
 	}
 
-	return nil
+	return brokers, nil
 }
 
 func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor) *client.FetchMetadataResponse {
-	brokers := []*client.Broker{&client.Broker{
-		Id:   m.config.Clustering.ServerID,
-		Host: m.config.Host,
-		Port: int32(m.config.Port),
-	}}
-
 	// If no descriptors were provided, fetch metadata for all streams.
 	if len(streams) == 0 {
 		for _, stream := range m.GetStreams() {
@@ -189,7 +234,7 @@ func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor)
 		}
 	}
 
-	return &client.FetchMetadataResponse{Brokers: brokers, Metadata: metadata}
+	return &client.FetchMetadataResponse{Metadata: metadata}
 }
 
 func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {

@@ -21,6 +21,7 @@ const (
 	defaultReplicaMaxLeaderTimeout = 10 * time.Second
 	defaultRaftSnapshots           = 2
 	defaultRetentionMaxBytes       = -1
+	defaultMetadataCacheMaxAge     = 2 * time.Minute
 )
 
 type LogConfig struct {
@@ -44,13 +45,14 @@ type ClusteringConfig struct {
 }
 
 type Config struct {
-	Host       string
-	Port       int
-	LogLevel   uint32
-	DataPath   string
-	NATS       nats.Options
-	Log        LogConfig
-	Clustering ClusteringConfig
+	Host                string
+	Port                int
+	LogLevel            uint32
+	DataPath            string
+	MetadataCacheMaxAge time.Duration
+	NATS                nats.Options
+	Log                 LogConfig
+	Clustering          ClusteringConfig
 }
 
 func NewConfig(configFile string) (*Config, error) {
@@ -59,6 +61,7 @@ func NewConfig(configFile string) (*Config, error) {
 	}
 
 	// Defaults
+	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
 	config.Clustering.ServerID = nuid.Next()
 	config.Clustering.Namespace = defaultNamespace
 	config.Clustering.ReplicaMaxLagTime = defaultReplicaMaxLagTime
@@ -103,6 +106,12 @@ func NewConfig(configFile string) (*Config, error) {
 			}
 		case "data.path":
 			config.DataPath = v.(string)
+		case "metadata.cache.max.age":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return nil, err
+			}
+			config.MetadataCacheMaxAge = dur
 		case "nats":
 			if err := parseNATSConfig(v.(map[string]interface{}), config.NATS); err != nil {
 				return nil, err
