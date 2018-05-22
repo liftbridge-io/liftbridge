@@ -14,7 +14,14 @@ import (
 	"github.com/tylertreat/liftbridge/server/conf"
 )
 
-const defaultNamespace = "liftbridge-default"
+const (
+	defaultNamespace               = "liftbridge-default"
+	defaultReplicaMaxLagTime       = 10 * time.Second
+	defaultReplicaFetchInterval    = time.Second
+	defaultReplicaMaxLeaderTimeout = 10 * time.Second
+	defaultRaftSnapshots           = 2
+	defaultRetentionMaxBytes       = -1
+)
 
 type LogConfig struct {
 	RetentionMaxBytes int64
@@ -54,11 +61,11 @@ func NewConfig(configFile string) (*Config, error) {
 	// Defaults
 	config.Clustering.ServerID = nuid.Next()
 	config.Clustering.Namespace = defaultNamespace
-	config.Clustering.ReplicaMaxLagTime = 10 * time.Second
-	config.Clustering.ReplicaFetchInterval = time.Second
-	config.Clustering.ReplicaMaxLeaderTimeout = 10 * time.Second
-	config.Clustering.RaftSnapshots = 2
-	config.Log.RetentionMaxBytes = -1
+	config.Clustering.ReplicaMaxLagTime = defaultReplicaMaxLagTime
+	config.Clustering.ReplicaFetchInterval = defaultReplicaFetchInterval
+	config.Clustering.ReplicaMaxLeaderTimeout = defaultReplicaMaxLeaderTimeout
+	config.Clustering.RaftSnapshots = defaultRaftSnapshots
+	config.Log.RetentionMaxBytes = defaultRetentionMaxBytes
 
 	if configFile == "" {
 		return config, nil
