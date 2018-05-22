@@ -19,6 +19,10 @@ import (
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
+// recvChannelSize specifies the size of the channel that feeds the leader
+// message processing loop.
+const recvChannelSize = 64 * 1024
+
 var envelopeCookie = []byte("jetb")
 
 type replica struct {
@@ -42,6 +46,7 @@ type stream struct {
 	sub             *nats.Subscription // Subscription to stream NATS subject
 	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
 	followerReplSub *nats.Subscription // Subscription for replication responses from leader
+	recvChan        chan *nats.Msg     // Channel leader places received messages on
 	log             CommitLog
 	srv             *Server
 	subjectHash     string
@@ -139,6 +144,7 @@ func (s *stream) close() error {
 	}
 	if s.isLeading {
 		s.stopReplicating()
+		s.recvChan <- nil
 	}
 	return nil
 }
@@ -160,7 +166,7 @@ func (s *stream) SetLeader(leader string, epoch uint64) error {
 		return nil
 	}
 
-	return s.startLeaderOrFollowerLoop()
+	return s.startLeadingOrFollowing()
 }
 
 func (s *stream) StartRecovered() (bool, error) {
@@ -169,14 +175,14 @@ func (s *stream) StartRecovered() (bool, error) {
 	if !s.recovered {
 		return false, nil
 	}
-	if err := s.startLeaderOrFollowerLoop(); err != nil {
+	if err := s.startLeadingOrFollowing(); err != nil {
 		return false, err
 	}
 	s.recovered = false
 	return true, nil
 }
 
-func (s *stream) startLeaderOrFollowerLoop() error {
+func (s *stream) startLeadingOrFollowing() error {
 	if s.Leader == s.srv.config.Clustering.ServerID {
 		s.srv.logger.Debugf("Server becoming leader for stream %s", s)
 		if err := s.becomeLeader(s.LeaderEpoch); err != nil {
@@ -213,11 +219,17 @@ func (s *stream) becomeLeader(epoch uint64) error {
 		}
 	}
 
+	// Start message processing loop.
+	s.recvChan = make(chan *nats.Msg, recvChannelSize)
+	go s.messageProcessingLoop()
+
 	// Start replicating to followers.
 	s.startReplicating(epoch)
 
 	// Subscribe to the NATS subject and begin sequencing messages.
-	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.ConsumerGroup, s.handleMsg)
+	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.ConsumerGroup, func(m *nats.Msg) {
+		s.recvChan <- m
+	})
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to NATS")
 	}
@@ -257,8 +269,11 @@ func (s *stream) becomeFollower() error {
 			return err
 		}
 
-		// ...and stop replicating.
+		// ...stop replicating.
 		s.stopReplicating()
+
+		// ...and stop the message processing loop.
+		s.recvChan <- nil
 	}
 
 	// Truncate the log up to the latest HW. This removes any potentially
@@ -276,64 +291,13 @@ func (s *stream) becomeFollower() error {
 	s.followerReplSub = sub
 
 	// Start fetching messages from the leader's log starting at the HW.
-	go s.startReplicationRequests()
-	go s.startLeaderFailureDetectorLoop()
+	go s.replicationRequestLoop()
+	go s.leaderFailureDetectorLoop()
 
 	s.isFollowing = true
 	s.isLeading = false
 
 	return nil
-}
-
-// TODO: I think there is potential for a race where this broker loses
-// leadership for the stream while it's receiving messages here. Look into
-// this.
-func (s *stream) handleMsg(msg *nats.Msg) {
-	envelope := getEnvelope(msg.Data)
-	m := &proto.Message{
-		MagicByte: 2,
-		Timestamp: time.Now(),
-		Headers:   make(map[string][]byte),
-	}
-	if envelope != nil {
-		m.Key = envelope.Key
-		m.Value = envelope.Value
-		for key, value := range envelope.Headers {
-			m.Headers[key] = value
-		}
-	} else {
-		m.Value = msg.Data
-	}
-	m.Headers["subject"] = []byte(msg.Subject)
-	m.Headers["reply"] = []byte(msg.Reply)
-
-	ms := &proto.MessageSet{Messages: []*proto.Message{m}}
-	data, err := proto.Encode(ms)
-	if err != nil {
-		panic(err)
-	}
-
-	// Write uncommitted message to log.
-	offset, err := s.log.Append(data)
-	if err != nil {
-		s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
-		return
-	}
-
-	// Update this replica's latest offset.
-	s.updateISRLatestOffset(s.srv.config.Clustering.ServerID, offset)
-
-	// If there is an AckInbox, add the pending message to the commit queue. If
-	// there isn't one, we don't care whether the message is committed or not.
-	if envelope != nil && envelope.AckInbox != "" {
-		s.commitQueue.Put(&client.Ack{
-			StreamSubject: s.Subject,
-			StreamName:    s.Name,
-			MsgSubject:    msg.Subject,
-			Offset:        offset,
-			AckInbox:      envelope.AckInbox,
-		})
-	}
 }
 
 func (s *stream) handleReplicationRequest(msg *nats.Msg) {
@@ -406,12 +370,72 @@ func (s *stream) getReplicationResponseInbox() string {
 		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name, s.srv.config.Clustering.ServerID)
 }
 
+// TODO: I think there is potential for a race where this broker loses
+// leadership for the stream while it's receiving messages here. Look into
+// this.
+func (s *stream) messageProcessingLoop() {
+	for msg := range s.recvChan {
+		if msg == nil {
+			break
+		}
+
+		envelope := getEnvelope(msg.Data)
+		m := &proto.Message{
+			MagicByte: 2,
+			Timestamp: time.Now(),
+			Headers:   make(map[string][]byte),
+		}
+		if envelope != nil {
+			m.Key = envelope.Key
+			m.Value = envelope.Value
+			for key, value := range envelope.Headers {
+				m.Headers[key] = value
+			}
+		} else {
+			m.Value = msg.Data
+		}
+		m.Headers["subject"] = []byte(msg.Subject)
+		m.Headers["reply"] = []byte(msg.Reply)
+
+		ms := &proto.MessageSet{Messages: []*proto.Message{m}}
+		data, err := proto.Encode(ms)
+		if err != nil {
+			panic(err)
+		}
+
+		// Write uncommitted message to log.
+		offset, err := s.log.Append(data)
+		if err != nil {
+			s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
+			return
+		}
+
+		// Update this replica's latest offset.
+		s.updateISRLatestOffset(s.srv.config.Clustering.ServerID, offset)
+
+		// If there is an AckInbox, add the pending message to the commit queue. If
+		// there isn't one, we don't care whether the message is committed or not.
+		if envelope != nil && envelope.AckInbox != "" {
+			if err := s.commitQueue.Put(&client.Ack{
+				StreamSubject: s.Subject,
+				StreamName:    s.Name,
+				MsgSubject:    msg.Subject,
+				Offset:        offset,
+				AckInbox:      envelope.AckInbox,
+			}); err != nil {
+				// This is very bad and should not happen.
+				panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
+			}
+		}
+	}
+}
+
 func (s *stream) startReplicating(epoch uint64) {
-	s.commitQueue = queue.New(100) // TODO: hint should be ~steady state inflight messages
+	s.commitQueue = queue.New(100)
 	if s.ReplicationFactor > 1 {
 		s.srv.logger.Debugf("Replicating stream %s to followers", s)
 	}
-	go s.startCommitLoop()
+	go s.commitLoop()
 	for _, replicator := range s.replicators {
 		go replicator.start(epoch)
 	}
@@ -424,7 +448,7 @@ func (s *stream) stopReplicating() {
 	s.commitQueue.Dispose()
 }
 
-func (s *stream) startCommitLoop() {
+func (s *stream) commitLoop() {
 	for {
 		<-s.commitCheck
 		s.mu.RLock()
@@ -475,12 +499,12 @@ func (s *stream) startCommitLoop() {
 			if err != nil {
 				panic(err)
 			}
-			s.srv.nc.Publish(ack.AckInbox, data)
+			s.srv.ncAcks.Publish(ack.AckInbox, data)
 		}
 	}
 }
 
-func (s *stream) startReplicationRequests() {
+func (s *stream) replicationRequestLoop() {
 	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
 	ticker := time.NewTicker(s.srv.config.Clustering.ReplicaFetchInterval)
 	defer ticker.Stop()
@@ -496,7 +520,7 @@ func (s *stream) startReplicationRequests() {
 	}
 }
 
-func (s *stream) startLeaderFailureDetectorLoop() {
+func (s *stream) leaderFailureDetectorLoop() {
 	s.mu.Lock()
 	s.leaderLastSeen = time.Now()
 	s.mu.Unlock()

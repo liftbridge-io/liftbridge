@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/nats-io/go-nats"
@@ -24,6 +25,7 @@ type Server struct {
 	nc                 *nats.Conn
 	ncRaft             *nats.Conn
 	ncRepl             *nats.Conn
+	ncAcks             *nats.Conn
 	logger             *log.Logger
 	api                *grpc.Server
 	metadata           *metadataAPI
@@ -60,7 +62,7 @@ func (s *Server) Start() error {
 	s.listener = l
 
 	// NATS connection used for stream data.
-	nc, err := s.config.NATS.Connect()
+	nc, err := s.createNATSConn("streams")
 	if err != nil {
 		s.Stop()
 		return errors.Wrap(err, "failed to connect to NATS")
@@ -68,7 +70,7 @@ func (s *Server) Start() error {
 	s.nc = nc
 
 	// NATS connection used for Raft metadata replication.
-	ncr, err := s.config.NATS.Connect()
+	ncr, err := s.createNATSConn("raft")
 	if err != nil {
 		s.Stop()
 		return errors.Wrap(err, "failed to connect to NATS")
@@ -76,12 +78,20 @@ func (s *Server) Start() error {
 	s.ncRaft = ncr
 
 	// NATS connection used for stream replication.
-	ncRepl, err := s.config.NATS.Connect()
+	ncRepl, err := s.createNATSConn("replication")
 	if err != nil {
 		s.Stop()
 		return errors.Wrap(err, "failed to connect to NATS")
 	}
 	s.ncRepl = ncRepl
+
+	// NATS connection used for sending acks.
+	ncAcks, err := s.createNATSConn("acks")
+	if err != nil {
+		s.Stop()
+		return errors.Wrap(err, "failed to connect to NATS")
+	}
+	s.ncAcks = ncAcks
 
 	s.logger.Infof("Server ID: %s", s.config.Clustering.ServerID)
 	s.logger.Infof("Namespace: %s", s.config.Clustering.Namespace)
@@ -97,6 +107,30 @@ func (s *Server) Start() error {
 	s.api = api
 	client.RegisterAPIServer(api, &apiServer{s})
 	return api.Serve(s.listener)
+}
+
+func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
+	var err error
+	opts := s.config.NATS
+	opts.Name = fmt.Sprintf("LB-%s-%s", s.config.Clustering.ServerID, name)
+	opts.ReconnectWait = 250 * time.Millisecond
+	opts.MaxReconnect = -1
+	opts.ReconnectBufSize = -1
+
+	if err = nats.ErrorHandler(s.natsErrorHandler)(&opts); err != nil {
+		return nil, err
+	}
+	if err = nats.ReconnectHandler(s.natsReconnectedHandler)(&opts); err != nil {
+		return nil, err
+	}
+	if err = nats.ClosedHandler(s.natsClosedHandler)(&opts); err != nil {
+		return nil, err
+	}
+	if err = nats.DisconnectHandler(s.natsDisconnectedHandler)(&opts); err != nil {
+		return nil, err
+	}
+
+	return opts.Connect()
 }
 
 func (s *Server) finishedRecovery() (int, error) {
@@ -295,4 +329,27 @@ func (s *Server) Stop() error {
 	}
 
 	return nil
+}
+
+func (s *Server) natsDisconnectedHandler(nc *nats.Conn) {
+	if nc.LastError() != nil {
+		s.logger.Errorf("Connection %q has been disconnected from NATS: %v",
+			nc.Opts.Name, nc.LastError())
+	} else {
+		s.logger.Errorf("Connection %q has been disconnected from NATS", nc.Opts.Name)
+	}
+}
+
+func (s *Server) natsReconnectedHandler(nc *nats.Conn) {
+	s.logger.Infof("Connection %q reconnected to NATS at %q",
+		nc.Opts.Name, nc.ConnectedUrl())
+}
+
+func (s *Server) natsClosedHandler(nc *nats.Conn) {
+	s.logger.Debugf("Connection %q has been closed", nc.Opts.Name)
+}
+
+func (s *Server) natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err error) {
+	s.logger.Errorf("Asynchronous error on connection %s, subject %s: %s",
+		nc.Opts.Name, sub.Subject, err)
 }
