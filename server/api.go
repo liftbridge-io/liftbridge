@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-liftbridge/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
@@ -37,21 +36,23 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	return resp, nil
 }
 
-func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.API_ConsumeStreamServer) error {
-	a.logger.Debugf("api: ConsumeStream [subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
+func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
+	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
 	stream := a.metadata.GetStream(req.Subject, req.Name)
 	if stream == nil {
-		return errors.New("No such stream")
+		a.logger.Error("api: Failed to subscribe to stream [subject=%s, name=%s]: no such stream",
+			req.Subject, req.Name)
+		return status.Error(codes.NotFound, "No such stream")
 	}
 
 	if stream.Leader != a.config.Clustering.ServerID {
-		a.logger.Error("api: Failed to fetch stream: node is not stream leader")
-		return errors.New("Node is not stream leader")
+		a.logger.Error("api: Failed to subscribe to stream %s: server not stream leader", stream)
+		return status.Error(codes.FailedPrecondition, "Server not stream leader")
 	}
 
-	ch, errCh, err := a.consumeStream(out.Context(), stream, req)
+	ch, errCh, err := a.subscribe(out.Context(), stream, req)
 	if err != nil {
-		a.logger.Errorf("api: Failed to fetch stream: %v", err.Err())
+		a.logger.Errorf("api: Failed to subscribe to stream %s: %v", stream, err.Err())
 		return err.Err()
 	}
 	for {
@@ -70,6 +71,7 @@ func (a *apiServer) ConsumeStream(req *client.ConsumeStreamRequest, out client.A
 
 func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
 	*client.FetchMetadataResponse, error) {
+	a.logger.Debugf("api: FetchMetadata %s", req.Streams)
 
 	resp, err := a.metadata.FetchMetadata(ctx, req)
 	if err != nil {
@@ -80,7 +82,7 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 	return resp, nil
 }
 
-func (a *apiServer) consumeStream(ctx context.Context, stream *stream, req *client.ConsumeStreamRequest) (
+func (a *apiServer) subscribe(ctx context.Context, stream *stream, req *client.SubscribeRequest) (
 	<-chan *client.Message, <-chan *status.Status, *status.Status) {
 
 	var (

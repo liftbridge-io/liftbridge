@@ -19,28 +19,30 @@ type replicator struct {
 	lastSeen          time.Time
 	requests          chan *proto.ReplicationRequest
 	mu                sync.RWMutex
-	running           bool
 	cancelReplication context.CancelFunc
 	leader            string
 	epoch             uint64
 }
 
-func (r *replicator) start(epoch uint64) {
+func (r *replicator) start(epoch uint64, stop chan struct{}) {
 	r.mu.Lock()
-	if r.running {
-		r.mu.Unlock()
-		return
-	}
 	r.epoch = epoch
-	r.running = true
 	now := time.Now()
 	r.lastSeen = now
 	r.lastCaughtUp = now
 	r.mu.Unlock()
 
-	go r.tick()
+	go r.tick(stop)
 
-	for req := range r.requests {
+	var req *proto.ReplicationRequest
+	for {
+		select {
+		case <-stop:
+			r.cancelReplication()
+			return
+		case req = <-r.requests:
+		}
+
 		now := time.Now()
 		r.mu.Lock()
 		r.lastSeen = now
@@ -78,22 +80,7 @@ func (r *replicator) start(epoch uint64) {
 	}
 }
 
-func (r *replicator) stop() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if !r.running {
-		return
-	}
-	r.running = false
-	close(r.requests)
-}
-
 func (r *replicator) request(req *proto.ReplicationRequest) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if !r.running {
-		return
-	}
 	select {
 	case r.requests <- req:
 	default:
@@ -106,16 +93,17 @@ func (r *replicator) request(req *proto.ReplicationRequest) {
 // any replication requests or hasn't consumed up to the leader's log end
 // offset for the lag-time duration. If this is the case, the follower is
 // removed from the ISR until it catches back up.
-func (r *replicator) tick() {
+func (r *replicator) tick(stop chan struct{}) {
 	ticker := time.NewTicker(r.maxLagTime)
 	defer ticker.Stop()
+	var now time.Time
 	for {
-		now := <-ticker.C
-		r.mu.RLock()
-		if !r.running {
-			r.mu.RUnlock()
+		select {
+		case <-stop:
 			return
+		case now = <-ticker.C:
 		}
+		r.mu.RLock()
 		var (
 			lastSeenElapsed     = now.Sub(r.lastSeen)
 			lastCaughtUpElapsed = now.Sub(r.lastCaughtUp)

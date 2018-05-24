@@ -42,24 +42,27 @@ func (r *replica) updateLatestOffset(offset int64) (updated bool) {
 
 type stream struct {
 	*proto.Stream
-	mu              sync.RWMutex
-	sub             *nats.Subscription // Subscription to stream NATS subject
-	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
-	followerReplSub *nats.Subscription // Subscription for replication responses from leader
-	recvChan        chan *nats.Msg     // Channel leader places received messages on
-	log             CommitLog
-	srv             *Server
-	subjectHash     string
-	isLeading       bool
-	isFollowing     bool
-	replicas        map[string]struct{}
-	isr             map[string]*replica
-	replicators     map[string]*replicator
-	commitQueue     *queue.Queue
-	commitCheck     chan struct{}
-	leaderLastSeen  time.Time
-	leaderEpoch     uint64
-	recovered       bool
+	mu               sync.RWMutex
+	sub              *nats.Subscription // Subscription to stream NATS subject
+	leaderReplSub    *nats.Subscription // Subscription for replication requests from followers
+	followerReplSub  *nats.Subscription // Subscription for replication responses from leader
+	recvChan         chan *nats.Msg     // Channel leader places received messages on
+	log              CommitLog
+	srv              *Server
+	subjectHash      string
+	isLeading        bool
+	isFollowing      bool
+	replicas         map[string]struct{}
+	isr              map[string]*replica
+	replicators      map[string]*replicator
+	commitQueue      *queue.Queue
+	commitCheck      chan struct{}
+	leaderLastSeen   time.Time
+	leaderEpoch      uint64
+	recovered        bool
+	stopReplRequests chan struct{}
+	stopLeaderFD     chan struct{}
+	stopReplicating  chan struct{}
 }
 
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
@@ -95,25 +98,8 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 		subjectHash: subjectHash,
 		replicas:    replicas,
 		isr:         isr,
-		replicators: make(map[string]*replicator, len(protoStream.Replicas)),
 		commitCheck: make(chan struct{}, len(protoStream.Replicas)),
 		recovered:   recovered,
-	}
-
-	for _, replica := range protoStream.Replicas {
-		if replica == s.config.Clustering.ServerID {
-			// Don't replicate to ourselves.
-			continue
-		}
-		st.replicators[replica] = &replicator{
-			replica:           replica,
-			stream:            st,
-			requests:          make(chan *proto.ReplicationRequest),
-			hw:                -1,
-			maxLagTime:        s.config.Clustering.ReplicaMaxLagTime,
-			leader:            s.config.Clustering.ServerID,
-			cancelReplication: func() {}, // Intentional no-op initially
-		}
 	}
 
 	return st, nil
@@ -124,28 +110,23 @@ func (s *stream) String() string {
 }
 
 func (s *stream) close() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.isFollowing {
+		if err := s.stopFollowing(); err != nil {
+			return err
+		}
+	} else if s.isLeading {
+		if err := s.stopLeading(); err != nil {
+			return err
+		}
+	}
+
 	if err := s.log.Close(); err != nil {
 		return err
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.sub != nil {
-		if err := s.sub.Unsubscribe(); err != nil {
-			return err
-		}
-	}
-	if s.leaderReplSub != nil {
-		if err := s.leaderReplSub.Unsubscribe(); err != nil {
-			return err
-		}
-	}
-	if s.followerReplSub != nil {
-		return s.followerReplSub.Unsubscribe()
-	}
-	if s.isLeading {
-		s.stopReplicating()
-		s.recvChan <- nil
-	}
+
 	return nil
 }
 
@@ -208,23 +189,25 @@ func (s *stream) GetLeader() (string, uint64) {
 // becomeLeader is called when the server has become the leader for this
 // stream.
 func (s *stream) becomeLeader(epoch uint64) error {
-	if s.isLeading {
-		return nil
-	}
-
-	// If previously follower, unsubscribe from replication subject.
 	if s.isFollowing {
-		if err := s.followerReplSub.Unsubscribe(); err != nil {
+		// Stop following if previously a follower.
+		if err := s.stopFollowing(); err != nil {
+			return err
+		}
+	} else if s.isLeading {
+		// If previously a leader, we need to reset.
+		if err := s.stopLeading(); err != nil {
 			return err
 		}
 	}
 
 	// Start message processing loop.
 	s.recvChan = make(chan *nats.Msg, recvChannelSize)
-	go s.messageProcessingLoop()
+	go s.messageProcessingLoop(s.recvChan)
 
 	// Start replicating to followers.
-	s.startReplicating(epoch)
+	s.stopReplicating = make(chan struct{})
+	s.startReplicating(epoch, s.stopReplicating)
 
 	// Subscribe to the NATS subject and begin sequencing messages.
 	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.ConsumerGroup, func(m *nats.Msg) {
@@ -250,30 +233,40 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	return nil
 }
 
+func (s *stream) stopLeading() error {
+	// Unsubscribe from NATS subject.
+	if err := s.sub.Unsubscribe(); err != nil {
+		return err
+	}
+
+	// Unsubscribe from replication subject.
+	if err := s.leaderReplSub.Unsubscribe(); err != nil {
+		return err
+	}
+
+	// Stop replicating.
+	close(s.stopReplicating)
+	s.commitQueue.Dispose()
+
+	// Stop the message processing loop.
+	s.recvChan <- nil
+
+	return nil
+}
+
 // becomeFollower is called when the server has become a follower for this
 // stream.
 func (s *stream) becomeFollower() error {
-	if s.isFollowing {
-		return nil
-	}
-
-	// If previously leader...
 	if s.isLeading {
-		// ...unsubscribe from NATS subject.
-		if err := s.sub.Unsubscribe(); err != nil {
+		// Stop leading if previously a leader.
+		if err := s.stopLeading(); err != nil {
 			return err
 		}
-
-		// ...unsubscribe from replication subject.
-		if err := s.leaderReplSub.Unsubscribe(); err != nil {
+	} else if s.isFollowing {
+		// If previously a follower, we need to reset.
+		if err := s.stopFollowing(); err != nil {
 			return err
 		}
-
-		// ...stop replicating.
-		s.stopReplicating()
-
-		// ...and stop the message processing loop.
-		s.recvChan <- nil
 	}
 
 	// Truncate the log up to the latest HW. This removes any potentially
@@ -291,11 +284,27 @@ func (s *stream) becomeFollower() error {
 	s.followerReplSub = sub
 
 	// Start fetching messages from the leader's log starting at the HW.
-	go s.replicationRequestLoop()
-	go s.leaderFailureDetectorLoop()
+	s.stopReplRequests = make(chan struct{})
+	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
+	go s.replicationRequestLoop(s.stopReplRequests)
+
+	// Start leader failure detector.
+	s.stopLeaderFD = make(chan struct{})
+	go s.leaderFailureDetectorLoop(s.stopLeaderFD)
 
 	s.isFollowing = true
 	s.isLeading = false
+
+	return nil
+}
+
+func (s *stream) stopFollowing() error {
+	if err := s.followerReplSub.Unsubscribe(); err != nil {
+		return err
+	}
+
+	close(s.stopReplRequests)
+	close(s.stopLeaderFD)
 
 	return nil
 }
@@ -373,8 +382,8 @@ func (s *stream) getReplicationResponseInbox() string {
 // TODO: I think there is potential for a race where this broker loses
 // leadership for the stream while it's receiving messages here. Look into
 // this.
-func (s *stream) messageProcessingLoop() {
-	for msg := range s.recvChan {
+func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg) {
+	for msg := range recvChan {
 		if msg == nil {
 			break
 		}
@@ -430,32 +439,39 @@ func (s *stream) messageProcessingLoop() {
 	}
 }
 
-func (s *stream) startReplicating(epoch uint64) {
-	s.commitQueue = queue.New(100)
+func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 	if s.ReplicationFactor > 1 {
 		s.srv.logger.Debugf("Replicating stream %s to followers", s)
 	}
-	go s.commitLoop()
-	for _, replicator := range s.replicators {
-		go replicator.start(epoch)
+	s.commitQueue = queue.New(100)
+	go s.commitLoop(stop)
+
+	s.replicators = make(map[string]*replicator, len(s.replicas)-1)
+	for replica, _ := range s.replicas {
+		if replica == s.srv.config.Clustering.ServerID {
+			// Don't replicate to ourselves.
+			continue
+		}
+		r := &replicator{
+			replica:           replica,
+			stream:            s,
+			requests:          make(chan *proto.ReplicationRequest),
+			hw:                -1,
+			maxLagTime:        s.srv.config.Clustering.ReplicaMaxLagTime,
+			leader:            s.srv.config.Clustering.ServerID,
+			cancelReplication: func() {}, // Intentional no-op initially
+		}
+		s.replicators[replica] = r
+		go r.start(epoch, stop)
 	}
 }
 
-func (s *stream) stopReplicating() {
-	for _, replicator := range s.replicators {
-		replicator.stop()
-	}
-	s.commitQueue.Dispose()
-}
-
-func (s *stream) commitLoop() {
+func (s *stream) commitLoop(stop chan struct{}) {
 	for {
-		<-s.commitCheck
-		s.mu.RLock()
-		isLeading := s.isLeading
-		s.mu.RUnlock()
-		if !isLeading {
+		select {
+		case <-stop:
 			return
+		case <-s.commitCheck:
 		}
 
 		// Commit all messages in the queue that have been replicated by all
@@ -504,23 +520,20 @@ func (s *stream) commitLoop() {
 	}
 }
 
-func (s *stream) replicationRequestLoop() {
-	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
+func (s *stream) replicationRequestLoop(stop chan struct{}) {
 	ticker := time.NewTicker(s.srv.config.Clustering.ReplicaFetchInterval)
 	defer ticker.Stop()
 	for {
-		<-ticker.C
-		s.mu.RLock()
-		isFollowing := s.isFollowing
-		s.mu.RUnlock()
-		if !isFollowing {
+		select {
+		case <-ticker.C:
+			s.sendReplicationRequest()
+		case <-stop:
 			return
 		}
-		s.sendReplicationRequest()
 	}
 }
 
-func (s *stream) leaderFailureDetectorLoop() {
+func (s *stream) leaderFailureDetectorLoop(stop chan struct{}) {
 	s.mu.Lock()
 	s.leaderLastSeen = time.Now()
 	s.mu.Unlock()
@@ -530,18 +543,19 @@ func (s *stream) leaderFailureDetectorLoop() {
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var now time.Time
 	for {
-		now := <-ticker.C
+		select {
+		case <-stop:
+			return
+		case now = <-ticker.C:
+		}
 		s.mu.RLock()
 		var (
 			leader          = s.Leader
-			isFollowing     = s.isFollowing
 			lastSeenElapsed = now.Sub(s.leaderLastSeen)
 		)
 		s.mu.RUnlock()
-		if !isFollowing {
-			return
-		}
 
 		if lastSeenElapsed > s.srv.config.Clustering.ReplicaMaxLeaderTimeout {
 			// Leader has not sent a response in ReplicaMaxLeaderTimeout, so

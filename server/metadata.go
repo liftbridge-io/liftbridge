@@ -97,12 +97,8 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 	if err != nil {
 		return nil, status.New(codes.Internal, err.Error())
 	}
-	numPeers := len(servers) - 1
-	if numPeers == 0 {
-		return resp, nil
-	}
 
-	serverIDs := make(map[string]struct{}, numPeers)
+	serverIDs := make(map[string]struct{}, len(servers))
 	for _, id := range servers {
 		serverIDs[id] = struct{}{}
 	}
@@ -112,7 +108,7 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 		resp.Brokers = cached
 	} else {
 		// Query broker info from peers.
-		brokers, err := m.fetchBrokerInfo(ctx, resp, numPeers)
+		brokers, err := m.fetchBrokerInfo(ctx, resp, len(servers)-1)
 		if err != nil {
 			return nil, err
 		}
