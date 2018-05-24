@@ -40,13 +40,13 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
 	stream := a.metadata.GetStream(req.Subject, req.Name)
 	if stream == nil {
-		a.logger.Error("api: Failed to subscribe to stream [subject=%s, name=%s]: no such stream",
+		a.logger.Errorf("api: Failed to subscribe to stream [subject=%s, name=%s]: no such stream",
 			req.Subject, req.Name)
 		return status.Error(codes.NotFound, "No such stream")
 	}
 
 	if stream.Leader != a.config.Clustering.ServerID {
-		a.logger.Error("api: Failed to subscribe to stream %s: server not stream leader", stream)
+		a.logger.Errorf("api: Failed to subscribe to stream %s: server not stream leader", stream)
 		return status.Error(codes.FailedPrecondition, "Server not stream leader")
 	}
 
@@ -55,6 +55,13 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 		a.logger.Errorf("api: Failed to subscribe to stream %s: %v", stream, err.Err())
 		return err.Err()
 	}
+
+	// Send an empty message which signals the subscription was successfully
+	// created.
+	if err := out.Send(&client.Message{}); err != nil {
+		return err
+	}
+
 	for {
 		select {
 		case <-out.Context().Done():
