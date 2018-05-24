@@ -61,6 +61,7 @@ func NewConfig(configFile string) (*Config, error) {
 	}
 
 	// Defaults
+	config.LogLevel = uint32(log.InfoLevel)
 	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
 	config.Clustering.ServerID = nuid.Next()
 	config.Clustering.Namespace = defaultNamespace
