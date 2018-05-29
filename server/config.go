@@ -22,6 +22,7 @@ const (
 	defaultRaftSnapshots           = 2
 	defaultRetentionMaxBytes       = -1
 	defaultMetadataCacheMaxAge     = 2 * time.Minute
+	defaultBatchMaxMessages        = 1024
 )
 
 type LogConfig struct {
@@ -49,6 +50,8 @@ type Config struct {
 	Port                int
 	LogLevel            uint32
 	DataPath            string
+	BatchMaxMessages    int
+	BatchWaitTime       time.Duration
 	MetadataCacheMaxAge time.Duration
 	NATS                nats.Options
 	Log                 LogConfig
@@ -62,6 +65,7 @@ func NewConfig(configFile string) (*Config, error) {
 
 	// Defaults
 	config.LogLevel = uint32(log.InfoLevel)
+	config.BatchMaxMessages = defaultBatchMaxMessages
 	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
 	config.Clustering.ServerID = nuid.Next()
 	config.Clustering.Namespace = defaultNamespace
@@ -107,6 +111,14 @@ func NewConfig(configFile string) (*Config, error) {
 			}
 		case "data.path":
 			config.DataPath = v.(string)
+		case "batch.max.messages":
+			config.BatchMaxMessages = int(v.(int64))
+		case "batch.wait.time":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return nil, err
+			}
+			config.BatchWaitTime = dur
 		case "metadata.cache.max.age":
 			dur, err := time.ParseDuration(v.(string))
 			if err != nil {

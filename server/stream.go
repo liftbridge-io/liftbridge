@@ -42,27 +42,26 @@ func (r *replica) updateLatestOffset(offset int64) (updated bool) {
 
 type stream struct {
 	*proto.Stream
-	mu               sync.RWMutex
-	sub              *nats.Subscription // Subscription to stream NATS subject
-	leaderReplSub    *nats.Subscription // Subscription for replication requests from followers
-	followerReplSub  *nats.Subscription // Subscription for replication responses from leader
-	recvChan         chan *nats.Msg     // Channel leader places received messages on
-	log              CommitLog
-	srv              *Server
-	subjectHash      string
-	isLeading        bool
-	isFollowing      bool
-	replicas         map[string]struct{}
-	isr              map[string]*replica
-	replicators      map[string]*replicator
-	commitQueue      *queue.Queue
-	commitCheck      chan struct{}
-	leaderLastSeen   time.Time
-	leaderEpoch      uint64
-	recovered        bool
-	stopReplRequests chan struct{}
-	stopLeaderFD     chan struct{}
-	stopReplicating  chan struct{}
+	mu              sync.RWMutex
+	sub             *nats.Subscription // Subscription to stream NATS subject
+	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
+	followerReplSub *nats.Subscription // Subscription for replication responses from leader
+	recvChan        chan *nats.Msg     // Channel leader places received messages on
+	log             CommitLog
+	srv             *Server
+	subjectHash     string
+	isLeading       bool
+	isFollowing     bool
+	replicas        map[string]struct{}
+	isr             map[string]*replica
+	replicators     map[string]*replicator
+	commitQueue     *queue.Queue
+	commitCheck     chan struct{}
+	leaderLastSeen  time.Time
+	leaderEpoch     uint64
+	recovered       bool
+	stopFollower    chan struct{}
+	stopLeader      chan struct{}
 }
 
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
@@ -203,11 +202,11 @@ func (s *stream) becomeLeader(epoch uint64) error {
 
 	// Start message processing loop.
 	s.recvChan = make(chan *nats.Msg, recvChannelSize)
-	go s.messageProcessingLoop(s.recvChan)
+	s.stopLeader = make(chan struct{})
+	go s.messageProcessingLoop(s.recvChan, s.stopLeader)
 
 	// Start replicating to followers.
-	s.stopReplicating = make(chan struct{})
-	s.startReplicating(epoch, s.stopReplicating)
+	s.startReplicating(epoch, s.stopLeader)
 
 	// Subscribe to the NATS subject and begin sequencing messages.
 	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.ConsumerGroup, func(m *nats.Msg) {
@@ -244,12 +243,9 @@ func (s *stream) stopLeading() error {
 		return err
 	}
 
-	// Stop replicating.
-	close(s.stopReplicating)
+	// Stop processing messages and replicating.
+	close(s.stopLeader)
 	s.commitQueue.Dispose()
-
-	// Stop the message processing loop.
-	s.recvChan <- nil
 
 	return nil
 }
@@ -284,13 +280,12 @@ func (s *stream) becomeFollower() error {
 	s.followerReplSub = sub
 
 	// Start fetching messages from the leader's log starting at the HW.
-	s.stopReplRequests = make(chan struct{})
+	s.stopFollower = make(chan struct{})
 	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
-	go s.replicationRequestLoop(s.stopReplRequests)
+	go s.replicationRequestLoop(s.stopFollower)
 
 	// Start leader failure detector.
-	s.stopLeaderFD = make(chan struct{})
-	go s.leaderFailureDetectorLoop(s.stopLeaderFD)
+	go s.leaderFailureDetectorLoop(s.stopFollower)
 
 	s.isFollowing = true
 	s.isLeading = false
@@ -303,8 +298,8 @@ func (s *stream) stopFollowing() error {
 		return err
 	}
 
-	close(s.stopReplRequests)
-	close(s.stopLeaderFD)
+	// Stop replication request and leader failure detector loops.
+	close(s.stopFollower)
 
 	return nil
 }
@@ -362,8 +357,8 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) {
 		return
 	}
 	offset := int64(proto.Encoding.Uint64(data[:8]))
-	if offset > s.log.NewestOffset() {
-		if _, err := s.log.Append(data); err != nil {
+	if offset == s.log.NewestOffset()+1 {
+		if _, err := s.log.AppendMessageSet(data); err != nil {
 			panic(fmt.Errorf("Failed to replicate data to log %s: %v", s, err))
 		}
 	}
@@ -382,58 +377,93 @@ func (s *stream) getReplicationResponseInbox() string {
 // TODO: I think there is potential for a race where this broker loses
 // leadership for the stream while it's receiving messages here. Look into
 // this.
-func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg) {
-	for msg := range recvChan {
-		if msg == nil {
-			break
+func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan struct{}) {
+	var (
+		msg       *nats.Msg
+		batchSize = s.srv.config.BatchMaxMessages
+		batchWait = s.srv.config.BatchWaitTime
+		msgBatch  = make([]*proto.Message, 0, batchSize)
+		ackBatch  = make([]string, 0, batchSize)
+	)
+	for {
+		msgBatch = msgBatch[:0]
+		ackBatch = ackBatch[:0]
+		select {
+		case <-stop:
+			return
+		case msg = <-recvChan:
 		}
 
-		envelope := getEnvelope(msg.Data)
-		m := &proto.Message{
-			MagicByte: 2,
-			Timestamp: time.Now(),
-			Headers:   make(map[string][]byte),
-		}
+		m, envelope := natsToProtoMessage(msg)
+		msgBatch = append(msgBatch, m)
 		if envelope != nil {
-			m.Key = envelope.Key
-			m.Value = envelope.Value
-			for key, value := range envelope.Headers {
-				m.Headers[key] = value
-			}
+			ackBatch = append(ackBatch, envelope.AckInbox)
 		} else {
-			m.Value = msg.Data
+			ackBatch = append(ackBatch, "")
 		}
-		m.Headers["subject"] = []byte(msg.Subject)
-		m.Headers["reply"] = []byte(msg.Reply)
+		remaining := batchSize - 1
 
-		ms := &proto.MessageSet{Messages: []*proto.Message{m}}
-		data, err := proto.Encode(ms)
-		if err != nil {
-			panic(err)
+		// Fill the batch up to the max batch size or until the channel is
+		// empty.
+		for remaining > 0 {
+			chanLen := len(recvChan)
+			if chanLen == 0 {
+				if batchWait > 0 {
+					time.Sleep(batchWait)
+					chanLen = len(recvChan)
+					if chanLen == 0 {
+						break
+					}
+				} else {
+					break
+				}
+			}
+
+			if chanLen > remaining {
+				chanLen = remaining
+			}
+
+			for i := 0; i < chanLen; i++ {
+				msg = <-recvChan
+				m, envelope := natsToProtoMessage(msg)
+				msgBatch = append(msgBatch, m)
+				if envelope != nil {
+					ackBatch = append(ackBatch, envelope.AckInbox)
+				} else {
+					ackBatch = append(ackBatch, "")
+				}
+			}
+			remaining -= chanLen
 		}
 
-		// Write uncommitted message to log.
-		offset, err := s.log.Append(data)
+		// Write uncommitted messages to log.
+		offsets, err := s.log.Append(msgBatch)
 		if err != nil {
 			s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
 			return
 		}
 
 		// Update this replica's latest offset.
-		s.updateISRLatestOffset(s.srv.config.Clustering.ServerID, offset)
+		s.updateISRLatestOffset(
+			s.srv.config.Clustering.ServerID,
+			offsets[len(offsets)-1],
+		)
 
-		// If there is an AckInbox, add the pending message to the commit queue. If
-		// there isn't one, we don't care whether the message is committed or not.
-		if envelope != nil && envelope.AckInbox != "" {
-			if err := s.commitQueue.Put(&client.Ack{
-				StreamSubject: s.Subject,
-				StreamName:    s.Name,
-				MsgSubject:    msg.Subject,
-				Offset:        offset,
-				AckInbox:      envelope.AckInbox,
-			}); err != nil {
-				// This is very bad and should not happen.
-				panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
+		// If there is an AckInbox, add the pending message to the commit
+		// queue. If there isn't one, we don't care whether the message is
+		// committed or not.
+		for i, ackInbox := range ackBatch {
+			if ackInbox != "" {
+				if err := s.commitQueue.Put(&client.Ack{
+					StreamSubject: s.Subject,
+					StreamName:    s.Name,
+					MsgSubject:    msg.Subject,
+					Offset:        offsets[i],
+					AckInbox:      ackInbox,
+				}); err != nil {
+					// This is very bad and should not happen.
+					panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
+				}
 			}
 		}
 	}
@@ -719,6 +749,27 @@ func getEnvelope(data []byte) *client.Message {
 		return nil
 	}
 	return msg
+}
+
+func natsToProtoMessage(msg *nats.Msg) (*proto.Message, *client.Message) {
+	envelope := getEnvelope(msg.Data)
+	m := &proto.Message{
+		MagicByte: 2,
+		Timestamp: time.Now(),
+		Headers:   make(map[string][]byte),
+	}
+	if envelope != nil {
+		m.Key = envelope.Key
+		m.Value = envelope.Value
+		for key, value := range envelope.Headers {
+			m.Headers[key] = value
+		}
+	} else {
+		m.Value = msg.Data
+	}
+	m.Headers["subject"] = []byte(msg.Subject)
+	m.Headers["reply"] = []byte(msg.Reply)
+	return m, envelope
 }
 
 func consumeStreamMessageSet(reader io.Reader, headersBuf []byte) ([]byte, int64, error) {
