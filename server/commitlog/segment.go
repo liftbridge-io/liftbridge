@@ -123,7 +123,7 @@ loop:
 			Position: position,
 			Size:     int32(size + msgSetHeaderLen),
 		}
-		err = s.Index.WriteEntry(entry)
+		err = s.Index.WriteEntries([]Entry{entry})
 		if err != nil {
 			break loop
 		}
@@ -157,16 +157,23 @@ func (s *Segment) Position() int64 {
 	return s.position
 }
 
+func (s *Segment) WriteMessageSet(ms []byte, entries []Entry) error {
+	if _, err := s.Write(ms, len(entries)); err != nil {
+		return err
+	}
+	return s.Index.WriteEntries(entries)
+}
+
 // Write writes a byte slice to the log at the current position.
 // It increments the offset as well as sets the position to the new tail.
-func (s *Segment) Write(p []byte) (n int, err error) {
+func (s *Segment) Write(p []byte, numMsgs int) (n int, err error) {
 	s.Lock()
 	defer s.Unlock()
 	n, err = s.writer.Write(p)
 	if err != nil {
 		return n, errors.Wrap(err, "log write failed")
 	}
-	s.nextOffset++
+	s.nextOffset += int64(numMsgs)
 	s.position += int64(n)
 	s.notifyWaiters()
 	return n, nil
@@ -300,8 +307,7 @@ func (s *SegmentScanner) Scan() (ms MessageSet, err error) {
 	if err != nil {
 		return nil, err
 	}
-	size := int64(header.Size() - msgSetHeaderLen)
-	payload := make([]byte, size)
+	payload := make([]byte, header.Size())
 	_, err = s.s.ReadAt(payload, entry.Position+msgSetHeaderLen)
 	if err != nil {
 		return nil, err

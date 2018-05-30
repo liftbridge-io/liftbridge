@@ -358,7 +358,7 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) {
 	}
 	offset := int64(proto.Encoding.Uint64(data[:8]))
 	if offset == s.log.NewestOffset()+1 {
-		if _, err := s.log.Append(data); err != nil {
+		if _, err := s.log.AppendMessageSet(data); err != nil {
 			panic(fmt.Errorf("Failed to replicate data to log %s: %v", s, err))
 		}
 	}
@@ -437,31 +437,28 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 		}
 
 		// Write uncommitted messages to log.
-		for i, msg := range msgBatch {
-			ms := &proto.MessageSet{Messages: []*proto.Message{msg}}
-			data, err := proto.Encode(ms)
-			if err != nil {
-				panic(err)
-			}
-			offset, err := s.log.Append(data)
-			if err != nil {
-				s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
-				return
-			}
+		offsets, err := s.log.Append(msgBatch)
+		if err != nil {
+			s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
+			return
+		}
 
-			// Update this replica's latest offset.
-			s.updateISRLatestOffset(s.srv.config.Clustering.ServerID, offset)
+		// Update this replica's latest offset.
+		s.updateISRLatestOffset(
+			s.srv.config.Clustering.ServerID,
+			offsets[len(offsets)-1],
+		)
 
-			// If there is an AckInbox, add the pending message to the commit
-			// queue. If there isn't one, we don't care whether the message is
-			// committed or not.
-			ackInbox := ackBatch[i]
+		// If there is an AckInbox, add the pending message to the commit
+		// queue. If there isn't one, we don't care whether the message is
+		// committed or not.
+		for i, ackInbox := range ackBatch {
 			if ackInbox != "" {
 				if err := s.commitQueue.Put(&client.Ack{
 					StreamSubject: s.Subject,
 					StreamName:    s.Name,
-					MsgSubject:    string(msg.Headers["subject"]),
-					Offset:        offset,
+					MsgSubject:    string(msgBatch[i].Headers["subject"]),
+					Offset:        offsets[i],
 					AckInbox:      ackInbox,
 				}); err != nil {
 					// This is very bad and should not happen.

@@ -14,6 +14,8 @@ import (
 	atomic_file "github.com/natefinch/atomic"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 var (
@@ -156,29 +158,48 @@ func (l *CommitLog) open() error {
 	return nil
 }
 
-func (l *CommitLog) Append(b []byte) (offset int64, err error) {
-	ms := MessageSet(b)
+func (l *CommitLog) Append(msgs []*proto.Message) ([]int64, error) {
 	if l.checkSplit() {
 		if err := l.split(); err != nil {
-			return offset, err
+			return nil, err
 		}
 	}
-	segment := l.activeSegment()
-	position := segment.Position()
-	offset = segment.NextOffset()
-	ms.PutOffset(offset)
-	if _, err := segment.Write(ms); err != nil {
-		return offset, err
+	var (
+		segment          = l.activeSegment()
+		basePosition     = segment.Position()
+		baseOffset       = segment.NextOffset()
+		ms, entries, err = NewMessageSetFromProto(baseOffset, basePosition, msgs)
+	)
+	if err != nil {
+		return nil, err
 	}
-	e := Entry{
-		Offset:   offset,
-		Position: position,
-		Size:     int32(len(b)),
+	return l.append(segment, ms, entries)
+}
+
+func (l *CommitLog) AppendMessageSet(ms []byte) ([]int64, error) {
+	if l.checkSplit() {
+		if err := l.split(); err != nil {
+			return nil, err
+		}
 	}
-	if err := segment.Index.WriteEntry(e); err != nil {
-		return offset, err
+	var (
+		segment      = l.activeSegment()
+		basePosition = segment.Position()
+		baseOffset   = segment.NextOffset()
+		entries      = EntriesForMessageSet(baseOffset, basePosition, ms)
+	)
+	return l.append(segment, ms, entries)
+}
+
+func (l *CommitLog) append(segment *Segment, ms []byte, entries []Entry) ([]int64, error) {
+	if err := segment.WriteMessageSet(ms, entries); err != nil {
+		return nil, err
 	}
-	return offset, nil
+	offsets := make([]int64, len(entries))
+	for i, entry := range entries {
+		offsets[i] = entry.Offset
+	}
+	return offsets, nil
 }
 
 func (l *CommitLog) NewestOffset() int64 {
@@ -313,13 +334,14 @@ func (l *CommitLog) Truncate(offset int64) error {
 		}
 		for ms, err := ss.Scan(); err == nil; ms, err = ss.Scan() {
 			if ms.Offset() < offset {
-				if _, err = newSegment.Write(ms); err != nil {
+				if _, err = newSegment.Write(ms, 1); err != nil {
 					return err
 				}
 			} else {
 				break
 			}
 		}
+		// TODO: need to update index?
 		if err = newSegment.Replace(segment); err != nil {
 			return err
 		}

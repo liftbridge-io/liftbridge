@@ -4,6 +4,8 @@ import (
 	"io"
 
 	"golang.org/x/net/context"
+
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 type CommitLog interface {
@@ -15,6 +17,7 @@ type CommitLog interface {
 	OldestOffset() int64
 	SetHighWatermark(int64)
 	HighWatermark() int64
-	Append([]byte) (int64, error)
+	Append([]*proto.Message) ([]int64, error)
+	AppendMessageSet([]byte) ([]int64, error)
 	Close() error
 }

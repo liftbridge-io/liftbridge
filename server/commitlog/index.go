@@ -102,15 +102,17 @@ func NewIndex(opts options) (idx *Index, err error) {
 	return idx, nil
 }
 
-func (idx *Index) WriteEntry(entry Entry) (err error) {
+func (idx *Index) WriteEntries(entries []Entry) (err error) {
 	b := new(bytes.Buffer)
-	relEntry := newRelEntry(entry, idx.baseOffset)
-	if err = binary.Write(b, proto.Encoding, relEntry); err != nil {
-		return errors.Wrap(err, "binary write failed")
+	for _, entry := range entries {
+		relEntry := newRelEntry(entry, idx.baseOffset)
+		if err = binary.Write(b, proto.Encoding, relEntry); err != nil {
+			return errors.Wrap(err, "binary write failed")
+		}
 	}
 	idx.WriteAt(b.Bytes(), idx.position)
 	idx.mu.Lock()
-	idx.position += entryWidth
+	idx.position += entryWidth * int64(len(entries))
 	idx.mu.Unlock()
 	return nil
 }
@@ -151,14 +153,10 @@ func (idx *Index) ReadAt(p []byte, offset int64) (n int, err error) {
 	return n, nil
 }
 
-func (idx *Index) Write(p []byte) (n int, err error) {
-	return idx.WriteAt(p, idx.position), nil
-}
-
 func (idx *Index) WriteAt(p []byte, offset int64) (n int) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
-	return copy(idx.mmap[offset:offset+entryWidth], p)
+	return copy(idx.mmap[offset:], p)
 }
 
 func (idx *Index) Sync() error {

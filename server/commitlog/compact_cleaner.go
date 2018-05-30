@@ -20,19 +20,17 @@ func (c *CompactCleaner) Clean(segments []*Segment) (cleaned []*Segment, err err
 		return segments, nil
 	}
 
-	var ss *SegmentScanner
-	var ms MessageSet
-	var offset int64
+	var (
+		ss *SegmentScanner
+		ms MessageSet
+	)
 
 	// build the map of keys to their latest offsets
 	for _, segment := range segments {
 		ss = NewSegmentScanner(segment)
 
 		for ms, err = ss.Scan(); err == nil; ms, err = ss.Scan() {
-			offset = ms.Offset()
-			for _, msg := range ms.Messages() {
-				c.m[Hash(msg.Key())] = offset
-			}
+			c.m[Hash(ms.Message().Key())] = ms.Offset()
 		}
 	}
 
@@ -47,20 +45,18 @@ func (c *CompactCleaner) Clean(segments []*Segment) (cleaned []*Segment, err err
 
 		for ms, err = ss.Scan(); err == nil; ms, err = ss.Scan() {
 			var retain bool
-			offset = ms.Offset()
-			for _, msg := range ms.Messages() {
-				if c.m[Hash(msg.Key())] <= offset {
-					retain = true
-				}
+			if c.m[Hash(ms.Message().Key())] <= ms.Offset() {
+				retain = true
 			}
 
 			if retain {
-				if _, err = cs.Write(ms); err != nil {
+				if _, err = cs.Write(ms, 1); err != nil {
 					return nil, err
 				}
 			}
 		}
 
+		// TODO: need to update index?
 		if err = cs.Replace(ds); err != nil {
 			return nil, err
 		}
