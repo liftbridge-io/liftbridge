@@ -17,7 +17,6 @@ import (
 const (
 	defaultNamespace               = "liftbridge-default"
 	defaultReplicaMaxLagTime       = 10 * time.Second
-	defaultReplicaFetchInterval    = time.Second
 	defaultReplicaMaxLeaderTimeout = 10 * time.Second
 	defaultRaftSnapshots           = 2
 	defaultRetentionMaxBytes       = -1
@@ -41,7 +40,6 @@ type ClusteringConfig struct {
 	RaftBootstrapPeers      []string
 	RaftLogging             bool
 	ReplicaMaxLagTime       time.Duration
-	ReplicaFetchInterval    time.Duration
 	ReplicaMaxLeaderTimeout time.Duration
 }
 
@@ -70,7 +68,6 @@ func NewConfig(configFile string) (*Config, error) {
 	config.Clustering.ServerID = nuid.Next()
 	config.Clustering.Namespace = defaultNamespace
 	config.Clustering.ReplicaMaxLagTime = defaultReplicaMaxLagTime
-	config.Clustering.ReplicaFetchInterval = defaultReplicaFetchInterval
 	config.Clustering.ReplicaMaxLeaderTimeout = defaultReplicaMaxLeaderTimeout
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Log.RetentionMaxBytes = defaultRetentionMaxBytes
@@ -212,12 +209,6 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 				return err
 			}
 			config.Clustering.ReplicaMaxLagTime = dur
-		case "replica.fetch.interval":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return err
-			}
-			config.Clustering.ReplicaFetchInterval = dur
 		default:
 			return fmt.Errorf("Unknown clustering configuration setting %q", k)
 		}

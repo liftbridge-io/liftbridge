@@ -23,18 +23,22 @@ const (
 	replicationOverhead = 16
 )
 
+type replicationRequest struct {
+	*proto.ReplicationRequest
+	replyInbox string
+}
+
 type replicator struct {
-	stream             *stream
-	replica            string
-	hw                 int64
-	maxLagTime         time.Duration
-	lastCaughtUp       time.Time
-	lastSeen           time.Time
-	requests           chan *proto.ReplicationRequest
-	mu                 sync.RWMutex
-	preemptReplication context.CancelFunc
-	leader             string
-	epoch              uint64
+	stream       *stream
+	replica      string
+	maxLagTime   time.Duration
+	lastCaughtUp time.Time
+	lastSeen     time.Time
+	requests     chan replicationRequest
+	mu           sync.RWMutex
+	leader       string
+	epoch        uint64
+	headersBuf   [12]byte
 }
 
 func (r *replicator) start(epoch uint64, stop chan struct{}) {
@@ -47,11 +51,10 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 
 	go r.tick(stop)
 
-	var req *proto.ReplicationRequest
+	var req replicationRequest
 	for {
 		select {
 		case <-stop:
-			r.preemptReplication()
 			return
 		case req = <-r.requests:
 		}
@@ -69,15 +72,12 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		if req.Offset >= newest {
 			r.lastCaughtUp = now
 			r.mu.Unlock()
-			r.sendHW(req.Inbox)
+			r.sendHW(req.replyInbox)
 			continue
 		}
 
-		// Preempt previous replication.
-		r.preemptReplication()
-
 		ctx, cancel := context.WithCancel(context.Background())
-		r.preemptReplication = cancel
+		defer cancel()
 		reader, err := r.stream.log.NewReaderUncommitted(ctx, req.Offset+1)
 		if err != nil {
 			r.stream.srv.logger.Errorf(
@@ -89,11 +89,14 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		}
 		r.mu.Unlock()
 
-		go r.replicate(reader, req.Inbox, req.Offset)
+		if err := r.replicate(reader, req.replyInbox, req.Offset); err != nil {
+			// Send a response to short-circuit request timeout.
+			r.sendHW(req.replyInbox)
+		}
 	}
 }
 
-func (r *replicator) request(req *proto.ReplicationRequest) {
+func (r *replicator) request(req replicationRequest) {
 	select {
 	case r.requests <- req:
 	default:
@@ -131,14 +134,6 @@ func (r *replicator) tick(stop chan struct{}) {
 				r.replica, r.stream, lastSeenElapsed, lastCaughtUpElapsed)
 
 			r.shrinkISR()
-
-			if lastSeenElapsed > r.maxLagTime {
-				// If the follower has not sent a request in maxLagTime, stop
-				// replicating.
-				r.mu.Lock()
-				r.preemptReplication()
-				r.mu.Unlock()
-			}
 		} else if !outOfSync && !r.stream.inISR(r.replica) {
 			// Add replica back into ISR.
 			r.stream.srv.logger.Infof("Replica %s for stream %s caught back up with leader, "+
@@ -178,87 +173,58 @@ func (r *replicator) expandISR() {
 	}
 }
 
-func (r *replicator) replicate(reader io.Reader, inbox string, idx int64) {
+func (r *replicator) replicate(reader io.Reader, inbox string, offset int64) error {
 	var (
-		headersBuf = make([]byte, 12)
-		buf        = new(bytes.Buffer)
-		tempBuf    []byte
-		leftover   bool
+		buf     = new(bytes.Buffer)
+		tempBuf []byte
 	)
-	for {
-		// Write the leader epoch to the buffer.
-		if err := binary.Write(buf, proto.Encoding, r.epoch); err != nil {
-			r.stream.srv.logger.Errorf("Failed to write leader epoch to buffer while replicating: %v", err)
-			return
-		}
-		// Reserve space for the HW. This will be replaced with the HW at the
-		// time of flush.
-		if err := binary.Write(buf, proto.Encoding, int64(0)); err != nil {
-			r.stream.srv.logger.Errorf("Failed to write HW to buffer while replicating: %v", err)
-			return
-		}
-
-		if leftover {
-			// If we had a leftover message, write it to the buffer now.
-			if err := writeMessageToBuffer(buf, headersBuf, tempBuf); err != nil {
-				r.stream.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
-				return
-			}
-			leftover = false
-		}
-
-		newestOffset := r.stream.log.NewestOffset()
-		for idx <= newestOffset && buf.Len() < replicationMaxSize {
-			// If we are caught up but have data buffered, flush the batch
-			// before we block for more data.
-			if idx == newestOffset && buf.Len() > replicationOverhead {
-				break
-			}
-
-			// Read the message headers.
-			if _, err := reader.Read(headersBuf); err != nil {
-				if err == io.EOF {
-					// EOF indicates replication was preempted.
-					return
-				}
-				r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
-				return
-			}
-			idx = int64(proto.Encoding.Uint64(headersBuf[0:]))
-			size := proto.Encoding.Uint32(headersBuf[8:])
-			tempBuf = make([]byte, size)
-
-			// Read the message body.
-			if _, err := reader.Read(tempBuf); err != nil {
-				if err == io.EOF {
-					// EOF indicates replication was preempted.
-					return
-				}
-				r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
-				return
-			}
-
-			// Check if this message will put us over the batch size limit. If
-			// it does, flush the batch now. We'll send the leftover message in
-			// the next batch.
-			if size+uint32(len(headersBuf))+uint32(buf.Len()) > replicationMaxSize {
-				leftover = true
-				break
-			}
-
-			// Write the message to the buffer.
-			if err := writeMessageToBuffer(buf, headersBuf, tempBuf); err != nil {
-				r.stream.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
-				return
-			}
-		}
-
-		// Set the HW and flush the batch.
-		data := buf.Bytes()
-		proto.Encoding.PutUint64(data[8:], uint64(r.stream.log.HighWatermark()))
-		r.stream.srv.ncRepl.Publish(inbox, data)
-		buf.Reset()
+	// Write the leader epoch to the buffer.
+	if err := binary.Write(buf, proto.Encoding, r.epoch); err != nil {
+		r.stream.srv.logger.Errorf("Failed to write leader epoch to buffer while replicating: %v", err)
+		return err
 	}
+	// Reserve space for the HW. This will be replaced with the HW at the time
+	// of flush.
+	if err := binary.Write(buf, proto.Encoding, int64(0)); err != nil {
+		r.stream.srv.logger.Errorf("Failed to write HW to buffer while replicating: %v", err)
+		return err
+	}
+
+	newestOffset := r.stream.log.NewestOffset()
+	for offset < newestOffset && buf.Len() < replicationMaxSize {
+		// Read the message headers.
+		if _, err := reader.Read(r.headersBuf[:]); err != nil {
+			r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
+			return err
+		}
+		offset = int64(proto.Encoding.Uint64(r.headersBuf[0:]))
+		size := proto.Encoding.Uint32(r.headersBuf[8:])
+		tempBuf = make([]byte, size)
+
+		// Read the message body.
+		if _, err := reader.Read(tempBuf); err != nil {
+			r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
+			return err
+		}
+
+		// Check if this message will put us over the batch size limit. If it
+		// does, flush the batch now.
+		if size+uint32(len(r.headersBuf))+uint32(buf.Len()) > replicationMaxSize {
+			break
+		}
+
+		// Write the message to the buffer.
+		if err := writeMessageToBuffer(buf, r.headersBuf[:], tempBuf); err != nil {
+			r.stream.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
+			return err
+		}
+	}
+
+	// Set the HW and flush the batch.
+	data := buf.Bytes()
+	proto.Encoding.PutUint64(data[8:], uint64(r.stream.log.HighWatermark()))
+	r.stream.srv.ncRepl.Publish(inbox, data)
+	return nil
 }
 
 func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {

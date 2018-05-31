@@ -42,26 +42,25 @@ func (r *replica) updateLatestOffset(offset int64) (updated bool) {
 
 type stream struct {
 	*proto.Stream
-	mu              sync.RWMutex
-	sub             *nats.Subscription // Subscription to stream NATS subject
-	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
-	followerReplSub *nats.Subscription // Subscription for replication responses from leader
-	recvChan        chan *nats.Msg     // Channel leader places received messages on
-	log             CommitLog
-	srv             *Server
-	subjectHash     string
-	isLeading       bool
-	isFollowing     bool
-	replicas        map[string]struct{}
-	isr             map[string]*replica
-	replicators     map[string]*replicator
-	commitQueue     *queue.Queue
-	commitCheck     chan struct{}
-	leaderLastSeen  time.Time
-	leaderEpoch     uint64
-	recovered       bool
-	stopFollower    chan struct{}
-	stopLeader      chan struct{}
+	mu             sync.RWMutex
+	sub            *nats.Subscription // Subscription to stream NATS subject
+	leaderReplSub  *nats.Subscription // Subscription for replication requests from followers
+	recvChan       chan *nats.Msg     // Channel leader places received messages on
+	log            CommitLog
+	srv            *Server
+	subjectHash    string
+	isLeading      bool
+	isFollowing    bool
+	replicas       map[string]struct{}
+	isr            map[string]*replica
+	replicators    map[string]*replicator
+	commitQueue    *queue.Queue
+	commitCheck    chan struct{}
+	leaderLastSeen time.Time
+	leaderEpoch    uint64
+	recovered      bool
+	stopFollower   chan struct{}
+	stopLeader     chan struct{}
 }
 
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
@@ -271,14 +270,6 @@ func (s *stream) becomeFollower() error {
 		return errors.Wrap(err, "failed to truncate log")
 	}
 
-	// Subscribe to the stream replication subject to receive messages.
-	sub, err := s.srv.ncRepl.Subscribe(s.getReplicationResponseInbox(), s.handleReplicationResponse)
-	if err != nil {
-		return errors.Wrap(err, "failed to subscribe to replication inbox")
-	}
-	sub.SetPendingLimits(-1, -1)
-	s.followerReplSub = sub
-
 	// Start fetching messages from the leader's log starting at the HW.
 	s.stopFollower = make(chan struct{})
 	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
@@ -294,19 +285,14 @@ func (s *stream) becomeFollower() error {
 }
 
 func (s *stream) stopFollowing() error {
-	if err := s.followerReplSub.Unsubscribe(); err != nil {
-		return err
-	}
-
 	// Stop replication request and leader failure detector loops.
 	close(s.stopFollower)
-
 	return nil
 }
 
 func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 	req := &proto.ReplicationRequest{}
-	if err := req.Unmarshal(msg.Data); err != nil {
+	if err := req.Unmarshal(msg.Data); err != nil || msg.Reply == "" {
 		s.srv.logger.Errorf("Invalid replication request for stream %s: %v", s, err)
 		return
 	}
@@ -322,14 +308,14 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 		panic(fmt.Sprintf("No replicator for stream %s and replica %s", s, req.ReplicaID))
 	}
 	s.mu.Unlock()
-	replicator.request(req)
+	replicator.request(replicationRequest{req, msg.Reply})
 }
 
-func (s *stream) handleReplicationResponse(msg *nats.Msg) {
+func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 	// We should have at least 16 bytes, 8 for leader epoch and 8 for HW.
 	if len(msg.Data) < 16 {
 		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
-		return
+		return 0
 	}
 
 	leaderEpoch := proto.Encoding.Uint64(msg.Data[:8])
@@ -337,7 +323,7 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) {
 	s.mu.Lock()
 	if s.LeaderEpoch != leaderEpoch {
 		s.mu.Unlock()
-		return
+		return 0
 	}
 	s.leaderLastSeen = time.Now()
 	s.mu.Unlock()
@@ -348,30 +334,28 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) {
 
 	data := msg.Data[16:]
 	if len(data) == 0 {
-		return
+		return 0
 	}
 
 	// We should have at least 12 bytes for headers.
 	if len(data) <= 12 {
 		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
-		return
+		return 0
 	}
 	offset := int64(proto.Encoding.Uint64(data[:8]))
-	if offset == s.log.NewestOffset()+1 {
-		if _, err := s.log.AppendMessageSet(data); err != nil {
-			panic(fmt.Errorf("Failed to replicate data to log %s: %v", s, err))
-		}
+	if offset != s.log.NewestOffset()+1 {
+		return 0
 	}
+	offsets, err := s.log.AppendMessageSet(data)
+	if err != nil {
+		panic(fmt.Errorf("Failed to replicate data to log %s: %v", s, err))
+	}
+	return len(offsets)
 }
 
 func (s *stream) getReplicationRequestInbox() string {
 	return fmt.Sprintf("%s.%s.%s.replicate",
 		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
-}
-
-func (s *stream) getReplicationResponseInbox() string {
-	return fmt.Sprintf("%s.%s.%s.replicate.%s",
-		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name, s.srv.config.Clustering.ServerID)
 }
 
 // TODO: I think there is potential for a race where this broker loses
@@ -483,13 +467,11 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 			continue
 		}
 		r := &replicator{
-			replica:            replica,
-			stream:             s,
-			requests:           make(chan *proto.ReplicationRequest),
-			hw:                 -1,
-			maxLagTime:         s.srv.config.Clustering.ReplicaMaxLagTime,
-			leader:             s.srv.config.Clustering.ServerID,
-			preemptReplication: func() {}, // Intentional no-op initially
+			replica:    replica,
+			stream:     s,
+			requests:   make(chan replicationRequest),
+			maxLagTime: s.srv.config.Clustering.ReplicaMaxLagTime,
+			leader:     s.srv.config.Clustering.ServerID,
 		}
 		s.replicators[replica] = r
 		go r.start(epoch, stop)
@@ -551,18 +533,41 @@ func (s *stream) commitLoop(stop chan struct{}) {
 }
 
 func (s *stream) replicationRequestLoop(stop chan struct{}) {
-	ticker := time.NewTicker(s.srv.config.Clustering.ReplicaFetchInterval)
-	defer ticker.Stop()
 	for {
 		select {
-		case <-ticker.C:
-			s.sendReplicationRequest()
 		case <-stop:
 			return
+		default:
+		}
+		replicated, err := s.sendReplicationRequest()
+		if err != nil {
+			s.srv.logger.Errorf("Error sending replication request for stream %s: %v",
+				s, err)
+		}
+		if replicated == 0 {
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
 }
 
+func (s *stream) sendReplicationRequest() (int, error) {
+	data, err := (&proto.ReplicationRequest{
+		ReplicaID: s.srv.config.Clustering.ServerID,
+		Offset:    s.log.NewestOffset(),
+	}).Marshal()
+	if err != nil {
+		panic(err)
+	}
+	// TODO: make timeout configurable.
+	resp, err := s.srv.ncRepl.Request(s.getReplicationRequestInbox(), data, 5*time.Second)
+	if err != nil {
+		return 0, err
+	}
+	replicated := s.handleReplicationResponse(resp)
+	return replicated, nil
+}
+
+// TODO: combine this logic into the replicationRequestLoop.
 func (s *stream) leaderFailureDetectorLoop(stop chan struct{}) {
 	s.mu.Lock()
 	s.leaderLastSeen = time.Now()
@@ -604,18 +609,6 @@ func (s *stream) leaderFailureDetectorLoop(stop chan struct{}) {
 			}
 		}
 	}
-}
-
-func (s *stream) sendReplicationRequest() {
-	data, err := (&proto.ReplicationRequest{
-		ReplicaID: s.srv.config.Clustering.ServerID,
-		Offset:    s.log.NewestOffset(),
-		Inbox:     s.getReplicationResponseInbox(),
-	}).Marshal()
-	if err != nil {
-		panic(err)
-	}
-	s.srv.ncRepl.Publish(s.getReplicationRequestInbox(), data)
 }
 
 // truncateToHW truncates the log up to the latest high watermark. This removes
