@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"encoding/binary"
 	"io"
 	"sync"
 	"time"
@@ -10,18 +12,29 @@ import (
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
+const (
+	// replicationMaxSize is the max payload size to send in replication
+	// messages to followers. The default NATS max message size is 1MB, so
+	// we'll use that.
+	replicationMaxSize = 1024 * 1024
+
+	// replicationOverhead is the non-data size overhead of replication
+	// messages: 8 bytes for the leader epoch and 8 bytes for the HW.
+	replicationOverhead = 16
+)
+
 type replicator struct {
-	stream            *stream
-	replica           string
-	hw                int64
-	maxLagTime        time.Duration
-	lastCaughtUp      time.Time
-	lastSeen          time.Time
-	requests          chan *proto.ReplicationRequest
-	mu                sync.RWMutex
-	cancelReplication context.CancelFunc
-	leader            string
-	epoch             uint64
+	stream             *stream
+	replica            string
+	hw                 int64
+	maxLagTime         time.Duration
+	lastCaughtUp       time.Time
+	lastSeen           time.Time
+	requests           chan *proto.ReplicationRequest
+	mu                 sync.RWMutex
+	preemptReplication context.CancelFunc
+	leader             string
+	epoch              uint64
 }
 
 func (r *replicator) start(epoch uint64, stop chan struct{}) {
@@ -38,7 +51,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 	for {
 		select {
 		case <-stop:
-			r.cancelReplication()
+			r.preemptReplication()
 			return
 		case req = <-r.requests:
 		}
@@ -60,11 +73,11 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 			continue
 		}
 
-		// Cancel previous replication.
-		r.cancelReplication()
+		// Preempt previous replication.
+		r.preemptReplication()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		r.cancelReplication = cancel
+		r.preemptReplication = cancel
 		reader, err := r.stream.log.NewReaderUncommitted(ctx, req.Offset+1)
 		if err != nil {
 			r.stream.srv.logger.Errorf(
@@ -76,7 +89,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		}
 		r.mu.Unlock()
 
-		go r.replicate(reader, req.Inbox)
+		go r.replicate(reader, req.Inbox, req.Offset)
 	}
 }
 
@@ -123,7 +136,7 @@ func (r *replicator) tick(stop chan struct{}) {
 				// If the follower has not sent a request in maxLagTime, stop
 				// replicating.
 				r.mu.Lock()
-				r.cancelReplication()
+				r.preemptReplication()
 				r.mu.Unlock()
 			}
 		} else if !outOfSync && !r.stream.inISR(r.replica) {
@@ -165,28 +178,101 @@ func (r *replicator) expandISR() {
 	}
 }
 
-func (r *replicator) replicate(reader io.Reader, inbox string) {
-	headersBuf := make([]byte, 12)
+func (r *replicator) replicate(reader io.Reader, inbox string, idx int64) {
+	var (
+		headersBuf = make([]byte, 12)
+		buf        = new(bytes.Buffer)
+		tempBuf    []byte
+		leftover   bool
+	)
 	for {
-		ms, _, err := consumeStreamMessageSet(reader, headersBuf)
-		if err == io.EOF {
+		// Write the leader epoch to the buffer.
+		if err := binary.Write(buf, proto.Encoding, r.epoch); err != nil {
+			r.stream.srv.logger.Errorf("Failed to write leader epoch to buffer while replicating: %v", err)
 			return
 		}
-		if err != nil {
-			r.stream.srv.logger.Errorf("Failed to read stream message while replicating: %v", err)
+		// Reserve space for the HW. This will be replaced with the HW at the
+		// time of flush.
+		if err := binary.Write(buf, proto.Encoding, int64(0)); err != nil {
+			r.stream.srv.logger.Errorf("Failed to write HW to buffer while replicating: %v", err)
 			return
 		}
-		// Write leader epoch, HW, followed by message data.
-		buf := make([]byte, 16+len(ms))
-		proto.Encoding.PutUint64(buf[:8], r.epoch)
-		proto.Encoding.PutUint64(buf[8:], uint64(r.stream.log.HighWatermark()))
-		copy(buf[16:], ms)
-		r.stream.srv.ncRepl.Publish(inbox, buf)
+
+		if leftover {
+			// If we had a leftover message, write it to the buffer now.
+			if err := writeMessageToBuffer(buf, headersBuf, tempBuf); err != nil {
+				r.stream.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
+				return
+			}
+			leftover = false
+		}
+
+		newestOffset := r.stream.log.NewestOffset()
+		for idx <= newestOffset && buf.Len() < replicationMaxSize {
+			// If we are caught up but have data buffered, flush the batch
+			// before we block for more data.
+			if idx == newestOffset && buf.Len() > replicationOverhead {
+				break
+			}
+
+			// Read the message headers.
+			if _, err := reader.Read(headersBuf); err != nil {
+				if err == io.EOF {
+					// EOF indicates replication was preempted.
+					return
+				}
+				r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
+				return
+			}
+			idx = int64(proto.Encoding.Uint64(headersBuf[0:]))
+			size := proto.Encoding.Uint32(headersBuf[8:])
+			tempBuf = make([]byte, size)
+
+			// Read the message body.
+			if _, err := reader.Read(tempBuf); err != nil {
+				if err == io.EOF {
+					// EOF indicates replication was preempted.
+					return
+				}
+				r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
+				return
+			}
+
+			// Check if this message will put us over the batch size limit. If
+			// it does, flush the batch now. We'll send the leftover message in
+			// the next batch.
+			if size+uint32(len(headersBuf))+uint32(buf.Len()) > replicationMaxSize {
+				leftover = true
+				break
+			}
+
+			// Write the message to the buffer.
+			if err := writeMessageToBuffer(buf, headersBuf, tempBuf); err != nil {
+				r.stream.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
+				return
+			}
+		}
+
+		// Set the HW and flush the batch.
+		data := buf.Bytes()
+		proto.Encoding.PutUint64(data[8:], uint64(r.stream.log.HighWatermark()))
+		r.stream.srv.ncRepl.Publish(inbox, data)
+		buf.Reset()
 	}
 }
 
+func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {
+	if _, err := buf.Write(headers); err != nil {
+		return err
+	}
+	if _, err := buf.Write(message); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *replicator) sendHW(inbox string) {
-	buf := make([]byte, 16)
+	buf := make([]byte, replicationOverhead)
 	proto.Encoding.PutUint64(buf[:8], r.epoch)
 	proto.Encoding.PutUint64(buf[8:], uint64(r.stream.log.HighWatermark()))
 	r.stream.srv.ncRepl.Publish(inbox, buf)

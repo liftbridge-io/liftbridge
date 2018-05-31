@@ -483,13 +483,13 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 			continue
 		}
 		r := &replicator{
-			replica:           replica,
-			stream:            s,
-			requests:          make(chan *proto.ReplicationRequest),
-			hw:                -1,
-			maxLagTime:        s.srv.config.Clustering.ReplicaMaxLagTime,
-			leader:            s.srv.config.Clustering.ServerID,
-			cancelReplication: func() {}, // Intentional no-op initially
+			replica:            replica,
+			stream:             s,
+			requests:           make(chan *proto.ReplicationRequest),
+			hw:                 -1,
+			maxLagTime:         s.srv.config.Clustering.ReplicaMaxLagTime,
+			leader:             s.srv.config.Clustering.ServerID,
+			preemptReplication: func() {}, // Intentional no-op initially
 		}
 		s.replicators[replica] = r
 		go r.start(epoch, stop)
@@ -786,7 +786,6 @@ func consumeStreamMessageSet(reader io.Reader, headersBuf []byte) ([]byte, int64
 		return nil, 0, err
 	}
 	return buf, offset, nil
-
 }
 
 func min(v []int64) (m int64) {

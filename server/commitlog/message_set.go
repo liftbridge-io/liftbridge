@@ -34,7 +34,7 @@ func EntriesForMessageSet(baseOffset, basePos int64, ms []byte) []Entry {
 			Size:     size + msgSetHeaderLen,
 		})
 		n += msgSetHeaderLen + int64(size)
-		ms = ms[n:]
+		ms = ms[msgSetHeaderLen+size:]
 	}
 	return entries
 }
