@@ -29,7 +29,9 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		req.Subject, req.Name, req.ReplicationFactor)
 
 	if err := a.metadata.CreateStream(ctx, req); err != nil {
-		a.logger.Errorf("api: Failed to create stream: %v", err.Err())
+		if err.Code() != codes.AlreadyExists {
+			a.logger.Errorf("api: Failed to create stream: %v", err.Err())
+		}
 		return nil, err.Err()
 	}
 
