@@ -273,10 +273,7 @@ func (s *stream) becomeFollower() error {
 	// Start fetching messages from the leader's log starting at the HW.
 	s.stopFollower = make(chan struct{})
 	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
-	go s.replicationRequestLoop(s.stopFollower)
-
-	// Start leader failure detector.
-	go s.leaderFailureDetectorLoop(s.stopFollower)
+	go s.replicationRequestLoop(s.Leader, s.LeaderEpoch, s.stopFollower)
 
 	s.isFollowing = true
 	s.isLeading = false
@@ -320,13 +317,12 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 
 	leaderEpoch := proto.Encoding.Uint64(msg.Data[:8])
 
-	s.mu.Lock()
+	s.mu.RLock()
 	if s.LeaderEpoch != leaderEpoch {
-		s.mu.Unlock()
+		s.mu.RUnlock()
 		return 0
 	}
-	s.leaderLastSeen = time.Now()
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	// Update HW from leader's HW.
 	hw := int64(proto.Encoding.Uint64(msg.Data[8:]))
@@ -532,22 +528,72 @@ func (s *stream) commitLoop(stop chan struct{}) {
 	}
 }
 
-func (s *stream) replicationRequestLoop(stop chan struct{}) {
+func (s *stream) replicationRequestLoop(leader string, epoch uint64, stop chan struct{}) {
+	var (
+		emptyResponseCount int
+		leaderLastSeen     = time.Now()
+	)
 	for {
 		select {
 		case <-stop:
 			return
 		default:
 		}
+
 		replicated, err := s.sendReplicationRequest()
 		if err != nil {
-			s.srv.logger.Errorf("Error sending replication request for stream %s: %v",
-				s, err)
+			s.srv.logger.Errorf(
+				"Error sending replication request for stream %s: %v", s, err)
+		} else {
+			leaderLastSeen = time.Now()
 		}
+
+		select {
+		case <-stop:
+			return
+		default:
+		}
+
+		// Check if leader has exceeded max leader timeout.
+		s.checkLeaderHealth(leader, epoch, leaderLastSeen)
+
 		if replicated == 0 {
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(computeReplicaFetchSleep(emptyResponseCount))
+			emptyResponseCount++
+		} else {
+			emptyResponseCount = 0
 		}
 	}
+}
+
+func (s *stream) checkLeaderHealth(leader string, epoch uint64, leaderLastSeen time.Time) {
+	lastSeenElapsed := time.Since(leaderLastSeen)
+	if lastSeenElapsed > s.srv.config.Clustering.ReplicaMaxLeaderTimeout {
+		// Leader has not sent a response in ReplicaMaxLeaderTimeout, so report
+		// it to controller.
+		s.srv.logger.Errorf("Leader %s for stream %s exceeded max leader timeout "+
+			"(last seen: %s), reporting leader to controller",
+			leader, s, lastSeenElapsed)
+		req := &proto.ReportLeaderOp{
+			Subject:     s.Subject,
+			Name:        s.Name,
+			Replica:     s.srv.config.Clustering.ServerID,
+			Leader:      leader,
+			LeaderEpoch: epoch,
+		}
+		if err := s.srv.metadata.ReportLeader(context.Background(), req); err != nil {
+			s.srv.logger.Errorf("Failed to report leader %s for stream %s: %s",
+				leader, s, err.Err())
+		}
+	}
+}
+
+func computeReplicaFetchSleep(emptyResponseCount int) time.Duration {
+	sleep := time.Duration(300+emptyResponseCount*5) * time.Millisecond
+	if sleep > time.Second {
+		sleep = time.Second
+	}
+	return sleep
 }
 
 func (s *stream) sendReplicationRequest() (int, error) {
@@ -558,57 +604,16 @@ func (s *stream) sendReplicationRequest() (int, error) {
 	if err != nil {
 		panic(err)
 	}
-	// TODO: make timeout configurable.
-	resp, err := s.srv.ncRepl.Request(s.getReplicationRequestInbox(), data, 5*time.Second)
+	resp, err := s.srv.ncRepl.Request(
+		s.getReplicationRequestInbox(),
+		data,
+		s.srv.config.Clustering.ReplicaFetchTimeout,
+	)
 	if err != nil {
 		return 0, err
 	}
 	replicated := s.handleReplicationResponse(resp)
 	return replicated, nil
-}
-
-// TODO: combine this logic into the replicationRequestLoop.
-func (s *stream) leaderFailureDetectorLoop(stop chan struct{}) {
-	s.mu.Lock()
-	s.leaderLastSeen = time.Now()
-	s.mu.Unlock()
-	interval := s.srv.config.Clustering.ReplicaMaxLeaderTimeout / 2
-	if interval == 0 {
-		interval = s.srv.config.Clustering.ReplicaMaxLeaderTimeout
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	var now time.Time
-	for {
-		select {
-		case <-stop:
-			return
-		case now = <-ticker.C:
-		}
-		s.mu.RLock()
-		var (
-			leader          = s.Leader
-			lastSeenElapsed = now.Sub(s.leaderLastSeen)
-		)
-		s.mu.RUnlock()
-
-		if lastSeenElapsed > s.srv.config.Clustering.ReplicaMaxLeaderTimeout {
-			// Leader has not sent a response in ReplicaMaxLeaderTimeout, so
-			// report it to controller.
-			s.srv.logger.Errorf("Leader %s for stream %s exceeded max leader timeout "+
-				"(last seen: %s), reporting leader to controller",
-				leader, s, lastSeenElapsed)
-			req := &proto.ReportLeaderOp{
-				Subject: s.Subject,
-				Name:    s.Name,
-				Replica: s.srv.config.Clustering.ServerID,
-			}
-			if err := s.srv.metadata.ReportLeader(context.Background(), req); err != nil {
-				s.srv.logger.Errorf("Failed to report leader %s for stream %s: %s",
-					leader, s, err.Err())
-			}
-		}
-	}
 }
 
 // truncateToHW truncates the log up to the latest high watermark. This removes

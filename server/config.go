@@ -22,6 +22,7 @@ const (
 	defaultRetentionMaxBytes       = -1
 	defaultMetadataCacheMaxAge     = 2 * time.Minute
 	defaultBatchMaxMessages        = 1024
+	defaultReplicaFetchTimeout     = 5 * time.Second
 )
 
 type LogConfig struct {
@@ -41,6 +42,7 @@ type ClusteringConfig struct {
 	RaftLogging             bool
 	ReplicaMaxLagTime       time.Duration
 	ReplicaMaxLeaderTimeout time.Duration
+	ReplicaFetchTimeout     time.Duration
 }
 
 type Config struct {
@@ -69,6 +71,7 @@ func NewConfig(configFile string) (*Config, error) {
 	config.Clustering.Namespace = defaultNamespace
 	config.Clustering.ReplicaMaxLagTime = defaultReplicaMaxLagTime
 	config.Clustering.ReplicaMaxLeaderTimeout = defaultReplicaMaxLeaderTimeout
+	config.Clustering.ReplicaFetchTimeout = defaultReplicaFetchTimeout
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Log.RetentionMaxBytes = defaultRetentionMaxBytes
 
@@ -209,6 +212,12 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 				return err
 			}
 			config.Clustering.ReplicaMaxLagTime = dur
+		case "replica.fetch.timeout":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return err
+			}
+			config.Clustering.ReplicaFetchTimeout = dur
 		default:
 			return fmt.Errorf("Unknown clustering configuration setting %q", k)
 		}

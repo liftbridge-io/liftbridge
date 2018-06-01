@@ -41,9 +41,11 @@ message ExpandISROp {
 }
 
 message ReportLeaderOp {
-    string subject = 1;
-    string name    = 2;
-    string replica = 3;
+    string subject     = 1;
+    string name        = 2;
+    string replica     = 3;
+    string leader      = 4;
+    uint64 leaderEpoch = 5;
 }
 
 message ChangeLeaderOp {

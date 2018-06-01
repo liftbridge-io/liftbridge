@@ -379,6 +379,15 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 			req.Subject, req.Name))
 	}
 
+	// Check the leader epoch.
+	leader, epoch := stream.GetLeader()
+	if req.Leader != leader || req.LeaderEpoch != epoch {
+		return status.New(
+			codes.FailedPrecondition,
+			fmt.Sprintf("Leader generation mismatch, current leader: %s epoch: %d, got leader: %s epoch: %d",
+				leader, epoch, req.Leader, req.LeaderEpoch))
+	}
+
 	m.mu.Lock()
 	reported := m.leaderReports[stream]
 	if reported == nil {
