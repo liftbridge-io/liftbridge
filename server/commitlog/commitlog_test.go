@@ -11,18 +11,15 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/tylertreat/liftbridge/server/commitlog"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 var (
-	msgs = []commitlog.Message{
-		commitlog.NewMessage([]byte("one")),
-		commitlog.NewMessage([]byte("two")),
-		commitlog.NewMessage([]byte("three")),
-		commitlog.NewMessage([]byte("four")),
-	}
-	msgSets = []commitlog.MessageSet{
-		commitlog.NewMessageSet(0, msgs...),
-		commitlog.NewMessageSet(1, msgs...),
+	msgs = []*proto.Message{
+		&proto.Message{Value: []byte("one")},
+		&proto.Message{Value: []byte("two")},
+		&proto.Message{Value: []byte("three")},
+		&proto.Message{Value: []byte("four")},
 	}
 )
 
@@ -32,31 +29,24 @@ func TestNewCommitLog(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	for _, exp := range msgSets {
-		_, err = l.Append(exp)
-		require.NoError(t, err)
-	}
-	maxBytes := msgSets[0].Size()
+	_, err = l.Append(msgs)
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
 
-	for i, exp := range msgSets {
-		p := make([]byte, maxBytes)
-		_, err = r.Read(p)
+	headers := make([]byte, 12)
+	for i, exp := range msgs {
+		buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+		require.NoError(t, err)
+		ms := &proto.MessageSet{}
+		decoder := proto.NewDecoder(buf)
+		ms.Decode(decoder)
 		require.NoError(t, err)
 
-		act := commitlog.MessageSet(p)
-		require.Equal(t, exp, act)
-		require.Equal(t, int64(i), act.Offset())
-
-		payload := act.Payload()
-		var offset int
-		for _, msg := range msgs {
-			require.Equal(t, []byte(msg), payload[offset:offset+len(msg)])
-			offset += len(msg)
-		}
+		require.Equal(t, exp, ms.Messages[0])
+		require.Equal(t, int64(i), ms.Offset)
 	}
 }
 
@@ -74,14 +64,12 @@ func TestCommitLogRecover(t *testing.T) {
 
 			// Append some messages.
 			numMsgs := 10
-			msgs := make([]commitlog.MessageSet, numMsgs)
+			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = commitlog.NewMessageSet(
-					uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-				)
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
 			}
-			for _, ms := range msgs {
-				_, err := l.Append(ms)
+			for _, msg := range msgs {
+				_, err := l.Append([]*proto.Message{msg})
 				require.NoError(t, err)
 			}
 
@@ -90,11 +78,16 @@ func TestCommitLogRecover(t *testing.T) {
 			defer cancel()
 			r, err := l.NewReaderUncommitted(ctx, 0)
 			require.NoError(t, err)
-			for _, ms := range msgs {
-				buf := make([]byte, ms.Size())
-				_, err := r.Read(buf)
+
+			headers := make([]byte, 12)
+			for _, exp := range msgs {
+				buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 				require.NoError(t, err)
-				require.Equal(t, ms, commitlog.MessageSet(buf))
+				ms := &proto.MessageSet{}
+				decoder := proto.NewDecoder(buf)
+				ms.Decode(decoder)
+				require.NoError(t, err)
+				require.Equal(t, exp, ms.Messages[0])
 			}
 
 			// Close the log and reopen, then ensure we read back the same
@@ -108,11 +101,14 @@ func TestCommitLogRecover(t *testing.T) {
 			defer cancel()
 			r, err = l.NewReaderUncommitted(ctx, 0)
 			require.NoError(t, err)
-			for _, ms := range msgs {
-				buf := make([]byte, ms.Size())
-				_, err := r.Read(buf)
+			for _, exp := range msgs {
+				buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 				require.NoError(t, err)
-				require.Equal(t, ms, commitlog.MessageSet(buf))
+				ms := &proto.MessageSet{}
+				decoder := proto.NewDecoder(buf)
+				ms.Decode(decoder)
+				require.NoError(t, err)
+				require.Equal(t, exp, ms.Messages[0])
 			}
 		})
 	}
@@ -141,185 +137,9 @@ func BenchmarkCommitLog(b *testing.B) {
 	defer l.Close()
 	defer cleanup()
 
-	msgSet := msgSets[0]
-
 	for i := 0; i < b.N; i++ {
-		_, err = l.Append(msgSet)
+		_, err = l.Append(msgs)
 		require.NoError(b, err)
-	}
-}
-
-func TestTruncate(t *testing.T) {
-	var err error
-	l, cleanup := setup(t)
-	defer l.Close()
-	defer cleanup()
-
-	for i, msgSet := range msgSets {
-		_, err = l.Append(msgSet)
-		require.Equal(t, int64(i), l.NewestOffset())
-		require.NoError(t, err)
-	}
-	require.Equal(t, int64(1), l.NewestOffset())
-	require.Equal(t, 2, len(l.Segments()))
-
-	err = l.Truncate(1)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(l.Segments()))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	r, err := l.NewReaderUncommitted(ctx, 0)
-	require.NoError(t, err)
-
-	for _, m := range msgSets[:1] {
-		p := make([]byte, m.Size())
-		_, err = r.Read(p)
-		require.NoError(t, err)
-
-		ms := commitlog.MessageSet(p)
-		require.Equal(t, m, ms)
-	}
-}
-
-func TestTruncateNothing(t *testing.T) {
-	var err error
-	l, cleanup := setup(t)
-	defer l.Close()
-	defer cleanup()
-
-	for i, msgSet := range msgSets {
-		_, err = l.Append(msgSet)
-		require.Equal(t, int64(i), l.NewestOffset())
-		require.NoError(t, err)
-	}
-	require.Equal(t, int64(1), l.NewestOffset())
-	require.Equal(t, 2, len(l.Segments()))
-
-	err = l.Truncate(2)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(l.Segments()))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	r, err := l.NewReaderUncommitted(ctx, 0)
-	require.NoError(t, err)
-
-	for _, m := range msgSets {
-		p := make([]byte, m.Size())
-		_, err = r.Read(p)
-		require.NoError(t, err)
-
-		ms := commitlog.MessageSet(p)
-		require.Equal(t, m, ms)
-	}
-}
-
-func TestTruncateEverything(t *testing.T) {
-	var err error
-	l, cleanup := setup(t)
-	defer l.Close()
-	defer cleanup()
-
-	for i, msgSet := range msgSets {
-		_, err = l.Append(msgSet)
-		require.Equal(t, int64(i), l.NewestOffset())
-		require.NoError(t, err)
-	}
-	require.Equal(t, int64(1), l.NewestOffset())
-	require.Equal(t, 2, len(l.Segments()))
-
-	err = l.Truncate(0)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(l.Segments()))
-	require.Equal(t, int64(-1), l.NewestOffset())
-}
-
-func TestTruncateRemoveSegments(t *testing.T) {
-	var err error
-	l, cleanup := setupWithOptions(t, commitlog.Options{
-		Path:            tempDir(t),
-		MaxSegmentBytes: 15,
-		MaxLogBytes:     -1,
-	})
-	defer l.Close()
-	defer cleanup()
-
-	numMsgs := 10
-	msgs := make([]commitlog.MessageSet, numMsgs)
-	for i := 0; i < numMsgs; i++ {
-		msgs[i] = commitlog.NewMessageSet(
-			uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-		)
-	}
-	for _, ms := range msgs {
-		_, err := l.Append(ms)
-		require.NoError(t, err)
-	}
-
-	require.Equal(t, int64(9), l.NewestOffset())
-	require.Equal(t, 5, len(l.Segments()))
-
-	err = l.Truncate(4)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(l.Segments()))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	r, err := l.NewReaderUncommitted(ctx, 0)
-	require.NoError(t, err)
-
-	for _, m := range msgs[:3] {
-		p := make([]byte, m.Size())
-		_, err = r.Read(p)
-		require.NoError(t, err)
-
-		ms := commitlog.MessageSet(p)
-		require.Equal(t, m, ms)
-	}
-}
-
-func TestTruncateReplaceContainingSegment(t *testing.T) {
-	var err error
-	l, cleanup := setupWithOptions(t, commitlog.Options{
-		Path:            tempDir(t),
-		MaxSegmentBytes: 20,
-		MaxLogBytes:     -1,
-	})
-	defer l.Close()
-	defer cleanup()
-
-	numMsgs := 5
-	msgs := make([]commitlog.MessageSet, numMsgs)
-	for i := 0; i < numMsgs; i++ {
-		msgs[i] = commitlog.NewMessageSet(
-			uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-		)
-	}
-	for _, ms := range msgs {
-		_, err := l.Append(ms)
-		require.NoError(t, err)
-	}
-
-	require.Equal(t, int64(4), l.NewestOffset())
-	require.Equal(t, 3, len(l.Segments()))
-
-	err = l.Truncate(1)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(l.Segments()))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	r, err := l.NewReaderUncommitted(ctx, 0)
-	require.NoError(t, err)
-
-	for _, m := range msgs[:1] {
-		p := make([]byte, m.Size())
-		_, err = r.Read(p)
-		require.NoError(t, err)
-
-		ms := commitlog.MessageSet(p)
-		require.Equal(t, m, ms)
 	}
 }
 
@@ -335,16 +155,12 @@ func TestOffsets(t *testing.T) {
 	require.Equal(t, int64(-1), l.NewestOffset())
 
 	numMsgs := 5
-	msgs := make([]commitlog.MessageSet, numMsgs)
+	msgs := make([]*proto.Message, numMsgs)
 	for i := 0; i < numMsgs; i++ {
-		msgs[i] = commitlog.NewMessageSet(
-			uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-		)
+		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
 	}
-	for _, ms := range msgs {
-		_, err := l.Append(ms)
-		require.NoError(t, err)
-	}
+	_, err := l.Append(msgs)
+	require.NoError(t, err)
 
 	require.Equal(t, int64(0), l.OldestOffset())
 	require.Equal(t, int64(4), l.NewestOffset())
@@ -366,18 +182,14 @@ func TestCleaner(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	for _, msgSet := range msgSets {
-		_, err = l.Append(msgSet)
-		require.NoError(t, err)
-	}
+	_, err = l.Append(msgs)
+	require.NoError(t, err)
 	segments := l.Segments()
-	require.Equal(t, 2, len(segments))
+	require.Equal(t, 1, len(segments))
 
-	for _, msgSet := range msgSets {
-		_, err = l.Append(msgSet)
-		require.NoError(t, err)
-	}
-	require.Equal(t, 2, len(l.Segments()))
+	_, err = l.Append(msgs)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(l.Segments()))
 	for i, s := range l.Segments() {
 		require.NotEqual(t, s, segments[i])
 	}

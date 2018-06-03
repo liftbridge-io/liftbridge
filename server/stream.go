@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
-	"io"
 	"path/filepath"
 	"sync"
 	"time"
@@ -768,22 +767,6 @@ func natsToProtoMessage(msg *nats.Msg) (*proto.Message, *client.Message) {
 	m.Headers["subject"] = []byte(msg.Subject)
 	m.Headers["reply"] = []byte(msg.Reply)
 	return m, envelope
-}
-
-func consumeStreamMessageSet(reader io.Reader, headersBuf []byte) ([]byte, int64, error) {
-	if _, err := reader.Read(headersBuf); err != nil {
-		return nil, 0, err
-	}
-	var (
-		offset = int64(proto.Encoding.Uint64(headersBuf[0:]))
-		size   = proto.Encoding.Uint32(headersBuf[8:])
-		buf    = make([]byte, int(size)+len(headersBuf))
-		n      = copy(buf, headersBuf)
-	)
-	if _, err := reader.Read(buf[n:]); err != nil {
-		return nil, 0, err
-	}
-	return buf, offset, nil
 }
 
 func min(v []int64) (m int64) {

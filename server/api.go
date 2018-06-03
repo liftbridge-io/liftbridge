@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/tylertreat/liftbridge/server/commitlog"
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
@@ -106,7 +107,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream, req *client.S
 	go func() {
 		headersBuf := make([]byte, 12)
 		for {
-			buf, offset, err := consumeStreamMessageSet(reader, headersBuf)
+			buf, offset, err := commitlog.ConsumeMessageSet(reader, headersBuf)
 			if err != nil {
 				errCh <- status.Convert(err)
 				return

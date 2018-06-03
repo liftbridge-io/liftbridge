@@ -39,7 +39,7 @@ func TestIndex(t *testing.T) {
 		})
 	}
 	for _, e := range entries {
-		if err := idx.WriteEntry(e); err != nil {
+		if err := idx.WriteEntries([]Entry{e}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -100,10 +100,8 @@ func TestIndexScanner(t *testing.T) {
 			msgSetHeaderLen,
 		})
 	}
-	for _, e := range entries {
-		if err := idx.WriteEntry(e); err != nil {
-			t.Fatal(err)
-		}
+	if err := idx.WriteEntries(entries); err != nil {
+		t.Fatal(err)
 	}
 	if err = idx.Sync(); err != nil {
 		t.Fatal(err)

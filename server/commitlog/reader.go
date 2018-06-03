@@ -4,8 +4,26 @@ import (
 	"io"
 	"sync"
 
+	"github.com/tylertreat/liftbridge/server/proto"
+
 	"golang.org/x/net/context"
 )
+
+func ConsumeMessageSet(reader io.Reader, headersBuf []byte) ([]byte, int64, error) {
+	if _, err := reader.Read(headersBuf); err != nil {
+		return nil, 0, err
+	}
+	var (
+		offset = int64(proto.Encoding.Uint64(headersBuf[0:]))
+		size   = proto.Encoding.Uint32(headersBuf[8:])
+		buf    = make([]byte, int(size)+len(headersBuf))
+		n      = copy(buf, headersBuf)
+	)
+	if _, err := reader.Read(buf[n:]); err != nil {
+		return nil, 0, err
+	}
+	return buf, offset, nil
+}
 
 type UncommittedReader struct {
 	cl  *CommitLog

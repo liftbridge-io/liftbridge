@@ -10,6 +10,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/tylertreat/liftbridge/server/commitlog"
+	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 var segmentSizeTests = []struct {
@@ -35,27 +36,27 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 			defer cleanup()
 
 			numMsgs := 10
-			msgs := make([]commitlog.MessageSet, numMsgs)
+			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = commitlog.NewMessageSet(
-					uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-				)
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
 			}
-			for _, ms := range msgs {
-				_, err := l.Append(ms)
-				require.NoError(t, err)
-			}
+			_, err = l.Append(msgs)
+			require.NoError(t, err)
 			idx := 4
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			r, err := l.NewReaderUncommitted(ctx, int64(idx))
 			require.NoError(t, err)
 
-			p := make([]byte, msgs[idx].Size())
-			read, err := r.Read(p)
+			headers := make([]byte, 12)
+			buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 			require.NoError(t, err)
-			require.Equal(t, msgs[idx].Size(), int32(read))
-			require.Equal(t, msgs[idx], commitlog.MessageSet(p))
+			ms := &proto.MessageSet{}
+			decoder := proto.NewDecoder(buf)
+			ms.Decode(decoder)
+			require.NoError(t, err)
+			require.Equal(t, int64(idx), ms.Offset)
+			require.Equal(t, msgs[idx], ms.Messages[0])
 		})
 	}
 }
@@ -69,8 +70,8 @@ func TestReaderUncommittedBlockCancel(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	ms := commitlog.NewMessageSet(0, commitlog.NewMessage([]byte("hi")))
-	_, err := l.Append(ms)
+	msg := &proto.Message{Value: []byte("hi")}
+	_, err := l.Append([]*proto.Message{msg})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -91,31 +92,38 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	ms := commitlog.NewMessageSet(0, commitlog.NewMessage([]byte("hi")))
-	_, err := l.Append(ms)
+	msg := &proto.Message{Value: []byte("hi")}
+	_, err := l.Append([]*proto.Message{msg})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
-	p := make([]byte, ms.Size())
-	_, err = r.Read(p)
+	headers := make([]byte, 12)
+	buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 	require.NoError(t, err)
-	require.Equal(t, ms, commitlog.MessageSet(p))
+	ms := &proto.MessageSet{}
+	decoder := proto.NewDecoder(buf)
+	ms.Decode(decoder)
+	require.NoError(t, err)
+	require.Equal(t, msg, ms.Messages[0])
 
-	ms = commitlog.NewMessageSet(1, commitlog.NewMessage([]byte("hello")))
-	p = make([]byte, ms.Size())
+	msg = &proto.Message{Value: []byte("hello")}
 
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		_, err := l.Append(ms)
+		_, err := l.Append([]*proto.Message{msg})
 		require.NoError(t, err)
 	}()
 
-	_, err = r.Read(p)
+	buf, _, err = commitlog.ConsumeMessageSet(r, headers)
 	require.NoError(t, err)
-	require.Equal(t, ms, commitlog.MessageSet(p))
+	ms = &proto.MessageSet{}
+	decoder = proto.NewDecoder(buf)
+	ms.Decode(decoder)
+	require.NoError(t, err)
+	require.Equal(t, msg, ms.Messages[0])
 }
 
 func TestReaderUncommittedReadError(t *testing.T) {
@@ -126,8 +134,8 @@ func TestReaderUncommittedReadError(t *testing.T) {
 	})
 	defer cleanup()
 
-	ms := commitlog.NewMessageSet(0, commitlog.NewMessage([]byte("hi")))
-	_, err := l.Append(ms)
+	msg := &proto.Message{Value: []byte("hi")}
+	_, err := l.Append([]*proto.Message{msg})
 	require.NoError(t, err)
 
 	r, err := l.NewReaderUncommitted(context.Background(), 0)
@@ -153,26 +161,26 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 			defer cleanup()
 
 			numMsgs := 10
-			msgs := make([]commitlog.MessageSet, numMsgs)
+			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = commitlog.NewMessageSet(
-					uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-				)
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
 			}
-			for _, ms := range msgs {
-				_, err := l.Append(ms)
-				require.NoError(t, err)
-			}
+			_, err = l.Append(msgs)
+			require.NoError(t, err)
 			l.SetHighWatermark(4)
 			idx := 2
 			r, err := l.NewReaderCommitted(context.Background(), int64(idx))
 			require.NoError(t, err)
 
-			p := make([]byte, msgs[idx].Size())
-			read, err := r.Read(p)
+			headers := make([]byte, 12)
+			buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 			require.NoError(t, err)
-			require.Equal(t, msgs[idx].Size(), int32(read))
-			require.Equal(t, msgs[idx], commitlog.MessageSet(p))
+			ms := &proto.MessageSet{}
+			decoder := proto.NewDecoder(buf)
+			ms.Decode(decoder)
+			require.NoError(t, err)
+			require.Equal(t, int64(idx), ms.Offset)
+			require.Equal(t, msgs[idx], ms.Messages[0])
 		})
 	}
 }
@@ -203,11 +211,11 @@ func TestReaderCommittedReadError(t *testing.T) {
 	})
 	defer cleanup()
 
-	ms := commitlog.NewMessageSet(0, commitlog.NewMessage([]byte("hi")))
-	_, err := l.Append(ms)
+	msg := &proto.Message{Value: []byte("hi")}
+	_, err := l.Append([]*proto.Message{msg})
 	require.NoError(t, err)
-	ms = commitlog.NewMessageSet(1, commitlog.NewMessage([]byte("hi")))
-	_, err = l.Append(ms)
+	msg = &proto.Message{Value: []byte("hi")}
+	_, err = l.Append([]*proto.Message{msg})
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 
@@ -233,19 +241,23 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	r, err := l.NewReaderCommitted(context.Background(), 0)
 	require.NoError(t, err)
 
-	ms := commitlog.NewMessageSet(0, commitlog.NewMessage([]byte("hello")))
-	p := make([]byte, ms.Size())
+	msg := &proto.Message{Value: []byte("hello")}
 
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		_, err := l.Append(ms)
+		_, err := l.Append([]*proto.Message{msg})
 		require.NoError(t, err)
 		l.SetHighWatermark(0)
 	}()
 
-	_, err = r.Read(p)
+	headers := make([]byte, 12)
+	buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 	require.NoError(t, err)
-	require.Equal(t, ms, commitlog.MessageSet(p))
+	ms := &proto.MessageSet{}
+	decoder := proto.NewDecoder(buf)
+	ms.Decode(decoder)
+	require.NoError(t, err)
+	require.Equal(t, msg, ms.Messages[0])
 }
 
 func TestReaderCommittedRead(t *testing.T) {
@@ -261,26 +273,25 @@ func TestReaderCommittedRead(t *testing.T) {
 			defer cleanup()
 
 			numMsgs := 10
-			msgs := make([]commitlog.MessageSet, numMsgs)
+			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = commitlog.NewMessageSet(
-					uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-				)
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
 			}
-			for _, ms := range msgs {
-				_, err := l.Append(ms)
-				require.NoError(t, err)
-			}
+			_, err = l.Append(msgs)
+			require.NoError(t, err)
 			l.SetHighWatermark(9)
 			r, err := l.NewReaderCommitted(context.Background(), 0)
 			require.NoError(t, err)
 
-			for _, ms := range msgs {
-				p := make([]byte, ms.Size())
-				read, err := r.Read(p)
+			headers := make([]byte, 12)
+			for _, msg := range msgs {
+				buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 				require.NoError(t, err)
-				require.Equal(t, ms.Size(), int32(read))
-				require.Equal(t, ms, commitlog.MessageSet(p))
+				ms := &proto.MessageSet{}
+				decoder := proto.NewDecoder(buf)
+				ms.Decode(decoder)
+				require.NoError(t, err)
+				require.Equal(t, msg, ms.Messages[0])
 			}
 		})
 	}
@@ -299,26 +310,25 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 			defer cleanup()
 
 			numMsgs := 10
-			msgs := make([]commitlog.MessageSet, numMsgs)
+			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = commitlog.NewMessageSet(
-					uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-				)
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
 			}
-			for _, ms := range msgs {
-				_, err := l.Append(ms)
-				require.NoError(t, err)
-			}
+			_, err = l.Append(msgs)
+			require.NoError(t, err)
 			l.SetHighWatermark(4)
 			r, err := l.NewReaderCommitted(context.Background(), 0)
 			require.NoError(t, err)
 
-			for _, ms := range msgs[:5] {
-				p := make([]byte, ms.Size())
-				read, err := r.Read(p)
+			headers := make([]byte, 12)
+			for _, msg := range msgs[:5] {
+				buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 				require.NoError(t, err)
-				require.Equal(t, ms.Size(), int32(read))
-				require.Equal(t, ms, commitlog.MessageSet(p))
+				ms := &proto.MessageSet{}
+				decoder := proto.NewDecoder(buf)
+				ms.Decode(decoder)
+				require.NoError(t, err)
+				require.Equal(t, msg, ms.Messages[0])
 			}
 		})
 	}
@@ -335,16 +345,12 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 	defer cleanup()
 
 	numMsgs := 10
-	msgs := make([]commitlog.MessageSet, numMsgs)
+	msgs := make([]*proto.Message, numMsgs)
 	for i := 0; i < numMsgs; i++ {
-		msgs[i] = commitlog.NewMessageSet(
-			uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-		)
+		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
 	}
-	for _, ms := range msgs {
-		_, err := l.Append(ms)
-		require.NoError(t, err)
-	}
+	_, err = l.Append(msgs)
+	require.NoError(t, err)
 	l.SetHighWatermark(4)
 	r, err := l.NewReaderCommitted(context.Background(), 0)
 	require.NoError(t, err)
@@ -354,12 +360,15 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 		l.SetHighWatermark(9)
 	}()
 
-	for _, ms := range msgs {
-		p := make([]byte, ms.Size())
-		read, err := r.Read(p)
+	headers := make([]byte, 12)
+	for _, msg := range msgs {
+		buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 		require.NoError(t, err)
-		require.Equal(t, ms.Size(), int32(read))
-		require.Equal(t, ms, commitlog.MessageSet(p))
+		ms := &proto.MessageSet{}
+		decoder := proto.NewDecoder(buf)
+		ms.Decode(decoder)
+		require.NoError(t, err)
+		require.Equal(t, msg, ms.Messages[0])
 	}
 }
 
@@ -374,16 +383,12 @@ func TestReaderCommittedCancel(t *testing.T) {
 	defer cleanup()
 
 	numMsgs := 10
-	msgs := make([]commitlog.MessageSet, numMsgs)
+	msgs := make([]*proto.Message, numMsgs)
 	for i := 0; i < numMsgs; i++ {
-		msgs[i] = commitlog.NewMessageSet(
-			uint64(i), commitlog.NewMessage([]byte(strconv.Itoa(i))),
-		)
+		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
 	}
-	for _, ms := range msgs {
-		_, err := l.Append(ms)
-		require.NoError(t, err)
-	}
+	_, err = l.Append(msgs)
+	require.NoError(t, err)
 	l.SetHighWatermark(4)
 	ctx, cancel := context.WithCancel(context.Background())
 	r, err := l.NewReaderCommitted(ctx, 0)
@@ -395,13 +400,16 @@ func TestReaderCommittedCancel(t *testing.T) {
 	}()
 
 	count := 0
-	for _, ms := range msgs {
-		p := make([]byte, ms.Size())
-		read, err := r.Read(p)
+	headers := make([]byte, 12)
+	for _, msg := range msgs {
+		buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 		if count < 5 {
 			require.NoError(t, err)
-			require.Equal(t, ms.Size(), int32(read))
-			require.Equal(t, ms, commitlog.MessageSet(p))
+			ms := &proto.MessageSet{}
+			decoder := proto.NewDecoder(buf)
+			ms.Decode(decoder)
+			require.NoError(t, err)
+			require.Equal(t, msg, ms.Messages[0])
 			count++
 		} else {
 			require.Equal(t, io.EOF, err)
@@ -418,20 +426,23 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	})
 	defer cleanup()
 
-	ms1 := commitlog.NewMessageSet(0, commitlog.NewMessage([]byte("hi")))
-	_, err := l.Append(ms1)
+	msg1 := &proto.Message{Value: []byte("hi")}
+	_, err := l.Append([]*proto.Message{msg1})
 	require.NoError(t, err)
-	ms2 := commitlog.NewMessageSet(1, commitlog.NewMessage([]byte("hi")))
-	_, err = l.Append(ms2)
+	msg2 := &proto.Message{Value: []byte("hi")}
+	_, err = l.Append([]*proto.Message{msg2})
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 
 	r, err := l.NewReaderCommitted(context.Background(), 1)
 	require.NoError(t, err)
 
-	p := make([]byte, ms1.Size())
-	read, err := r.Read(p)
+	headers := make([]byte, 12)
+	buf, _, err := commitlog.ConsumeMessageSet(r, headers)
 	require.NoError(t, err)
-	require.Equal(t, ms1.Size(), int32(read))
-	require.Equal(t, ms1, commitlog.MessageSet(p))
+	ms := &proto.MessageSet{}
+	decoder := proto.NewDecoder(buf)
+	ms.Decode(decoder)
+	require.NoError(t, err)
+	require.Equal(t, msg1, ms.Messages[0])
 }
