@@ -4,10 +4,6 @@ import "github.com/tylertreat/liftbridge/server/proto"
 
 type Message []byte
 
-func NewMessage(p []byte) Message {
-	return Message(p)
-}
-
 func (m Message) Crc() int32 {
 	return int32(proto.Encoding.Uint32(m))
 }
@@ -21,9 +17,6 @@ func (m Message) Attributes() int8 {
 }
 
 func (m Message) Timestamp() int64 {
-	if m.MagicByte() == 0 {
-		panic("v0 doesn't have timestamp")
-	}
 	return int64(proto.Encoding.Uint64(m[6:]))
 }
 
@@ -43,32 +36,35 @@ func (m Message) Value() []byte {
 	return m[start+4 : end]
 }
 
-func (m Message) Size() int32 {
-	var size int32 = 4 + 1 + 1
-	if m.MagicByte() > 0 {
-		size += 8
+func (m Message) Headers() map[string][]byte {
+	var (
+		_, valueEnd, _ = m.valueOffsets()
+		n              = valueEnd
+		numHeaders     = proto.Encoding.Uint16(m[n:])
+		headers        = make(map[string][]byte, numHeaders)
+	)
+	n += 2
+	for i := uint16(0); i < numHeaders; i++ {
+		keySize := proto.Encoding.Uint16(m[n:])
+		n += 2
+		key := string(m[n : n+int32(keySize)])
+		n += int32(keySize)
+		valueSize := proto.Encoding.Uint32(m[n:])
+		n += 4
+		value := m[n : n+int32(valueSize)]
+		n += int32(valueSize)
+		headers[key] = value
 	}
-	size += 4
-	_, _, keySize := m.keyOffsets()
-	if keySize != -1 {
-		size += keySize
-	}
-	size += 4
-	_, _, valueSize := m.valueOffsets()
-	if valueSize != -1 {
-		size += valueSize
-	}
-	return size
+	return headers
 }
 
 func (m Message) keyOffsets() (start, end, size int32) {
-	if m.MagicByte() == 0 {
-		start = 6
-	} else {
-		start = 14
-	}
+	start = 14
 	size = int32(proto.Encoding.Uint32(m[start:]))
-	end = start + 4 + size
+	end = start + 4
+	if size != -1 {
+		end += size
+	}
 	return
 }
 

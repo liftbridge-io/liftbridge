@@ -16,24 +16,20 @@ func (m *Message) Encode(e PacketEncoder) error {
 	e.Push(&CRCField{})
 	e.PutInt8(m.MagicByte)
 	e.PutInt8(m.Attributes)
-	if m.MagicByte > 0 {
-		e.PutInt64(m.Timestamp.UnixNano() / int64(time.Millisecond))
-	}
+	e.PutInt64(m.Timestamp.UnixNano() / int64(time.Millisecond))
 	if err := e.PutBytes(m.Key); err != nil {
 		return err
 	}
 	if err := e.PutBytes(m.Value); err != nil {
 		return err
 	}
-	if m.MagicByte > 1 {
-		e.PutInt16(int16(len(m.Headers)))
-		for key, header := range m.Headers {
-			if err := e.PutString(key); err != nil {
-				return err
-			}
-			if err := e.PutBytes(header); err != nil {
-				return err
-			}
+	e.PutInt16(int16(len(m.Headers)))
+	for key, header := range m.Headers {
+		if err := e.PutString(key); err != nil {
+			return err
+		}
+		if err := e.PutBytes(header); err != nil {
+			return err
 		}
 	}
 	e.Pop()
@@ -51,36 +47,32 @@ func (m *Message) Decode(d PacketDecoder) error {
 	if m.Attributes, err = d.Int8(); err != nil {
 		return err
 	}
-	if m.MagicByte > 0 {
-		t, err := d.Int64()
-		if err != nil {
-			return err
-		}
-		m.Timestamp = time.Unix(t/1000, (t%1000)*int64(time.Millisecond))
+	t, err := d.Int64()
+	if err != nil {
+		return err
 	}
+	m.Timestamp = time.Unix(t/1000, (t%1000)*int64(time.Millisecond))
 	if m.Key, err = d.Bytes(); err != nil {
 		return err
 	}
 	if m.Value, err = d.Bytes(); err != nil {
 		return err
 	}
-	if m.MagicByte > 1 {
-		numHeaders, err := d.Int16()
+	numHeaders, err := d.Int16()
+	if err != nil {
+		return err
+	}
+	m.Headers = make(map[string][]byte, numHeaders)
+	for i := int16(0); i < numHeaders; i++ {
+		key, err := d.String()
 		if err != nil {
 			return err
 		}
-		m.Headers = make(map[string][]byte, numHeaders)
-		for i := int16(0); i < numHeaders; i++ {
-			key, err := d.String()
-			if err != nil {
-				return err
-			}
-			value, err := d.Bytes()
-			if err != nil {
-				return err
-			}
-			m.Headers[key] = value
+		value, err := d.Bytes()
+		if err != nil {
+			return err
 		}
+		m.Headers[key] = value
 	}
 	return d.Pop()
 }

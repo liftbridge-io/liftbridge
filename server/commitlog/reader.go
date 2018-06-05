@@ -9,20 +9,19 @@ import (
 	"golang.org/x/net/context"
 )
 
-func ConsumeMessageSet(reader io.Reader, headersBuf []byte) ([]byte, int64, error) {
+func ReadMessage(reader io.Reader, headersBuf []byte) (Message, int64, error) {
 	if _, err := reader.Read(headersBuf); err != nil {
 		return nil, 0, err
 	}
 	var (
 		offset = int64(proto.Encoding.Uint64(headersBuf[0:]))
 		size   = proto.Encoding.Uint32(headersBuf[8:])
-		buf    = make([]byte, int(size)+len(headersBuf))
-		n      = copy(buf, headersBuf)
+		buf    = make([]byte, int(size))
 	)
-	if _, err := reader.Read(buf[n:]); err != nil {
+	if _, err := reader.Read(buf); err != nil {
 		return nil, 0, err
 	}
-	return buf, offset, nil
+	return Message(buf), offset, nil
 }
 
 type UncommittedReader struct {

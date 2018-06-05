@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/tylertreat/liftbridge/server/commitlog"
-	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 const (
@@ -107,29 +106,22 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream, req *client.S
 	go func() {
 		headersBuf := make([]byte, 12)
 		for {
-			buf, offset, err := commitlog.ConsumeMessageSet(reader, headersBuf)
+			// TODO: this could be more efficient.
+			m, offset, err := commitlog.ReadMessage(reader, headersBuf)
 			if err != nil {
 				errCh <- status.Convert(err)
 				return
 			}
-			// TODO: this could be more efficient.
+			headers := m.Headers()
 			var (
-				ms      = &proto.MessageSet{}
-				decoder = proto.NewDecoder(buf)
-			)
-			if err := ms.Decode(decoder); err != nil {
-				panic(err)
-			}
-			var (
-				m   = ms.Messages[0]
 				msg = &client.Message{
 					Offset:    offset,
-					Key:       m.Key,
-					Value:     m.Value,
-					Timestamp: m.Timestamp.UnixNano(),
-					Headers:   m.Headers,
-					Subject:   string(m.Headers["subject"]),
-					Reply:     string(m.Headers["reply"]),
+					Key:       m.Key(),
+					Value:     m.Value(),
+					Timestamp: m.Timestamp(),
+					Headers:   headers,
+					Subject:   string(headers["subject"]),
+					Reply:     string(headers["reply"]),
 				}
 			)
 			ch <- msg

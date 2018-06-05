@@ -38,15 +38,10 @@ func TestNewCommitLog(t *testing.T) {
 
 	headers := make([]byte, 12)
 	for i, exp := range msgs {
-		buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+		msg, offset, err := commitlog.ReadMessage(r, headers)
 		require.NoError(t, err)
-		ms := &proto.MessageSet{}
-		decoder := proto.NewDecoder(buf)
-		ms.Decode(decoder)
-		require.NoError(t, err)
-
-		require.Equal(t, exp, ms.Messages[0])
-		require.Equal(t, int64(i), ms.Offset)
+		require.Equal(t, int64(i), offset)
+		compareMessages(t, exp, msg)
 	}
 }
 
@@ -80,14 +75,11 @@ func TestCommitLogRecover(t *testing.T) {
 			require.NoError(t, err)
 
 			headers := make([]byte, 12)
-			for _, exp := range msgs {
-				buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+			for i, exp := range msgs {
+				msg, offset, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
-				ms := &proto.MessageSet{}
-				decoder := proto.NewDecoder(buf)
-				ms.Decode(decoder)
-				require.NoError(t, err)
-				require.Equal(t, exp, ms.Messages[0])
+				compareMessages(t, exp, msg)
+				require.Equal(t, int64(i), offset)
 			}
 
 			// Close the log and reopen, then ensure we read back the same
@@ -101,14 +93,11 @@ func TestCommitLogRecover(t *testing.T) {
 			defer cancel()
 			r, err = l.NewReaderUncommitted(ctx, 0)
 			require.NoError(t, err)
-			for _, exp := range msgs {
-				buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+			for i, exp := range msgs {
+				msg, offset, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
-				ms := &proto.MessageSet{}
-				decoder := proto.NewDecoder(buf)
-				ms.Decode(decoder)
-				require.NoError(t, err)
-				require.Equal(t, exp, ms.Messages[0])
+				compareMessages(t, exp, msg)
+				require.Equal(t, int64(i), offset)
 			}
 		})
 	}

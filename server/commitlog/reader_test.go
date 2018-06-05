@@ -49,14 +49,10 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 			require.NoError(t, err)
 
 			headers := make([]byte, 12)
-			buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+			msg, offset, err := commitlog.ReadMessage(r, headers)
 			require.NoError(t, err)
-			ms := &proto.MessageSet{}
-			decoder := proto.NewDecoder(buf)
-			ms.Decode(decoder)
-			require.NoError(t, err)
-			require.Equal(t, int64(idx), ms.Offset)
-			require.Equal(t, msgs[idx], ms.Messages[0])
+			require.Equal(t, int64(idx), offset)
+			compareMessages(t, msgs[idx], msg)
 		})
 	}
 }
@@ -101,13 +97,10 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
 	headers := make([]byte, 12)
-	buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+	m, offset, err := commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
-	ms := &proto.MessageSet{}
-	decoder := proto.NewDecoder(buf)
-	ms.Decode(decoder)
-	require.NoError(t, err)
-	require.Equal(t, msg, ms.Messages[0])
+	require.Equal(t, int64(0), offset)
+	compareMessages(t, msg, m)
 
 	msg = &proto.Message{Value: []byte("hello")}
 
@@ -117,13 +110,10 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	buf, _, err = commitlog.ConsumeMessageSet(r, headers)
+	m, offset, err = commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
-	ms = &proto.MessageSet{}
-	decoder = proto.NewDecoder(buf)
-	ms.Decode(decoder)
-	require.NoError(t, err)
-	require.Equal(t, msg, ms.Messages[0])
+	require.Equal(t, int64(1), offset)
+	compareMessages(t, msg, m)
 }
 
 func TestReaderUncommittedReadError(t *testing.T) {
@@ -173,14 +163,10 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 			require.NoError(t, err)
 
 			headers := make([]byte, 12)
-			buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+			msg, offset, err := commitlog.ReadMessage(r, headers)
 			require.NoError(t, err)
-			ms := &proto.MessageSet{}
-			decoder := proto.NewDecoder(buf)
-			ms.Decode(decoder)
-			require.NoError(t, err)
-			require.Equal(t, int64(idx), ms.Offset)
-			require.Equal(t, msgs[idx], ms.Messages[0])
+			require.Equal(t, int64(idx), offset)
+			compareMessages(t, msgs[idx], msg)
 		})
 	}
 }
@@ -251,13 +237,10 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	}()
 
 	headers := make([]byte, 12)
-	buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+	m, offset, err := commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
-	ms := &proto.MessageSet{}
-	decoder := proto.NewDecoder(buf)
-	ms.Decode(decoder)
-	require.NoError(t, err)
-	require.Equal(t, msg, ms.Messages[0])
+	require.Equal(t, int64(0), offset)
+	compareMessages(t, msg, m)
 }
 
 func TestReaderCommittedRead(t *testing.T) {
@@ -284,14 +267,11 @@ func TestReaderCommittedRead(t *testing.T) {
 			require.NoError(t, err)
 
 			headers := make([]byte, 12)
-			for _, msg := range msgs {
-				buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+			for i, msg := range msgs {
+				m, offset, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
-				ms := &proto.MessageSet{}
-				decoder := proto.NewDecoder(buf)
-				ms.Decode(decoder)
-				require.NoError(t, err)
-				require.Equal(t, msg, ms.Messages[0])
+				require.Equal(t, int64(i), offset)
+				compareMessages(t, msg, m)
 			}
 		})
 	}
@@ -321,14 +301,11 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 			require.NoError(t, err)
 
 			headers := make([]byte, 12)
-			for _, msg := range msgs[:5] {
-				buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+			for i, msg := range msgs[:5] {
+				m, offset, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
-				ms := &proto.MessageSet{}
-				decoder := proto.NewDecoder(buf)
-				ms.Decode(decoder)
-				require.NoError(t, err)
-				require.Equal(t, msg, ms.Messages[0])
+				require.Equal(t, int64(i), offset)
+				compareMessages(t, msg, m)
 			}
 		})
 	}
@@ -361,14 +338,11 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 	}()
 
 	headers := make([]byte, 12)
-	for _, msg := range msgs {
-		buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+	for i, msg := range msgs {
+		m, offset, err := commitlog.ReadMessage(r, headers)
 		require.NoError(t, err)
-		ms := &proto.MessageSet{}
-		decoder := proto.NewDecoder(buf)
-		ms.Decode(decoder)
-		require.NoError(t, err)
-		require.Equal(t, msg, ms.Messages[0])
+		require.Equal(t, int64(i), offset)
+		compareMessages(t, msg, m)
 	}
 }
 
@@ -401,15 +375,12 @@ func TestReaderCommittedCancel(t *testing.T) {
 
 	count := 0
 	headers := make([]byte, 12)
-	for _, msg := range msgs {
-		buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+	for i, msg := range msgs {
+		m, offset, err := commitlog.ReadMessage(r, headers)
 		if count < 5 {
 			require.NoError(t, err)
-			ms := &proto.MessageSet{}
-			decoder := proto.NewDecoder(buf)
-			ms.Decode(decoder)
-			require.NoError(t, err)
-			require.Equal(t, msg, ms.Messages[0])
+			require.Equal(t, int64(i), offset)
+			compareMessages(t, msg, m)
 			count++
 		} else {
 			require.Equal(t, io.EOF, err)
@@ -438,11 +409,21 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	require.NoError(t, err)
 
 	headers := make([]byte, 12)
-	buf, _, err := commitlog.ConsumeMessageSet(r, headers)
+	m, offset, err := commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
-	ms := &proto.MessageSet{}
-	decoder := proto.NewDecoder(buf)
-	ms.Decode(decoder)
-	require.NoError(t, err)
-	require.Equal(t, msg1, ms.Messages[0])
+	require.Equal(t, int64(0), offset)
+	compareMessages(t, msg1, m)
+}
+
+func compareMessages(t *testing.T, exp *proto.Message, act commitlog.Message) {
+	// TODO: check timestamp
+	require.Equal(t, exp.MagicByte, act.MagicByte())
+	require.Equal(t, exp.Attributes, act.Attributes())
+	require.Equal(t, exp.Key, act.Key())
+	require.Equal(t, exp.Value, act.Value())
+	if exp.Headers == nil || len(exp.Headers) == 0 {
+		require.Equal(t, map[string][]byte{}, act.Headers())
+	} else {
+		require.Equal(t, exp.Headers, act.Headers())
+	}
 }
