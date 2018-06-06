@@ -556,6 +556,8 @@ func (s *stream) replicationRequestLoop(leader string, epoch uint64, stop chan s
 		// Check if leader has exceeded max leader timeout.
 		s.checkLeaderHealth(leader, epoch, leaderLastSeen)
 
+		// TODO: Make this smarter. Probably have the request wait for data on
+		// the server side. Need to handle timeouts better too.
 		if replicated == 0 {
 			time.Sleep(computeReplicaFetchSleep(emptyResponseCount))
 			emptyResponseCount++

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
+	"sort"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -85,14 +86,14 @@ func NewIndex(opts options) (idx *Index, err error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "open file failed")
 	}
+	if err := idx.file.Truncate(roundDown(opts.bytes, entryWidth)); err != nil {
+		return nil, err
+	}
 	fi, err := idx.file.Stat()
 	if err != nil {
 		return nil, errors.Wrap(err, "stat file failed")
-	} else if fi.Size() > 0 {
+	} else {
 		idx.position = fi.Size()
-	}
-	if err := idx.file.Truncate(roundDown(opts.bytes, entryWidth)); err != nil {
-		return nil, err
 	}
 
 	idx.mmap, err = gommap.Map(idx.file.Fd(), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
@@ -195,24 +196,41 @@ func (idx *Index) TruncateEntries(number int) error {
 	return nil
 }
 
-func (idx *Index) SanityCheck() error {
+func (idx *Index) InitializePosition() (*Entry, error) {
+	// Find the first empty entry.
+	n := int(idx.bytes / entryWidth)
+	entry := new(Entry)
+	i := sort.Search(n, func(i int) bool {
+		if err := idx.ReadEntryAtFileOffset(entry, int64(i*entryWidth)); err != nil {
+			panic(err)
+		}
+		return entry.Position == 0 && entry.Size == 0
+	})
+	// Initialize the position.
+	idx.mu.Lock()
+	idx.position = int64(i * entryWidth)
+	idx.mu.Unlock()
+
+	if i == 0 {
+		// Index is empty.
+		return nil, nil
+	}
+
+	// Return the last entry in the index.
+	i--
+	if err := idx.ReadEntryAtFileOffset(entry, int64(i*entryWidth)); err != nil {
+		return nil, err
+	}
+	// Do some sanity checks.
+	if entry.Offset < idx.baseOffset {
+		return nil, ErrIndexCorrupt
+	}
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-	if idx.position == 0 {
-		return nil
-	} else if idx.position%entryWidth != 0 {
-		return ErrIndexCorrupt
-	} else {
-		//read last entry
-		entry := new(Entry)
-		if err := idx.ReadEntryAtFileOffset(entry, idx.position-entryWidth); err != nil {
-			return err
-		}
-		if entry.Offset < idx.baseOffset {
-			return ErrIndexCorrupt
-		}
-		return nil
+	if idx.position%entryWidth != 0 {
+		return nil, ErrIndexCorrupt
 	}
+	return entry, nil
 }
 
 type IndexScanner struct {

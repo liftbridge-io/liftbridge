@@ -1,7 +1,6 @@
 package commitlog
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -10,8 +9,6 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-
-	"github.com/tylertreat/liftbridge/server/proto"
 )
 
 const (
@@ -55,7 +52,12 @@ func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*
 	if err != nil {
 		return nil, errors.Wrap(err, "open file failed")
 	}
+	info, err := log.Stat()
+	if err != nil {
+		return nil, errors.Wrap(err, "stat file failed")
+	}
 	s.log = log
+	s.position = info.Size()
 	s.writer = log
 	s.reader = log
 	err = s.SetupIndex()
@@ -64,9 +66,8 @@ func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*
 
 // SetupIndex creates and initializes an Index.
 // Initialization is:
-// - Sanity check of the loaded Index
-// - Truncates the Index (clears it)
-// - Reads the log file from the beginning and re-initializes the Index
+// - Initialize Index position
+// - Initialize Segment nextOffset
 func (s *Segment) SetupIndex() (err error) {
 	s.Index, err = NewIndex(options{
 		path:       s.indexPath(),
@@ -75,68 +76,14 @@ func (s *Segment) SetupIndex() (err error) {
 	if err != nil {
 		return err
 	}
-	return s.BuildIndex()
-}
-
-func (s *Segment) BuildIndex() (err error) {
-	if err = s.Index.SanityCheck(); err != nil {
-		return err
-	}
-	if err := s.Index.TruncateEntries(0); err != nil {
-		return err
-	}
-
-	_, err = s.log.Seek(0, 0)
+	lastEntry, err := s.Index.InitializePosition()
 	if err != nil {
 		return err
 	}
-
-	b := new(bytes.Buffer)
-
-	nextOffset := s.BaseOffset
-	position := int64(0)
-
-loop:
-	for {
-		// get offset and size
-		_, err = io.CopyN(b, s.log, 8)
-		if err != nil {
-			break loop
-		}
-
-		_, err = io.CopyN(b, s.log, 4)
-		if err != nil {
-			break loop
-		}
-		size := int64(proto.Encoding.Uint32(b.Bytes()[8:12]))
-
-		_, err = io.CopyN(b, s.log, size)
-		if err != nil {
-			break loop
-		}
-
-		// Reset the buffer to not get an overflow
-		b.Truncate(0)
-
-		entry := Entry{
-			Offset:   nextOffset,
-			Position: position,
-			Size:     int32(size + msgSetHeaderLen),
-		}
-		err = s.Index.WriteEntries([]Entry{entry})
-		if err != nil {
-			break loop
-		}
-
-		position += size + msgSetHeaderLen
-		nextOffset++
+	if lastEntry != nil {
+		s.nextOffset = lastEntry.Offset + 1
 	}
-	if err == io.EOF {
-		s.nextOffset = nextOffset
-		s.position = position
-		return nil
-	}
-	return err
+	return nil
 }
 
 func (s *Segment) IsFull() bool {
