@@ -5,6 +5,7 @@ import (
 	"net"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,6 +35,9 @@ type Server struct {
 	leaderSub          *nats.Subscription
 	startedRecovery    bool
 	latestRecoveredLog *raft.Log
+	mu                 sync.RWMutex
+	running            bool
+	goroutineWait      sync.WaitGroup
 }
 
 func New(config *Config) *Server {
@@ -108,10 +112,29 @@ func (s *Server) Start() error {
 		return errors.Wrap(err, "failed to subscribe to advertise subject")
 	}
 
+	s.handleSignals()
+
 	api := grpc.NewServer()
 	s.api = api
 	client.RegisterAPIServer(api, &apiServer{s})
-	return api.Serve(s.listener)
+	s.mu.Lock()
+	s.running = true
+	s.mu.Unlock()
+	s.startGoroutine(func() {
+		err = api.Serve(s.listener)
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+		if err != nil {
+			select {
+			case <-s.shutdownCh:
+				return
+			default:
+				s.logger.Fatal(err)
+			}
+		}
+	})
+	return err
 }
 
 func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
@@ -158,7 +181,7 @@ func (s *Server) startMetadataRaft() error {
 	}
 	node := s.raft
 
-	go func() {
+	s.startGoroutine(func() {
 		for {
 			select {
 			case isLeader := <-node.notifyCh:
@@ -186,7 +209,7 @@ func (s *Server) startMetadataRaft() error {
 				return
 			}
 		}
-	}()
+	})
 	return nil
 }
 
@@ -301,6 +324,7 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 }
 
 func (s *Server) Stop() error {
+	s.logger.Info("Shutting down...")
 	close(s.shutdownCh)
 	if s.api != nil {
 		s.api.Stop()
@@ -332,7 +356,20 @@ func (s *Server) Stop() error {
 		s.ncRepl.Close()
 	}
 
+	s.mu.Lock()
+	s.running = false
+	s.mu.Unlock()
+
+	// Wait for goroutines to stop.
+	s.goroutineWait.Wait()
+
 	return nil
+}
+
+func (s *Server) isRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.running
 }
 
 func (s *Server) natsDisconnectedHandler(nc *nats.Conn) {
@@ -388,4 +425,17 @@ func (s *Server) handleAdvertiseQuery(m *nats.Msg) {
 
 func (s *Server) advertiseInbox() string {
 	return fmt.Sprintf("%s.advertise", s.baseMetadataRaftSubject())
+}
+
+func (s *Server) startGoroutine(f func()) {
+	select {
+	case <-s.shutdownCh:
+		return
+	default:
+	}
+	s.goroutineWait.Add(1)
+	go func() {
+		f()
+		s.goroutineWait.Done()
+	}()
 }

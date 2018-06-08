@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"runtime"
 
 	"github.com/urfave/cli"
 
@@ -35,4 +36,5 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
+	runtime.Goexit()
 }

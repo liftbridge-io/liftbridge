@@ -1,0 +1,23 @@
+// +build !windows
+
+package server
+
+import (
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+func (s *Server) handleSignals() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT)
+	go func() {
+		for sig := range c {
+			switch sig {
+			case syscall.SIGINT:
+				s.Stop()
+				os.Exit(0)
+			}
+		}
+	}()
+}

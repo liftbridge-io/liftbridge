@@ -17,7 +17,12 @@ import (
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
-const defaultJoinRaftGroupTimeout = time.Second
+const (
+	defaultJoinRaftGroupTimeout = time.Second
+	defaultRaftJoinAttempts     = 30
+)
+
+var raftJoinAttempts = defaultRaftJoinAttempts
 
 // raftNode is a handle to a member in a Raft consensus group.
 type raftNode struct {
@@ -127,7 +132,7 @@ func (s *Server) setupMetadataRaft() error {
 			resp   = &proto.RaftJoinResponse{}
 		)
 		// Attempt to join for up to 30 seconds before giving up.
-		for i := 0; i < 30; i++ {
+		for i := 0; i < raftJoinAttempts; i++ {
 			s.logger.Debug("Attempting to join metadata Raft group...")
 			r, err := s.ncRaft.Request(fmt.Sprintf("%s.join", s.baseMetadataRaftSubject()),
 				req, defaultJoinRaftGroupTimeout)
@@ -155,7 +160,7 @@ func (s *Server) setupMetadataRaft() error {
 		// If node is started with bootstrap, regardless if state exists or
 		// not, try to detect (and report) other nodes in same cluster started
 		// with bootstrap=true.
-		go s.detectBootstrapMisconfig()
+		s.startGoroutine(s.detectBootstrapMisconfig)
 	}
 
 	return nil

@@ -58,12 +58,8 @@ type Config struct {
 	Clustering          ClusteringConfig
 }
 
-func NewConfig(configFile string) (*Config, error) {
-	config := &Config{
-		NATS: nats.GetDefaultOptions(),
-	}
-
-	// Defaults
+func NewDefaultConfig() *Config {
+	config := &Config{NATS: nats.GetDefaultOptions()}
 	config.LogLevel = uint32(log.InfoLevel)
 	config.BatchMaxMessages = defaultBatchMaxMessages
 	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
@@ -73,7 +69,15 @@ func NewConfig(configFile string) (*Config, error) {
 	config.Clustering.ReplicaMaxLeaderTimeout = defaultReplicaMaxLeaderTimeout
 	config.Clustering.ReplicaFetchTimeout = defaultReplicaFetchTimeout
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
+	config.Clustering.RaftSnapshots = 2
+	config.Clustering.RaftCacheSize = 512
 	config.Log.RetentionMaxBytes = defaultRetentionMaxBytes
+	config.Log.RetentionMaxBytes = -1
+	return config
+}
+
+func NewConfig(configFile string) (*Config, error) {
+	config := NewDefaultConfig()
 
 	if configFile == "" {
 		return config, nil
@@ -161,9 +165,6 @@ func parseNATSConfig(m map[string]interface{}, opts nats.Options) error {
 }
 
 func parseLogConfig(config *Config, m map[string]interface{}) error {
-	// Defaults
-	config.Log.RetentionMaxBytes = -1
-
 	for k, v := range m {
 		switch strings.ToLower(k) {
 		case "retention.max.bytes":
@@ -180,10 +181,6 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 }
 
 func parseClusteringConfig(config *Config, m map[string]interface{}) error {
-	// Defaults
-	config.Clustering.RaftSnapshots = 2
-	config.Clustering.RaftCacheSize = 512
-
 	for k, v := range m {
 		switch strings.ToLower(k) {
 		case "server.id":

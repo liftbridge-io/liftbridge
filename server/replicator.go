@@ -49,7 +49,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 	r.lastCaughtUp = now
 	r.mu.Unlock()
 
-	go r.tick(stop)
+	r.stream.srv.startGoroutine(func() { r.tick(stop) })
 
 	var req replicationRequest
 	for {

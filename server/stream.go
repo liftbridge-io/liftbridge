@@ -201,7 +201,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	// Start message processing loop.
 	s.recvChan = make(chan *nats.Msg, recvChannelSize)
 	s.stopLeader = make(chan struct{})
-	go s.messageProcessingLoop(s.recvChan, s.stopLeader)
+	s.srv.startGoroutine(func() { s.messageProcessingLoop(s.recvChan, s.stopLeader) })
 
 	// Start replicating to followers.
 	s.startReplicating(epoch, s.stopLeader)
@@ -272,7 +272,7 @@ func (s *stream) becomeFollower() error {
 	// Start fetching messages from the leader's log starting at the HW.
 	s.stopFollower = make(chan struct{})
 	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
-	go s.replicationRequestLoop(s.Leader, s.LeaderEpoch, s.stopFollower)
+	s.srv.startGoroutine(func() { s.replicationRequestLoop(s.Leader, s.LeaderEpoch, s.stopFollower) })
 
 	s.isFollowing = true
 	s.isLeading = false
@@ -453,7 +453,7 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 		s.srv.logger.Debugf("Replicating stream %s to followers", s)
 	}
 	s.commitQueue = queue.New(100)
-	go s.commitLoop(stop)
+	s.srv.startGoroutine(func() { s.commitLoop(stop) })
 
 	s.replicators = make(map[string]*replicator, len(s.replicas)-1)
 	for replica, _ := range s.replicas {
@@ -469,7 +469,7 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 			leader:     s.srv.config.Clustering.ServerID,
 		}
 		s.replicators[replica] = r
-		go r.start(epoch, stop)
+		s.srv.startGoroutine(func() { r.start(epoch, stop) })
 	}
 }
 

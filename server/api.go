@@ -103,7 +103,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream, req *client.S
 		return nil, nil, status.New(codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
 	}
 
-	go func() {
+	a.startGoroutine(func() {
 		headersBuf := make([]byte, 12)
 		for {
 			// TODO: this could be more efficient.
@@ -126,7 +126,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream, req *client.S
 			)
 			ch <- msg
 		}
-	}()
+	})
 
 	return ch, errCh, nil
 }
