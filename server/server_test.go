@@ -95,6 +95,8 @@ func TestClusteringNoSeed(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Ensure starting a cluster with auto configuration works when we start one
+// node in bootstrap mode.
 func TestClusteringBootstrapAutoConfig(t *testing.T) {
 	defer cleanupStorage(t)
 
