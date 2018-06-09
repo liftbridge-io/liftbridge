@@ -16,7 +16,7 @@ const version = "0.0.1"
 func main() {
 	app := cli.NewApp()
 	app.Name = "liftbridge"
-	app.Usage = "Durable stream augmentation for NATS"
+	app.Usage = "Lightweight, fault-tolerant message streams"
 	app.Version = version
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -30,11 +30,14 @@ func main() {
 			return err
 		}
 		server := server.New(config)
-		return server.Start()
+		if err := server.Start(); err != nil {
+			panic(err)
+		}
+		runtime.Goexit()
+		return nil
 	}
 
 	if err := app.Run(os.Args); err != nil {
 		panic(err)
 	}
-	runtime.Goexit()
 }
