@@ -76,7 +76,7 @@ func getMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Server) 
 
 // Ensure starting a node fails when there is no seed node to join and no
 // cluster topology is provided.
-func TestClusteringNoSeed(t *testing.T) {
+func TestNoSeed(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Use a central NATS server.
@@ -95,9 +95,109 @@ func TestClusteringNoSeed(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Ensure server ID is assigned when not provided and stored/recovered on
+// server restart.
+func TestAssignedDurableServerID(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true)
+	s1 := New(s1Config)
+	err := s1.Start()
+	require.NoError(t, err)
+	defer s1.Stop()
+
+	// Wait to elect self as leader.
+	leader := getMetadataLeader(t, 10*time.Second, s1)
+
+	future := leader.raft.GetConfiguration()
+	if err := future.Error(); err != nil {
+		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
+	}
+	id := future.Configuration().Servers[0].ID
+
+	if id == "" {
+		t.Fatal("Expected non-empty cluster server id")
+	}
+
+	// Restart server without setting ID.
+	s1.Stop()
+	s1Config.Clustering.ServerID = ""
+	s1 = New(s1Config)
+	err = s1.Start()
+	require.NoError(t, err)
+	defer s1.Stop()
+
+	// Wait to elect self as leader.
+	leader = getMetadataLeader(t, 10*time.Second, s1)
+
+	future = leader.raft.GetConfiguration()
+	if err := future.Error(); err != nil {
+		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
+	}
+	newID := future.Configuration().Servers[0].ID
+	if id != newID {
+		t.Fatalf("Incorrect cluster server id, expected: %s, got: %s", id, newID)
+	}
+}
+
+// Ensure server ID is stored and recovered on server restart.
+func TestDurableServerID(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true)
+	s1Config.Clustering.ServerID = "a"
+	s1 := New(s1Config)
+	err := s1.Start()
+	require.NoError(t, err)
+	defer s1.Stop()
+
+	// Wait to elect self as leader.
+	leader := getMetadataLeader(t, 10*time.Second, s1)
+
+	future := leader.raft.GetConfiguration()
+	if err := future.Error(); err != nil {
+		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
+	}
+	id := future.Configuration().Servers[0].ID
+
+	if id != "a" {
+		t.Fatalf("Incorrect cluster server id, expected: a, got: %s", id)
+	}
+
+	// Restart server without setting ID.
+	s1.Stop()
+	s1Config.Clustering.ServerID = ""
+	s1 = New(s1Config)
+	err = s1.Start()
+	require.NoError(t, err)
+	defer s1.Stop()
+
+	// Wait to elect self as leader.
+	leader = getMetadataLeader(t, 10*time.Second, s1)
+
+	future = leader.raft.GetConfiguration()
+	if err := future.Error(); err != nil {
+		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
+	}
+	newID := future.Configuration().Servers[0].ID
+	if newID != "a" {
+		t.Fatalf("Incorrect cluster server id, expected: a, got: %s", newID)
+	}
+}
+
 // Ensure starting a cluster with auto configuration works when we start one
 // node in bootstrap mode.
-func TestClusteringBootstrapAutoConfig(t *testing.T) {
+func TestBootstrapAutoConfig(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Use a central NATS server.
