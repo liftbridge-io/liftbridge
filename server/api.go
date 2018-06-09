@@ -47,12 +47,15 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 		return status.Error(codes.NotFound, "No such stream")
 	}
 
-	if stream.Leader != a.config.Clustering.ServerID {
+	leader, _ := stream.GetLeader()
+	if leader != a.config.Clustering.ServerID {
 		a.logger.Errorf("api: Failed to subscribe to stream %s: server not stream leader", stream)
 		return status.Error(codes.FailedPrecondition, "Server not stream leader")
 	}
 
-	ch, errCh, err := a.subscribe(out.Context(), stream, req)
+	cancel := make(chan struct{})
+	defer close(cancel)
+	ch, errCh, err := a.subscribe(out.Context(), stream, req, cancel)
 	if err != nil {
 		a.logger.Errorf("api: Failed to subscribe to stream %s: %v", stream, err.Err())
 		return err.Err()
@@ -91,7 +94,8 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 	return resp, nil
 }
 
-func (a *apiServer) subscribe(ctx context.Context, stream *stream, req *client.SubscribeRequest) (
+func (a *apiServer) subscribe(ctx context.Context, stream *stream,
+	req *client.SubscribeRequest, cancel chan struct{}) (
 	<-chan *client.Message, <-chan *status.Status, *status.Status) {
 
 	var (
@@ -109,7 +113,10 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream, req *client.S
 			// TODO: this could be more efficient.
 			m, offset, err := commitlog.ReadMessage(reader, headersBuf)
 			if err != nil {
-				errCh <- status.Convert(err)
+				select {
+				case errCh <- status.Convert(err):
+				case <-cancel:
+				}
 				return
 			}
 			headers := m.Headers()
@@ -124,7 +131,11 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream, req *client.S
 					Reply:     string(headers["reply"]),
 				}
 			)
-			ch <- msg
+			select {
+			case ch <- msg:
+			case <-cancel:
+				return
+			}
 		}
 	})
 

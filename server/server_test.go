@@ -32,7 +32,7 @@ func cleanupStorage(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func getTestConfig(id string, bootstrap bool) *Config {
+func getTestConfig(id string, bootstrap bool, port int) *Config {
 	config := NewDefaultConfig()
 	config.Clustering.RaftBootstrap = bootstrap
 	config.DataPath = filepath.Join(storagePath, id)
@@ -41,6 +41,7 @@ func getTestConfig(id string, bootstrap bool) *Config {
 	config.LogLevel = uint32(log.DebugLevel)
 	config.NATS.Servers = []string{"nats://localhost:4222"}
 	config.NoLog = true
+	config.Port = port
 	return config
 }
 
@@ -73,6 +74,42 @@ func getMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Server) 
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
+	if leader == nil {
+		stackFatalf(t, "No metadata leader found")
+	}
+	return leader
+}
+
+func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, servers ...*Server) *Server {
+	var (
+		leader   *Server
+		deadline = time.Now().Add(timeout)
+	)
+	for time.Now().Before(deadline) {
+		for _, s := range servers {
+			if !s.isRunning() {
+				continue
+			}
+			stream := s.metadata.GetStream(subject, name)
+			if stream == nil {
+				continue
+			}
+			streamLeader, _ := stream.GetLeader()
+			if streamLeader == s.config.Clustering.ServerID {
+				if leader != nil {
+					stackFatalf(t, "Found more than one stream leader")
+				}
+				leader = s
+			}
+		}
+		if leader != nil {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if leader == nil {
+		stackFatalf(t, "No stream leader found")
+	}
 	return leader
 }
 
@@ -91,7 +128,7 @@ func TestNoSeed(t *testing.T) {
 	defer func() {
 		raftJoinAttempts = defaultRaftJoinAttempts
 	}()
-	s1Config := getTestConfig("a", false)
+	s1Config := getTestConfig("a", false, 0)
 	server := New(s1Config)
 	err := server.Start()
 	require.Error(t, err)
@@ -107,7 +144,7 @@ func TestAssignedDurableServerID(t *testing.T) {
 	defer ns.Shutdown()
 
 	// Configure server.
-	s1Config := getTestConfig("a", true)
+	s1Config := getTestConfig("a", true, 0)
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -152,7 +189,7 @@ func TestDurableServerID(t *testing.T) {
 	defer ns.Shutdown()
 
 	// Configure server.
-	s1Config := getTestConfig("a", true)
+	s1Config := getTestConfig("a", true, 0)
 	s1Config.Clustering.ServerID = "a"
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -199,12 +236,12 @@ func TestBootstrapAutoConfig(t *testing.T) {
 	defer ns.Shutdown()
 
 	// Configure the first server as a seed.
-	s1Config := getTestConfig("a", true)
+	s1Config := getTestConfig("a", true, 0)
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Configure second server which should automatically join the first.
-	s2Config := getTestConfig("b", false)
+	s2Config := getTestConfig("b", false, 0)
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
@@ -234,14 +271,14 @@ func TestBootstrapManualConfig(t *testing.T) {
 	defer ns.Shutdown()
 
 	// Configure first server.
-	s1Config := getTestConfig("a", false)
+	s1Config := getTestConfig("a", false, 0)
 	s1Config.Clustering.ServerID = "a"
 	s1Config.Clustering.RaftBootstrapPeers = []string{"b"}
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Configure second server.
-	s2Config := getTestConfig("b", false)
+	s2Config := getTestConfig("b", false, 0)
 	s2Config.Clustering.ServerID = "b"
 	s2Config.Clustering.RaftBootstrapPeers = []string{"a"}
 	s2 := runServerWithConfig(t, s2Config)
@@ -263,7 +300,7 @@ func TestBootstrapManualConfig(t *testing.T) {
 	}
 
 	// Ensure new servers can automatically join once the cluster is formed.
-	s3Config := getTestConfig("c", false)
+	s3Config := getTestConfig("c", false, 0)
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
@@ -291,7 +328,7 @@ func TestBootstrapMisconfiguration(t *testing.T) {
 	ns := natsdTest.RunDefaultServer()
 	defer ns.Shutdown()
 
-	s1Config := getTestConfig("a", true)
+	s1Config := getTestConfig("a", true, 0)
 	s1 := New(s1Config)
 	s1FatalLogger := &captureFatalLogger{}
 	s1.logger = s1FatalLogger
@@ -303,7 +340,7 @@ func TestBootstrapMisconfiguration(t *testing.T) {
 
 	// Configure second server on same cluster as a seed too. Servers should
 	// stop.
-	s2Config := getTestConfig("b", true)
+	s2Config := getTestConfig("b", true, 0)
 	s2 := New(s2Config)
 	s2FatalLogger := &captureFatalLogger{}
 	s2.logger = s2FatalLogger
@@ -338,4 +375,45 @@ func TestBootstrapMisconfiguration(t *testing.T) {
 	if !ok {
 		t.Fatal("Servers should have reported fatal error")
 	}
+}
+
+// Ensure when the metadata leader fails, a new one is elected.
+func TestMetadataLeaderFailover(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 0)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 0)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Configure third server.
+	s3Config := getTestConfig("c", false, 0)
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	// Wait for metadata leader to be elected.
+	servers := []*Server{s1, s2, s3}
+	leader := getMetadataLeader(t, 10*time.Second, servers...)
+	followers := []*Server{}
+	for _, s := range servers {
+		if s == leader {
+			continue
+		}
+		followers = append(followers, s)
+	}
+
+	// Kill the leader.
+	leader.Stop()
+
+	// Wait for new leader to be elected.
+	getMetadataLeader(t, 10*time.Second, followers...)
 }
