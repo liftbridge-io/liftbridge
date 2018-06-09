@@ -22,7 +22,7 @@ import (
 // message processing loop.
 const recvChannelSize = 64 * 1024
 
-var envelopeCookie = []byte("jetb")
+var envelopeCookie = []byte("LIFT")
 
 type replica struct {
 	mu     sync.RWMutex
