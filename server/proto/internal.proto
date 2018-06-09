@@ -4,6 +4,10 @@ package proto;
 import "github.com/tylertreat/go-liftbridge/proto/api.proto";
 
     
+message ServerState {
+    string serverID = 1;
+}
+
 enum Op {
     CREATE_STREAM = 0;
     SHRINK_ISR    = 1;

@@ -2,7 +2,9 @@ package server
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -20,6 +22,8 @@ import (
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
+const stateFile = "liftbridge"
+
 type Server struct {
 	config             *Config
 	listener           net.Listener
@@ -36,15 +40,15 @@ type Server struct {
 	startedRecovery    bool
 	latestRecoveredLog *raft.Log
 	mu                 sync.RWMutex
+	shutdown           bool
 	running            bool
 	goroutineWait      sync.WaitGroup
 }
 
 func New(config *Config) *Server {
-	// Default data path to /tmp/<namespace>/<server-id> if not set.
+	// Default data path to /tmp/liftbridge/<namespace> if not set.
 	if config.DataPath == "" {
-		config.DataPath = filepath.Join(
-			"/tmp", config.Clustering.Namespace, config.Clustering.ServerID)
+		config.DataPath = filepath.Join("/tmp", "liftbridge", config.Clustering.Namespace)
 	}
 	logger := log.New()
 	logger.SetLevel(log.Level(config.LogLevel))
@@ -58,6 +62,31 @@ func New(config *Config) *Server {
 }
 
 func (s *Server) Start() error {
+	if err := os.MkdirAll(s.config.DataPath, os.ModePerm); err != nil {
+		return errors.Wrap(err, "failed to create data path directories")
+	}
+
+	// Attempt to recover state.
+	file := filepath.Join(s.config.DataPath, stateFile)
+	data, err := ioutil.ReadFile(file)
+	if err == nil {
+		// Recovered previous state.
+		state := &proto.ServerState{}
+		if err := state.Unmarshal(data); err == nil {
+			s.config.Clustering.ServerID = state.ServerID
+		}
+	}
+
+	// Persist server state.
+	state := &proto.ServerState{ServerID: s.config.Clustering.ServerID}
+	data, err = state.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	if err := ioutil.WriteFile(file, data, 0666); err != nil {
+		return errors.Wrap(err, "failed to persist server state")
+	}
+
 	hp := net.JoinHostPort(s.config.Host, strconv.Itoa(s.config.Port))
 	l, err := net.Listen("tcp", hp)
 	if err != nil {
@@ -324,7 +353,13 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 }
 
 func (s *Server) Stop() error {
+	s.mu.Lock()
+	if s.shutdown {
+		s.mu.Unlock()
+		return nil
+	}
 	s.logger.Info("Shutting down...")
+
 	close(s.shutdownCh)
 	if s.api != nil {
 		s.api.Stop()
@@ -336,12 +371,14 @@ func (s *Server) Stop() error {
 
 	if s.metadata != nil {
 		if err := s.metadata.Reset(); err != nil {
+			s.mu.Unlock()
 			return err
 		}
 	}
 
 	if s.raft != nil {
 		if err := s.raft.shutdown(); err != nil {
+			s.mu.Unlock()
 			return err
 		}
 	}
@@ -356,8 +393,8 @@ func (s *Server) Stop() error {
 		s.ncRepl.Close()
 	}
 
-	s.mu.Lock()
 	s.running = false
+	s.shutdown = true
 	s.mu.Unlock()
 
 	// Wait for goroutines to stop.
@@ -372,7 +409,16 @@ func (s *Server) isRunning() bool {
 	return s.running
 }
 
+func (s *Server) isShutdown() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.shutdown
+}
+
 func (s *Server) natsDisconnectedHandler(nc *nats.Conn) {
+	if s.isShutdown() {
+		return
+	}
 	if nc.LastError() != nil {
 		s.logger.Errorf("Connection %q has been disconnected from NATS: %v",
 			nc.Opts.Name, nc.LastError())
@@ -387,6 +433,9 @@ func (s *Server) natsReconnectedHandler(nc *nats.Conn) {
 }
 
 func (s *Server) natsClosedHandler(nc *nats.Conn) {
+	if s.isShutdown() {
+		return
+	}
 	s.logger.Debugf("Connection %q has been closed", nc.Opts.Name)
 }
 
