@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,9 +108,7 @@ func TestAssignedDurableServerID(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true)
-	s1 := New(s1Config)
-	err := s1.Start()
-	require.NoError(t, err)
+	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Wait to elect self as leader.
@@ -128,9 +127,7 @@ func TestAssignedDurableServerID(t *testing.T) {
 	// Restart server without setting ID.
 	s1.Stop()
 	s1Config.Clustering.ServerID = ""
-	s1 = New(s1Config)
-	err = s1.Start()
-	require.NoError(t, err)
+	s1 = runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Wait to elect self as leader.
@@ -157,9 +154,7 @@ func TestDurableServerID(t *testing.T) {
 	// Configure server.
 	s1Config := getTestConfig("a", true)
 	s1Config.Clustering.ServerID = "a"
-	s1 := New(s1Config)
-	err := s1.Start()
-	require.NoError(t, err)
+	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Wait to elect self as leader.
@@ -178,9 +173,7 @@ func TestDurableServerID(t *testing.T) {
 	// Restart server without setting ID.
 	s1.Stop()
 	s1Config.Clustering.ServerID = ""
-	s1 = New(s1Config)
-	err = s1.Start()
-	require.NoError(t, err)
+	s1 = runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Wait to elect self as leader.
@@ -228,5 +221,121 @@ func TestBootstrapAutoConfig(t *testing.T) {
 	configServers := future.Configuration().Servers
 	if len(configServers) != 2 {
 		t.Fatalf("Expected 2 servers, got %d", len(configServers))
+	}
+}
+
+// Ensure starting a cluster with manual configuration works when we provide
+// the cluster configuration to each server.
+func TestBootstrapManualConfig(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", false)
+	s1Config.Clustering.ServerID = "a"
+	s1Config.Clustering.RaftBootstrapPeers = []string{"b"}
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false)
+	s2Config.Clustering.ServerID = "b"
+	s2Config.Clustering.RaftBootstrapPeers = []string{"a"}
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	var (
+		servers = []*Server{s1, s2}
+		leader  = getMetadataLeader(t, 10*time.Second, servers...)
+	)
+
+	// Verify configuration.
+	future := leader.raft.GetConfiguration()
+	if err := future.Error(); err != nil {
+		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
+	}
+	configServers := future.Configuration().Servers
+	if len(configServers) != 2 {
+		t.Fatalf("Expected 2 servers, got %d", len(configServers))
+	}
+
+	// Ensure new servers can automatically join once the cluster is formed.
+	s3Config := getTestConfig("c", false)
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	future = leader.raft.GetConfiguration()
+	if err := future.Error(); err != nil {
+		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
+	}
+	configServers = future.Configuration().Servers
+	if len(configServers) != 3 {
+		t.Fatalf("Expected 3 servers, got %d", len(configServers))
+	}
+}
+
+// Ensure if more than one server is started in bootstrap mode, the servers
+// eventually panic.
+func TestBootstrapMisconfiguration(t *testing.T) {
+	defer cleanupStorage(t)
+
+	bootstrapMisconfigInterval = 100 * time.Millisecond
+	defer func() {
+		bootstrapMisconfigInterval = defaultBootstrapMisconfigInterval
+	}()
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	s1Config := getTestConfig("a", true)
+	s1 := New(s1Config)
+	s1FatalLogger := &captureFatalLogger{}
+	s1.logger = s1FatalLogger
+	err := s1.Start()
+	require.NoError(t, err)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Configure second server on same cluster as a seed too. Servers should
+	// stop.
+	s2Config := getTestConfig("b", true)
+	s2 := New(s2Config)
+	s2FatalLogger := &captureFatalLogger{}
+	s2.logger = s2FatalLogger
+	err = s2.Start()
+	require.NoError(t, err)
+	defer s2.Stop()
+
+	// After a little while, servers should detect that they were both started
+	// with the bootstrap flag and exit.
+	ok := false
+	timeout := time.Now().Add(5 * time.Second)
+	for time.Now().Before(timeout) {
+		check := func(otherServer *Server, l *captureFatalLogger) bool {
+			l.Lock()
+			defer l.Unlock()
+			if l.fatal != "" {
+				if strings.Contains(l.fatal, otherServer.config.Clustering.ServerID) {
+					return true
+				}
+			}
+			return false
+		}
+		ok = check(s1, s2FatalLogger)
+		if ok {
+			ok = check(s2, s1FatalLogger)
+		}
+		if ok {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if !ok {
+		t.Fatal("Servers should have reported fatal error")
 	}
 }

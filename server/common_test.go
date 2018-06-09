@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 // Used by both testing.B and testing.T so need to use
@@ -29,4 +30,46 @@ func stackFatalf(t tLogger, f string, args ...interface{}) {
 	}
 
 	t.Fatalf("%s", strings.Join(lines, "\n"))
+}
+
+type dummyLogger struct {
+	sync.Mutex
+	msg string
+}
+
+func (d *dummyLogger) logf(format string, args ...interface{}) {
+	d.Lock()
+	d.msg = fmt.Sprintf(format, args...)
+	d.Unlock()
+}
+
+func (d *dummyLogger) log(args ...interface{}) {
+	d.Lock()
+	d.msg = fmt.Sprint(args...)
+	d.Unlock()
+}
+
+func (d *dummyLogger) Infof(format string, args ...interface{})  { d.logf(format, args...) }
+func (d *dummyLogger) Debugf(format string, args ...interface{}) { d.logf(format, args...) }
+func (d *dummyLogger) Errorf(format string, args ...interface{}) { d.logf(format, args...) }
+func (d *dummyLogger) Warnf(format string, args ...interface{})  { d.logf(format, args...) }
+func (d *dummyLogger) Fatalf(format string, args ...interface{}) { d.logf(format, args...) }
+func (d *dummyLogger) Debug(args ...interface{})                 { d.log(args...) }
+func (d *dummyLogger) Warn(args ...interface{})                  { d.log(args...) }
+func (d *dummyLogger) Info(args ...interface{})                  { d.log(args...) }
+func (d *dummyLogger) Fatal(args ...interface{})                 { d.log(args...) }
+
+type captureFatalLogger struct {
+	dummyLogger
+	fatal string
+}
+
+func (c *captureFatalLogger) Fatalf(format string, args ...interface{}) {
+	c.Lock()
+	// Normally the server would stop after first fatal error, so capture only
+	// one.
+	if c.fatal == "" {
+		c.fatal = fmt.Sprintf(format, args...)
+	}
+	c.Unlock()
 }

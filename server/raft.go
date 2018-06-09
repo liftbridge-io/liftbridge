@@ -18,11 +18,15 @@ import (
 )
 
 const (
-	defaultJoinRaftGroupTimeout = time.Second
-	defaultRaftJoinAttempts     = 30
+	defaultJoinRaftGroupTimeout       = time.Second
+	defaultRaftJoinAttempts           = 30
+	defaultBootstrapMisconfigInterval = 10 * time.Second
 )
 
-var raftJoinAttempts = defaultRaftJoinAttempts
+var (
+	raftJoinAttempts           = defaultRaftJoinAttempts
+	bootstrapMisconfigInterval = defaultBootstrapMisconfigInterval
+)
 
 // raftNode is a handle to a member in a Raft consensus group.
 type raftNode struct {
@@ -212,7 +216,7 @@ func (s *Server) detectBootstrapMisconfig() {
 		s.logger.Errorf("Error setting up bootstrap misconfiguration detection: %v", err)
 		return
 	}
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(bootstrapMisconfigInterval)
 	defer ticker.Stop()
 	for {
 		select {

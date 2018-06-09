@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/tylertreat/liftbridge/server/logger"
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
@@ -50,7 +51,7 @@ type Options struct {
 	MaxLogBytes          int64
 	Compact              bool
 	HWCheckpointInterval time.Duration
-	Logger               *log.Logger
+	Logger               logger.Logger
 }
 
 func New(opts Options) (*CommitLog, error) {

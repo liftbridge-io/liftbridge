@@ -19,6 +19,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
+	"github.com/tylertreat/liftbridge/server/logger"
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
@@ -31,7 +32,7 @@ type Server struct {
 	ncRaft             *nats.Conn
 	ncRepl             *nats.Conn
 	ncAcks             *nats.Conn
-	logger             *log.Logger
+	logger             logger.Logger
 	api                *grpc.Server
 	metadata           *metadataAPI
 	shutdownCh         chan struct{}
