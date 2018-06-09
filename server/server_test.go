@@ -39,6 +39,7 @@ func getTestConfig(id string, bootstrap bool) *Config {
 	config.Clustering.RaftLogging = true
 	config.LogLevel = uint32(log.DebugLevel)
 	config.NATS.Servers = []string{"nats://localhost:4222"}
+	config.NoLog = true
 	return config
 }
 

@@ -52,6 +52,9 @@ func New(config *Config) *Server {
 	}
 	logger := log.New()
 	logger.SetLevel(log.Level(config.LogLevel))
+	if config.NoLog {
+		logger.Out = ioutil.Discard
+	}
 	s := &Server{
 		config:     config,
 		logger:     logger,

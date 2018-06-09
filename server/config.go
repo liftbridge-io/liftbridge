@@ -49,6 +49,7 @@ type Config struct {
 	Host                string
 	Port                int
 	LogLevel            uint32
+	NoLog               bool
 	DataPath            string
 	BatchMaxMessages    int
 	BatchWaitTime       time.Duration
