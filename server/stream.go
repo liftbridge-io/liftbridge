@@ -215,6 +215,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	}
 	sub.SetPendingLimits(-1, -1)
 	s.sub = sub
+	s.srv.nc.Flush()
 
 	// Also subscribe to the stream replication subject.
 	sub, err = s.srv.ncRepl.Subscribe(s.getReplicationRequestInbox(), s.handleReplicationRequest)
@@ -223,6 +224,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	}
 	sub.SetPendingLimits(-1, -1)
 	s.leaderReplSub = sub
+	s.srv.ncRepl.Flush()
 
 	s.isLeading = true
 	s.isFollowing = false
@@ -753,7 +755,7 @@ func getEnvelope(data []byte) *client.Message {
 func natsToProtoMessage(msg *nats.Msg) (*proto.Message, *client.Message) {
 	envelope := getEnvelope(msg.Data)
 	m := &proto.Message{
-		MagicByte: 2,
+		MagicByte: 1,
 		Timestamp: time.Now(),
 		Headers:   make(map[string][]byte),
 	}
