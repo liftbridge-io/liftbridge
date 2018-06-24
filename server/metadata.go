@@ -170,22 +170,22 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMet
 	}
 	defer sub.Unsubscribe()
 
-	queryReq, err := (&proto.AdvertiseQueryRequest{
+	queryReq, err := (&proto.ServerInfoRequest{
 		Id: m.config.Clustering.ServerID,
 	}).Marshal()
 	if err != nil {
 		panic(err)
 	}
-	m.ncRaft.PublishRequest(m.advertiseInbox(), inbox, queryReq)
+	m.ncRaft.PublishRequest(m.serverInfoInbox(), inbox, queryReq)
 
 	for i := 0; i < numPeers; i++ {
 		msg, err := sub.NextMsgWithContext(ctx)
 		if err != nil {
 			break
 		}
-		queryResp := &proto.AdvertiseQueryResponse{}
+		queryResp := &proto.ServerInfoResponse{}
 		if err := queryResp.Unmarshal(msg.Data); err != nil {
-			m.logger.Warnf("Received invalid advertise query response: %v", err)
+			m.logger.Warnf("Received invalid server info response: %v", err)
 			continue
 		}
 		brokers = append(brokers, &client.Broker{
@@ -280,6 +280,9 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStream
 		err := resp.(error)
 		return status.New(codes.AlreadyExists, err.Error())
 	}
+
+	// Wait for leader to create stream (best effort).
+	m.waitForStreamLeader(ctx, req.Subject, req.Name, leader)
 
 	return nil
 }
@@ -633,6 +636,51 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 	}
 
 	return nil
+}
+
+func (m *metadataAPI) waitForStreamLeader(ctx context.Context, subject, name, leader string) {
+	if leader == m.config.Clustering.ServerID {
+		// If we're the stream leader, there's no need to make a status
+		// request. We can just apply a Raft barrier since the FSM is local.
+		if err := m.raft.Barrier(5 * time.Second).Error(); err != nil {
+			m.logger.Warnf("Failed to apply Raft barrier: %v", err)
+		}
+		return
+	}
+
+	req, err := (&proto.StreamStatusRequest{
+		Subject: subject,
+		Name:    name,
+	}).Marshal()
+	if err != nil {
+		panic(err)
+	}
+	inbox := fmt.Sprintf(streamStatusInboxTemplate, m.baseMetadataRaftSubject(), leader)
+	for i := 0; i < 5; i++ {
+		resp, err := m.ncRaft.RequestWithContext(ctx, inbox, req)
+		if err != nil {
+			m.logger.Warnf(
+				"Failed to get status for stream [subject=%s, name=%s] from leader %s: %v",
+				subject, name, leader, err)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		statusResp := &proto.StreamStatusResponse{}
+		if err := statusResp.Unmarshal(resp.Data); err != nil {
+			m.logger.Warnf(
+				"Invalid status response for stream [subject=%s, name=%s] from leader %s: %v",
+				subject, name, leader, err)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		if !statusResp.Exists || !statusResp.IsLeader {
+			// The leader hasn't finished creating the stream, so wait a bit
+			// and retry.
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		break
+	}
 }
 
 // selectRandomReplica selects a random replica from the list of replicas.

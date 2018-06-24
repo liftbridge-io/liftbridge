@@ -183,6 +183,12 @@ func (s *stream) GetLeader() (string, uint64) {
 	return s.Leader, s.LeaderEpoch
 }
 
+func (s *stream) IsLeader() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isLeading
+}
+
 // becomeLeader is called when the server has become the leader for this
 // stream.
 func (s *stream) becomeLeader(epoch uint64) error {

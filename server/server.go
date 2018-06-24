@@ -23,7 +23,11 @@ import (
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
-const stateFile = "liftbridge"
+const (
+	stateFile                 = "liftbridge"
+	serverInfoInboxTemplate   = "%s.info"
+	streamStatusInboxTemplate = "%s.status.%s"
+)
 
 type Server struct {
 	config             *Config
@@ -140,9 +144,14 @@ func (s *Server) Start() error {
 		return errors.Wrap(err, "failed to start Raft node")
 	}
 
-	if _, err := s.ncRaft.Subscribe(s.advertiseInbox(), s.handleAdvertiseQuery); err != nil {
+	if _, err := s.ncRaft.Subscribe(s.serverInfoInbox(), s.handleServerInfoRequest); err != nil {
 		s.Stop()
-		return errors.Wrap(err, "failed to subscribe to advertise subject")
+		return errors.Wrap(err, "failed to subscribe to server info subject")
+	}
+
+	if _, err := s.ncRaft.Subscribe(s.streamStatusInbox(), s.handleStreamStatusRequest); err != nil {
+		s.Stop()
+		return errors.Wrap(err, "failed to subscribe to stream status subject")
 	}
 
 	s.handleSignals()
@@ -448,14 +457,14 @@ func (s *Server) natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err err
 		nc.Opts.Name, sub.Subject, err)
 }
 
-func (s *Server) handleAdvertiseQuery(m *nats.Msg) {
+func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 	if m.Reply == "" {
-		s.logger.Warn("Dropping advertise query request with no reply inbox")
+		s.logger.Warn("Dropping server info request with no reply inbox")
 		return
 	}
-	req := &proto.AdvertiseQueryRequest{}
+	req := &proto.ServerInfoRequest{}
 	if err := req.Unmarshal(m.Data); err != nil {
-		s.logger.Warn("Dropping invalid advertise query request: %v", err)
+		s.logger.Warn("Dropping invalid server info request: %v", err)
 		return
 	}
 
@@ -464,7 +473,7 @@ func (s *Server) handleAdvertiseQuery(m *nats.Msg) {
 		return
 	}
 
-	data, err := (&proto.AdvertiseQueryResponse{
+	data, err := (&proto.ServerInfoResponse{
 		Id:   s.config.Clustering.ServerID,
 		Host: s.config.Host,
 		Port: int32(s.config.Port),
@@ -476,8 +485,39 @@ func (s *Server) handleAdvertiseQuery(m *nats.Msg) {
 	s.ncRaft.Publish(m.Reply, data)
 }
 
-func (s *Server) advertiseInbox() string {
-	return fmt.Sprintf("%s.advertise", s.baseMetadataRaftSubject())
+func (s *Server) handleStreamStatusRequest(m *nats.Msg) {
+	if m.Reply == "" {
+		s.logger.Warn("Dropping stream status request with no reply inbox")
+		return
+	}
+	req := &proto.StreamStatusRequest{}
+	if err := req.Unmarshal(m.Data); err != nil {
+		s.logger.Warn("Dropping invalid stream status request: %v", err)
+		return
+	}
+
+	stream := s.metadata.GetStream(req.Subject, req.Name)
+
+	resp := &proto.StreamStatusResponse{Exists: stream != nil}
+	if stream != nil {
+		resp.IsLeader = stream.IsLeader()
+	}
+
+	data, err := resp.Marshal()
+	if err != nil {
+		panic(err)
+	}
+
+	s.ncRaft.Publish(m.Reply, data)
+}
+
+func (s *Server) serverInfoInbox() string {
+	return fmt.Sprintf(serverInfoInboxTemplate, s.baseMetadataRaftSubject())
+}
+
+func (s *Server) streamStatusInbox() string {
+	return fmt.Sprintf(streamStatusInboxTemplate, s.baseMetadataRaftSubject(),
+		s.config.Clustering.ServerID)
 }
 
 func (s *Server) startGoroutine(f func()) {
