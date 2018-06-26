@@ -33,6 +33,22 @@ LOOP:
 	stackFatalf(t, "Cluster did not reach HW %d for [subject=%s, name=%s]", hw, subject, name)
 }
 
+func waitForStream(t *testing.T, timeout time.Duration, subject, name string, servers ...*Server) {
+	deadline := time.Now().Add(timeout)
+LOOP:
+	for time.Now().Before(deadline) {
+		for _, s := range servers {
+			stream := s.metadata.GetStream(subject, name)
+			if stream == nil {
+				time.Sleep(15 * time.Millisecond)
+				continue LOOP
+			}
+		}
+		return
+	}
+	stackFatalf(t, "Cluster did not create stream [subject=%s, name=%s]", subject, name)
+}
+
 // Ensure messages are replicated and the stream leader fails over when the
 // leader dies.
 func TestStreamLeaderFailover(t *testing.T) {

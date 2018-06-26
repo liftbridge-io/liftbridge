@@ -178,8 +178,8 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 
 	require.NoError(t, client.Close())
 
-	// TODO: remove once stream create race is fixed.
-	time.Sleep(time.Second)
+	// Wait for both nodes to create stream.
+	waitForStream(t, 5*time.Second, subject, name, s1, s2)
 
 	// Connect to the server that is the stream follower.
 	leader := getStreamLeader(t, 10*time.Second, subject, name, s1, s2)
