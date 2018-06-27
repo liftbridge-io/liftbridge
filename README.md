@@ -25,6 +25,10 @@ Liftbridge is a server that implements a durable, replicated message log for NAT
 
 Liftbridge was designed to bridge the gap between sophisticated log-based messaging systems like Apacha Kafka and Apache Pulsar and simpler, cloud-native systems. There is no ZooKeeper or other unwieldy dependencies, no JVM, no complicated API, and client libraries are just [gRPC](https://grpc.io/). More importantly, Liftbridge aims to extend NATS with a durable, at-least-once delivery mechanism that upholds the NATS tenets of simplicity, performance, and scalability. Unlike [NATS Streaming](https://github.com/nats-io/nats-streaming-server), it uses the core NATS protocol with optional extensions. This means it can be added to an existing NATS deployment to provide message durability with no code changes.
 
+### Why not NATS Streaming?
+
+[NATS Streaming](https://github.com/nats-io/nats-streaming-server) provides a similar log-based messaging solution. However, it is an entirely separate protocol built atop NATS. This means there is no "cross-talk" between messages published to NATS and messages published to NATS Streaming. Liftbridge was built to *augment* NATS with durability rather than providing a whole separate system.
+
 ### How does it scale?
 
 Liftbridge scales horizontally by adding more brokers to the cluster and creating more streams which are distributed among the cluster. In effect, this splits out message routing from storage and consumption, which allows Liftbridge to scale independently and eschew subject partitioning. Alternatively, streams can join a load-balance group, which effectively load balances a NATS subject among the streams in the group without affecting other streams.
