@@ -36,3 +36,8 @@ Liftbridge scales horizontally by adding more brokers to the cluster and creatin
 ### What about HA?
 
 High availability is achieved by replicating the streams. When a stream is created, the client specifies a `replicationFactor`, which determines the number of brokers to replicate the stream. Each stream has a leader who is responsible for handling reads and writes. Followers then replicate the log from the leader. If the leader fails, one of the followers can set up to replace it. The replication protocol closely resembles that of Kafka, so there is much more nuance to avoid data consistency problems. This will be documented in more detail in the near future.
+
+## Acknowledgements
+
+- [Derek Collison](https://twitter.com/derekcollison) and NATS team for building NATS and NATS Streaming and providing lots of inspiration.
+- [Travis Jeffery](https://twitter.com/travisjeffery) for building [Jocko](https://github.com/travisjeffery/jocko), a Go implementation of Kafka. The Liftbridge log implementation builds heavily upon the commit log from Jocko.
