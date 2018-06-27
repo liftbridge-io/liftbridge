@@ -19,7 +19,7 @@ Liftbridge provides lightweight, fault-tolerant message streams by implementing 
 
 ### What is Liftbridge?
 
-Liftbridge is a server that implements a durable, replicated message log for NATS. Clients create a named *stream* which is attached to a NATS subject. The stream then records messages on that subject to a replicated write-ahead log. Multiple consumers can read back from the same stream, and multiple streams can be attached to the same subject. Liftbridge basically provides a Kafka-like API in front of NATS.
+Liftbridge is a server that implements a durable, replicated message log for NATS. Clients create a named *stream* which is attached to a NATS subject. The stream then records messages on that subject to a replicated write-ahead log. Multiple consumers can read back from the same stream, and multiple streams can be attached to the same subject. Liftbridge provides a Kafka-like API in front of NATS.
 
 ### Why was it created?
 
@@ -27,7 +27,7 @@ Liftbridge was designed to bridge the gap between sophisticated log-based messag
 
 ### How does it scale?
 
-Liftbridge can scale horizontally by adding more brokers to the cluster and creating more streams which are distributed among the cluster. In effect, this splits out message routing from storage and consumption, which allows Liftbridge to scale independently and eschew subject partitioning. Alternatively, streams can join a load-balance group, which effectively load balances a NATS subject among the streams in the group without affecting other streams.
+Liftbridge scales horizontally by adding more brokers to the cluster and creating more streams which are distributed among the cluster. In effect, this splits out message routing from storage and consumption, which allows Liftbridge to scale independently and eschew subject partitioning. Alternatively, streams can join a load-balance group, which effectively load balances a NATS subject among the streams in the group without affecting other streams.
 
 ### What about HA?
 
