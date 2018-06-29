@@ -31,7 +31,7 @@ Liftbridge was designed to bridge the gap between sophisticated log-based messag
 
 ### How does it scale?
 
-Liftbridge scales horizontally by adding more brokers to the cluster and creating more streams which are distributed among the cluster. In effect, this splits out message routing from storage and consumption, which allows Liftbridge to scale independently and eschew subject partitioning. Alternatively, streams can join a load-balance group, which effectively load balances a NATS subject among the streams in the group without affecting other streams.
+Liftbridge scales horizontally by adding more brokers to the cluster and creating more streams which are distributed among the cluster. In effect, this splits out message routing from storage and consumption, which allows Liftbridge to scale independently and eschew subject partitioning. Alternatively, streams can join a load-balance group, which effectively load balances a NATS subject among the streams in the group without affecting delivery to other streams.
 
 ### What about HA?
 
