@@ -255,7 +255,7 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStream
 			Stream: &proto.Stream{
 				Subject:           req.Subject,
 				Name:              req.Name,
-				ConsumerGroup:     req.ConsumerGroup,
+				Group:             req.Group,
 				ReplicationFactor: req.ReplicationFactor,
 				Replicas:          replicas,
 				Leader:            leader,

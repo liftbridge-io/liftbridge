@@ -213,7 +213,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	s.startReplicating(epoch, s.stopLeader)
 
 	// Subscribe to the NATS subject and begin sequencing messages.
-	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.ConsumerGroup, func(m *nats.Msg) {
+	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.Group, func(m *nats.Msg) {
 		s.recvChan <- m
 	})
 	if err != nil {
