@@ -41,6 +41,18 @@ High availability is achieved by replicating the streams. When a stream is creat
 
 No, this project is early and still evolving.
 
+## TODO
+
+- [ ] Production-hardening
+- [ ] Log retention by message age
+- [ ] Log compaction by key
+- [ ] Consumer-offset checkpointing in the log
+- [ ] Minimum ISR support
+- [ ] Time-based message replay
+- [ ] Authentication and authorization
+- [ ] Embedded NATS server option
+- [ ] Better instrumentation/observability
+
 ## Acknowledgements
 
 - [Derek Collison](https://twitter.com/derekcollison) and NATS team for building NATS and NATS Streaming and providing lots of inspiration.
