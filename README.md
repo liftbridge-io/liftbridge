@@ -29,7 +29,9 @@ Liftbridge was designed to bridge the gap between sophisticated log-based messag
 
 ### Why not NATS Streaming?
 
-[NATS Streaming](https://github.com/nats-io/nats-streaming-server) provides a similar log-based messaging solution. However, it is an entirely separate protocol built atop NATS. This means there is no "cross-talk" between messages published to NATS and messages published to NATS Streaming. Liftbridge was built to *augment* NATS with durability rather than providing a whole separate system.
+[NATS Streaming](https://github.com/nats-io/nats-streaming-server) provides a similar log-based messaging solution. However, it is an entirely separate protocol built on top of NATS. NATS is simply the transport for NATS Streaming. This means there is no "cross-talk" between messages published to NATS and messages published to NATS Streaming.
+
+Liftbridge was built to *augment* NATS with durability rather than providing a completely separate system. NATS Streaming also provides a broader set of features such as durable subscriptions, queue groups, pluggable storage backends, and multiple fault-tolerance modes. Liftbridge aims to have a small API surface area.
 
 ### How does it scale?
 
@@ -46,6 +48,7 @@ No, this project is early and still evolving.
 ## TODO
 
 - [ ] Production-hardening
+- [ ] TLS support
 - [ ] Log retention by message age
 - [ ] Log compaction by key
 - [ ] Consumer-offset checkpointing in the log
