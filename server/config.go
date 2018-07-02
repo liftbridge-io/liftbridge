@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	defaultPort                    = 9292
 	defaultNamespace               = "liftbridge-default"
 	defaultReplicaMaxLagTime       = 10 * time.Second
 	defaultReplicaMaxLeaderTimeout = 10 * time.Second
@@ -60,7 +61,10 @@ type Config struct {
 }
 
 func NewDefaultConfig() *Config {
-	config := &Config{NATS: nats.GetDefaultOptions()}
+	config := &Config{
+		NATS: nats.GetDefaultOptions(),
+		Port: defaultPort,
+	}
 	config.LogLevel = uint32(log.InfoLevel)
 	config.BatchMaxMessages = defaultBatchMaxMessages
 	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
