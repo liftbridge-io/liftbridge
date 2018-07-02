@@ -15,7 +15,7 @@ import (
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	client "github.com/tylertreat/go-liftbridge/proto"
+	client "github.com/tylertreat/go-liftbridge/liftbridge-grpc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
@@ -48,6 +48,12 @@ type Server struct {
 	shutdown           bool
 	running            bool
 	goroutineWait      sync.WaitGroup
+}
+
+func RunServerWithConfig(config *Config) (*Server, error) {
+	server := New(config)
+	err := server.Start()
+	return server, err
 }
 
 func New(config *Config) *Server {

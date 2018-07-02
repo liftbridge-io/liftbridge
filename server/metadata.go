@@ -8,7 +8,7 @@ import (
 
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
-	client "github.com/tylertreat/go-liftbridge/proto"
+	client "github.com/tylertreat/go-liftbridge/liftbridge-grpc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

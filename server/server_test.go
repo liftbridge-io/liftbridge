@@ -46,8 +46,7 @@ func getTestConfig(id string, bootstrap bool, port int) *Config {
 }
 
 func runServerWithConfig(t *testing.T, config *Config) *Server {
-	server := New(config)
-	err := server.Start()
+	server, err := RunServerWithConfig(config)
 	require.NoError(t, err)
 	return server
 }

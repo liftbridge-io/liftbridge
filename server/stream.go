@@ -11,7 +11,7 @@ import (
 	"github.com/Workiva/go-datastructures/queue"
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
-	client "github.com/tylertreat/go-liftbridge/proto"
+	client "github.com/tylertreat/go-liftbridge/liftbridge-grpc"
 	"golang.org/x/net/context"
 
 	"github.com/tylertreat/liftbridge/server/commitlog"
