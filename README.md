@@ -2,6 +2,8 @@
 
 Liftbridge provides lightweight, fault-tolerant message streams by implementing a durable stream augmentation for the [NATS messaging system](https://nats.io). It extends NATS with a Kafka-like publish-subscribe log API that is highly available and horizontally scalable. Use Liftbridge as a simpler and lighter alternative to systems like Kafka and Pulsar or use it to add streaming semantics to an existing NATS deployment.
 
+See [this post](https://bravenewgeek.com/building-a-distributed-log-from-scratch-part-5-sketching-a-new-system/) for more context and some of the inspiration behind Liftbridge.
+
 ## Key Features
 
 - Log-based API for NATS
@@ -27,7 +29,9 @@ Liftbridge was designed to bridge the gap between sophisticated log-based messag
 
 ### Why not NATS Streaming?
 
-[NATS Streaming](https://github.com/nats-io/nats-streaming-server) provides a similar log-based messaging solution. However, it is an entirely separate protocol built atop NATS. This means there is no "cross-talk" between messages published to NATS and messages published to NATS Streaming. Liftbridge was built to *augment* NATS with durability rather than providing a whole separate system.
+[NATS Streaming](https://github.com/nats-io/nats-streaming-server) provides a similar log-based messaging solution. However, it is an entirely separate protocol built on top of NATS. NATS is simply the transport for NATS Streaming. This means there is no "cross-talk" between messages published to NATS and messages published to NATS Streaming.
+
+Liftbridge was built to *augment* NATS with durability rather than providing a completely separate system. NATS Streaming also provides a broader set of features such as durable subscriptions, queue groups, pluggable storage backends, and multiple fault-tolerance modes. Liftbridge aims to have a small API surface area.
 
 ### How does it scale?
 
@@ -36,6 +40,23 @@ Liftbridge scales horizontally by adding more brokers to the cluster and creatin
 ### What about HA?
 
 High availability is achieved by replicating the streams. When a stream is created, the client specifies a `replicationFactor`, which determines the number of brokers to replicate the stream. Each stream has a leader who is responsible for handling reads and writes. Followers then replicate the log from the leader. If the leader fails, one of the followers can set up to replace it. The replication protocol closely resembles that of Kafka, so there is much more nuance to avoid data consistency problems. This will be documented in more detail in the near future.
+
+### Is it production-ready?
+
+No, this project is early and still evolving.
+
+## TODO
+
+- [ ] Production-hardening
+- [ ] TLS support
+- [ ] Log retention by message age
+- [ ] Log compaction by key
+- [ ] Consumer-offset checkpointing in the log
+- [ ] Minimum ISR support
+- [ ] Time-based message replay
+- [ ] Authentication and authorization
+- [ ] Embedded NATS server option
+- [ ] Better instrumentation/observability
 
 ## Acknowledgements
 
