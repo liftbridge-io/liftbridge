@@ -431,17 +431,21 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 			offsets[len(offsets)-1],
 		)
 
+		// TODO: add support for acks configuration.
+
 		// If there is an AckInbox, add the pending message to the commit
 		// queue. If there isn't one, we don't care whether the message is
 		// committed or not.
 		for i, ackInbox := range ackBatch {
 			if ackInbox != "" {
+				msg := msgBatch[i]
 				if err := s.commitQueue.Put(&client.Ack{
 					StreamSubject: s.Subject,
 					StreamName:    s.Name,
-					MsgSubject:    string(msgBatch[i].Headers["subject"]),
+					MsgSubject:    string(msg.Headers["subject"]),
 					Offset:        offsets[i],
 					AckInbox:      ackInbox,
+					CorrelationID: msg.CorrelationId,
 				}); err != nil {
 					// This is very bad and should not happen.
 					panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
