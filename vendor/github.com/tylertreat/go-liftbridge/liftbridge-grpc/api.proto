@@ -61,14 +61,15 @@ message StreamMetadata {
 
 // Message represents a message from a stream.
 message Message {
-    int64               offset    = 1; // Monotonic message offset in the stream
-    bytes               key       = 2; // Message key
-    bytes               value     = 3; // Message payload
-    int64               timestamp = 4; // When the message was received by the broker
-    string              subject   = 5; // NATS subject message was received on
-    string              reply     = 6; // NATS reply subject
-    map<string, bytes>  headers   = 7; // Message headers
-    string              ackInbox  = 8; // NATS subject to publish acks to
+    int64               offset        = 1; // Monotonic message offset in the stream
+    bytes               key           = 2; // Message key
+    bytes               value         = 3; // Message payload
+    int64               timestamp     = 4; // When the message was received by the broker
+    string              subject       = 5; // NATS subject message was received on
+    string              reply         = 6; // NATS reply subject
+    map<string, bytes>  headers       = 7; // Message headers
+    string              ackInbox      = 8; // NATS subject to publish acks to
+    string              correlationId = 9; // User-supplied value to correlate acks to publishes
 }
 
 // Ack represents an acknowledgement that a message was committed to a stream.
@@ -78,6 +79,7 @@ message Ack {
     string msgSubject    = 3; // NATS subject the message was received on
     int64  offset        = 4; // Stream offset the message was committed to
     string ackInbox      = 5; // NATS subject to publish acks to
+    string correlationId = 6; // User-supplied value from the message
 }
 
 // API is the main Liftbridge server interface clients interact with.

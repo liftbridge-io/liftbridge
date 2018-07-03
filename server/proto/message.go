@@ -10,6 +10,10 @@ type Message struct {
 	Key        []byte
 	Value      []byte
 	Headers    map[string][]byte
+
+	// Transient fields
+	AckInbox      string
+	CorrelationID string
 }
 
 func (m *Message) Encode(e PacketEncoder) error {

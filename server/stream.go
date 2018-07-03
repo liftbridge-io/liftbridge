@@ -365,24 +365,17 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 		batchSize = s.srv.config.BatchMaxMessages
 		batchWait = s.srv.config.BatchWaitTime
 		msgBatch  = make([]*proto.Message, 0, batchSize)
-		ackBatch  = make([]string, 0, batchSize)
 	)
 	for {
 		msgBatch = msgBatch[:0]
-		ackBatch = ackBatch[:0]
 		select {
 		case <-stop:
 			return
 		case msg = <-recvChan:
 		}
 
-		m, envelope := natsToProtoMessage(msg)
+		m := natsToProtoMessage(msg)
 		msgBatch = append(msgBatch, m)
-		if envelope != nil {
-			ackBatch = append(ackBatch, envelope.AckInbox)
-		} else {
-			ackBatch = append(ackBatch, "")
-		}
 		remaining := batchSize - 1
 
 		// Fill the batch up to the max batch size or until the channel is
@@ -407,13 +400,8 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 
 			for i := 0; i < chanLen; i++ {
 				msg = <-recvChan
-				m, envelope := natsToProtoMessage(msg)
+				m := natsToProtoMessage(msg)
 				msgBatch = append(msgBatch, m)
-				if envelope != nil {
-					ackBatch = append(ackBatch, envelope.AckInbox)
-				} else {
-					ackBatch = append(ackBatch, "")
-				}
 			}
 			remaining -= chanLen
 		}
@@ -425,33 +413,32 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 			return
 		}
 
-		// Update this replica's latest offset.
-		s.updateISRLatestOffset(
-			s.srv.config.Clustering.ServerID,
-			offsets[len(offsets)-1],
-		)
-
 		// TODO: add support for acks configuration.
 
 		// If there is an AckInbox, add the pending message to the commit
 		// queue. If there isn't one, we don't care whether the message is
 		// committed or not.
-		for i, ackInbox := range ackBatch {
-			if ackInbox != "" {
-				msg := msgBatch[i]
+		for i, msg := range msgBatch {
+			if msg.AckInbox != "" {
 				if err := s.commitQueue.Put(&client.Ack{
 					StreamSubject: s.Subject,
 					StreamName:    s.Name,
 					MsgSubject:    string(msg.Headers["subject"]),
 					Offset:        offsets[i],
-					AckInbox:      ackInbox,
-					CorrelationID: msg.CorrelationId,
+					AckInbox:      msg.AckInbox,
+					CorrelationId: msg.CorrelationID,
 				}); err != nil {
 					// This is very bad and should not happen.
 					panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
 				}
 			}
 		}
+
+		// Update this replica's latest offset.
+		s.updateISRLatestOffset(
+			s.srv.config.Clustering.ServerID,
+			offsets[len(offsets)-1],
+		)
 	}
 }
 
@@ -743,7 +730,7 @@ func (s *stream) updateISRLatestOffset(replica string, offset int64) {
 	}
 }
 
-func getEnvelope(data []byte) *client.Message {
+func getMessage(data []byte) *client.Message {
 	if len(data) <= 4 {
 		return nil
 	}
@@ -757,25 +744,27 @@ func getEnvelope(data []byte) *client.Message {
 	return msg
 }
 
-func natsToProtoMessage(msg *nats.Msg) (*proto.Message, *client.Message) {
-	envelope := getEnvelope(msg.Data)
+func natsToProtoMessage(msg *nats.Msg) *proto.Message {
+	message := getMessage(msg.Data)
 	m := &proto.Message{
 		MagicByte: 1,
 		Timestamp: time.Now(),
 		Headers:   make(map[string][]byte),
 	}
-	if envelope != nil {
-		m.Key = envelope.Key
-		m.Value = envelope.Value
-		for key, value := range envelope.Headers {
+	if message != nil {
+		m.Key = message.Key
+		m.Value = message.Value
+		for key, value := range message.Headers {
 			m.Headers[key] = value
 		}
+		m.AckInbox = message.AckInbox
+		m.CorrelationID = message.CorrelationId
 	} else {
 		m.Value = msg.Data
 	}
 	m.Headers["subject"] = []byte(msg.Subject)
 	m.Headers["reply"] = []byte(msg.Reply)
-	return m, envelope
+	return m
 }
 
 func min(v []int64) (m int64) {
