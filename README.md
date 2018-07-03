@@ -135,3 +135,5 @@ be generated quite easily using the
   [Jocko](https://github.com/travisjeffery/jocko), a Go implementation of
   Kafka. The Liftbridge log implementation builds heavily upon the commit log
   from Jocko.
+- [Apache Kafka](http://kafka.apache.org) for inspiring large parts of the
+  design, particularly around replication.
