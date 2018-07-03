@@ -87,6 +87,32 @@ in more detail in the near future.
 
 No, this project is early and still evolving.
 
+## Installation
+
+Liftbridge uses [dep](https://github.com/golang/dep) to vendor dependencies.
+If you don't have dep installed, run the following:
+
+```
+$ brew install dep
+```
+
+To build and install Liftbridge from source, run the following:
+
+```
+$ go get github.com/tylertreat/liftbridge
+$ cd $GOPATH/src/github.com/tylertreat/liftbridge
+$ dep ensure
+$ go install
+```
+
+## Client Libraries
+
+Currently, there is only a high-level
+[Go client library](https://github.com/tylertreat/go-liftbridge) available.
+However, Liftbridge uses gRPC for its client API, so client libraries can
+be generated quite easily using the
+[Liftbridge protobuf definitions](https://github.com/tylertreat/liftbridge-grpc).
+
 ## TODO
 
 - [ ] Production-hardening
@@ -109,3 +135,5 @@ No, this project is early and still evolving.
   [Jocko](https://github.com/travisjeffery/jocko), a Go implementation of
   Kafka. The Liftbridge log implementation builds heavily upon the commit log
   from Jocko.
+- [Apache Kafka](http://kafka.apache.org) for inspiring large parts of the
+  design, particularly around replication.
