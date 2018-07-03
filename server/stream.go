@@ -359,9 +359,6 @@ func (s *stream) getReplicationRequestInbox() string {
 		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
 }
 
-// TODO: I think there is potential for a race where this broker loses
-// leadership for the stream while it's receiving messages here. Look into
-// this.
 func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan struct{}) {
 	var (
 		msg       *nats.Msg
