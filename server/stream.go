@@ -41,25 +41,23 @@ func (r *replica) updateLatestOffset(offset int64) (updated bool) {
 
 type stream struct {
 	*proto.Stream
-	mu             sync.RWMutex
-	sub            *nats.Subscription // Subscription to stream NATS subject
-	leaderReplSub  *nats.Subscription // Subscription for replication requests from followers
-	recvChan       chan *nats.Msg     // Channel leader places received messages on
-	log            CommitLog
-	srv            *Server
-	subjectHash    string
-	isLeading      bool
-	isFollowing    bool
-	replicas       map[string]struct{}
-	isr            map[string]*replica
-	replicators    map[string]*replicator
-	commitQueue    *queue.Queue
-	commitCheck    chan struct{}
-	leaderLastSeen time.Time
-	leaderEpoch    uint64
-	recovered      bool
-	stopFollower   chan struct{}
-	stopLeader     chan struct{}
+	mu            sync.RWMutex
+	sub           *nats.Subscription // Subscription to stream NATS subject
+	leaderReplSub *nats.Subscription // Subscription for replication requests from followers
+	recvChan      chan *nats.Msg     // Channel leader places received messages on
+	log           CommitLog
+	srv           *Server
+	subjectHash   string
+	isLeading     bool
+	isFollowing   bool
+	replicas      map[string]struct{}
+	isr           map[string]*replica
+	replicators   map[string]*replicator
+	commitQueue   *queue.Queue
+	commitCheck   chan struct{}
+	recovered     bool
+	stopFollower  chan struct{}
+	stopLeader    chan struct{}
 }
 
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {

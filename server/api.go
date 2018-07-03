@@ -12,10 +12,7 @@ import (
 	"github.com/tylertreat/liftbridge/server/commitlog"
 )
 
-const (
-	raftApplyTimeout     = 30 * time.Second
-	defaultFetchMaxBytes = 1048576
-)
+const raftApplyTimeout = 30 * time.Second
 
 type apiServer struct {
 	*Server

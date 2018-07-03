@@ -19,16 +19,10 @@ var (
 )
 
 const (
-	offsetWidth  = 4
-	offsetOffset = 0
-
-	positionWidth  = 4
-	positionOffset = offsetWidth
-
-	sizeWidth  = 4
-	sizeOffset = offsetWidth + positionWidth
-
-	entryWidth = offsetWidth + positionWidth + sizeWidth
+	offsetWidth   = 4
+	positionWidth = 4
+	sizeWidth     = 4
+	entryWidth    = offsetWidth + positionWidth + sizeWidth
 )
 
 type Index struct {

@@ -54,7 +54,6 @@ func Encode(e Encoder) ([]byte, error) {
 
 type LenEncoder struct {
 	Length int
-	stack  []int
 }
 
 func (e *LenEncoder) PutBool(in bool) {

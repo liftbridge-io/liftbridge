@@ -1,7 +1,6 @@
 package commitlog_test
 
 import (
-	"bytes"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -181,12 +180,6 @@ func TestCleaner(t *testing.T) {
 	require.Equal(t, 1, len(l.Segments()))
 	for i, s := range l.Segments() {
 		require.NotEqual(t, s, segments[i])
-	}
-}
-
-func check(t require.TestingT, got, want []byte) {
-	if !bytes.Equal(got, want) {
-		t.Errorf("got = %s, want %s", string(got), string(want))
 	}
 }
 

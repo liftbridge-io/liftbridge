@@ -9,7 +9,7 @@ import (
 	"github.com/nats-io/go-nats"
 	"github.com/stretchr/testify/require"
 	"github.com/tylertreat/go-liftbridge"
-	"github.com/tylertreat/go-liftbridge/proto"
+	"github.com/tylertreat/go-liftbridge/liftbridge-grpc"
 	"golang.org/x/net/context"
 )
 
@@ -83,12 +83,15 @@ func TestStreamLeaderFailover(t *testing.T) {
 	getMetadataLeader(t, 10*time.Second, servers...)
 
 	client, err := liftbridge.Connect("localhost:5050", "localhost:5051", "localhost:5052")
-	defer client.Close()
 	require.NoError(t, err)
+	defer client.Close()
 
-	name := "foo"
-	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name, 3)
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 3,
+	}
+	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
 
 	num := 100
@@ -122,7 +125,8 @@ func TestStreamLeaderFailover(t *testing.T) {
 
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewEnvelope(expected[i].Key, expected[i].Value, acks))
+		err = nc.Publish(stream.Subject,
+			liftbridge.NewEnvelope(expected[i].Key, expected[i].Value, acks))
 		require.NoError(t, err)
 	}
 
@@ -136,18 +140,19 @@ func TestStreamLeaderFailover(t *testing.T) {
 	// Make sure we can play back the log.
 	i := 0
 	ch := make(chan struct{})
-	err = client.Subscribe(context.Background(), subject, name, 0, func(msg *proto.Message, err error) {
-		if i == num && err != nil {
-			return
-		}
-		require.NoError(t, err)
-		expect := expected[i]
-		assertMsg(t, expect, msg)
-		i++
-		if i == num {
-			close(ch)
-		}
-	})
+	err = client.Subscribe(context.Background(), stream.Subject, stream.Name,
+		0, func(msg *proto.Message, err error) {
+			if i == num && err != nil {
+				return
+			}
+			require.NoError(t, err)
+			expect := expected[i]
+			assertMsg(t, expect, msg)
+			i++
+			if i == num {
+				close(ch)
+			}
+		})
 	require.NoError(t, err)
 
 	select {
@@ -157,10 +162,10 @@ func TestStreamLeaderFailover(t *testing.T) {
 	}
 
 	// Wait for HW to update on followers.
-	waitForHW(t, 5*time.Second, subject, name, int64(num-1), servers...)
+	waitForHW(t, 5*time.Second, stream.Subject, stream.Name, int64(num-1), servers...)
 
 	// Kill the stream leader.
-	leader := getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	leader := getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, servers...)
 	leader.Stop()
 	followers := []*Server{}
 	for _, s := range servers {
@@ -171,23 +176,24 @@ func TestStreamLeaderFailover(t *testing.T) {
 	}
 
 	// Wait for new leader to be elected.
-	leader = getStreamLeader(t, 10*time.Second, subject, name, followers...)
+	getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, followers...)
 
 	// Make sure the new leader's log is consistent.
 	i = 0
 	ch = make(chan struct{})
-	err = client.Subscribe(context.Background(), subject, name, 0, func(msg *proto.Message, err error) {
-		if i == num && err != nil {
-			return
-		}
-		require.NoError(t, err)
-		expect := expected[i]
-		assertMsg(t, expect, msg)
-		i++
-		if i == num {
-			close(ch)
-		}
-	})
+	err = client.Subscribe(context.Background(), stream.Subject, stream.Name,
+		0, func(msg *proto.Message, err error) {
+			if i == num && err != nil {
+				return
+			}
+			require.NoError(t, err)
+			expect := expected[i]
+			assertMsg(t, expect, msg)
+			i++
+			if i == num {
+				close(ch)
+			}
+		})
 	require.NoError(t, err)
 
 	select {
