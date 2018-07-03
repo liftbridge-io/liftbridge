@@ -105,6 +105,14 @@ $ dep ensure
 $ go install
 ```
 
+## Client Libraries
+
+Currently, there is only a high-level
+[Go client library](https://github.com/tylertreat/go-liftbridge) available.
+However, Liftbridge uses gRPC for its client API, so client libraries can
+be generated quite easily using the
+[Liftbridge protobuf definitions](https://github.com/tylertreat/liftbridge-grpc).
+
 ## TODO
 
 - [ ] Production-hardening
