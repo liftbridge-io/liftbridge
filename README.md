@@ -122,7 +122,12 @@ be generated quite easily using the
 - [ ] Log compaction by key
 - [ ] Consumer-offset checkpointing in the log
 - [ ] Minimum ISR support
-- [ ] Time-based message replay
+- [ ] Additional subscribe semantics
+  - [ ] Oldest
+  - [ ] Newest
+  - [ ] New messages only
+  - [ ] By timestamp
+  - [ ] By time delta
 - [ ] Authentication and authorization
 - [ ] Embedded NATS server option
 - [ ] Better instrumentation/observability
