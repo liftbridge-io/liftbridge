@@ -16,7 +16,10 @@ import (
 	"github.com/tylertreat/liftbridge/server/proto"
 )
 
-const defaultPropagateTimeout = 5 * time.Second
+const (
+	defaultPropagateTimeout       = 5 * time.Second
+	maxReplicationFactor    int32 = -1
+)
 
 var ErrStreamExists = errors.New("stream already exists")
 
@@ -495,6 +498,9 @@ func (m *metadataAPI) getStreamReplicas(replicationFactor int32) ([]string, *sta
 	ids, err := m.getClusterServerIDs()
 	if err != nil {
 		return nil, status.New(codes.Internal, err.Error())
+	}
+	if replicationFactor == maxReplicationFactor {
+		replicationFactor = int32(len(ids))
 	}
 	if replicationFactor <= 0 {
 		return nil, status.Newf(codes.InvalidArgument, "Invalid replicationFactor %d", replicationFactor)
