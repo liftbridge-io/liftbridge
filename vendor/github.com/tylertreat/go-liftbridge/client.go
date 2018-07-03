@@ -27,10 +27,9 @@ import (
 	"github.com/tylertreat/go-liftbridge/liftbridge-grpc"
 )
 
-// TODO: make these configurable.
 const (
-	maxConnsPerBroker = 2
-	keepAliveTime     = 30 * time.Second
+	defaultMaxConnsPerBroker = 2
+	defaultKeepAliveTime     = 30 * time.Second
 )
 
 var (
@@ -83,11 +82,12 @@ type Client interface {
 	CreateStream(ctx context.Context, stream StreamInfo) error
 
 	// Subscribe creates an ephemeral subscription for the given stream. It
-	// begins receiving messages starting at the given offset and waits for new
-	// messages when it reaches the end of the stream. It returns an
-	// ErrNoSuchStream if the given stream does not exist. Use a cancelable
-	// Context to close a subscription.
-	Subscribe(ctx context.Context, subject, name string, offset int64, handler Handler) error
+	// begins receiving messages starting at the configured position and waits
+	// for new messages when it reaches the end of the stream. The default
+	// start position is the end of the stream. It returns an ErrNoSuchStream
+	// if the given stream does not exist. Use a cancelable Context to close a
+	// subscription.
+	Subscribe(ctx context.Context, subject, name string, handler Handler, opts ...SubscriptionOption) error
 }
 
 // client implements the Client interface. It maintains a pool of connections
@@ -101,26 +101,38 @@ type client struct {
 	brokerAddrs map[string]string
 	pools       map[string]*connPool
 	addrs       map[string]struct{}
+	opts        ClientOptions
 }
 
-// Connect creates a Client connection for the given Liftbridge cluster.
-// Multiple addresses can be provided. Connect will use whichever it connects
-// successfully to first in random order. The Client will use the pool of
-// addresses for failover purposes. Note that only one seed address needs to be
-// provided as the Client will discover the other brokers when fetching
-// metadata for the cluster.
-// TODO: change to use options pattern.
-func Connect(addrs ...string) (Client, error) {
-	if len(addrs) == 0 {
+// ClientOptions are used to control the Client configuration.
+type ClientOptions struct {
+	// Brokers it the set of hosts the client will use when attempting to
+	// connect.
+	Brokers []string
+
+	// MaxConnsPerBroker is the maximum number of connections to pool for a
+	// given broker in the cluster. The default is 2.
+	MaxConnsPerBroker int
+
+	// KeepAliveTime is the amount of time a pooled connection can be idle
+	// before it is closed and removed from the pool. The default is 30
+	// seconds.
+	KeepAliveTime time.Duration
+}
+
+// Connect will attempt to connect to a Liftbridge server with multiple
+// options.
+func (o ClientOptions) Connect() (Client, error) {
+	if len(o.Brokers) == 0 {
 		return nil, errors.New("no addresses provided")
 	}
 	var (
 		conn *grpc.ClientConn
 		err  error
 	)
-	perm := rand.Perm(len(addrs))
+	perm := rand.Perm(len(o.Brokers))
 	for _, i := range perm {
-		addr := addrs[i]
+		addr := o.Brokers[i]
 		conn, err = grpc.Dial(addr, grpc.WithInsecure())
 		if err == nil {
 			break
@@ -129,8 +141,8 @@ func Connect(addrs ...string) (Client, error) {
 	if conn == nil {
 		return nil, err
 	}
-	addrMap := make(map[string]struct{}, len(addrs))
-	for _, addr := range addrs {
+	addrMap := make(map[string]struct{}, len(o.Brokers))
+	for _, addr := range o.Brokers {
 		addrMap[addr] = struct{}{}
 	}
 	c := &client{
@@ -138,11 +150,60 @@ func Connect(addrs ...string) (Client, error) {
 		apiClient: proto.NewAPIClient(conn),
 		pools:     make(map[string]*connPool),
 		addrs:     addrMap,
+		opts:      o,
 	}
 	if err := c.updateMetadata(); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+// DefaultClientOptions returns the default configuration options for the
+// client.
+func DefaultClientOptions() ClientOptions {
+	return ClientOptions{
+		MaxConnsPerBroker: defaultMaxConnsPerBroker,
+		KeepAliveTime:     defaultKeepAliveTime,
+	}
+}
+
+// ClientOption is a function on the ClientOptions for a connection. These are
+// used to configure particular client options.
+type ClientOption func(*ClientOptions) error
+
+// MaxConnsPerBroker is a ClientOption to set the maximum number of connections
+// to pool for a given broker in the cluster.
+func MaxConnsPerBroker(max int) ClientOption {
+	return func(o *ClientOptions) error {
+		o.MaxConnsPerBroker = max
+		return nil
+	}
+}
+
+// KeepAliveTime is a ClientOption to set the amount of time a pooled
+// connection can be idle before it is closed and removed from the pool.
+func KeepAliveTime(keepAlive time.Duration) ClientOption {
+	return func(o *ClientOptions) error {
+		o.KeepAliveTime = keepAlive
+		return nil
+	}
+}
+
+// Connect creates a Client connection for the given Liftbridge cluster.
+// Multiple addresses can be provided. Connect will use whichever it connects
+// successfully to first in random order. The Client will use the pool of
+// addresses for failover purposes. Note that only one seed address needs to be
+// provided as the Client will discover the other brokers when fetching
+// metadata for the cluster.
+func Connect(addrs []string, options ...ClientOption) (Client, error) {
+	opts := DefaultClientOptions()
+	opts.Brokers = addrs
+	for _, opt := range options {
+		if err := opt(&opts); err != nil {
+			return nil, err
+		}
+	}
+	return opts.Connect()
 }
 
 // Close the client connection.
@@ -176,13 +237,52 @@ func (c *client) CreateStream(ctx context.Context, info StreamInfo) error {
 	return err
 }
 
+// SubscriptionOptions are used to control a subscription's behavior.
+type SubscriptionOptions struct {
+	// StartPosition controls where to begin consuming from in the stream.
+	StartPosition proto.StartPosition
+
+	// StartOffset sets the stream offset to begin consuming from.
+	StartOffset int64
+}
+
+// SubscriptionOption is a function on the SubscriptionOptions for a
+// subscription. These are used to configure particular subscription options.
+type SubscriptionOption func(*SubscriptionOptions) error
+
+// StartAt sets the desired start position for the stream.
+func StartAt(start proto.StartPosition) SubscriptionOption {
+	return func(o *SubscriptionOptions) error {
+		o.StartPosition = start
+		return nil
+	}
+}
+
+// StartAtOffset sets the desired start offset to begin consuming from in the
+// stream.
+func StartAtOffset(offset int64) SubscriptionOption {
+	return func(o *SubscriptionOptions) error {
+		o.StartPosition = proto.StartPosition_Offset
+		o.StartOffset = offset
+		return nil
+	}
+}
+
 // Subscribe creates an ephemeral subscription for the given stream. It begins
-// receiving messages starting at the given offset and waits for new messages
-// when it reaches the end of the stream. It returns an ErrNoSuchStream if the
-// given stream does not exist. Use a cancelable Context to close a
-// subscription.
-// TODO: change to use options pattern.
-func (c *client) Subscribe(ctx context.Context, subject, name string, offset int64, handler Handler) (err error) {
+// receiving messages starting at the configured position and waits for new
+// messages when it reaches the end of the stream. The default start position
+// is the end of the stream. It returns an ErrNoSuchStream if the given stream
+// does not exist. Use a cancelable Context to close a subscription.
+func (c *client) Subscribe(ctx context.Context, subject, name string, handler Handler,
+	options ...SubscriptionOption) (err error) {
+
+	opts := &SubscriptionOptions{}
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return err
+		}
+	}
+
 	var (
 		pool   *connPool
 		addr   string
@@ -203,9 +303,10 @@ func (c *client) Subscribe(ctx context.Context, subject, name string, offset int
 		var (
 			client = proto.NewAPIClient(conn)
 			req    = &proto.SubscribeRequest{
-				Subject: subject,
-				Name:    name,
-				Offset:  offset,
+				Subject:       subject,
+				Name:          name,
+				StartPosition: opts.StartPosition,
+				StartOffset:   opts.StartOffset,
 			}
 		)
 		stream, err = client.Subscribe(ctx, req)
@@ -318,7 +419,7 @@ func (c *client) getPoolAndAddr(subject, name string) (*connPool, string, error)
 	}
 	pool, ok := c.pools[addr]
 	if !ok {
-		pool = newConnPool(maxConnsPerBroker, keepAliveTime)
+		pool = newConnPool(c.opts.MaxConnsPerBroker, c.opts.KeepAliveTime)
 		c.pools[addr] = pool
 	}
 	return pool, addr, nil

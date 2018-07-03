@@ -82,7 +82,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	servers := []*Server{s1, s2, s3}
 	getMetadataLeader(t, 10*time.Second, servers...)
 
-	client, err := liftbridge.Connect("localhost:5050", "localhost:5051", "localhost:5052")
+	client, err := liftbridge.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -141,7 +141,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	i := 0
 	ch := make(chan struct{})
 	err = client.Subscribe(context.Background(), stream.Subject, stream.Name,
-		0, func(msg *proto.Message, err error) {
+		func(msg *proto.Message, err error) {
 			if i == num && err != nil {
 				return
 			}
@@ -182,7 +182,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	i = 0
 	ch = make(chan struct{})
 	err = client.Subscribe(context.Background(), stream.Subject, stream.Name,
-		0, func(msg *proto.Message, err error) {
+		func(msg *proto.Message, err error) {
 			if i == num && err != nil {
 				return
 			}

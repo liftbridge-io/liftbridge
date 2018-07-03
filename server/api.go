@@ -36,7 +36,8 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 }
 
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
-	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, offset=%d]", req.Subject, req.Name, req.Offset)
+	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, start=%s, offset=%d]",
+		req.Subject, req.Name, req.StartPosition, req.StartOffset)
 	stream := a.metadata.GetStream(req.Subject, req.Name)
 	if stream == nil {
 		a.logger.Errorf("api: Failed to subscribe to stream [subject=%s, name=%s]: no such stream",
@@ -98,7 +99,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
-		reader, err = stream.log.NewReaderCommitted(ctx, req.Offset)
+		reader, err = stream.log.NewReaderCommitted(ctx, req.StartOffset)
 	)
 	if err != nil {
 		return nil, nil, status.New(codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))

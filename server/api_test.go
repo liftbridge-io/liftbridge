@@ -43,7 +43,7 @@ func TestCreateStream(t *testing.T) {
 
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect("localhost:5050")
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 
 	stream := liftbridge.StreamInfo{
@@ -81,7 +81,7 @@ func TestCreateStreamPropagate(t *testing.T) {
 	getMetadataLeader(t, 10*time.Second, s1, s2)
 
 	// Connect and send the request to the follower.
-	client, err := liftbridge.Connect("localhost:5050")
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 
 	stream := liftbridge.StreamInfo{
@@ -113,7 +113,7 @@ func TestCreateStreamInsufficientReplicas(t *testing.T) {
 
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect("localhost:5050")
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 
 	stream := liftbridge.StreamInfo{
@@ -177,7 +177,7 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	getMetadataLeader(t, 10*time.Second, s1, s2)
 
 	// Create the stream.
-	client, err := liftbridge.Connect("localhost:5050")
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 
 	info := liftbridge.StreamInfo{
@@ -232,7 +232,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect("localhost:5050")
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 
 	info := liftbridge.StreamInfo{
@@ -255,7 +255,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	i := 0
 	ch1 := make(chan struct{})
 	ch2 := make(chan struct{})
-	err = client.Subscribe(context.Background(), info.Subject, info.Name, 0, func(msg *proto.Message, err error) {
+	err = client.Subscribe(context.Background(), info.Subject, info.Name, func(msg *proto.Message, err error) {
 		if i == num+5 && err != nil {
 			return
 		}
@@ -333,13 +333,13 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	}
 
 	// Make sure we can play back the log.
-	client2, err := liftbridge.Connect("localhost:5050")
+	client2, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client2.Close()
 	i = num
 	ch1 = make(chan struct{})
 	err = client2.Subscribe(context.Background(), info.Subject, info.Name,
-		int64(num), func(msg *proto.Message, err error) {
+		func(msg *proto.Message, err error) {
 			if i == num+5 && err != nil {
 				return
 			}
@@ -350,7 +350,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 			if i == num+5 {
 				close(ch1)
 			}
-		})
+		}, liftbridge.StartAtOffset(int64(num)))
 	require.NoError(t, err)
 
 	select {
