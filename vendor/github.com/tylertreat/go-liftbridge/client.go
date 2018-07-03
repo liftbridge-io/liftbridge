@@ -13,7 +13,6 @@
 package liftbridge
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -89,54 +88,6 @@ type Client interface {
 	// ErrNoSuchStream if the given stream does not exist. Use a cancelable
 	// Context to close a subscription.
 	Subscribe(ctx context.Context, subject, name string, offset int64, handler Handler) error
-}
-
-// NewMessage returns a serialized message for the given key-value pair.
-// Message keys are optional, so you may pass in nil for the key.
-// TODO: change to use options pattern.
-func NewMessage(key, value []byte, ackInbox string) []byte {
-	msg := &proto.Message{
-		Key:      key,
-		Value:    value,
-		AckInbox: ackInbox,
-	}
-	m, err := msg.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	buf := make([]byte, envelopeCookieLen+len(m))
-	copy(buf[0:], envelopeCookie)
-	copy(buf[envelopeCookieLen:], m)
-	return buf
-}
-
-// UnmarshalAck deserializes an Ack from the given byte slice. It returns an
-// error if the given data is not actually an Ack.
-func UnmarshalAck(data []byte) (*proto.Ack, error) {
-	var (
-		ack = &proto.Ack{}
-		err = ack.Unmarshal(data)
-	)
-	return ack, err
-}
-
-// UnmarshalMessage deserializes a message from the given byte slice.  It
-// returns a bool indicating if the given data was actually a Message or not.
-func UnmarshalMessage(data []byte) (*proto.Message, bool) {
-	if len(data) <= envelopeCookieLen {
-		return nil, false
-	}
-	if !bytes.Equal(data[:envelopeCookieLen], envelopeCookie) {
-		return nil, false
-	}
-	var (
-		msg = &proto.Message{}
-		err = msg.Unmarshal(data[envelopeCookieLen:])
-	)
-	if err != nil {
-		return nil, false
-	}
-	return msg, true
 }
 
 // client implements the Client interface. It maintains a pool of connections

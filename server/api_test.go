@@ -292,8 +292,8 @@ func TestStreamPublishSubscribe(t *testing.T) {
 
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(info.Subject,
-			liftbridge.NewEnvelope(expected[i].Key, expected[i].Value, acks))
+		err = nc.Publish(info.Subject, liftbridge.NewMessage(expected[i].Value,
+			liftbridge.MessageOptions{Key: expected[i].Key, AckInbox: acks}))
 		require.NoError(t, err)
 	}
 
@@ -313,8 +313,8 @@ func TestStreamPublishSubscribe(t *testing.T) {
 		})
 	}
 	for i := 0; i < 5; i++ {
-		err = nc.Publish(info.Subject,
-			liftbridge.NewEnvelope(expected[i+num].Key, expected[i+num].Value, acks))
+		err = nc.Publish(info.Subject, liftbridge.NewMessage(expected[i+num].Value,
+			liftbridge.MessageOptions{Key: expected[i+num].Key, AckInbox: acks}))
 		require.NoError(t, err)
 	}
 

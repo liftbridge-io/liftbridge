@@ -125,8 +125,8 @@ func TestStreamLeaderFailover(t *testing.T) {
 
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject,
-			liftbridge.NewEnvelope(expected[i].Key, expected[i].Value, acks))
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage(expected[i].Value,
+			liftbridge.MessageOptions{Key: expected[i].Key, AckInbox: acks}))
 		require.NoError(t, err)
 	}
 
