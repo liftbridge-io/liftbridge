@@ -1,0 +1,102 @@
+# Gopkg.toml example
+#
+# Refer to https://github.com/golang/dep/blob/master/docs/Gopkg.toml.md
+# for detailed Gopkg.toml documentation.
+#
+# required = ["github.com/user/thing/cmd/thing"]
+# ignored = ["github.com/user/project/pkgX", "bitbucket.org/user/project/pkgA/pkgY"]
+#
+# [[constraint]]
+#   name = "github.com/user/project"
+#   version = "1.0.0"
+#
+# [[constraint]]
+#   name = "github.com/user/project2"
+#   branch = "dev"
+#   source = "github.com/myfork/project2"
+#
+# [[override]]
+#   name = "github.com/x/y"
+#   version = "2.4.0"
+#
+# [prune]
+#   non-go = false
+#   go-tests = true
+#   unused-packages = true
+
+
+[[constraint]]
+  name = "github.com/Workiva/go-datastructures"
+  version = "1.0.48"
+
+[[constraint]]
+  name = "github.com/cespare/xxhash"
+  version = "1.0.0"
+
+[[constraint]]
+  name = "github.com/golang/protobuf"
+  version = "1.1.0"
+
+[[constraint]]
+  name = "github.com/hashicorp/raft"
+  version = "1.0.0"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/hashicorp/raft-boltdb"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/natefinch/atomic"
+
+[[constraint]]
+  name = "github.com/nats-io/gnatsd"
+  version = "1.1.0"
+
+[[constraint]]
+  name = "github.com/nats-io/go-nats"
+  version = "1.5.0"
+
+[[constraint]]
+  name = "github.com/nats-io/nuid"
+  version = "1.0.0"
+
+[[constraint]]
+  name = "github.com/pkg/errors"
+  version = "0.8.0"
+
+[[constraint]]
+  name = "github.com/sirupsen/logrus"
+  version = "1.0.5"
+
+[[constraint]]
+  name = "github.com/stretchr/testify"
+  version = "1.2.2"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/tylertreat/go-liftbridge"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/tylertreat/nats-on-a-log"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/tysontate/gommap"
+
+[[constraint]]
+  name = "github.com/urfave/cli"
+  version = "1.20.0"
+
+[[constraint]]
+  branch = "master"
+  name = "golang.org/x/net"
+
+[[constraint]]
+  name = "google.golang.org/grpc"
+  version = "1.13.0"
+
+[prune]
+  go-tests = true
+  unused-packages = true
