@@ -128,6 +128,9 @@ be generated quite easily using the
   - [ ] New messages only
   - [ ] By timestamp
   - [ ] By time delta
+- [ ] Single-stream fanout
+  - [ ] Opt-in ISR replica reads
+  - [ ] Read-replica support
 - [ ] Authentication and authorization
 - [ ] Embedded NATS server option
 - [ ] Better instrumentation/observability
