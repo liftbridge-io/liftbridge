@@ -11,6 +11,16 @@ See [this
 post](https://bravenewgeek.com/building-a-distributed-log-from-scratch-part-5-sketching-a-new-system/)
 for more context and some of the inspiration behind Liftbridge.
 
+## Table of Contents
+
+- [Key Features](#key-features)
+- [FAQ](#faq)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Client Libraries](#client-libraries)
+- [TODO](#todo)
+- [Acknowledgements](#acknowledgements)
+
 ## Key Features
 
 - Log-based API for NATS
