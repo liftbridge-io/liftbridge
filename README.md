@@ -29,11 +29,11 @@ for more context and some of the inspiration behind Liftbridge.
 ### What is Liftbridge?
 
 Liftbridge is a server that implements a durable, replicated message log for
-NATS. Clients create a named *stream* which is attached to a NATS subject. The
-stream then records messages on that subject to a replicated write-ahead log.
-Multiple consumers can read back from the same stream, and multiple streams can
-be attached to the same subject. Liftbridge provides a Kafka-like API in front
-of NATS.
+[NATS](https://github.com/nats-io/gnatsd). Clients create a named *stream*
+which is attached to a NATS subject. The stream then records messages on that
+subject to a replicated write-ahead log. Multiple consumers can read back
+from the same stream, and multiple streams can be attached to the same
+subject. Liftbridge provides a Kafka-like API in front of NATS.
 
 ### Why was it created?
 
@@ -103,6 +103,48 @@ $ go get github.com/tylertreat/liftbridge
 $ cd $GOPATH/src/github.com/tylertreat/liftbridge
 $ dep ensure
 $ go install
+```
+
+## Quick Start
+
+Liftbridge currently relies on an externally running
+[NATS server](https://github.com/nats-io/gnatsd). By default, it will connect
+to a NATS server running on localhost. The `--nats-server` flag allows
+configuring the NATS server(s) to connect to.
+
+Also note that Liftbridge is clustered by default and relies on Raft for
+coordination. This means a cluster of three or more servers is normally run
+for high availability, and Raft manages electing a leader. A single server is
+actually a cluster of size 1. For safety purposes, the server cannot elect
+itself as leader without using the `--raft-bootstrap-seed` flag, which will
+indicate to the server to elect itself as leader. This will start a single
+server that can begin handling requests. **Use this flag with caution as it should
+only be set on one server when bootstrapping a cluster.**
+
+```
+$ liftbridge --raft-bootstrap-seed
+INFO[2018-07-05 16:29:44] Server ID: kn3MGwCL3TKRNyGS9bZLgH
+INFO[2018-07-05 16:29:44] Namespace: liftbridge-default
+INFO[2018-07-05 16:29:44] Starting server on :9292...
+INFO[2018-07-05 16:29:46] Server became metadata leader, performing leader promotion actions
+```
+
+Once a leader has been elected, other servers will automatically join the cluster.
+We set the `--data-dir` and `--port` flags to avoid clobbering the first server.
+
+```
+$ liftbridge --data-dir /tmp/liftbridge/server-2 --port=9293
+INFO[2018-07-05 16:39:21] Server ID: 32CpplyaA031EFEW1DQzx6
+INFO[2018-07-05 16:39:21] Namespace: liftbridge-default
+INFO[2018-07-05 16:39:21] Starting server on :9293...
+```
+
+We can also bootstrap a cluster by providing the explicit cluster configuration.
+To do this, we provide the IDs of the participating peers in the cluster using the
+`--raft-bootstrap-peers` flag. Raft will then handle electing a leader.
+
+```
+$ liftbridge --raft-bootstrap-peers server-2,server-3
 ```
 
 ## Client Libraries
