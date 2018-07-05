@@ -161,6 +161,13 @@ To do this, we provide the IDs of the participating peers in the cluster using t
 $ liftbridge --raft-bootstrap-peers server-2,server-3
 ```
 
+Liftbridge can be fully configured using a configuration file which is passed
+in using the `--config` flag.
+
+```
+$ liftbridge --config liftbridge.conf
+```
+
 ## Client Libraries
 
 Currently, there is only a high-level
@@ -171,6 +178,11 @@ be generated quite easily using the
 
 ## TODO
 
+- [ ] Documentation
+  - [ ] Config file format
+  - [ ] Cluster bootstrapping
+  - [ ] Core concepts
+  - [ ] Replication protocol
 - [ ] Production-hardening
 - [ ] TLS support
 - [ ] Configurable acks
