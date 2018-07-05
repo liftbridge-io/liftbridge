@@ -63,6 +63,11 @@ func New(config *Config) *Server {
 	}
 	logger := log.New()
 	logger.SetLevel(log.Level(config.LogLevel))
+	logFormatter := &log.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05",
+	}
+	logger.Formatter = logFormatter
 	if config.NoLog {
 		logger.Out = ioutil.Discard
 	}
