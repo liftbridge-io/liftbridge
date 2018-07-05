@@ -93,6 +93,10 @@ replace it. The replication protocol closely resembles that of Kafka, so there
 is much more nuance to avoid data consistency problems. This will be documented
 in more detail in the near future.
 
+### What about performance?
+
+*Benchmarks soon to come...*
+
 ### Is it production-ready?
 
 No, this project is early and still evolving.
