@@ -229,7 +229,7 @@ func (s *Server) detectBootstrapMisconfig() {
 }
 
 func (s *Server) createRaftNode() (bool, error) {
-	path := filepath.Join(s.config.DataPath, "raft")
+	path := filepath.Join(s.config.DataDir, "raft")
 
 	// Configure Raft.
 	config := raft.DefaultConfig()

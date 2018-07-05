@@ -15,8 +15,15 @@ import (
 )
 
 const (
-	defaultPort                    = 9292
-	defaultNamespace               = "liftbridge-default"
+	// DefaultNamespace is the default cluster namespace to use if one is not
+	// specified.
+	DefaultNamespace = "liftbridge-default"
+
+	// Default port to bind to.
+	DefaultPort = 9292
+)
+
+const (
 	defaultReplicaMaxLagTime       = 10 * time.Second
 	defaultReplicaMaxLeaderTimeout = 10 * time.Second
 	defaultRaftSnapshots           = 2
@@ -51,7 +58,7 @@ type Config struct {
 	Port                int
 	LogLevel            uint32
 	NoLog               bool
-	DataPath            string
+	DataDir             string
 	BatchMaxMessages    int
 	BatchWaitTime       time.Duration
 	MetadataCacheMaxAge time.Duration
@@ -63,22 +70,39 @@ type Config struct {
 func NewDefaultConfig() *Config {
 	config := &Config{
 		NATS: nats.GetDefaultOptions(),
-		Port: defaultPort,
+		Port: DefaultPort,
 	}
 	config.LogLevel = uint32(log.InfoLevel)
 	config.BatchMaxMessages = defaultBatchMaxMessages
 	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
 	config.Clustering.ServerID = nuid.Next()
-	config.Clustering.Namespace = defaultNamespace
+	config.Clustering.Namespace = DefaultNamespace
 	config.Clustering.ReplicaMaxLagTime = defaultReplicaMaxLagTime
 	config.Clustering.ReplicaMaxLeaderTimeout = defaultReplicaMaxLeaderTimeout
 	config.Clustering.ReplicaFetchTimeout = defaultReplicaFetchTimeout
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
-	config.Clustering.RaftSnapshots = 2
 	config.Clustering.RaftCacheSize = 512
 	config.Log.RetentionMaxBytes = defaultRetentionMaxBytes
-	config.Log.RetentionMaxBytes = -1
 	return config
+}
+
+// GetLogLevel converts the level string to its corresponding int value. It
+// returns an error if the level is invalid.
+func GetLogLevel(level string) (uint32, error) {
+	var l uint32
+	switch strings.ToLower(level) {
+	case "debug":
+		l = uint32(log.DebugLevel)
+	case "info":
+		l = uint32(log.InfoLevel)
+	case "warn":
+		l = uint32(log.WarnLevel)
+	case "error":
+		l = uint32(log.ErrorLevel)
+	default:
+		return 0, fmt.Errorf("Invalid log.level setting %q", level)
+	}
+	return l, nil
 }
 
 func NewConfig(configFile string) (*Config, error) {
@@ -106,20 +130,13 @@ func NewConfig(configFile string) (*Config, error) {
 		case "host":
 			config.Host = v.(string)
 		case "log.level":
-			switch strings.ToLower(v.(string)) {
-			case "debug":
-				config.LogLevel = uint32(log.DebugLevel)
-			case "info":
-				config.LogLevel = uint32(log.InfoLevel)
-			case "warn":
-				config.LogLevel = uint32(log.WarnLevel)
-			case "error":
-				config.LogLevel = uint32(log.ErrorLevel)
-			default:
-				return nil, fmt.Errorf("Invalid log.level setting %q", v.(string))
+			level, err := GetLogLevel(v.(string))
+			if err != nil {
+				return nil, err
 			}
-		case "data.path":
-			config.DataPath = v.(string)
+			config.LogLevel = level
+		case "data.dir":
+			config.DataDir = v.(string)
 		case "batch.max.messages":
 			config.BatchMaxMessages = int(v.(int64))
 		case "batch.wait.time":

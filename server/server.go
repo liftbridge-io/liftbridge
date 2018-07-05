@@ -58,8 +58,8 @@ func RunServerWithConfig(config *Config) (*Server, error) {
 
 func New(config *Config) *Server {
 	// Default data path to /tmp/liftbridge/<namespace> if not set.
-	if config.DataPath == "" {
-		config.DataPath = filepath.Join("/tmp", "liftbridge", config.Clustering.Namespace)
+	if config.DataDir == "" {
+		config.DataDir = filepath.Join("/tmp", "liftbridge", config.Clustering.Namespace)
 	}
 	logger := log.New()
 	logger.SetLevel(log.Level(config.LogLevel))
@@ -76,12 +76,12 @@ func New(config *Config) *Server {
 }
 
 func (s *Server) Start() error {
-	if err := os.MkdirAll(s.config.DataPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(s.config.DataDir, os.ModePerm); err != nil {
 		return errors.Wrap(err, "failed to create data path directories")
 	}
 
 	// Attempt to recover state.
-	file := filepath.Join(s.config.DataPath, stateFile)
+	file := filepath.Join(s.config.DataDir, stateFile)
 	data, err := ioutil.ReadFile(file)
 	if err == nil {
 		// Recovered previous state.

@@ -62,7 +62,7 @@ type stream struct {
 
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
 	log, err := commitlog.New(commitlog.Options{
-		Path:            filepath.Join(s.config.DataPath, "streams", protoStream.Subject, protoStream.Name),
+		Path:            filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name),
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		Compact:         s.config.Log.Compact,
