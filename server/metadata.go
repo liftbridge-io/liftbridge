@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/raft"
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
 	client "github.com/tylertreat/go-liftbridge/liftbridge-grpc"
@@ -267,13 +268,8 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStream
 		},
 	}
 
-	data, err := op.Marshal()
-	if err != nil {
-		panic(err)
-	}
-
 	// Wait on result of replication.
-	future := m.raft.Apply(data, raftApplyTimeout)
+	future := m.applyRaftOperation(op)
 	if err := future.Error(); err != nil {
 		return status.New(codes.Internal, "Failed to replicate stream")
 	}
@@ -318,13 +314,8 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 		ShrinkISROp: req,
 	}
 
-	data, err := op.Marshal()
-	if err != nil {
-		panic(err)
-	}
-
 	// Wait on result of replication.
-	if err := m.raft.Apply(data, raftApplyTimeout).Error(); err != nil {
+	if err := m.applyRaftOperation(op).Error(); err != nil {
 		return status.New(codes.Internal, "Failed to shrink ISR")
 	}
 
@@ -359,13 +350,8 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 		ExpandISROp: req,
 	}
 
-	data, err := op.Marshal()
-	if err != nil {
-		panic(err)
-	}
-
 	// Wait on result of replication.
-	if err := m.raft.Apply(data, raftApplyTimeout).Error(); err != nil {
+	if err := m.applyRaftOperation(op).Error(); err != nil {
 		return status.New(codes.Internal, "Failed to expand ISR")
 	}
 
@@ -570,13 +556,8 @@ func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
 		},
 	}
 
-	data, err := op.Marshal()
-	if err != nil {
-		panic(err)
-	}
-
 	// Wait on result of replication.
-	if err := m.raft.Apply(data, raftApplyTimeout).Error(); err != nil {
+	if err := m.applyRaftOperation(op).Error(); err != nil {
 		return status.New(codes.Internal, "Failed to replicate leader change")
 	}
 
@@ -687,6 +668,17 @@ func (m *metadataAPI) waitForStreamLeader(ctx context.Context, subject, name, le
 		}
 		break
 	}
+}
+
+// applyRaftOperation proposes the given operation to the Raft cluster. This
+// should only be called when the server is metadata leader. However, if the
+// server has lost leadership, the returned future will yield an error.
+func (m *metadataAPI) applyRaftOperation(op *proto.RaftLog) raft.ApplyFuture {
+	data, err := op.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return m.raft.Apply(data, raftApplyTimeout)
 }
 
 // selectRandomReplica selects a random replica from the list of replicas.
