@@ -29,6 +29,8 @@ const (
 	streamStatusInboxTemplate = "%s.status.%s"
 )
 
+// Server is the main Liftbridge object. Create it by calling New or
+// RunServerWithConfig.
 type Server struct {
 	config             *Config
 	listener           net.Listener
@@ -50,12 +52,16 @@ type Server struct {
 	goroutineWait      sync.WaitGroup
 }
 
+// RunServerWithConfig creates and starts a new Server with the given
+// configuration. It returns an error if the Server failed to start.
 func RunServerWithConfig(config *Config) (*Server, error) {
 	server := New(config)
 	err := server.Start()
 	return server, err
 }
 
+// New creates a new Server with the given configuration. Call Start to run the
+// Server.
 func New(config *Config) *Server {
 	// Default data path to /tmp/liftbridge/<namespace> if not set.
 	if config.DataDir == "" {
@@ -80,6 +86,8 @@ func New(config *Config) *Server {
 	return s
 }
 
+// Start the Server. This is not a blocking call. It will return an error if
+// the Server cannot start properly.
 func (s *Server) Start() error {
 	// Remove server's ID from the cluster peers list if present.
 	if len(s.config.Clustering.RaftBootstrapPeers) > 0 {
@@ -201,14 +209,77 @@ func (s *Server) Start() error {
 	return err
 }
 
+// Stop will attempt to gracefully shut the Server down by signaling the stop
+// and waiting for all goroutines to return.
+func (s *Server) Stop() error {
+	s.mu.Lock()
+	if s.shutdown {
+		s.mu.Unlock()
+		return nil
+	}
+	s.logger.Info("Shutting down...")
+
+	close(s.shutdownCh)
+	if s.api != nil {
+		s.api.Stop()
+	}
+
+	if s.listener != nil {
+		s.listener.Close()
+	}
+
+	if s.metadata != nil {
+		if err := s.metadata.Reset(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
+
+	if s.raft != nil {
+		if err := s.raft.shutdown(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
+
+	if s.nc != nil {
+		s.nc.Close()
+	}
+	if s.ncRaft != nil {
+		s.ncRaft.Close()
+	}
+	if s.ncRepl != nil {
+		s.ncRepl.Close()
+	}
+
+	s.running = false
+	s.shutdown = true
+	s.mu.Unlock()
+
+	// Wait for goroutines to stop.
+	s.goroutineWait.Wait()
+
+	return nil
+}
+
+// createNATSConn creates a new NATS connection with the given name.
 func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 	var err error
 	opts := s.config.NATS
-	opts.Name = fmt.Sprintf("LB-%s-%s", s.config.Clustering.ServerID, name)
+	opts.Name = fmt.Sprintf("LIFT.%s.%s.%s", s.config.Clustering.Namespace, s.config.Clustering.ServerID, name)
+
+	// Shorten the time we wait to reconnect. Don't make it too short because
+	// it may exhaust the number of available FDs.
 	opts.ReconnectWait = 250 * time.Millisecond
+
+	// Try to reconnect indefinitely.
 	opts.MaxReconnect = -1
+
+	// Disable buffering in the NATS client to avoid possible duplicate
+	// deliveries.
 	opts.ReconnectBufSize = -1
 
+	// Set connection handlers.
 	if err = nats.ErrorHandler(s.natsErrorHandler)(&opts); err != nil {
 		return nil, err
 	}
@@ -225,6 +296,9 @@ func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 	return opts.Connect()
 }
 
+// finishedRecovery should be called when the FSM has finished replaying any
+// unapplied log entries. This will start any streams recovered during the
+// replay.
 func (s *Server) finishedRecovery() (int, error) {
 	count := 0
 	for _, stream := range s.metadata.GetStreams() {
@@ -239,6 +313,10 @@ func (s *Server) finishedRecovery() (int, error) {
 	return count, nil
 }
 
+// startMetadataRaft creates and starts an embedded Raft node to participate in
+// the metadata cluster. This will bootstrap using the configured server
+// settings and start a goroutine for automatically responding to Raft
+// leadership changes.
 func (s *Server) startMetadataRaft() error {
 	if err := s.setupMetadataRaft(); err != nil {
 		return err
@@ -314,14 +392,27 @@ func (s *Server) leadershipLost() error {
 	return nil
 }
 
+// isLeader indicates if the server is currently the metadata leader or not. If
+// consistency is required for an operation, it should be threaded through the
+// Raft cluster since that is the single source of truth. If a server thinks
+// it's leader when it's not, the operation it proposes to the Raft cluster
+// will fail.
 func (s *Server) isLeader() bool {
 	return atomic.LoadInt64(&s.raft.leader) == 1
 }
 
+// getPropagateInbox returns the NATS subject used for handling propagated Raft
+// operations. The server subscribes to this when it is the metadata leader.
+// Followers can then forward operations for the leader to apply.
 func (s *Server) getPropagateInbox() string {
 	return fmt.Sprintf("%s.propagate", s.baseMetadataRaftSubject())
 }
 
+// handlePropagatedRequest is a NATS handler used to process propagated Raft
+// operations from followers in the Raft cluster. This is activated when the
+// server becomes the metadata leader. If, for some reason, the server receives
+// a forwarded operation and loses leadership at the same time, the operation
+// will fail when it's proposed to the Raft cluster.
 func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 	if m.Reply == "" {
 		s.logger.Warn("Invalid propagated request: no reply inbox")
@@ -387,57 +478,6 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 	}
 }
 
-func (s *Server) Stop() error {
-	s.mu.Lock()
-	if s.shutdown {
-		s.mu.Unlock()
-		return nil
-	}
-	s.logger.Info("Shutting down...")
-
-	close(s.shutdownCh)
-	if s.api != nil {
-		s.api.Stop()
-	}
-
-	if s.listener != nil {
-		s.listener.Close()
-	}
-
-	if s.metadata != nil {
-		if err := s.metadata.Reset(); err != nil {
-			s.mu.Unlock()
-			return err
-		}
-	}
-
-	if s.raft != nil {
-		if err := s.raft.shutdown(); err != nil {
-			s.mu.Unlock()
-			return err
-		}
-	}
-
-	if s.nc != nil {
-		s.nc.Close()
-	}
-	if s.ncRaft != nil {
-		s.ncRaft.Close()
-	}
-	if s.ncRepl != nil {
-		s.ncRepl.Close()
-	}
-
-	s.running = false
-	s.shutdown = true
-	s.mu.Unlock()
-
-	// Wait for goroutines to stop.
-	s.goroutineWait.Wait()
-
-	return nil
-}
-
 func (s *Server) isRunning() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -479,6 +519,8 @@ func (s *Server) natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err err
 		nc.Opts.Name, sub.Subject, err)
 }
 
+// handleServerInfoRequest is a NATS handler used to process requests for
+// server information used in the metadata API.
 func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 	if m.Reply == "" {
 		s.logger.Warn("Dropping server info request with no reply inbox")
@@ -507,6 +549,9 @@ func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 	s.ncRaft.Publish(m.Reply, data)
 }
 
+// handleStreamStatusRequest is a NATS handler used to process requests
+// querying the status of a stream. This is used as a readiness check to
+// determine if a created stream has actually started.
 func (s *Server) handleStreamStatusRequest(m *nats.Msg) {
 	if m.Reply == "" {
 		s.logger.Warn("Dropping stream status request with no reply inbox")
@@ -533,15 +578,23 @@ func (s *Server) handleStreamStatusRequest(m *nats.Msg) {
 	s.ncRaft.Publish(m.Reply, data)
 }
 
+// serverInfoInbox returns the NATS subject used for handling server
+// information requests.
 func (s *Server) serverInfoInbox() string {
 	return fmt.Sprintf(serverInfoInboxTemplate, s.baseMetadataRaftSubject())
 }
 
+// streamStatusInbox returns the NATS subject used for handling stream status
+// requests.
 func (s *Server) streamStatusInbox() string {
 	return fmt.Sprintf(streamStatusInboxTemplate, s.baseMetadataRaftSubject(),
 		s.config.Clustering.ServerID)
 }
 
+// startGoroutine starts a goroutine which is managed by the server. This adds
+// the goroutine to a WaitGroup so that the server can wait for all running
+// goroutines to stop on shutdown. This should be used instead of a "naked"
+// goroutine.
 func (s *Server) startGoroutine(f func()) {
 	select {
 	case <-s.shutdownCh:
