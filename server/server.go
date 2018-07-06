@@ -490,7 +490,12 @@ func (s *Server) isShutdown() bool {
 	return s.shutdown
 }
 
+// natsDisconnectedHandler fires when the given NATS connection has been
+// disconnected. This may indicate a temporary disconnect, in which case the
+// client will automatically attempt to reconnect.
 func (s *Server) natsDisconnectedHandler(nc *nats.Conn) {
+	// If the server was shut down, do nothing since this is an expected
+	// disconnect.
 	if s.isShutdown() {
 		return
 	}
@@ -502,18 +507,26 @@ func (s *Server) natsDisconnectedHandler(nc *nats.Conn) {
 	}
 }
 
+// natsReconnectedHandler fires when the given NATS connection has successfully
+// reconnected.
 func (s *Server) natsReconnectedHandler(nc *nats.Conn) {
 	s.logger.Infof("Connection %q reconnected to NATS at %q",
 		nc.Opts.Name, nc.ConnectedUrl())
 }
 
+// natsClosedHandler fires when the given NATS connection has been closed, i.e.
+// permanently disconnected. At this point, the client will not attempt to
+// reconnect to NATS.
 func (s *Server) natsClosedHandler(nc *nats.Conn) {
+	// If the server was shut down, do nothing since this is an expected close.
 	if s.isShutdown() {
 		return
 	}
 	s.logger.Debugf("Connection %q has been closed", nc.Opts.Name)
 }
 
+// natsErrorHandler fires when there is an asynchronous error on the NATS
+// connection.
 func (s *Server) natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err error) {
 	s.logger.Errorf("Asynchronous error on connection %s, subject %s: %s",
 		nc.Opts.Name, sub.Subject, err)
