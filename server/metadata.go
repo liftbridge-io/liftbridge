@@ -22,11 +22,18 @@ const (
 	maxReplicationFactor    int32 = -1
 )
 
+// ErrStreamExists is returned by CreateStream when attempting to create a
+// stream that already has the provided subject and name.
 var ErrStreamExists = errors.New("stream already exists")
 
+// subjectStreams maps a name to a stream within the scope of a subject.
 type subjectStreams map[string]*stream
 
-type leaderReported struct {
+// leaderReport tracks witnesses for a stream leader. Witnesses are replicas
+// which have reported the leader as unresponsive. If a quorum of replicas
+// report the leader within a bounded period of time, the controller will
+// select a new leader.
+type leaderReport struct {
 	mu              sync.Mutex
 	stream          *stream
 	timer           *time.Timer
@@ -34,7 +41,11 @@ type leaderReported struct {
 	api             *metadataAPI
 }
 
-func (l *leaderReported) addWitness(replica string) *status.Status {
+// addWitness adds the given replica to the leaderReport witnesses. If a quorum
+// of replicas have reported the leader, a new leader will be selected.
+// Otherwise, the expiration timer is reset. An error is returned if selecting
+// a new leader fails.
+func (l *leaderReport) addWitness(replica string) *status.Status {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -66,7 +77,8 @@ func (l *leaderReported) addWitness(replica string) *status.Status {
 	return nil
 }
 
-func (l *leaderReported) cancel() {
+// cancel stops the expiration timer, if there is one.
+func (l *leaderReport) cancel() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.timer != nil {
@@ -74,11 +86,13 @@ func (l *leaderReported) cancel() {
 	}
 }
 
+// metadataAPI is the internal API for interacting with cluster data. All
+// stream access should go through the exported methods of the metadataAPI.
 type metadataAPI struct {
 	*Server
 	streams         map[string]subjectStreams
 	mu              sync.RWMutex
-	leaderReports   map[*stream]*leaderReported
+	leaderReports   map[*stream]*leaderReport
 	cachedBrokers   []*client.Broker
 	cachedServerIDs map[string]struct{}
 	lastCached      time.Time
@@ -88,10 +102,13 @@ func newMetadataAPI(s *Server) *metadataAPI {
 	return &metadataAPI{
 		Server:        s,
 		streams:       make(map[string]subjectStreams),
-		leaderReports: make(map[*stream]*leaderReported),
+		leaderReports: make(map[*stream]*leaderReport),
 	}
 }
 
+// FetchMetadata retrieves the cluster metadata for the given request. If the
+// request specifies streams, it will only return metadata for those particular
+// streams. If not, it will return metadata for all streams.
 func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
 	*client.FetchMetadataResponse, *status.Status) {
 
@@ -112,7 +129,7 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 		resp.Brokers = cached
 	} else {
 		// Query broker info from peers.
-		brokers, err := m.fetchBrokerInfo(ctx, resp, len(servers)-1)
+		brokers, err := m.fetchBrokerInfo(ctx, len(servers)-1)
 		if err != nil {
 			return nil, err
 		}
@@ -129,6 +146,9 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 	return resp, nil
 }
 
+// brokerCache checks if the cache of broker metadata is clean and, if it is
+// and it's not past the metadata cache max age, returns the cached broker
+// list. The bool returned indicates if the cached data is returned or not.
 func (m *metadataAPI) brokerCache(serverIDs map[string]struct{}) ([]*client.Broker, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -152,9 +172,9 @@ func (m *metadataAPI) brokerCache(serverIDs map[string]struct{}) ([]*client.Brok
 	return nil, false
 }
 
-func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMetadataResponse,
-	numPeers int) ([]*client.Broker, *status.Status) {
-
+// fetchBrokerInfo retrieves the broker metadata for the cluster. The numPeers
+// argument is the expected number of peers to get a response from.
+func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*client.Broker, *status.Status) {
 	// Add ourselves.
 	brokers := []*client.Broker{&client.Broker{
 		Id:   m.config.Clustering.ServerID,
@@ -162,11 +182,14 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMet
 		Port: int32(m.config.Port),
 	}}
 
+	// Make sure there is a deadline on the request.
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, defaultPropagateTimeout)
 		defer cancel()
 	}
+
+	// Create subscription to receive responses on.
 	inbox := nats.NewInbox()
 	sub, err := m.ncRaft.SubscribeSync(inbox)
 	if err != nil {
@@ -174,6 +197,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMet
 	}
 	defer sub.Unsubscribe()
 
+	// Survey the cluster.
 	queryReq, err := (&proto.ServerInfoRequest{
 		Id: m.config.Clustering.ServerID,
 	}).Marshal()
@@ -182,6 +206,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMet
 	}
 	m.ncRaft.PublishRequest(m.serverInfoInbox(), inbox, queryReq)
 
+	// Gather responses.
 	for i := 0; i < numPeers; i++ {
 		msg, err := sub.NextMsgWithContext(ctx)
 		if err != nil {
@@ -202,6 +227,10 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, resp *client.FetchMet
 	return brokers, nil
 }
 
+// createMetadataResponse creates a FetchMetadataResponse and populates it with
+// stream metadata. If the provided list of StreamDescriptors is empty, it will
+// populate metadata for all streams. Otherwise, it populates only the
+// specified streams.
 func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor) *client.FetchMetadataResponse {
 	// If no descriptors were provided, fetch metadata for all streams.
 	if len(streams) == 0 {
@@ -237,6 +266,12 @@ func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor)
 	return &client.FetchMetadataResponse{Metadata: metadata}
 }
 
+// CreateStream creates a new stream if this server is the metadata leader. If
+// it is not, it will forward the request to the leader and return the
+// response. This operation is replicated by Raft. The metadata leader will
+// select replicationFactor nodes to participate in the stream and a leader. If
+// successful, this will return once the stream has been replicated to the
+// cluster and the stream leader has started.
 func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.isLeader() {
@@ -286,6 +321,10 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStream
 	return nil
 }
 
+// ShrinkISR removes the specified replica from the stream's in-sync replicas
+// set if this server is the metadata leader. If it is not, it will forward the
+// request to the leader and return the response. This operation is replicated
+// by Raft.
 func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.isLeader() {
@@ -322,6 +361,10 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 	return nil
 }
 
+// ExpandISR adds the specified replica to the stream's in-sync replicas set if
+// this server is the metadata leader. If it is not, it will forward the
+// request to the leader and return the response. This operation is replicated
+// by Raft.
 func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.isLeader() {
@@ -358,6 +401,11 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 	return nil
 }
 
+// ReportLeader marks the stream leader as unresponsive with respect to the
+// specified replica if this server is the metadata leader. If it is not, it
+// will forward the request to the leader and return the response. If a quorum
+// of replicas report the stream leader within a bounded period, the metadata
+// leader will select a new stream leader.
 func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderOp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.isLeader() {
@@ -383,7 +431,7 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	m.mu.Lock()
 	reported := m.leaderReports[stream]
 	if reported == nil {
-		reported = &leaderReported{
+		reported = &leaderReport{
 			stream:          stream,
 			witnessReplicas: make(map[string]struct{}),
 			api:             m,
@@ -395,6 +443,10 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	return reported.addWitness(req.Replica)
 }
 
+// AddStream adds the given stream to the metadata store. It returns
+// ErrStreamExists if there already exists a stream with the given subject and
+// name. If the stream is recovered, this will not start the stream until
+// recovery completes.
 func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -423,6 +475,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 	return stream, err
 }
 
+// GetStreams returns all streams from the metadata store.
 func (m *metadataAPI) GetStreams() []*stream {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -435,6 +488,8 @@ func (m *metadataAPI) GetStreams() []*stream {
 	return ret
 }
 
+// GetStream returns the stream with the given subject and name. It returns nil
+// if no such stream exists.
 func (m *metadataAPI) GetStream(subject, name string) *stream {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -449,6 +504,8 @@ func (m *metadataAPI) GetStream(subject, name string) *stream {
 	return stream
 }
 
+// Reset closes all streams and clears all existing state in the metadata
+// store.
 func (m *metadataAPI) Reset() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -463,17 +520,18 @@ func (m *metadataAPI) Reset() error {
 	for _, report := range m.leaderReports {
 		report.cancel()
 	}
-	m.leaderReports = make(map[*stream]*leaderReported)
+	m.leaderReports = make(map[*stream]*leaderReport)
 	return nil
 }
 
+// LostLeadership should be called when the server loses metadata leadership.
 func (m *metadataAPI) LostLeadership() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, report := range m.leaderReports {
 		report.cancel()
 	}
-	m.leaderReports = make(map[*stream]*leaderReported)
+	m.leaderReports = make(map[*stream]*leaderReport)
 }
 
 // getStreamReplicas selects replicationFactor replicas to participate in the
@@ -505,6 +563,7 @@ func (m *metadataAPI) getStreamReplicas(replicationFactor int32) ([]string, *sta
 	return replicas, nil
 }
 
+// getClusterServerIDs returns a list of all the broker IDs in the cluster.
 func (m *metadataAPI) getClusterServerIDs() ([]string, error) {
 	future := m.raft.GetConfiguration()
 	if err := future.Error(); err != nil {
@@ -564,6 +623,8 @@ func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
 	return nil
 }
 
+// propagateCreateStream forwards a CreateStream request to the metadata leader
+// and returns the response.
 func (m *metadataAPI) propagateCreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
 	propagate := &proto.PropagatedRequest{
 		Op:             proto.Op_CREATE_STREAM,
@@ -572,6 +633,8 @@ func (m *metadataAPI) propagateCreateStream(ctx context.Context, req *client.Cre
 	return m.propagateRequest(ctx, propagate)
 }
 
+// propagateShrinkISR forwards a ShrinkISR request to the metadata leader and
+// returns the response.
 func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *status.Status {
 	propagate := &proto.PropagatedRequest{
 		Op:          proto.Op_SHRINK_ISR,
@@ -580,6 +643,8 @@ func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkI
 	return m.propagateRequest(ctx, propagate)
 }
 
+// propagateExpandISR forwards a ExpandISR request to the metadata leader and
+// returns the response.
 func (m *metadataAPI) propagateExpandISR(ctx context.Context, req *proto.ExpandISROp) *status.Status {
 	propagate := &proto.PropagatedRequest{
 		Op:          proto.Op_EXPAND_ISR,
@@ -588,6 +653,8 @@ func (m *metadataAPI) propagateExpandISR(ctx context.Context, req *proto.ExpandI
 	return m.propagateRequest(ctx, propagate)
 }
 
+// propagateReportLeader forwards a ReportLeader request to the metadata leader
+// and returns the response.
 func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.ReportLeaderOp) *status.Status {
 	propagate := &proto.PropagatedRequest{
 		Op:             proto.Op_REPORT_LEADER,
@@ -596,6 +663,8 @@ func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.Repo
 	return m.propagateRequest(ctx, propagate)
 }
 
+// propagateRequest forwards a metadata request to the metadata leader and
+// returns the response.
 func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.PropagatedRequest) *status.Status {
 	data, err := req.Marshal()
 	if err != nil {
@@ -625,6 +694,8 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 	return nil
 }
 
+// waitForStreamLeader does a best-effort wait for the leader of the given
+// stream to create and start the stream.
 func (m *metadataAPI) waitForStreamLeader(ctx context.Context, subject, name, leader string) {
 	if leader == m.config.Clustering.ServerID {
 		// If we're the stream leader, there's no need to make a status

@@ -19,7 +19,7 @@ const (
 	// specified.
 	DefaultNamespace = "liftbridge-default"
 
-	// Default port to bind to.
+	// DefaultPort is the port to bind to if one is not specified.
 	DefaultPort = 9292
 )
 
@@ -33,12 +33,14 @@ const (
 	defaultReplicaFetchTimeout     = 5 * time.Second
 )
 
+// LogConfig contains settings for controlling the message log for a stream.
 type LogConfig struct {
 	RetentionMaxBytes int64
 	SegmentMaxBytes   int64
 	Compact           bool
 }
 
+// ClusteringConfig contains settings for controlling cluster behavior.
 type ClusteringConfig struct {
 	ServerID                string
 	Namespace               string
@@ -53,6 +55,7 @@ type ClusteringConfig struct {
 	ReplicaFetchTimeout     time.Duration
 }
 
+// Config contains all settings for a Liftbridge Server.
 type Config struct {
 	Host                string
 	Port                int
@@ -67,6 +70,7 @@ type Config struct {
 	Clustering          ClusteringConfig
 }
 
+// NewDefaultConfig creates a new Config with default settings.
 func NewDefaultConfig() *Config {
 	config := &Config{
 		NATS: nats.GetDefaultOptions(),
@@ -105,6 +109,8 @@ func GetLogLevel(level string) (uint32, error) {
 	return l, nil
 }
 
+// NewConfig creates a new Config with default settings and applies any
+// settings from the given configuration file.
 func NewConfig(configFile string) (*Config, error) {
 	config := NewDefaultConfig()
 
@@ -170,6 +176,8 @@ func NewConfig(configFile string) (*Config, error) {
 	return config, nil
 }
 
+// parseNATSConfig parses the `nats` section of a config file and populates the
+// given nats.Options.
 func parseNATSConfig(m map[string]interface{}, opts nats.Options) error {
 	for k, v := range m {
 		switch strings.ToLower(k) {
@@ -186,6 +194,8 @@ func parseNATSConfig(m map[string]interface{}, opts nats.Options) error {
 	return nil
 }
 
+// parseLogConfig parses the `log` section of a config file and populates the
+// given Config.
 func parseLogConfig(config *Config, m map[string]interface{}) error {
 	for k, v := range m {
 		switch strings.ToLower(k) {
@@ -202,6 +212,8 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 	return nil
 }
 
+// parseClusteringConfig parses the `clustering` section of a config file and
+// populates the given Config.
 func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 	for k, v := range m {
 		switch strings.ToLower(k) {
@@ -250,7 +262,7 @@ type hostPort struct {
 	port int
 }
 
-// parseListen will parse listen option which is replacing host/net and port
+// parseListen will parse the `listen` option containing the host and port.
 func parseListen(v interface{}) (*hostPort, error) {
 	hp := &hostPort{}
 	switch v.(type) {
