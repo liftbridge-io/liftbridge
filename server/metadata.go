@@ -156,7 +156,7 @@ func (m *metadataAPI) brokerCache(serverIDs map[string]struct{}) ([]*client.Brok
 	if len(serverIDs) != len(m.cachedServerIDs) {
 		serversChanged = true
 	} else {
-		for id, _ := range serverIDs {
+		for id := range serverIDs {
 			if _, ok := m.cachedServerIDs[id]; !ok {
 				serversChanged = true
 				break
