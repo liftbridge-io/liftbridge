@@ -261,6 +261,10 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 // leader or follower if applicable. ErrStreamExists is returned if the stream
 // already exists.
 func (s *Server) applyCreateStream(protoStream *proto.Stream, recovered bool) error {
+	// QUESTION: If this broker is not a replica for the stream, can we just
+	// store a "lightweight" representation of the stream (i.e. the protobuf)
+	// for recovery purposes? There is no need to initialize a commit log for
+	// it.
 	stream, err := s.metadata.AddStream(protoStream, recovered)
 	if err == ErrStreamExists {
 		return err
