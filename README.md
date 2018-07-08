@@ -17,6 +17,7 @@ for more context and some of the inspiration behind Liftbridge.
 - [FAQ](#faq)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Configuration](#configuration)
 - [Client Libraries](#client-libraries)
 - [TODO](#todo)
 - [Acknowledgements](#acknowledgements)
@@ -161,11 +162,37 @@ To do this, we provide the IDs of the participating peers in the cluster using t
 $ liftbridge --raft-bootstrap-peers server-2,server-3
 ```
 
-Liftbridge can be fully configured using a configuration file which is passed
-in using the `--config` flag.
+## Configuration
+
+In addition to the command-line flags, Liftbridge can be fully configured using
+a configuration file which is passed in using the `--config` flag.
 
 ```
 $ liftbridge --config liftbridge.conf
+```
+
+An example configuration file is shown below.
+
+```
+listen: localhost:9293
+data.dir: /tmp/liftbridge/server-2
+log.level: debug
+
+nats {
+    servers: ["nats://localhost:4300", "nats://localhost:4301"]
+}
+
+log {
+    segment.max.bytes: 1000000
+    retention.max.bytes: 100000000000
+}
+
+clustering {
+    server.id: server-2
+    raft.logging: true
+    raft.bootstrap.seed: true
+    replica.max.lag.time: "20s"
+}
 ```
 
 ## Client Libraries
