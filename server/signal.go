@@ -8,6 +8,7 @@ import (
 	"syscall"
 )
 
+// handleSignals sets up a handler for SIGINT to do a graceful shutdown.
 func (s *Server) handleSignals() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT)

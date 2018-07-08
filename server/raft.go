@@ -78,10 +78,12 @@ func (r *raftNode) shutdown() error {
 	return nil
 }
 
+// raftLogger implements io.WriteCloser by piping data to the Server logger.
 type raftLogger struct {
 	*Server
 }
 
+// Write pipes the given data to the Server logger.
 func (r *raftLogger) Write(b []byte) (int, error) {
 	if !r.config.Clustering.RaftLogging {
 		return len(b), nil
@@ -104,8 +106,16 @@ func (r *raftLogger) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (rl *raftLogger) Close() error { return nil }
+// Close is a no-op to implement io.WriteCloser.
+func (r *raftLogger) Close() error { return nil }
 
+// setupMetadataRaft creates and starts an embedded Raft node for replicating
+// cluster metadata. The node will load configuration from previous state, if
+// there is any. If there isn't previous state, depending on server
+// configuration, this will attempt to join an existing cluster, bootstrap as a
+// seed node, or bootstrap using a predefined cluster configuration. If joining
+// an existing cluster, this will attempt to join for up to 30 seconds before
+// giving up and returning an error.
 func (s *Server) setupMetadataRaft() error {
 	existingState, err := s.createRaftNode()
 	if err != nil {
@@ -196,6 +206,9 @@ func (s *Server) bootstrapCluster(node *raft.Raft) error {
 	return node.BootstrapCluster(config).Error()
 }
 
+// detectBootstrapMisconfig attempts to detect if any other servers were
+// started in bootstrap seed mode. If any are detected, the server will panic
+// since this is a fatal state.
 func (s *Server) detectBootstrapMisconfig() {
 	srvID := []byte(s.config.Clustering.ServerID)
 	subj := fmt.Sprintf("%s.bootstrap", s.baseMetadataRaftSubject())
@@ -204,13 +217,13 @@ func (s *Server) detectBootstrapMisconfig() {
 			// Ignore message to ourself
 			if string(m.Data) != s.config.Clustering.ServerID {
 				s.ncRaft.Publish(m.Reply, srvID)
-				s.logger.Fatalf("Server %s was also started with raft.bootstrap", string(m.Data))
+				s.logger.Fatalf("Server %s was also started with raft.bootstrap.seed", string(m.Data))
 			}
 		}
 	})
 	inbox := nats.NewInbox()
 	s.ncRaft.Subscribe(inbox, func(m *nats.Msg) {
-		s.logger.Fatalf("Server %s was also started with raft.bootstrap", string(m.Data))
+		s.logger.Fatalf("Server %s was also started with raft.bootstrap.seed", string(m.Data))
 	})
 	if err := s.ncRaft.Flush(); err != nil {
 		s.logger.Errorf("Error setting up bootstrap misconfiguration detection: %v", err)
@@ -228,6 +241,9 @@ func (s *Server) detectBootstrapMisconfig() {
 	}
 }
 
+// createRaftNode creates and starts an embedded Raft node for replicating
+// cluster metadata. It returns a bool indicating if the Raft node had existing
+// state that was loaded.
 func (s *Server) createRaftNode() (bool, error) {
 	path := filepath.Join(s.config.DataDir, "raft")
 
@@ -251,14 +267,14 @@ func (s *Server) createRaftNode() (bool, error) {
 		return false, err
 	}
 
-	// Create the snapshot store. This allows the Raft to truncate the log.
+	// Create the snapshot store. This allows Raft to truncate the log.
 	snapshots, err := raft.NewFileSnapshotStore(path, s.config.Clustering.RaftSnapshots, logWriter)
 	if err != nil {
 		tr.Close()
 		return false, fmt.Errorf("file snapshot store: %s", err)
 	}
 
-	// Create the log store and stable store.
+	// Create the log store and cache.
 	logStore, err := raftboltdb.NewBoltStore(filepath.Join(path, "raft.db"))
 	if err != nil {
 		tr.Close()
@@ -279,6 +295,7 @@ func (s *Server) createRaftNode() (bool, error) {
 		return false, fmt.Errorf("new raft: %s", err)
 	}
 
+	// Check if there is existing state.
 	existingState, err := raft.HasExistingState(cacheStore, logStore, snapshots)
 	if err != nil {
 		node.Shutdown()
@@ -345,6 +362,8 @@ func (s *Server) createRaftNode() (bool, error) {
 	return existingState, nil
 }
 
+// baseMetadataRaftSubject returns the base NATS subject used for Raft-related
+// operations.
 func (s *Server) baseMetadataRaftSubject() string {
 	return fmt.Sprintf("%s.raft.metadata", s.config.Clustering.Namespace)
 }

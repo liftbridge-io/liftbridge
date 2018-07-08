@@ -5,7 +5,7 @@ import (
 	"os/signal"
 )
 
-// Signal Handling
+// handleSignals sets up a handler for interrupts to do a graceful shutdown.
 func (s *StanServer) handleSignals() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)

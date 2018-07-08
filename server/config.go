@@ -227,7 +227,7 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 			config.Clustering.RaftSnapshotThreshold = uint64(v.(int64))
 		case "raft.cache.size":
 			config.Clustering.RaftCacheSize = int(v.(int64))
-		case "raft.bootstrap":
+		case "raft.bootstrap.seed":
 			config.Clustering.RaftBootstrap = v.(bool)
 		case "raft.bootstrap.peers":
 			peers := v.([]interface{})

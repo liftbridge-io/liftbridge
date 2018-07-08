@@ -744,7 +744,7 @@ func (lx *lexer) isBool() bool {
 // Check if the unquoted string is a variable reference, starting with $.
 func (lx *lexer) isVariable() bool {
 	if lx.input[lx.start] == '$' {
-		lx.start += 1
+		lx.start++
 		return true
 	}
 	return false

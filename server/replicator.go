@@ -23,11 +23,18 @@ const (
 	replicationOverhead = 16
 )
 
+// replicationRequest wraps a ReplicationRequest protobuf and a NATS subject
+// where responses should be sent.
 type replicationRequest struct {
 	*proto.ReplicationRequest
 	replyInbox string
 }
 
+// replicator handles replication requests from a particular replica and tracks
+// its health. Requests are received on the requests channel and a long-running
+// loop processes them and sends responses. If the replica does not catch up to
+// the leader's log in maxLagTime, it's removed from the ISR until it catches
+// back up.
 type replicator struct {
 	stream       *stream
 	replica      string
@@ -38,9 +45,16 @@ type replicator struct {
 	mu           sync.RWMutex
 	leader       string
 	epoch        uint64
-	headersBuf   [12]byte
+	headersBuf   [12]byte // scratch buffer for reading message headers
 }
 
+// start a long-running replication loop for the given leader epoch until the
+// stop channel is closed. This loop will receive messages from the requests
+// channel, update the replica last-seen timestamp and latest offset, and send
+// a batch of messages starting at the requested offset, if there are any
+// available. The response will also include the leader epoch and HW. If the
+// replica doesn't send a request or catch up to the leader's log in
+// maxLagTime, it will be removed from the ISR until it catches back up.
 func (r *replicator) start(epoch uint64, stop chan struct{}) {
 	r.mu.Lock()
 	r.epoch = epoch
@@ -49,6 +63,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 	r.lastCaughtUp = now
 	r.mu.Unlock()
 
+	// Start a goroutine to track the replica's health.
 	r.stream.srv.startGoroutine(func() { r.tick(stop) })
 
 	var req replicationRequest
@@ -76,6 +91,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 			continue
 		}
 
+		// Create a log reader starting at the requested offset.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		reader, err := r.stream.log.NewReaderUncommitted(ctx, req.Offset+1)
@@ -89,6 +105,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		}
 		r.mu.Unlock()
 
+		// Send a batch of messages to the replica.
 		if err := r.replicate(reader, req.replyInbox, req.Offset); err != nil {
 			// Send a response to short-circuit request timeout.
 			r.sendHW(req.replyInbox)
@@ -143,6 +160,8 @@ func (r *replicator) tick(stop chan struct{}) {
 	}
 }
 
+// shrinkISR sends a ShrinkISR request to the controller to remove the replica
+// from the ISR.
 func (r *replicator) shrinkISR() {
 	req := &proto.ShrinkISROp{
 		Subject:         r.stream.Subject,
@@ -158,6 +177,8 @@ func (r *replicator) shrinkISR() {
 	}
 }
 
+// expandISR sends an ExpandISR request to the controller to add the replica to
+// the ISR.
 func (r *replicator) expandISR() {
 	req := &proto.ExpandISROp{
 		Subject:      r.stream.Subject,
@@ -173,6 +194,8 @@ func (r *replicator) expandISR() {
 	}
 }
 
+// replicate sends a batch of messages to the given NATS inbox along with the
+// leader epoch and HW.
 func (r *replicator) replicate(reader io.Reader, inbox string, offset int64) error {
 	var (
 		buf     = new(bytes.Buffer)
@@ -227,6 +250,8 @@ func (r *replicator) replicate(reader io.Reader, inbox string, offset int64) err
 	return nil
 }
 
+// writeMessageToBuffer writes the headers and message byte slices to the bytes
+// buffer.
 func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {
 	if _, err := buf.Write(headers); err != nil {
 		return err
@@ -237,6 +262,7 @@ func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {
 	return nil
 }
 
+// sendHW sends the leader epoch and HW to the given NATS inbox.
 func (r *replicator) sendHW(inbox string) {
 	buf := make([]byte, replicationOverhead)
 	proto.Encoding.PutUint64(buf[:8], r.epoch)

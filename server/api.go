@@ -14,10 +14,14 @@ import (
 
 const raftApplyTimeout = 30 * time.Second
 
+// apiServer implements the gRPC server interface clients interact with.
 type apiServer struct {
 	*Server
 }
 
+// CreateStream creates a new stream attached to a NATS subject. It returns an
+// AlreadyExists status code if a stream with the given subject and name
+// already exists.
 func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRequest) (
 	*client.CreateStreamResponse, error) {
 
@@ -35,6 +39,10 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	return resp, nil
 }
 
+// Subscribe creates an ephemeral subscription for the given stream. It begins
+// to receive messages starting at the given offset and waits for new messages
+// when it reaches the end of the stream. Use the request context to close the
+// subscription.
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
 	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, start=%s, offset=%d]",
 		req.Subject, req.Name, req.StartPosition, req.StartOffset)
@@ -79,6 +87,8 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 	}
 }
 
+// FetchMetadata retrieves the latest cluster metadata, including stream broker
+// information.
 func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
 	*client.FetchMetadataResponse, error) {
 	a.logger.Debugf("api: FetchMetadata %s", req.Streams)
@@ -92,6 +102,10 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 	return resp, nil
 }
 
+// subscribe sets up a subscription on the given stream and begins sending
+// messages on the returned channel. The subscription will run until the cancel
+// channel is closed, the context is canceled, or an error is returned
+// asynchronously on the status channel.
 func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	req *client.SubscribeRequest, cancel chan struct{}) (
 	<-chan *client.Message, <-chan *status.Status, *status.Status) {

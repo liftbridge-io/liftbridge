@@ -105,6 +105,8 @@ func (r *UncommittedReader) waitForData(seg *Segment) bool {
 	}
 }
 
+// NewReaderUncommitted returns an io.Reader which reads data from the log
+// starting at the given offset.
 func (l *CommitLog) NewReaderUncommitted(ctx context.Context, offset int64) (io.Reader, error) {
 	s, idx := findSegment(l.Segments(), offset)
 	if s == nil {
@@ -226,6 +228,8 @@ func (r *CommittedReader) waitForHW(hw int64) bool {
 	}
 }
 
+// NewReaderCommitted returns an io.Reader which reads only committed data from
+// the log starting at the given offset.
 func (l *CommitLog) NewReaderCommitted(ctx context.Context, offset int64) (io.Reader, error) {
 	hw := l.HighWatermark()
 	if hw == -1 {

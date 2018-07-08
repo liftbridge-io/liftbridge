@@ -1,3 +1,5 @@
+// Package commitlog provides an implementation for a file-backed write-ahead
+// log.
 package commitlog
 
 import (
@@ -24,13 +26,15 @@ var (
 )
 
 const (
-	LogFileSuffix               = ".log"
-	IndexFileSuffix             = ".index"
+	logFileSuffix               = ".log"
+	indexFileSuffix             = ".index"
 	hwFileName                  = "replication-offset-checkpoint"
 	defaultMaxSegmentBytes      = 10485760
 	defaultHWCheckpointInterval = 5 * time.Second
 )
 
+// CommitLog implements the server.CommitLog interface, which is a durable
+// write-ahead log.
 type CommitLog struct {
 	Options
 	cleaner        Cleaner
@@ -43,6 +47,7 @@ type CommitLog struct {
 	hwWaiters      map[io.Reader]chan struct{}
 }
 
+// Options contains settings for configuring a CommitLog.
 type Options struct {
 	Path string
 	// MaxSegmentBytes is the max number of bytes a segment can contain, once the limit is hit a
@@ -54,6 +59,8 @@ type Options struct {
 	Logger               logger.Logger
 }
 
+// New creates a new CommitLog and starts a background goroutine which
+// periodically checkpoints the high watermark to disk.
 func New(opts Options) (*CommitLog, error) {
 	if opts.Path == "" {
 		return nil, errors.New("path is empty")
@@ -115,8 +122,9 @@ func (l *CommitLog) open() error {
 	}
 	for _, file := range files {
 		// if this file is an index file, make sure it has a corresponding .log file
-		if strings.HasSuffix(file.Name(), IndexFileSuffix) {
-			_, err := os.Stat(filepath.Join(l.Path, strings.Replace(file.Name(), IndexFileSuffix, LogFileSuffix, 1)))
+		if strings.HasSuffix(file.Name(), indexFileSuffix) {
+			_, err := os.Stat(filepath.Join(
+				l.Path, strings.Replace(file.Name(), indexFileSuffix, logFileSuffix, 1)))
 			if os.IsNotExist(err) {
 				if err := os.Remove(file.Name()); err != nil {
 					return err
@@ -124,8 +132,8 @@ func (l *CommitLog) open() error {
 			} else if err != nil {
 				return errors.Wrap(err, "stat file failed")
 			}
-		} else if strings.HasSuffix(file.Name(), LogFileSuffix) {
-			offsetStr := strings.TrimSuffix(file.Name(), LogFileSuffix)
+		} else if strings.HasSuffix(file.Name(), logFileSuffix) {
+			offsetStr := strings.TrimSuffix(file.Name(), logFileSuffix)
 			baseOffset, err := strconv.Atoi(offsetStr)
 			if err != nil {
 				return err
@@ -159,6 +167,8 @@ func (l *CommitLog) open() error {
 	return nil
 }
 
+// Append writes the given batch of messages to the log and returns their
+// corresponding offsets in the log.
 func (l *CommitLog) Append(msgs []*proto.Message) ([]int64, error) {
 	if l.checkSplit() {
 		if err := l.split(); err != nil {
@@ -177,6 +187,8 @@ func (l *CommitLog) Append(msgs []*proto.Message) ([]int64, error) {
 	return l.append(segment, ms, entries)
 }
 
+// AppendMessageSet writes the given message set data to the log and returns
+// the corresponding offsets in the log.
 func (l *CommitLog) AppendMessageSet(ms []byte) ([]int64, error) {
 	if l.checkSplit() {
 		if err := l.split(); err != nil {
@@ -203,16 +215,20 @@ func (l *CommitLog) append(segment *Segment, ms []byte, entries []Entry) ([]int6
 	return offsets, nil
 }
 
+// NewestOffset returns the offset of the last message in the log.
 func (l *CommitLog) NewestOffset() int64 {
 	return l.activeSegment().NextOffset() - 1
 }
 
+// OldestOffset returns the offset of the first message in the log.
 func (l *CommitLog) OldestOffset() int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.segments[0].BaseOffset
 }
 
+// SetHighWatermark sets the high watermark on the log. All messages up to and
+// including the high watermark are considered committed.
 func (l *CommitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
 	if hw > l.hw {
@@ -249,6 +265,7 @@ func (c *CommitLog) removeHWWaiter(r io.Reader) {
 	c.mu.Unlock()
 }
 
+// HighWatermark returns the high watermark for the log.
 func (l *CommitLog) HighWatermark() int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -259,6 +276,8 @@ func (l *CommitLog) activeSegment() *Segment {
 	return l.vActiveSegment.Load().(*Segment)
 }
 
+// Close closes each log segment file and stops the background goroutine
+// checkpointing the high watermark to disk.
 func (l *CommitLog) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -274,6 +293,8 @@ func (l *CommitLog) Close() error {
 	return nil
 }
 
+// Delete closes the log and removes all data associated with it from the
+// filesystem.
 func (l *CommitLog) Delete() error {
 	if err := l.Close(); err != nil {
 		return err
@@ -281,6 +302,7 @@ func (l *CommitLog) Delete() error {
 	return os.RemoveAll(l.Path)
 }
 
+// Truncate removes all messages from the log starting at the given offset.
 func (l *CommitLog) Truncate(offset int64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
