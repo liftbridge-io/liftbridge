@@ -70,7 +70,7 @@ act as read replicas for further scale out.
 The diagram below shows a cluster of three servers with a set of streams.
 Streams in yellow indicate the server is the leader for the stream.
 
-TODO
+![streams](./images/streams.png)
 
 ## In-Sync Replicas Set (ISR)
 
