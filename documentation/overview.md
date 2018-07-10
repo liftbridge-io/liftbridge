@@ -29,3 +29,7 @@ scalability. Unlike [NATS
 Streaming](https://github.com/nats-io/nats-streaming-server), it uses the core
 NATS protocol with optional extensions. This means it can be added to an
 existing NATS deployment to provide message durability with no code changes.
+
+The high-level data flow in Liftbridge is shown in the diagram below.
+
+![high-level data flow](./images/high-level.png)
