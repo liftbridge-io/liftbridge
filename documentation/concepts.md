@@ -7,7 +7,7 @@ pub/sub messaging system that centers around the concept of *subjects*. Clients
 publish messages to subjects and receive messages from *subscriptions* to
 subjects.
 
-## Streams
+## Stream
 
 Fundamentally, Liftbridge is just a consumer of NATS subjects. It receives
 messages received from NATS subjects and records them in a durable log which
@@ -30,7 +30,7 @@ log go through the stream *leader*, which is selected by the cluster
 [controller](#controller). The leader sequences each message in the stream and
 sends back an acknowledgement to publishers upon committing a message to the
 log. A message is committed to the log once it has been replicated to the
-stream's [in-sync replicas set (ISR)](#isr).
+stream's [in-sync replicas set (ISR)](#in-sync-replicas-set-isr).
 
 Consumers read committed messages from the log through a subscription on the
 stream. They can read back from the log at any arbitrary position, or *offset*.
@@ -72,7 +72,19 @@ Streams in yellow indicate the server is the leader for the stream.
 
 ![streams](./images/streams.png)
 
-## In-Sync Replicas Set (ISR)
+### In-Sync Replicas Set (ISR)
+
+TODO
+
+### Acknowledgement
+
+TODO
+
+### Subscription
+
+TODO
+
+### Stream Compaction
 
 TODO
 
@@ -80,3 +92,6 @@ TODO
 
 TODO
 
+## Message Envelope
+
+TODO
