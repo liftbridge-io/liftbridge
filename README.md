@@ -20,7 +20,7 @@ for more context and some of the inspiration behind Liftbridge.
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Client Libraries](#client-libraries)
-- [TODO](#todo)
+- [Roadmap](#roadmap)
 - [Acknowledgements](#acknowledgements)
 
 ## Key Features
@@ -204,7 +204,7 @@ However, Liftbridge uses gRPC for its client API, so client libraries can
 be generated quite easily using the
 [Liftbridge protobuf definitions](https://github.com/tylertreat/liftbridge-grpc).
 
-## TODO
+## Roadmap
 
 - [ ] Documentation
   - [x] Overview
