@@ -1,4 +1,5 @@
-# liftbridge
+![Liftbridge Logo](./documentation/images/logo.png)
+---
 
 Liftbridge provides lightweight, fault-tolerant message streams by implementing
 a durable stream augmentation for the [NATS messaging system](https://nats.io).
