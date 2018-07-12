@@ -207,9 +207,11 @@ be generated quite easily using the
 ## TODO
 
 - [ ] Documentation
+  - [x] Overview
+  - [x] FAQ
   - [ ] Config file format
   - [ ] Cluster bootstrapping
-  - [ ] Core concepts
+  - [x] Core concepts
   - [ ] Replication protocol
 - [ ] Production-hardening
 - [ ] TLS support
