@@ -30,7 +30,7 @@ log go through the stream *leader*, which is selected by the cluster
 [controller](#controller). The leader sequences each message in the stream and
 sends back an acknowledgement to publishers upon committing a message to the
 log. A message is committed to the log once it has been replicated to the
-stream's [in-sync replicas set (ISR)](#in-sync-replicas-set-isr).
+stream's [in-sync replica set (ISR)](#in-sync-replica-set-isr).
 
 Consumers read committed messages from the log through a subscription on the
 stream. They can read back from the log at any arbitrary position, or *offset*.
@@ -72,9 +72,9 @@ Streams in yellow indicate the server is the leader for the stream.
 
 ![streams](./images/streams.png)
 
-### In-Sync Replicas Set (ISR)
+### In-Sync Replica Set (ISR)
 
-The In-Sync Replicas set (ISR) is a key aspect of the replication protocol in
+The In-Sync Replica set (ISR) is a key aspect of the replication protocol in
 Liftbridge. The ISR consists of the set of stream replicas that are currently
 caught up with the leader. It is equivalent to the [ISR concept in
 Kafka](https://kafka.apache.org/documentation/#design_replicatedlog), and the
@@ -159,6 +159,8 @@ failure for high availability.
 
 Note that in order for the controller to make progress, a quorum (majority) of
 the brokers must be running.
+
+Controller is also referred to as "metadata leader" in some contexts.
 
 ## Message Envelope
 

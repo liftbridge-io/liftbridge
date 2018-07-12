@@ -212,7 +212,7 @@ be generated quite easily using the
   - [ ] Config file format
   - [ ] Cluster bootstrapping
   - [x] Core concepts
-  - [ ] Replication protocol
+  - [x] Replication protocol
 - [ ] Production-hardening
 - [ ] TLS support
 - [ ] Configurable acks
