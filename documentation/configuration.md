@@ -126,9 +126,9 @@ the configuration file.
 | retention.max.bytes | | The maximum size of the log before truncating it. | int64 | -1 | |
 | segment.max.bytes | | The maximum size of a single log segment file. | int64 | 10485760 | |
 
-### Cluster Configuration Settings
+### Clustering Configuration Settings
 
-Below is the list of the configuration settings for the `cluster` part of
+Below is the list of the configuration settings for the `clustering` part of
 the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
