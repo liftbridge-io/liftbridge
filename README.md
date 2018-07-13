@@ -199,6 +199,9 @@ clustering {
 }
 ```
 
+See the [configuration documentation](./documentation/configuration.md) for full
+details on server configuration.
+
 ## Client Libraries
 
 Currently, there is only a high-level
@@ -212,7 +215,7 @@ be generated quite easily using the
 - [ ] Documentation
   - [x] Overview
   - [x] FAQ
-  - [ ] Config file format
+  - [x] Config
   - [ ] Cluster bootstrapping
   - [x] Core concepts
   - [x] Replication protocol
