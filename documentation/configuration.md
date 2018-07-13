@@ -103,9 +103,9 @@ the setting in the configuration file and the CLI flag if it exists.
 | batch.max.messages | | The maximum number of messages to batch when writing to disk. | int | 1024 |
 | batch.wait.time | | The time to wait to batch more messages when writing to disk. | duration | 0 | |
 | metadata.cache.max.age | | The maximum age of cached broker metadata. | duration | 2m | |
-| nats | | NATS configuration. | map | | See below |
-| log | | Stream write-ahead log configuration. | map | | See below |
-| clustering | | Broker cluster configuration. | map | | See below |
+| nats | | NATS configuration. | map | | [See below](#nats-configuration-settings) |
+| log | | Stream write-ahead log configuration. | map | | [See below](#log-configuration-settings) |
+| clustering | | Broker cluster configuration. | map | | [See below](#cluster-configuration-settings) |
 
 ### NATS Configuration Settings
 
