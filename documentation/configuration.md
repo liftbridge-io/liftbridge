@@ -90,13 +90,16 @@ clustering {
 
 ## Configuration Settings
 
+Below is the list of Liftbridge configuration settings, including the name of
+the setting in the configuration file and the CLI flag if it exists.
+
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
 | listen | | The server host/port. | string | localhost:9292 | |
 | host | | The server host. | string | localhost | |
 | port | port | The server port. | int | 9292 | |
 | log.level | level | The logging level. | string | info | [debug, info, warn, error] |
-| data.dir | data-dir | The directory to store data in. | string | /tmp/liftbridge/<namespace> | |
+| data.dir | data-dir | The directory to store data in. | string | /tmp/liftbridge/namespace | |
 | batch.max.messages | | The maximum number of messages to batch when writing to disk. | int | 1024 |
 | batch.wait.time | | The time to wait to batch more messages when writing to disk. | duration | 0 | |
 | metadata.cache.max.age | | The maximum age of cached broker metadata. | duration | 2m | |
@@ -106,11 +109,17 @@ clustering {
 
 ### NATS Configuration Settings
 
+Below is the list of the configuration settings for the `nats` part of
+the configuration file.
+
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
 | servers | nats-server | List of NATS hosts to connect to. | list | nats://localhost:4222 | |
 
 ### Log Configuration Settings
+
+Below is the list of the configuration settings for the `log` part of
+the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
@@ -118,6 +127,9 @@ clustering {
 | segment.max.bytes | | The maximum size of a single log segment file. | int64 | 10485760 | |
 
 ### Cluster Configuration Settings
+
+Below is the list of the configuration settings for the `cluster` part of
+the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
