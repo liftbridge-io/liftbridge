@@ -27,6 +27,7 @@ const (
 	defaultReplicaMaxLagTime       = 10 * time.Second
 	defaultReplicaMaxLeaderTimeout = 10 * time.Second
 	defaultRaftSnapshots           = 2
+	defaultRaftCacheSize           = 512
 	defaultRetentionMaxBytes       = -1
 	defaultMetadataCacheMaxAge     = 2 * time.Minute
 	defaultBatchMaxMessages        = 1024
@@ -85,7 +86,7 @@ func NewDefaultConfig() *Config {
 	config.Clustering.ReplicaMaxLeaderTimeout = defaultReplicaMaxLeaderTimeout
 	config.Clustering.ReplicaFetchTimeout = defaultReplicaFetchTimeout
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
-	config.Clustering.RaftCacheSize = 512
+	config.Clustering.RaftCacheSize = defaultRaftCacheSize
 	config.Log.RetentionMaxBytes = defaultRetentionMaxBytes
 	return config
 }
@@ -203,8 +204,6 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 			config.Log.RetentionMaxBytes = v.(int64)
 		case "segment.max.bytes":
 			config.Log.SegmentMaxBytes = v.(int64)
-		case "compact":
-			config.Log.Compact = v.(bool)
 		default:
 			return fmt.Errorf("Unknown log configuration setting %q", k)
 		}

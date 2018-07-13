@@ -179,15 +179,18 @@ listen: localhost:9293
 data.dir: /tmp/liftbridge/server-2
 log.level: debug
 
+# Define NATS cluster to connect to.
 nats {
     servers: ["nats://localhost:4300", "nats://localhost:4301"]
 }
 
+# Specify message log settings.
 log {
     segment.max.bytes: 1000000
     retention.max.bytes: 100000000000
 }
 
+# Specify cluster settings.
 clustering {
     server.id: server-2
     raft.logging: true
