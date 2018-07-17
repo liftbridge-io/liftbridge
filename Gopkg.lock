@@ -11,7 +11,7 @@
   branch = "master"
   name = "github.com/armon/go-metrics"
   packages = ["."]
-  revision = "58588f401c2cc130a7308a52ca3bc6c0a76db04b"
+  revision = "3c58d8115a78a6879e5df75ae900846768d36895"
 
 [[projects]]
   name = "github.com/boltdb/bolt"
@@ -75,6 +75,21 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/liftbridge-io/go-liftbridge"
+  packages = [
+    ".",
+    "liftbridge-grpc"
+  ]
+  revision = "a89ad3e314f32c96c7de71744b6ee41a0ac35746"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/liftbridge-io/nats-on-a-log"
+  packages = ["."]
+  revision = "f85fe8877b7fece5d14b8eb6b809634633f07ed9"
+
+[[projects]]
+  branch = "master"
   name = "github.com/natefinch/atomic"
   packages = ["."]
   revision = "a62ce929ffcc871a51e98c6eba7b20321e3ed62d"
@@ -89,8 +104,8 @@
     "test",
     "util"
   ]
-  revision = "add6d7930ae6d4bff8823b28999ea87bf1bfd23d"
-  version = "v1.1.0"
+  revision = "6608e9ac3be979dcb0614b772cc86a87b71acaa3"
+  version = "v1.2.0"
 
 [[projects]]
   name = "github.com/nats-io/go-nats"
@@ -138,17 +153,8 @@
 [[projects]]
   branch = "master"
   name = "github.com/tylertreat/go-liftbridge"
-  packages = [
-    ".",
-    "liftbridge-grpc"
-  ]
-  revision = "b45cc571f2b1752861c50d6adf82387c5383f9fb"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/tylertreat/nats-on-a-log"
-  packages = ["."]
-  revision = "c4eb95a283e18725d918d330d3f7e45132244407"
+  packages = ["liftbridge-grpc"]
+  revision = "a89ad3e314f32c96c7de71744b6ee41a0ac35746"
 
 [[projects]]
   branch = "master"
@@ -184,7 +190,7 @@
     "internal/timeseries",
     "trace"
   ]
-  revision = "ed29d75add3d7c4bf7ca65aac0c6df3d1420216f"
+  revision = "d0887baf81f4598189d4e12a37c6da86f0bba4d0"
 
 [[projects]]
   branch = "master"
@@ -198,7 +204,7 @@
     "windows/svc/eventlog",
     "windows/svc/mgr"
   ]
-  revision = "7138fd3d9dc8335c567ca206f4333fb75eb05d56"
+  revision = "ac767d655b305d4e9612f5f6e33120b9176c4ad4"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -225,7 +231,7 @@
   branch = "master"
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
-  revision = "ff3583edef7de132f219f0efc00e097cabcc0ec0"
+  revision = "2731d4fa720b67f9fe38e9051a2a9b38e4609260"
 
 [[projects]]
   name = "google.golang.org/grpc"
@@ -262,6 +268,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "7982d11a6ef7549f2692e1fc7b5817000bf7652d8ca2454ebf6e44265b8ffa2e"
+  inputs-digest = "12e90c907d28c35199741b454e3117d5c26df5846356b560bd4a7f4344b4c9ab"
   solver-name = "gps-cdcl"
   solver-version = 1

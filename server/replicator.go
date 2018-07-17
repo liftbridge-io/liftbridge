@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/tylertreat/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 const (

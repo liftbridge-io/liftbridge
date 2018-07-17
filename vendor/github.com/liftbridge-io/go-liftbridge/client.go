@@ -24,8 +24,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/tylertreat/go-liftbridge/liftbridge-grpc"
+	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 )
+
+// MaxReplicationFactor can be used to tell the server to set the replication
+// factor equal to the current number of servers in the cluster when creating a
+// stream.
+const MaxReplicationFactor int32 = -1
 
 const (
 	defaultMaxConnsPerBroker = 2
@@ -66,7 +71,9 @@ type StreamInfo struct {
 	// ReplicationFactor controls the number of servers to replicate a stream
 	// to (optional). E.g. a value of 1 would mean only 1 server would have the
 	// data, and a value of 3 would be 3 servers would have it. If this is not
-	// set, it defaults to 1.
+	// set, it defaults to 1. A value of -1 will signal to the server to set
+	// the replication factor equal to the current number of servers in the
+	// cluster.
 	ReplicationFactor int32
 }
 

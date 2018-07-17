@@ -11,10 +11,10 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/raft-boltdb"
+	"github.com/liftbridge-io/nats-on-a-log"
 	"github.com/nats-io/go-nats"
-	"github.com/tylertreat/nats-on-a-log"
 
-	"github.com/tylertreat/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/tylertreat/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 // CommitLog is the durable write-ahead log interface used to back each stream.

@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 
-	"github.com/tylertreat/liftbridge/server/commitlog"
-	"github.com/tylertreat/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/commitlog"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 var (

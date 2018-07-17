@@ -47,11 +47,19 @@
 
 [[constraint]]
   branch = "master"
+  name = "github.com/liftbridge-io/go-liftbridge"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/liftbridge-io/nats-on-a-log"
+
+[[constraint]]
+  branch = "master"
   name = "github.com/natefinch/atomic"
 
 [[constraint]]
   name = "github.com/nats-io/gnatsd"
-  version = "1.1.0"
+  version = "1.2.0"
 
 [[constraint]]
   name = "github.com/nats-io/go-nats"
@@ -76,10 +84,6 @@
 [[constraint]]
   branch = "master"
   name = "github.com/tylertreat/go-liftbridge"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/tylertreat/nats-on-a-log"
 
 [[constraint]]
   branch = "master"

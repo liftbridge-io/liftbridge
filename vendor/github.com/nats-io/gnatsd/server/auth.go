@@ -63,6 +63,14 @@ type Permissions struct {
 	Subscribe []string `json:"subscribe"`
 }
 
+// RoutePermissions are similar to user permissions
+// but describe what a server can import/export from and to
+// another server.
+type RoutePermissions struct {
+	Import []string `json:"import"`
+	Export []string `json:"export"`
+}
+
 // clone performs a deep copy of the Permissions struct, returning a new clone
 // with all values copied.
 func (p *Permissions) clone() *Permissions {
@@ -122,6 +130,14 @@ func (s *Server) checkAuthorization(c *client) bool {
 	}
 }
 
+// hasUsers leyt's us know if we have a users array.
+func (s *Server) hasUsers() bool {
+	s.mu.Lock()
+	hu := s.users != nil
+	s.mu.Unlock()
+	return hu
+}
+
 // isClientAuthorized will check the client against the proper authorization method and data.
 // This could be token or username/password based.
 func (s *Server) isClientAuthorized(c *client) bool {
@@ -129,10 +145,13 @@ func (s *Server) isClientAuthorized(c *client) bool {
 	opts := s.getOpts()
 
 	// Check custom auth first, then multiple users, then token, then single user/pass.
-	if s.opts.CustomClientAuthentication != nil {
-		return s.opts.CustomClientAuthentication.Check(c)
-	} else if s.users != nil {
+	if opts.CustomClientAuthentication != nil {
+		return opts.CustomClientAuthentication.Check(c)
+	} else if s.hasUsers() {
+		s.mu.Lock()
 		user, ok := s.users[c.opts.Username]
+		s.mu.Unlock()
+
 		if !ok {
 			return false
 		}
@@ -173,7 +192,11 @@ func (s *Server) isRouterAuthorized(c *client) bool {
 	if opts.Cluster.Username != c.opts.Username {
 		return false
 	}
-	return comparePasswords(opts.Cluster.Password, c.opts.Password)
+	if !comparePasswords(opts.Cluster.Password, c.opts.Password) {
+		return false
+	}
+	c.setRoutePermissions(opts.Cluster.Permissions)
+	return true
 }
 
 // removeUnauthorizedSubs removes any subscriptions the client has that are no

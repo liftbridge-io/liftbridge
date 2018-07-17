@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tysontate/gommap"
 
-	"github.com/tylertreat/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 var (

@@ -1,6 +1,6 @@
 package commitlog
 
-import "github.com/tylertreat/liftbridge/server/proto"
+import "github.com/liftbridge-io/liftbridge/server/proto"
 
 type Message []byte
 

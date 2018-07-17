@@ -9,7 +9,7 @@ import (
 	"github.com/nats-io/go-nats"
 	"github.com/urfave/cli"
 
-	"github.com/tylertreat/liftbridge/server"
+	"github.com/liftbridge-io/liftbridge/server"
 )
 
 const version = "0.0.1"

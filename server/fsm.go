@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/pkg/errors"
 
-	"github.com/tylertreat/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 // recoverLatestCommittedFSMLog returns the last committed Raft FSM log entry.

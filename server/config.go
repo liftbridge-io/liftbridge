@@ -11,7 +11,7 @@ import (
 	"github.com/nats-io/nuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/tylertreat/liftbridge/server/conf"
+	"github.com/liftbridge-io/liftbridge/server/conf"
 )
 
 const (

@@ -667,7 +667,7 @@ func (c *client) parse(buf []byte) error {
 		// catching here should prevent memory exhaustion attacks.
 		if len(c.argBuf) > mcl {
 			c.sendErr("Maximum Control Line Exceeded")
-			c.closeConnection()
+			c.closeConnection(MaxControlLineExceeded)
 			return ErrMaxControlLine
 		}
 	}
@@ -709,7 +709,7 @@ authErr:
 parseErr:
 	c.sendErr("Unknown Protocol Operation")
 	snip := protoSnippet(i, buf)
-	err := fmt.Errorf("%s Parser ERROR, state=%d, i=%d: proto='%s...'",
+	err := fmt.Errorf("%s parser ERROR, state=%d, i=%d: proto='%s...'",
 		c.typeString(), c.state, i, snip)
 	return err
 }

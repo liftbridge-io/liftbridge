@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
+	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
-	client "github.com/tylertreat/go-liftbridge/liftbridge-grpc"
 	"golang.org/x/net/context"
 
-	"github.com/tylertreat/liftbridge/server/commitlog"
-	"github.com/tylertreat/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/commitlog"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 // recvChannelSize specifies the size of the channel that feeds the leader

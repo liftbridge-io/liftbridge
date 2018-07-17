@@ -17,8 +17,8 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/tylertreat/liftbridge/server/logger"
-	"github.com/tylertreat/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/logger"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 var (

@@ -3,7 +3,7 @@ package liftbridge
 import (
 	"bytes"
 
-	"github.com/tylertreat/go-liftbridge/liftbridge-grpc"
+	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 )
 
 // MessageOptions are used to configure optional settings for a Message.

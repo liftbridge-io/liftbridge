@@ -35,7 +35,13 @@ var (
 
 const (
 	// VERSION is the current version for the server.
-	VERSION = "1.1.0"
+	VERSION = "1.2.0"
+
+	// PROTO is the currently supported protocol.
+	// 0 was the original
+	// 1 maintains proto 0, adds echo abilities for CONNECT from the client. Clients
+	// should not send echo unless proto in INFO is >= 1.
+	PROTO = 1
 
 	// DEFAULT_PORT is the default port for client connections.
 	DEFAULT_PORT = 4222
@@ -55,6 +61,9 @@ const (
 	// MAX_PAYLOAD_SIZE is the maximum allowed payload size. Should be using
 	// something different if > 1MB payloads are needed.
 	MAX_PAYLOAD_SIZE = (1024 * 1024)
+
+	// MAX_PENDING_SIZE is the maximum outbound pending bytes per client.
+	MAX_PENDING_SIZE = (256 * 1024 * 1024)
 
 	// DEFAULT_MAX_CONNECTIONS is the default maximum connections allowed.
 	DEFAULT_MAX_CONNECTIONS = (64 * 1024)
@@ -106,4 +115,10 @@ const (
 
 	// MAX_PUB_ARGS Maximum possible number of arguments from PUB proto.
 	MAX_PUB_ARGS = 3
+
+	// DEFAULT_REMOTE_QSUBS_SWEEPER
+	DEFAULT_REMOTE_QSUBS_SWEEPER = 30 * time.Second
+
+	// DEFAULT_MAX_CLOSED_CLIENTS
+	DEFAULT_MAX_CLOSED_CLIENTS = 10000
 )

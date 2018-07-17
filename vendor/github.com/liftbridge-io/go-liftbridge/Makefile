@@ -4,7 +4,7 @@ install: $(PROTO_REPO)
 	go generate
 
 $(PROTO_REPO):
-	git clone git@github.com:tylertreat/$(PROTO_REPO).git
+	git clone git@github.com:liftbridge-io/$(PROTO_REPO).git
 
 clean:
 	rm -rf $(PROTO_REPO)

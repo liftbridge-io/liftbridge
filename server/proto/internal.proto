@@ -1,7 +1,7 @@
 syntax = "proto3";
 package proto;
 
-import "github.com/tylertreat/go-liftbridge/liftbridge-grpc/api.proto";
+import "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc/api.proto";
 
     
 message ServerState {
