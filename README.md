@@ -212,7 +212,7 @@ be generated quite easily using the
 
 ## Roadmap
 
-- [x] Documentation
+- [x] Basic documentation
   - [x] Overview
   - [x] FAQ
   - [x] Config
