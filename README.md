@@ -212,11 +212,11 @@ be generated quite easily using the
 
 ## Roadmap
 
-- [ ] Documentation
+- [x] Documentation
   - [x] Overview
   - [x] FAQ
   - [x] Config
-  - [ ] Cluster bootstrapping
+  - [x] Cluster bootstrapping
   - [x] Core concepts
   - [x] Replication protocol
 - [ ] Production-hardening
