@@ -92,8 +92,9 @@ number of brokers to replicate the stream. Each stream has a leader who is
 responsible for handling reads and writes. Followers then replicate the log
 from the leader. If the leader fails, one of the followers can set up to
 replace it. The replication protocol closely resembles that of Kafka, so there
-is much more nuance to avoid data consistency problems. This will be documented
-in more detail in the near future.
+is much more nuance to avoid data consistency problems. See the
+[replication protcol documentation](./documentation/replication_protocol.md) for
+more details.
 
 ### What about performance?
 
