@@ -115,8 +115,8 @@ $ brew install dep
 To build and install Liftbridge from source, run the following:
 
 ```
-$ go get github.com/tylertreat/liftbridge
-$ cd $GOPATH/src/github.com/tylertreat/liftbridge
+$ go get github.com/liftbridge-io/liftbridge
+$ cd $GOPATH/src/github.com/liftbridge-io/liftbridge
 $ dep ensure
 $ go install
 ```
@@ -205,10 +205,10 @@ details on server configuration.
 ## Client Libraries
 
 Currently, there is only a high-level
-[Go client library](https://github.com/tylertreat/go-liftbridge) available.
+[Go client library](https://github.com/liftbridge-io/go-liftbridge) available.
 However, Liftbridge uses gRPC for its client API, so client libraries can
 be generated quite easily using the
-[Liftbridge protobuf definitions](https://github.com/tylertreat/liftbridge-grpc).
+[Liftbridge protobuf definitions](https://github.com/liftbridge-io/liftbridge-grpc).
 
 ## Roadmap
 

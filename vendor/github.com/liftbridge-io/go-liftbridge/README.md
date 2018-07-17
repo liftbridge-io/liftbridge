@@ -1,11 +1,11 @@
 # go-liftbridge
 
-Go client for [Liftbridge](https://github.com/tylertreat/liftbridge).
+Go client for [Liftbridge](https://github.com/liftbridge-io/liftbridge).
 
 ## Installation
 
 ```
-$ go get github.com/tylertreat/go-liftbridge
+$ go get github.com/liftbridge-io/go-liftbridge
 ```
 
 ## Example
@@ -15,7 +15,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/tylertreat/go-liftbridge"
+	"github.com/liftbridge-io/go-liftbridge"
 	"golang.org/x/net/context"
 )
 
