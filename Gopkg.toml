@@ -83,10 +83,6 @@
 
 [[constraint]]
   branch = "master"
-  name = "github.com/tylertreat/go-liftbridge"
-
-[[constraint]]
-  branch = "master"
   name = "github.com/tysontate/gommap"
 
 [[constraint]]

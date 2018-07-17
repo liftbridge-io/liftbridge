@@ -152,12 +152,6 @@
 
 [[projects]]
   branch = "master"
-  name = "github.com/tylertreat/go-liftbridge"
-  packages = ["liftbridge-grpc"]
-  revision = "a89ad3e314f32c96c7de71744b6ee41a0ac35746"
-
-[[projects]]
-  branch = "master"
   name = "github.com/tysontate/gommap"
   packages = ["."]
   revision = "e87a6e482c2ceaa54bd76e0fb30d1f2d40dd3f01"
@@ -268,6 +262,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "12e90c907d28c35199741b454e3117d5c26df5846356b560bd4a7f4344b4c9ab"
+  inputs-digest = "551630beb667465a109cdc00f2ff9fc813d972ab323590d69a7340f264154886"
   solver-name = "gps-cdcl"
   solver-version = 1
