@@ -46,8 +46,8 @@
   name = "github.com/hashicorp/raft-boltdb"
 
 [[constraint]]
+  branch = "master"
   name = "github.com/liftbridge-io/go-liftbridge"
-  version = "0.0.1"
 
 [[constraint]]
   branch = "master"
