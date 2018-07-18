@@ -220,7 +220,7 @@ be generated quite easily using the
   - [x] Cluster bootstrapping
   - [x] Core concepts
   - [x] Replication protocol
-- [ ] Setup CI
+- [x] Setup CI
 - [ ] Production-hardening
 - [ ] TLS support
 - [ ] Configurable acks
