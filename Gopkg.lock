@@ -80,13 +80,13 @@
     ".",
     "liftbridge-grpc"
   ]
-  revision = "5911f90954830391c55d0aef2578bb2fcba76c2d"
+  revision = "48137829311204cfc0f9f62294851276857d8d7f"
 
 [[projects]]
   branch = "master"
   name = "github.com/liftbridge-io/nats-on-a-log"
   packages = ["."]
-  revision = "f85fe8877b7fece5d14b8eb6b809634633f07ed9"
+  revision = "80d0727461aff3d8dbb139b65e47510237472bd7"
 
 [[projects]]
   branch = "master"
