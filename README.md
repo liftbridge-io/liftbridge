@@ -107,20 +107,8 @@ No, this project is early and still evolving.
 
 ## Installation
 
-Liftbridge uses [dep](https://github.com/golang/dep) to vendor dependencies.
-If you don't have dep installed, run the following:
-
-```
-$ brew install dep
-```
-
-To build and install Liftbridge from source, run the following:
-
 ```
 $ go get github.com/liftbridge-io/liftbridge
-$ cd $GOPATH/src/github.com/liftbridge-io/liftbridge
-$ dep ensure
-$ go install
 ```
 
 ## Quick Start
