@@ -7,5 +7,5 @@ jobs:
     working_directory: /go/src/github.com/liftbridge-io/liftbridge
     steps:
       - checkout
-      - run: go get -u golang.org/x/net # hack to work around duplicate endpoint registration
+      - run: go get -u golang.org/x/net || true # hack to work around duplicate endpoint registration
       - run: go test -v ./...
