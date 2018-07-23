@@ -714,7 +714,9 @@ func (s *stream) inReplicas(id string) bool {
 }
 
 // RemoveFromISR removes the given replica from the in-sync replicas set. It
-// returns an error if the broker is not a stream replica.
+// returns an error if the broker is not a stream replica. This will also
+// insert a check to see if pending messages need to be committed since the ISR
+// shrank.
 func (s *stream) RemoveFromISR(replica string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -722,6 +724,13 @@ func (s *stream) RemoveFromISR(replica string) error {
 		return fmt.Errorf("%s not a replica", replica)
 	}
 	delete(s.isr, replica)
+
+	// We may need to commit messages since the ISR shrank.
+	select {
+	case s.commitCheck <- struct{}{}:
+	default:
+	}
+
 	return nil
 }
 
