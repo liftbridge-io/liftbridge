@@ -1,6 +1,10 @@
 package proto
 
-import "time"
+import (
+	"time"
+
+	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
+)
 
 type Message struct {
 	Crc        int32
@@ -14,6 +18,7 @@ type Message struct {
 	// Transient fields
 	AckInbox      string
 	CorrelationID string
+	AckPolicy     client.AckPolicy
 }
 
 func (m *Message) Encode(e PacketEncoder) error {

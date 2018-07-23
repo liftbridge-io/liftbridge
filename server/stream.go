@@ -468,25 +468,8 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 			return
 		}
 
-		// TODO: add support for acks configuration.
-
-		// If there is an AckInbox, add the pending message to the commit
-		// queue. If there isn't one, we don't care whether the message is
-		// committed or not.
 		for i, msg := range msgBatch {
-			if msg.AckInbox != "" {
-				if err := s.commitQueue.Put(&client.Ack{
-					StreamSubject: s.Subject,
-					StreamName:    s.Name,
-					MsgSubject:    string(msg.Headers["subject"]),
-					Offset:        offsets[i],
-					AckInbox:      msg.AckInbox,
-					CorrelationId: msg.CorrelationID,
-				}); err != nil {
-					// This is very bad and should not happen.
-					panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
-				}
-			}
+			s.processPendingMessage(offsets[i], msg)
 		}
 
 		// Update this replica's latest offset.
@@ -494,6 +477,30 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 			s.srv.config.Clustering.ServerID,
 			offsets[len(offsets)-1],
 		)
+	}
+}
+
+// processPendingMessage sends an ack if the message's AckPolicy is LEADER and
+// adds the pending message to the commit queue. Messages are removed from the
+// queue and committed when the entire ISR has replicated them.
+func (s *stream) processPendingMessage(offset int64, msg *proto.Message) {
+	ack := &client.Ack{
+		StreamSubject: s.Subject,
+		StreamName:    s.Name,
+		MsgSubject:    string(msg.Headers["subject"]),
+		Offset:        offset,
+		AckInbox:      msg.AckInbox,
+		CorrelationId: msg.CorrelationID,
+		AckPolicy:     msg.AckPolicy,
+	}
+	if msg.AckPolicy == client.AckPolicy_LEADER {
+		// Send the ack now since AckPolicy_LEADER means we ack as soon as the
+		// leader has written the message to its WAL.
+		s.sendAck(ack)
+	}
+	if err := s.commitQueue.Put(ack); err != nil {
+		// This is very bad and should not happen.
+		panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
 	}
 }
 
@@ -565,18 +572,30 @@ func (s *stream) commitLoop(stop chan struct{}) {
 			continue
 		}
 
-		// Commit by updating the HW and sending acks.
+		// Commit by updating the HW and sending acks (if applicable).
 		hw := toCommit[len(toCommit)-1].(*client.Ack).Offset
 		s.log.SetHighWatermark(hw)
 		for _, ackIface := range toCommit {
 			ack := ackIface.(*client.Ack)
-			data, err := ack.Marshal()
-			if err != nil {
-				panic(err)
+			// Only send an ack if the AckPolicy is ALL.
+			if ack.AckPolicy == client.AckPolicy_ALL {
+				s.sendAck(ack)
 			}
-			s.srv.ncAcks.Publish(ack.AckInbox, data)
 		}
 	}
+}
+
+// sendAck publishes an ack to the specified AckInbox. If no AckInbox is set,
+// this does nothing.
+func (s *stream) sendAck(ack *client.Ack) {
+	if ack.AckInbox == "" {
+		return
+	}
+	data, err := ack.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	s.srv.ncAcks.Publish(ack.AckInbox, data)
 }
 
 // replicationRequestLoop is a long-running loop which sends replication
@@ -858,6 +877,7 @@ func natsToProtoMessage(msg *nats.Msg) *proto.Message {
 		}
 		m.AckInbox = message.AckInbox
 		m.CorrelationID = message.CorrelationId
+		m.AckPolicy = message.AckPolicy
 	} else {
 		m.Value = msg.Data
 	}
