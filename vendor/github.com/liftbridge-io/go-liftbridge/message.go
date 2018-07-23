@@ -20,6 +20,11 @@ type MessageOptions struct {
 	// published Message. If it's not set, the ack will not have a correlation
 	// id.
 	CorrelationID string
+
+	// AckPolicy controls the behavior of Message acks sent by the server. By
+	// default, Liftbridge will send an ack when the stream leader has written
+	// the message to its write-ahead log.
+	AckPolicy proto.AckPolicy
 }
 
 // NewMessage returns a serialized message for the given payload and
@@ -30,6 +35,7 @@ func NewMessage(value []byte, options MessageOptions) []byte {
 		Value:         value,
 		AckInbox:      options.AckInbox,
 		CorrelationId: options.CorrelationID,
+		AckPolicy:     options.AckPolicy,
 	}
 	m, err := msg.Marshal()
 	if err != nil {

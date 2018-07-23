@@ -269,7 +269,7 @@ func StartAt(start proto.StartPosition) SubscriptionOption {
 // stream.
 func StartAtOffset(offset int64) SubscriptionOption {
 	return func(o *SubscriptionOptions) error {
-		o.StartPosition = proto.StartPosition_Offset
+		o.StartPosition = proto.StartPosition_OFFSET
 		o.StartOffset = offset
 		return nil
 	}

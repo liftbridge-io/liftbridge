@@ -212,7 +212,7 @@ be generated quite easily using the
 - [x] Setup CI
 - [ ] Production-hardening
 - [ ] TLS support
-- [ ] Configurable acks
+- [x] Configurable acks
 - [ ] Log retention by message age
 - [ ] Log retention by number of messages
 - [ ] Log compaction by key

@@ -17,11 +17,11 @@ message CreateStreamResponse {
 
 // StartPosition determines the start-position type on a subscription.
 enum StartPosition {
-    Offset = 0;
+    OFFSET = 0;
     // TODO
-    //First   = 1;
-    //Last    = 2;
-    //NewOnly = 3;
+    //FIRST    = 1;
+    //LAST     = 2;
+    //NEW_ONLY = 3;
 }
 
 // SubscribeRequest is sent to subscribe to a stream.
@@ -69,27 +69,36 @@ message StreamMetadata {
     repeated string  isr      = 5; // Broker ids of the in-sync replica set
 }
 
+// AckPolicy controls the behavior of message acknowledgements.
+enum AckPolicy {
+    LEADER = 0; // The ack will be sent once the leader has written the message to its log
+    ALL    = 1; // The ack will be sent after the ISR replicas have written the message to their logs
+    NONE   = 2; // No ack will be sent
+}
+
 // Message represents a message from a stream.
 message Message {
-    int64               offset        = 1; // Monotonic message offset in the stream
-    bytes               key           = 2; // Message key
-    bytes               value         = 3; // Message payload
-    int64               timestamp     = 4; // When the message was received by the broker
-    string              subject       = 5; // NATS subject message was received on
-    string              reply         = 6; // NATS reply subject
-    map<string, bytes>  headers       = 7; // Message headers
-    string              ackInbox      = 8; // NATS subject to publish acks to
-    string              correlationId = 9; // User-supplied value to correlate acks to publishes
+    int64               offset        = 1;  // Monotonic message offset in the stream
+    bytes               key           = 2;  // Message key
+    bytes               value         = 3;  // Message payload
+    int64               timestamp     = 4;  // When the message was received by the broker
+    string              subject       = 5;  // NATS subject message was received on
+    string              reply         = 6;  // NATS reply subject
+    map<string, bytes>  headers       = 7;  // Message headers
+    string              ackInbox      = 8;  // NATS subject to publish acks to
+    string              correlationId = 9;  // User-supplied value to correlate acks to publishes
+    AckPolicy           ackPolicy     = 10; // Controls the behavior of acks
 }
 
 // Ack represents an acknowledgement that a message was committed to a stream.
 message Ack {
-    string streamSubject = 1; // NATS subject stream is attached to
-    string streamName    = 2; // Name of the stream
-    string msgSubject    = 3; // NATS subject the message was received on
-    int64  offset        = 4; // Stream offset the message was committed to
-    string ackInbox      = 5; // NATS subject to publish acks to
-    string correlationId = 6; // User-supplied value from the message
+    string    streamSubject = 1; // NATS subject stream is attached to
+    string    streamName    = 2; // Name of the stream
+    string    msgSubject    = 3; // NATS subject the message was received on
+    int64     offset        = 4; // Stream offset the message was committed to
+    string    ackInbox      = 5; // NATS subject to publish acks to
+    string    correlationId = 6; // User-supplied value from the message
+    AckPolicy ackPolicy     = 7; // The AckPolicy sent on the message
 }
 
 // API is the main Liftbridge server interface clients interact with.
