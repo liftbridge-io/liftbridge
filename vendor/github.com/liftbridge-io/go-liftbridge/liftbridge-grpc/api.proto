@@ -92,12 +92,13 @@ message Message {
 
 // Ack represents an acknowledgement that a message was committed to a stream.
 message Ack {
-    string streamSubject = 1; // NATS subject stream is attached to
-    string streamName    = 2; // Name of the stream
-    string msgSubject    = 3; // NATS subject the message was received on
-    int64  offset        = 4; // Stream offset the message was committed to
-    string ackInbox      = 5; // NATS subject to publish acks to
-    string correlationId = 6; // User-supplied value from the message
+    string    streamSubject = 1; // NATS subject stream is attached to
+    string    streamName    = 2; // Name of the stream
+    string    msgSubject    = 3; // NATS subject the message was received on
+    int64     offset        = 4; // Stream offset the message was committed to
+    string    ackInbox      = 5; // NATS subject to publish acks to
+    string    correlationId = 6; // User-supplied value from the message
+    AckPolicy ackPolicy     = 7; // The AckPolicy sent on the message
 }
 
 // API is the main Liftbridge server interface clients interact with.
