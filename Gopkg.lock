@@ -80,7 +80,7 @@
     ".",
     "liftbridge-grpc"
   ]
-  revision = "48137829311204cfc0f9f62294851276857d8d7f"
+  revision = "6a7c2163a35c453c38099ec1c6217db3509f7d45"
 
 [[projects]]
   branch = "master"
@@ -138,8 +138,8 @@
 [[projects]]
   name = "github.com/sirupsen/logrus"
   packages = ["."]
-  revision = "c155da19408a8799da419ed3eeb0cb5db0ad5dbc"
-  version = "v1.0.5"
+  revision = "3e01752db0189b9157070a0e1668a620f9a85da2"
+  version = "v1.0.6"
 
 [[projects]]
   name = "github.com/stretchr/testify"
@@ -170,7 +170,7 @@
     "blowfish",
     "ssh/terminal"
   ]
-  revision = "a49355c7e3f8fe157a85be2f77e6e269a0f89602"
+  revision = "c126467f60eb25f8f27e5a981f32a87e3965053f"
 
 [[projects]]
   branch = "master"
@@ -184,7 +184,7 @@
     "internal/timeseries",
     "trace"
   ]
-  revision = "d0887baf81f4598189d4e12a37c6da86f0bba4d0"
+  revision = "a680a1efc54dd51c040b3b5ce4939ea3cf2ea0d1"
 
 [[projects]]
   branch = "master"
@@ -225,7 +225,7 @@
   branch = "master"
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
-  revision = "2731d4fa720b67f9fe38e9051a2a9b38e4609260"
+  revision = "02b4e95473316948020af0b7a4f0f22c73929b0e"
 
 [[projects]]
   name = "google.golang.org/grpc"
