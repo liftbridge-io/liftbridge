@@ -214,19 +214,19 @@ func TestCommitOnISRShrink(t *testing.T) {
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 5050)
-	s1Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s1Config.Clustering.ReplicaMaxLagTime = time.Second
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Configure second server.
 	s2Config := getTestConfig("b", false, 5051)
-	s2Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s2Config.Clustering.ReplicaMaxLagTime = time.Second
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
 	// Configure third server.
 	s3Config := getTestConfig("c", false, 5052)
-	s3Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s3Config.Clustering.ReplicaMaxLagTime = time.Second
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
@@ -286,7 +286,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 	select {
 	case <-gotAck:
 		t.Fatal("Received unexpected ack")
-	case <-time.After(time.Second):
+	case <-time.After(500 * time.Millisecond):
 	}
 
 	// Eventually, the ISR should shrink and we should receive an ack.
