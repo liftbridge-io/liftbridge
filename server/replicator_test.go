@@ -202,3 +202,97 @@ func TestStreamLeaderFailover(t *testing.T) {
 		t.Fatal("Did not receive all expected messages")
 	}
 }
+
+// Ensure the leader commits when the ISR shrinks if it causes pending messages
+// to now be replicated by all replicas in ISR.
+func TestCommitOnISRShrink(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5051)
+	s2Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Configure third server.
+	s3Config := getTestConfig("c", false, 5052)
+	s3Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	servers := []*Server{s1, s2, s3}
+	leader := getMetadataLeader(t, 10*time.Second, servers...)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 3,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	cid := "cid"
+	gotAck := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		ack, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		require.Equal(t, cid, ack.CorrelationId)
+		close(gotAck)
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Kill a stream follower.
+	leader = getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, servers...)
+	var follower *Server
+	for i, server := range servers {
+		if server != leader {
+			follower = server
+			servers = append(servers[:i], servers[i+1:]...)
+			break
+		}
+	}
+	follower.Stop()
+
+	// Publish message to stream. This should not get committed until the ISR
+	// shrinks.
+	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+		liftbridge.MessageOptions{CorrelationID: cid, AckInbox: acks}))
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Ensure we don't receive an ack yet.
+	select {
+	case <-gotAck:
+		t.Fatal("Received unexpected ack")
+	case <-time.After(time.Second):
+	}
+
+	// Eventually, the ISR should shrink and we should receive an ack.
+	select {
+	case <-gotAck:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive expected ack")
+	}
+}
