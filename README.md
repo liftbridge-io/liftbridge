@@ -75,6 +75,12 @@ features such as durable subscriptions, queue groups, pluggable storage
 backends, and multiple fault-tolerance modes. Liftbridge aims to have a small
 API surface area.
 
+The key features that differentiate Liftbridge are the shared message namespace,
+wildcards, log compaction, and horizontal scalability. NATS Streaming replicates
+channels to the entire cluster through a single Raft group. Liftbridge allows
+replicating to a subset of the cluster, and each stream is replicated
+independently. This allows the cluster to scale horizontally.
+
 ### How does it scale?
 
 Liftbridge scales horizontally by adding more brokers to the cluster and
