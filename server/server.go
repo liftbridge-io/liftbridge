@@ -18,6 +18,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"github.com/natefinch/lumberjack"
 
 	"github.com/liftbridge-io/liftbridge/server/logger"
 	"github.com/liftbridge-io/liftbridge/server/proto"
@@ -74,6 +75,14 @@ func New(config *Config) *Server {
 		TimestampFormat: "2006-01-02 15:04:05",
 	}
 	logger.Formatter = logFormatter
+	logger.Out = &lumberjack.Logger{
+		Filename:   config.LogFilename,
+		MaxSize:    config.LogMaxSize,
+		MaxBackups: config.LogMaxBackups,
+		MaxAge:     config.LogMaxAge,
+		LocalTime:  config.LogLocalTime,
+		Compress:   config.LogCompress,
+	}
 	if config.NoLog {
 		logger.Out = ioutil.Discard
 	}
