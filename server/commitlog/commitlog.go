@@ -364,7 +364,6 @@ func (l *CommitLog) Truncate(offset int64) error {
 				break
 			}
 		}
-		// TODO: need to update index?
 		if err = newSegment.Replace(segment); err != nil {
 			return err
 		}
