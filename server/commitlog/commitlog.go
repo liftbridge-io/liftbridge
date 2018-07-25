@@ -54,7 +54,6 @@ type Options struct {
 	// new segment will be split off.
 	MaxSegmentBytes      int64
 	MaxLogBytes          int64
-	Compact              bool
 	HWCheckpointInterval time.Duration
 	Logger               logger.Logger
 }
@@ -77,12 +76,7 @@ func New(opts Options) (*CommitLog, error) {
 		opts.HWCheckpointInterval = defaultHWCheckpointInterval
 	}
 
-	var cleaner Cleaner
-	if opts.Compact {
-		cleaner = NewCompactCleaner()
-	} else {
-		cleaner = NewDeleteCleaner(opts.MaxLogBytes)
-	}
+	cleaner := NewDeleteCleaner(opts.MaxLogBytes)
 
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
@@ -364,7 +358,6 @@ func (l *CommitLog) Truncate(offset int64) error {
 				break
 			}
 		}
-		// TODO: need to update index?
 		if err = newSegment.Replace(segment); err != nil {
 			return err
 		}
