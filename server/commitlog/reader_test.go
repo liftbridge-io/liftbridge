@@ -389,6 +389,8 @@ func TestReaderCommittedCancel(t *testing.T) {
 	require.Equal(t, 5, count)
 }
 
+// Ensure ReadMessage waits for the next message when the offset exceeds the
+// HW.
 func TestReaderCommittedCapOffset(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
@@ -405,14 +407,16 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 
-	r, err := l.NewReaderCommitted(context.Background(), 1)
+	r, err := l.NewReaderCommitted(context.Background(), 5)
 	require.NoError(t, err)
+
+	go l.SetHighWatermark(1)
 
 	headers := make([]byte, 12)
 	m, offset, err := commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), offset)
-	compareMessages(t, msg1, m)
+	require.Equal(t, int64(1), offset)
+	compareMessages(t, msg2, m)
 }
 
 func compareMessages(t *testing.T, exp *proto.Message, act commitlog.Message) {
