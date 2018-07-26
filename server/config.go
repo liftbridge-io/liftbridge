@@ -38,7 +38,6 @@ const (
 type LogConfig struct {
 	RetentionMaxBytes int64
 	SegmentMaxBytes   int64
-	Compact           bool
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.
