@@ -208,7 +208,7 @@ func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 		if err := s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth)); err != nil {
 			return true
 		}
-		return e.Offset >= offset || e.Offset == 0
+		return e.Offset >= offset
 	})
 	if idx == n {
 		return nil, errors.New("entry not found")
