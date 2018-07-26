@@ -9,9 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liftbridge-io/go-liftbridge"
+	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 	natsdTest "github.com/nats-io/gnatsd/test"
+	"github.com/nats-io/go-nats"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/context"
 )
 
 var storagePath string
@@ -415,4 +419,148 @@ func TestMetadataLeaderFailover(t *testing.T) {
 
 	// Wait for new leader to be elected.
 	getMetadataLeader(t, 10*time.Second, followers...)
+}
+
+// Ensure when the subscribe offset exceeds the HW, the subscription waits for
+// new messages.
+func TestSubscribeOffsetOverflow(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 1,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	num := 5
+	acked := 0
+	gotAcks := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some messages.
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{AckInbox: acks}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	// Subscribe with overflowed offset. This should wait for new messages
+	// starting at offset 5.
+	gotMsg := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		require.NoError(t, err)
+		require.Equal(t, int64(5), msg.Offset)
+		close(gotMsg)
+		cancel()
+	}, liftbridge.StartAtOffset(100))
+
+	// Publish one more message.
+	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case <-gotMsg:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure when the subscribe offset exceeds the HW due to the stream being
+// empty, the subscription waits for new messages.
+func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 1,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe with overflowed offset. This should wait for new messages
+	// starting at offset 0.
+	gotMsg := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		require.NoError(t, err)
+		require.Equal(t, int64(0), msg.Offset)
+		close(gotMsg)
+		cancel()
+	})
+
+	// Publish message.
+	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
+	require.NoError(t, err)
+
+	// Wait to get the message.
+	select {
+	case <-gotMsg:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
 }

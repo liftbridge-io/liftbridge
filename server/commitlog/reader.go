@@ -138,16 +138,14 @@ type CommittedReader struct {
 func (r *CommittedReader) Read(p []byte) (n int, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	segments := r.cl.Segments()
 
-	var (
-		segments = r.cl.Segments()
-		readSize int
-		hw       int64
-	)
-
-	// If the log was empty, wait for data.
-	if r.hw < 0 {
-		hw = r.cl.HighWatermark()
+	// If idx is -1 then the reader offset exceeded the HW, i.e. the log is
+	// either empty or the offset overflows the HW. This means we need to wait
+	// for data.
+	if r.idx == -1 {
+		offset := r.hw + 1 // We want to read the next committed message.
+		hw := r.cl.HighWatermark()
 		for hw == r.hw {
 			// The HW has not changed, so wait for it to update.
 			if !r.waitForHW(hw) {
@@ -163,9 +161,26 @@ func (r *CommittedReader) Read(p []byte) (n int, err error) {
 		if err != nil {
 			return
 		}
+		seg, idx := findSegment(segments, offset)
+		if seg == nil {
+			return 0, ErrSegmentNotFound
+		}
+		entry, err := seg.findEntry(offset)
+		if err != nil {
+			return 0, err
+		}
+		r.idx = idx
+		r.pos = entry.Position
 	}
 
-	segment := segments[r.idx]
+	return r.readLoop(p, segments)
+}
+
+func (r *CommittedReader) readLoop(p []byte, segments []*Segment) (n int, err error) {
+	var (
+		readSize int
+		segment  = segments[r.idx]
+	)
 
 LOOP:
 	for {
@@ -196,7 +211,7 @@ LOOP:
 		}
 
 		// We hit the HW, so sync the latest.
-		hw = r.cl.HighWatermark()
+		hw := r.cl.HighWatermark()
 		for hw == r.hw {
 			// The HW has not changed, so wait for it to update.
 			if !r.waitForHW(hw) {
@@ -231,28 +246,36 @@ func (r *CommittedReader) waitForHW(hw int64) bool {
 // NewReaderCommitted returns an io.Reader which reads only committed data from
 // the log starting at the given offset.
 func (l *CommitLog) NewReaderCommitted(ctx context.Context, offset int64) (io.Reader, error) {
-	hw := l.HighWatermark()
-	if hw == -1 {
-		// The log is empty.
+	var (
+		hw       = l.HighWatermark()
+		hwIdx    = -1
+		hwPos    = int64(-1)
+		segments = l.Segments()
+		err      error
+	)
+	if hw != -1 {
+		hwIdx, hwPos, err = getHWPos(segments, hw)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// If offset exceeds HW, wait for the next message. This also covers the
+	// case when the log is empty.
+	if offset > hw {
 		return &CommittedReader{
 			cl:    l,
-			idx:   0,
-			pos:   0,
-			hwIdx: -1,
-			hwPos: -1,
+			idx:   -1,
+			pos:   -1,
+			hwIdx: hwIdx,
+			hwPos: hwPos,
 			ctx:   ctx,
 			hw:    hw,
 		}, nil
 	}
-	var (
-		segments          = l.Segments()
-		hwIdx, hwPos, err = getHWPos(segments, hw)
-	)
-	if err != nil {
-		return nil, err
-	}
-	if offset > hw {
-		offset = hw
+
+	if oldest := l.OldestOffset(); offset < oldest {
+		offset = oldest
 	}
 	seg, idx := findSegment(segments, offset)
 	if seg == nil {
