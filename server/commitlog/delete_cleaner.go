@@ -1,5 +1,7 @@
 package commitlog
 
+import "github.com/liftbridge-io/liftbridge/server/logger"
+
 type Cleaner interface {
 	Clean([]*Segment) ([]*Segment, error)
 }
@@ -11,10 +13,12 @@ type DeleteCleaner struct {
 	Retention struct {
 		Bytes int64
 	}
+	log  logger.Logger
+	name string
 }
 
-func NewDeleteCleaner(bytes int64) *DeleteCleaner {
-	c := &DeleteCleaner{}
+func NewDeleteCleaner(name string, bytes int64, logger logger.Logger) *DeleteCleaner {
+	c := &DeleteCleaner{name: name, log: logger}
 	c.Retention.Bytes = bytes
 	return c
 }
@@ -23,6 +27,10 @@ func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	if len(segments) == 0 || c.Retention.Bytes == -1 {
 		return segments, nil
 	}
+
+	c.log.Debugf("Cleaning log %s based on retention policy %+v", c.name, c.Retention)
+	defer c.log.Debugf("Finished cleaning log %s", c.name)
+
 	// we start at the most recent segment and work our way backwards until we meet the
 	// retention size.
 	cleanedSegments := []*Segment{segments[len(segments)-1]}

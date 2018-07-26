@@ -76,7 +76,7 @@ func New(opts Options) (*CommitLog, error) {
 		opts.HWCheckpointInterval = defaultHWCheckpointInterval
 	}
 
-	cleaner := NewDeleteCleaner(opts.MaxLogBytes)
+	cleaner := NewDeleteCleaner(opts.Path, opts.MaxLogBytes, opts.Logger)
 
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
