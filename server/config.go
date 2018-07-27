@@ -35,8 +35,9 @@ const (
 
 // LogConfig contains settings for controlling the message log for a stream.
 type LogConfig struct {
-	RetentionMaxBytes int64
-	SegmentMaxBytes   int64
+	RetentionMaxBytes    int64
+	RetentionMaxMessages int64
+	SegmentMaxBytes      int64
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.
@@ -199,6 +200,8 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 		switch strings.ToLower(k) {
 		case "retention.max.bytes":
 			config.Log.RetentionMaxBytes = v.(int64)
+		case "retention.max.messages":
+			config.Log.RetentionMaxMessages = v.(int64)
 		case "segment.max.bytes":
 			config.Log.SegmentMaxBytes = v.(int64)
 		default:

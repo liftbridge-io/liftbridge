@@ -220,7 +220,7 @@ be generated quite easily using the
 - [ ] TLS support
 - [x] Configurable acks
 - [ ] Log retention by message age
-- [ ] Log retention by number of messages
+- [x] Log retention by number of messages
 - [ ] Log compaction by key
 - [ ] Consumer-offset checkpointing in the log
 - [ ] Minimum ISR support
