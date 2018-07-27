@@ -23,7 +23,9 @@ func createSegment(t require.TestingT, dir string, baseOffset, maxBytes int64) *
 
 // Ensure Clean is a no-op when there are no segments.
 func TestDeleteCleanerNoSegments(t *testing.T) {
-	cleaner := commitlog.NewDeleteCleaner("foo", 100, noopLogger())
+	opts := commitlog.DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts.Retention.Bytes = 100
+	cleaner := commitlog.NewDeleteCleaner(opts)
 	segments, err := cleaner.Clean(nil)
 	require.NoError(t, err)
 	require.Nil(t, segments)
@@ -31,7 +33,8 @@ func TestDeleteCleanerNoSegments(t *testing.T) {
 
 // Ensure Clean is a no-op when bytes is 0.
 func TestDeleteCleanerNoRetentionSet(t *testing.T) {
-	cleaner := commitlog.NewDeleteCleaner("foo", 0, noopLogger())
+	opts := commitlog.DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	cleaner := commitlog.NewDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
@@ -43,7 +46,9 @@ func TestDeleteCleanerNoRetentionSet(t *testing.T) {
 
 // Ensure Clean is a no-op when there is only one segment.
 func TestDeleteCleanerOneSegment(t *testing.T) {
-	cleaner := commitlog.NewDeleteCleaner("foo", 100, noopLogger())
+	opts := commitlog.DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts.Retention.Bytes = 100
+	cleaner := commitlog.NewDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
@@ -55,7 +60,9 @@ func TestDeleteCleanerOneSegment(t *testing.T) {
 
 // Ensure Clean deletes segments to maintain the bytes limit.
 func TestDeleteCleanerBytes(t *testing.T) {
-	cleaner := commitlog.NewDeleteCleaner("foo", 50, noopLogger())
+	opts := commitlog.DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts.Retention.Bytes = 50
+	cleaner := commitlog.NewDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
@@ -74,7 +81,9 @@ func TestDeleteCleanerBytes(t *testing.T) {
 // Ensure Clean is a no-op when there are segments and a bytes limit but the
 // segments don't exceed the limit.
 func TestDeleteCleanerBytesBelowLimit(t *testing.T) {
-	cleaner := commitlog.NewDeleteCleaner("foo", 50, noopLogger())
+	opts := commitlog.DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts.Retention.Bytes = 50
+	cleaner := commitlog.NewDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 

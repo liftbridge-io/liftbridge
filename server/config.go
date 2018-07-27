@@ -28,7 +28,6 @@ const (
 	defaultReplicaMaxLeaderTimeout = 10 * time.Second
 	defaultRaftSnapshots           = 2
 	defaultRaftCacheSize           = 512
-	defaultRetentionMaxBytes       = -1
 	defaultMetadataCacheMaxAge     = 2 * time.Minute
 	defaultBatchMaxMessages        = 1024
 	defaultReplicaFetchTimeout     = 5 * time.Second
@@ -86,7 +85,6 @@ func NewDefaultConfig() *Config {
 	config.Clustering.ReplicaFetchTimeout = defaultReplicaFetchTimeout
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Clustering.RaftCacheSize = defaultRaftCacheSize
-	config.Log.RetentionMaxBytes = defaultRetentionMaxBytes
 	return config
 }
 

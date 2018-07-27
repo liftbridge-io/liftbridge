@@ -51,7 +51,6 @@ func TestCommitLogRecover(t *testing.T) {
 			opts := commitlog.Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
-				MaxLogBytes:     -1,
 			}
 			l, cleanup := setupWithOptions(t, opts)
 			defer cleanup()
@@ -135,7 +134,6 @@ func TestOffsets(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 20,
-		MaxLogBytes:     -1,
 	})
 	defer l.Close()
 	defer cleanup()

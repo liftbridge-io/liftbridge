@@ -6,41 +6,46 @@ type Cleaner interface {
 	Clean([]*Segment) ([]*Segment, error)
 }
 
-// The delete cleaner implements the delete cleanup policy which
-// deletes old log segments.
-
-type DeleteCleaner struct {
+type DeleteCleanerOptions struct {
 	Retention struct {
 		Bytes int64
 	}
-	log  logger.Logger
-	name string
+	Logger logger.Logger
+	Name   string
 }
 
-func NewDeleteCleaner(name string, bytes int64, logger logger.Logger) *DeleteCleaner {
-	c := &DeleteCleaner{name: name, log: logger}
-	c.Retention.Bytes = bytes
-	return c
+// DeleteCleaner implements the delete cleanup policy which deletes old log
+// segments.
+type DeleteCleaner struct {
+	DeleteCleanerOptions
+}
+
+func NewDeleteCleaner(opts DeleteCleanerOptions) *DeleteCleaner {
+	return &DeleteCleaner{opts}
 }
 
 func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
-	if len(segments) == 0 || c.Retention.Bytes == -1 {
+	if len(segments) == 0 || c.Retention.Bytes == 0 {
 		return segments, nil
 	}
 
-	c.log.Debugf("Cleaning log %s based on retention policy %+v", c.name, c.Retention)
-	defer c.log.Debugf("Finished cleaning log %s", c.name)
+	c.Logger.Debugf("Cleaning log %s based on retention policy %+v", c.Name, c.Retention)
+	defer c.Logger.Debugf("Finished cleaning log %s", c.Name)
 
-	// we start at the most recent segment and work our way backwards until we meet the
-	// retention size.
-	cleanedSegments := []*Segment{segments[len(segments)-1]}
-	totalBytes := cleanedSegments[0].Position()
+	// We start at the most recent segment and work our way backwards until we
+	// meet the retention size.
+	var (
+		lastSeg         = segments[len(segments)-1]
+		cleanedSegments = []*Segment{lastSeg}
+		totalBytes      = lastSeg.Position()
+	)
+
 	if len(segments) > 1 {
 		var i int
 		for i = len(segments) - 2; i > -1; i-- {
 			s := segments[i]
 			totalBytes += s.Position()
-			if totalBytes > c.Retention.Bytes {
+			if c.Retention.Bytes > 0 && totalBytes > c.Retention.Bytes {
 				break
 			}
 			cleanedSegments = append([]*Segment{s}, cleanedSegments...)
