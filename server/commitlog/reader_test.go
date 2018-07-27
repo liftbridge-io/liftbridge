@@ -30,7 +30,6 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 			l, cleanup := setupWithOptions(t, commitlog.Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
-				MaxLogBytes:     -1,
 			})
 			defer l.Close()
 			defer cleanup()
@@ -61,7 +60,6 @@ func TestReaderUncommittedBlockCancel(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 10,
-		MaxLogBytes:     -1,
 	})
 	defer l.Close()
 	defer cleanup()
@@ -83,7 +81,6 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
-		MaxLogBytes:     -1,
 	})
 	defer l.Close()
 	defer cleanup()
@@ -120,7 +117,6 @@ func TestReaderUncommittedReadError(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
-		MaxLogBytes:     -1,
 	})
 	defer cleanup()
 
@@ -145,7 +141,6 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 			l, cleanup := setupWithOptions(t, commitlog.Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
-				MaxLogBytes:     -1,
 			})
 			defer l.Close()
 			defer cleanup()
@@ -175,7 +170,6 @@ func TestReaderCommittedBlockCancel(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 10,
-		MaxLogBytes:     -1,
 	})
 	defer l.Close()
 	defer cleanup()
@@ -193,7 +187,6 @@ func TestReaderCommittedReadError(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
-		MaxLogBytes:     -1,
 	})
 	defer cleanup()
 
@@ -219,7 +212,6 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 10,
-		MaxLogBytes:     -1,
 	})
 	defer l.Close()
 	defer cleanup()
@@ -250,7 +242,6 @@ func TestReaderCommittedRead(t *testing.T) {
 			l, cleanup := setupWithOptions(t, commitlog.Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
-				MaxLogBytes:     -1,
 			})
 			defer l.Close()
 			defer cleanup()
@@ -284,7 +275,6 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 			l, cleanup := setupWithOptions(t, commitlog.Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
-				MaxLogBytes:     -1,
 			})
 			defer l.Close()
 			defer cleanup()
@@ -316,7 +306,6 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 30,
-		MaxLogBytes:     -1,
 	})
 	defer l.Close()
 	defer cleanup()
@@ -351,7 +340,6 @@ func TestReaderCommittedCancel(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 30,
-		MaxLogBytes:     -1,
 	})
 	defer l.Close()
 	defer cleanup()
@@ -395,7 +383,6 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	l, cleanup := setupWithOptions(t, commitlog.Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
-		MaxLogBytes:     -1,
 	})
 	defer cleanup()
 

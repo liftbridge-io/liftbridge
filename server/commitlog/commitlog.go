@@ -49,10 +49,8 @@ type CommitLog struct {
 
 // Options contains settings for configuring a CommitLog.
 type Options struct {
-	Path string
-	// MaxSegmentBytes is the max number of bytes a segment can contain, once the limit is hit a
-	// new segment will be split off.
-	MaxSegmentBytes      int64
+	Path                 string
+	MaxSegmentBytes      int64 // Max number of bytes a Segment can contain before creating a new Segment
 	MaxLogBytes          int64
 	HWCheckpointInterval time.Duration
 	Logger               logger.Logger
@@ -76,7 +74,12 @@ func New(opts Options) (*CommitLog, error) {
 		opts.HWCheckpointInterval = defaultHWCheckpointInterval
 	}
 
-	cleaner := NewDeleteCleaner(opts.Path, opts.MaxLogBytes, opts.Logger)
+	cleanerOpts := DeleteCleanerOptions{
+		Name:   opts.Path,
+		Logger: opts.Logger,
+	}
+	cleanerOpts.Retention.Bytes = opts.MaxLogBytes
+	cleaner := NewDeleteCleaner(cleanerOpts)
 
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
