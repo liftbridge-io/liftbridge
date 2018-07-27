@@ -9,9 +9,9 @@ available and horizontally scalable. Use Liftbridge as a simpler and lighter
 alternative to systems like Kafka and Pulsar or use it to add streaming
 semantics to an existing NATS deployment.
 
-See [this
-post](https://bravenewgeek.com/building-a-distributed-log-from-scratch-part-5-sketching-a-new-system/)
-for more context and some of the inspiration behind Liftbridge.
+See the [introduction](https://bravenewgeek.com/introducing-liftbridge-lightweight-fault-tolerant-message-streams/)
+post on Liftbridge and [this post](https://bravenewgeek.com/building-a-distributed-log-from-scratch-part-5-sketching-a-new-system/)
+for more context and some of the inspiration behind it.
 
 ## Table of Contents
 
