@@ -90,6 +90,7 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 		Path:            filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name),
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
+		MaxLogMessages:  s.config.Log.RetentionMaxMessages,
 		Logger:          s.logger,
 	})
 	if err != nil {

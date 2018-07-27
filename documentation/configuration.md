@@ -123,8 +123,9 @@ the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
-| retention.max.bytes | | The maximum size of the log before truncating it. | int64 | -1 | |
-| segment.max.bytes | | The maximum size of a single log segment file. | int64 | 10485760 | |
+| retention.max.bytes | | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. | int64 | 0 | |
+| retention.max.messages | | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. | int64 | 0 | |
+| segment.max.bytes | | The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. | int64 | 1073741824 | |
 
 ### Clustering Configuration Settings
 

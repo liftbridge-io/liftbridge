@@ -29,7 +29,7 @@ const (
 	logFileSuffix               = ".log"
 	indexFileSuffix             = ".index"
 	hwFileName                  = "replication-offset-checkpoint"
-	defaultMaxSegmentBytes      = 10485760
+	defaultMaxSegmentBytes      = 1073741824
 	defaultHWCheckpointInterval = 5 * time.Second
 )
 
@@ -52,6 +52,7 @@ type Options struct {
 	Path                 string
 	MaxSegmentBytes      int64 // Max number of bytes a Segment can contain before creating a new Segment
 	MaxLogBytes          int64
+	MaxLogMessages       int64
 	HWCheckpointInterval time.Duration
 	Logger               logger.Logger
 }
@@ -79,6 +80,7 @@ func New(opts Options) (*CommitLog, error) {
 		Logger: opts.Logger,
 	}
 	cleanerOpts.Retention.Bytes = opts.MaxLogBytes
+	cleanerOpts.Retention.Messages = opts.MaxLogMessages
 	cleaner := NewDeleteCleaner(cleanerOpts)
 
 	path, _ := filepath.Abs(opts.Path)
