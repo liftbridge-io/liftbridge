@@ -60,15 +60,15 @@ func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*
 	s.position = info.Size()
 	s.writer = log
 	s.reader = log
-	err = s.SetupIndex()
+	err = s.setupIndex()
 	return s, err
 }
 
-// SetupIndex creates and initializes an Index.
+// setupIndex creates and initializes an Index.
 // Initialization is:
 // - Initialize Index position
 // - Initialize Segment nextOffset
-func (s *Segment) SetupIndex() (err error) {
+func (s *Segment) setupIndex() (err error) {
 	s.Index, err = NewIndex(options{
 		path:       s.indexPath(),
 		baseOffset: s.BaseOffset,
@@ -194,7 +194,7 @@ func (s *Segment) Replace(old *Segment) (err error) {
 	s.log = log
 	s.writer = log
 	s.reader = log
-	return s.SetupIndex()
+	return s.setupIndex()
 }
 
 // findEntry returns the nearest entry whose offset is greater than or equal to
