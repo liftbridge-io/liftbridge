@@ -157,7 +157,7 @@ func NewConfig(configFile string) (*Config, error) {
 			}
 			config.MetadataCacheMaxAge = dur
 		case "nats":
-			if err := parseNATSConfig(v.(map[string]interface{}), config.NATS); err != nil {
+			if err := parseNATSConfig(v.(map[string]interface{}), &config.NATS); err != nil {
 				return nil, err
 			}
 		case "log":
@@ -177,7 +177,7 @@ func NewConfig(configFile string) (*Config, error) {
 
 // parseNATSConfig parses the `nats` section of a config file and populates the
 // given nats.Options.
-func parseNATSConfig(m map[string]interface{}, opts nats.Options) error {
+func parseNATSConfig(m map[string]interface{}, opts *nats.Options) error {
 	for k, v := range m {
 		switch strings.ToLower(k) {
 		case "servers":
