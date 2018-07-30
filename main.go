@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 
@@ -38,6 +39,14 @@ func main() {
 		config.LogLevel = level
 		config.Clustering.RaftBootstrap = c.Bool("raft-bootstrap-seed")
 		config.Clustering.RaftBootstrapPeers = c.StringSlice("raft-bootstrap-peers")
+
+		// NATS server specified on the command line takes precedence
+		if natsServer := c.String("nats-server"); natsServer != "" {
+			if config.NATS.Servers != nil {
+				fmt.Fprintf(app.Writer, "WARNING: overwriting NATS server(s) specified in config file %#v with command line value %s\n", config.NATS.Servers, natsServer)
+			}
+			config.NATS.Servers = []string{natsServer}
+		}
 
 		server := server.New(config)
 		if err := server.Start(); err != nil {
