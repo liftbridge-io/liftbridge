@@ -32,7 +32,7 @@ for more context and some of the inspiration behind it.
 - Wildcard subscription support
 - At-least-once delivery support
 - Message key-value support
-- Log compaction by key (WIP) 
+- Log compaction by key (WIP)
 - Single static binary (~16MB)
 - Designed to be high-throughput (more on this to come)
 - Supremely simple
@@ -121,7 +121,7 @@ $ go get github.com/liftbridge-io/liftbridge
 
 Liftbridge currently relies on an externally running
 [NATS server](https://github.com/nats-io/gnatsd). By default, it will connect
-to a NATS server running on localhost. The `--nats-server` flag allows
+to a NATS server running on localhost. The `--nats-servers` flag allows
 configuring the NATS server(s) to connect to.
 
 Also note that Liftbridge is clustered by default and relies on Raft for

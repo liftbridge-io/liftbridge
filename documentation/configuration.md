@@ -30,7 +30,7 @@ GLOBAL OPTIONS:
    --config FILE, -c FILE         load configuration from FILE
    --server-id value, --id value  ID of the server in the cluster if there is no stored ID
    --namespace value, --ns value  cluster namespace (default: "liftbridge-default")
-   --nats-server ADDR, -n ADDR    connect to NATS server at ADDR (default: "nats://localhost:4222")
+   --nats-servers ADDR[,ADDR1], -n ADDR[,ADDR1]    connect to NATS server(s) at ADDR's
    --data-dir DIR, -d DIR         store data in DIR (default: "/tmp/liftbridge/<namespace>")
    --port value, -p value         port to bind to (default: 9292)
    --level value, -l value        logging level [debug|info|warn|error] (default: "info")
@@ -114,7 +114,7 @@ the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
-| servers | nats-server | List of NATS hosts to connect to. | list | nats://localhost:4222 | |
+| servers | nats-servers | List of NATS hosts to connect to. | list | nats://localhost:4222 | |
 
 ### Log Configuration Settings
 
