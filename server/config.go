@@ -24,6 +24,15 @@ const (
 )
 
 const (
+	defaultLogFilename			= "./logs/liftbridge.log"
+	defaultLogMaxSize			= 10 // MB
+	defaultLogMaxAge			= 7  // days
+	defaultLogMaxBackups		= 100
+	defaultLogLocalTime			= true // true for local time, false for utc time
+	defaultLogCompress			= true // true for gzip compress, false for no compress
+)
+
+const (
 	defaultReplicaMaxLagTime       = 10 * time.Second
 	defaultReplicaMaxLeaderTimeout = 10 * time.Second
 	defaultRaftSnapshots           = 2
@@ -61,6 +70,12 @@ type Config struct {
 	Port                int
 	LogLevel            uint32
 	NoLog               bool
+	LogFilename			string
+	LogMaxSize			int
+	LogMaxAge			int
+	LogMaxBackups		int
+	LogLocalTime		bool
+	LogCompress			bool
 	DataDir             string
 	BatchMaxMessages    int
 	BatchWaitTime       time.Duration
@@ -77,6 +92,12 @@ func NewDefaultConfig() *Config {
 		Port: DefaultPort,
 	}
 	config.LogLevel = uint32(log.InfoLevel)
+	config.LogFilename = defaultLogFilename
+	config.LogMaxSize = defaultLogMaxSize
+	config.LogMaxAge = defaultLogMaxAge
+	config.LogMaxBackups = defaultLogMaxBackups
+	config.LogLocalTime = defaultLogLocalTime
+	config.LogCompress = defaultLogCompress
 	config.BatchMaxMessages = defaultBatchMaxMessages
 	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
 	config.Clustering.ServerID = nuid.Next()
@@ -140,6 +161,18 @@ func NewConfig(configFile string) (*Config, error) {
 				return nil, err
 			}
 			config.LogLevel = level
+		case "log.filename":
+			config.LogFilename = v.(string)
+		case "log.max.size":
+			config.LogMaxSize = int(v.(int64))
+		case "log.max.age":
+			config.LogMaxAge = int(v.(int64))
+		case "log.max.backups":
+			config.LogMaxBackups = int(v.(int64))
+		case "log.local.time":
+			config.LogLocalTime = v.(bool)
+		case "log.compress":
+			config.LogCompress = v.(bool)
 		case "data.dir":
 			config.DataDir = v.(string)
 		case "batch.max.messages":

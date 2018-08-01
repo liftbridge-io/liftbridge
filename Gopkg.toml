@@ -97,6 +97,10 @@
   name = "google.golang.org/grpc"
   version = "1.13.0"
 
+[[constraint]]
+  name = "github.com/natefinch/lumberjack"
+  version = "2.1.0"
+
 [prune]
   go-tests = true
   unused-packages = true

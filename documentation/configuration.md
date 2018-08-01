@@ -99,6 +99,12 @@ the setting in the configuration file and the CLI flag if it exists.
 | host | | The server host. | string | localhost | |
 | port | port | The server port. | int | 9292 | |
 | log.level | level | The logging level. | string | info | [debug, info, warn, error] |
+| log.filename | | The logging file. | string | ./logs/liftbridge.log | |
+| log.max.size | | The logging file max size(MB). | int | 10 | |
+| log.max.age | | The logging file max age(days). | int | 7 | |
+| log.max.backups | | The logging max backups. | int | 100 | |
+| log.local.time | | True for local time, false for utc time. | bool | true | |
+| log.compress | | True for gzip compress, false for no compress. | bool | true | |
 | data.dir | data-dir | The directory to store data in. | string | /tmp/liftbridge/namespace | |
 | batch.max.messages | | The maximum number of messages to batch when writing to disk. | int | 1024 |
 | batch.wait.time | | The time to wait to batch more messages when writing to disk. | duration | 0 | |
