@@ -2,7 +2,7 @@
 
 Liftbridge currently relies on an externally running
 [NATS server](https://github.com/nats-io/gnatsd). By default, it will connect
-to a NATS server running on localhost. The `--nats-server` flag allows
+to a NATS server running on localhost. The `--nats-servers` flag allows
 configuring the NATS server(s) to connect to.
 
 Also note that Liftbridge is clustered by default and relies on Raft for

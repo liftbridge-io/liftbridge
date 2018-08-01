@@ -5,8 +5,8 @@ package main
 import (
 	"os"
 	"runtime"
+	"strings"
 
-	"github.com/nats-io/go-nats"
 	"github.com/urfave/cli"
 
 	"github.com/liftbridge-io/liftbridge/server"
@@ -39,6 +39,12 @@ func main() {
 		config.Clustering.RaftBootstrap = c.Bool("raft-bootstrap-seed")
 		config.Clustering.RaftBootstrapPeers = c.StringSlice("raft-bootstrap-peers")
 
+		natsServers, err := normalizeNatsServers(c.StringSlice("nats-servers"))
+		if err != nil {
+			return err
+		}
+		config.NATS.Servers = natsServers
+
 		server := server.New(config)
 		if err := server.Start(); err != nil {
 			return err
@@ -67,10 +73,12 @@ func getFlags() []cli.Flag {
 			Usage: "cluster namespace",
 			Value: server.DefaultNamespace,
 		},
-		cli.StringFlag{
-			Name:  "nats-server, n",
-			Usage: "connect to NATS server at `ADDR`",
-			Value: nats.DefaultURL,
+		cli.StringSliceFlag{
+			Name:  "nats-servers, n",
+			Usage: "connect to NATS server at `ADDR[,ADDR]`",
+			// NOTE: cannot use Value here as urfave/cli has another bug
+			// where it does not replace this value with the specified values but appends them:-(
+			// Value: &cli.StringSlice{nats.DefaultURL},
 		},
 		cli.StringFlag{
 			Name:  "data-dir, d",
@@ -95,4 +103,27 @@ func getFlags() []cli.Flag {
 			Usage: "bootstrap the Raft cluster with the provided list of peer IDs if there is no existing state",
 		},
 	}
+}
+
+func normalizeNatsServers(natsServers []string) ([]string, error) {
+	if natsServers != nil {
+		// urlfave.cli has issues with *Slice flags - it doesn't yet parse
+		// command-line entries the same way as env vars, see
+		// https://github.com/urfave/cli/pull/605
+		// It has been around since Mar 2017 so don't hold your breath for a fix!
+		// ... so we are manually splitting here for now.
+		// We also need to handle possible multiple --nats-servers on the cli as this is supported.
+		allNatsServers := make([]string, 0)
+		for _, natsServersString := range natsServers {
+			currNatsServers := strings.Split(natsServersString, ",")
+			for i := range currNatsServers {
+				if trimmedNatsServer := strings.TrimSpace(currNatsServers[i]); trimmedNatsServer != "" {
+					// TODO: validate the server URL and return error?
+					allNatsServers = append(allNatsServers, trimmedNatsServer)
+				}
+			}
+		}
+		return allNatsServers, nil
+	}
+	return nil, nil
 }
