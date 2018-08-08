@@ -17,11 +17,11 @@ message CreateStreamResponse {
 
 // StartPosition determines the start-position type on a subscription.
 enum StartPosition {
-    OFFSET = 0;
+    OFFSET      = 0;
+    EARLIEST    = 1;
     // TODO
-    //FIRST    = 1;
-    //LAST     = 2;
-    //NEW_ONLY = 3;
+    //LATEST    = 2;
+    //NEW_ONLY  = 3;
 }
 
 // SubscribeRequest is sent to subscribe to a stream.

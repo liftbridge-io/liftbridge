@@ -110,10 +110,22 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	req *client.SubscribeRequest, cancel chan struct{}) (
 	<-chan *client.Message, <-chan *status.Status, *status.Status) {
 
+	var startOffset int64
+	switch req.StartPosition {
+	case client.StartPosition_OFFSET:
+		startOffset = req.StartOffset
+	case client.StartPosition_EARLIEST:
+		startOffset = stream.log.OldestOffset()
+	default:
+		return nil, nil, status.New(
+			codes.InvalidArgument,
+			fmt.Sprintf("Unknown StartPosition %s", req.StartPosition))
+	}
+
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
-		reader, err = stream.log.NewReaderCommitted(ctx, req.StartOffset)
+		reader, err = stream.log.NewReaderCommitted(ctx, startOffset)
 	)
 	if err != nil {
 		return nil, nil, status.New(codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
