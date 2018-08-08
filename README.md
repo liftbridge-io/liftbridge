@@ -225,7 +225,7 @@ be generated quite easily using the
 - [ ] Consumer-offset checkpointing in the log
 - [ ] Minimum ISR support
 - [ ] Additional subscribe semantics
-  - [ ] Oldest
+  - [x] Oldest
   - [ ] Newest
   - [ ] New messages only
   - [ ] By timestamp

@@ -489,12 +489,13 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	// starting at offset 5.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(5), msg.Offset)
 		close(gotMsg)
 		cancel()
 	}, liftbridge.StartAtOffset(100))
+	require.NoError(t, err)
 
 	// Publish one more message.
 	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
@@ -546,12 +547,13 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	// starting at offset 0.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(0), msg.Offset)
 		close(gotMsg)
 		cancel()
 	})
+	require.NoError(t, err)
 
 	// Publish message.
 	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
@@ -636,12 +638,13 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	// Subscribe with underflowed offset. This should set the offset to 1.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1), msg.Offset)
 		close(gotMsg)
 		cancel()
 	})
+	require.NoError(t, err)
 
 	// Wait to get the new message.
 	select {
@@ -721,11 +724,12 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// The first message read back should have offset 85.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
 	})
+	require.NoError(t, err)
 
 	// Wait to get the new message.
 	select {
@@ -806,16 +810,142 @@ func TestStreamRetentionMessages(t *testing.T) {
 	// The first message read back should have offset 49.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
 	})
+	require.NoError(t, err)
 
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
 		require.Equal(t, int64(49), msg.Offset)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure Subscribe returns an error when an invalid StartPosition is used.
+func TestSubscribeStartPositionInvalid(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 1,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe with invalid StartPosition.
+	err = client.Subscribe(context.Background(), stream.Subject, stream.Name, nil, liftbridge.StartAt(9999))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Unknown StartPosition")
+}
+
+// Ensure when StartPosition_EARLIEST is used with Subscribe, messages are read
+// starting at the oldest offset.
+func TestSubscribeEarliest(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	// Set these to force deletion.
+	s1Config.Log.SegmentMaxBytes = 1
+	s1Config.Log.RetentionMaxBytes = 1
+	s1Config.BatchMaxMessages = 1
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 1,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	num := 2
+	acked := 0
+	gotAcks := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some messages.
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{AckInbox: acks}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	// Subscribe with EARLIEST. This should start reading from offset 1.
+	gotMsg := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		require.NoError(t, err)
+		require.Equal(t, int64(1), msg.Offset)
+		close(gotMsg)
+		cancel()
+	}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
+
+	// Wait to get the new message.
+	select {
+	case <-gotMsg:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
