@@ -20,12 +20,6 @@
   version = "v1.3.1"
 
 [[projects]]
-  name = "github.com/cespare/xxhash"
-  packages = ["."]
-  revision = "5c37fe3735342a2e0d01c87a907579987c8936cc"
-  version = "v1.0.0"
-
-[[projects]]
   name = "github.com/davecgh/go-spew"
   packages = ["spew"]
   revision = "346938d642f2ec3594ed81d874461961cd0faa76"
@@ -80,7 +74,7 @@
     ".",
     "liftbridge-grpc"
   ]
-  revision = "6fab4242a45aafe9a34329f4cd98045da25173af"
+  revision = "6fca39256ffe5e5732c093692afb84406558c92a"
 
 [[projects]]
   branch = "master"
@@ -262,6 +256,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "551630beb667465a109cdc00f2ff9fc813d972ab323590d69a7340f264154886"
+  inputs-digest = "85a59cf48da8a33e0c7f560cbed95ef1fa581e57ef4e54c4299638ac8efcb525"
   solver-name = "gps-cdcl"
   solver-version = 1
