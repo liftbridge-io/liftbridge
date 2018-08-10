@@ -226,8 +226,8 @@ be generated quite easily using the
 - [ ] Minimum ISR support
 - [ ] Additional subscribe semantics
   - [x] Oldest
-  - [ ] Newest
-  - [ ] New messages only
+  - [x] Newest
+  - [x] New messages only
   - [ ] By timestamp
   - [ ] By time delta
 - [ ] Single-stream fanout
