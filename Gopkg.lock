@@ -74,7 +74,7 @@
     ".",
     "liftbridge-grpc"
   ]
-  revision = "6fca39256ffe5e5732c093692afb84406558c92a"
+  revision = "cc48b4b3180a9bd2544847377a23a6a9c600436f"
 
 [[projects]]
   branch = "master"
