@@ -116,6 +116,10 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 		startOffset = req.StartOffset
 	case client.StartPosition_EARLIEST:
 		startOffset = stream.log.OldestOffset()
+	case client.StartPosition_LATEST:
+		startOffset = stream.log.NewestOffset()
+	case client.StartPosition_NEW_ONLY:
+		startOffset = stream.log.NewestOffset() + 1
 	default:
 		return nil, nil, status.New(
 			codes.InvalidArgument,

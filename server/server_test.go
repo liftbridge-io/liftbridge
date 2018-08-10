@@ -950,3 +950,173 @@ func TestSubscribeEarliest(t *testing.T) {
 		t.Fatal("Did not receive expected message")
 	}
 }
+
+// Ensure when StartPosition_LATEST is used with Subscribe, messages are read
+// starting at the newest offset.
+func TestSubscribeLatest(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 1,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	num := 3
+	acked := 0
+	gotAcks := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some messages.
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{AckInbox: acks}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	// Subscribe with LATEST. This should start reading from offset 2.
+	gotMsg := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		require.NoError(t, err)
+		require.Equal(t, int64(2), msg.Offset)
+		close(gotMsg)
+		cancel()
+	}, liftbridge.StartAt(proto.StartPosition_LATEST))
+
+	// Wait to get the new message.
+	select {
+	case <-gotMsg:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure when StartPosition_NEW_ONLY is used with Subscribe, the subscription
+// waits for new messages.
+func TestSubscribeNewOnly(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 1,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	num := 5
+	acked := 0
+	gotAcks := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some messages.
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{AckInbox: acks}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	// Subscribe with NEW_ONLY. This should wait for new messages starting at
+	// offset 5.
+	gotMsg := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		require.NoError(t, err)
+		require.Equal(t, int64(5), msg.Offset)
+		close(gotMsg)
+		cancel()
+	}, liftbridge.StartAt(proto.StartPosition_NEW_ONLY))
+	require.NoError(t, err)
+
+	// Publish one more message.
+	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case <-gotMsg:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
