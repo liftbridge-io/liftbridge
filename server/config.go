@@ -65,6 +65,8 @@ type Config struct {
 	BatchMaxMessages    int
 	BatchWaitTime       time.Duration
 	MetadataCacheMaxAge time.Duration
+	TLSKey              string
+	TLSCert             string
 	NATS                nats.Options
 	Log                 LogConfig
 	Clustering          ClusteringConfig
@@ -156,6 +158,10 @@ func NewConfig(configFile string) (*Config, error) {
 				return nil, err
 			}
 			config.MetadataCacheMaxAge = dur
+		case "tls.key":
+			config.TLSKey = v.(string)
+		case "tls.cert":
+			config.TLSCert = v.(string)
 		case "nats":
 			if err := parseNATSConfig(v.(map[string]interface{}), &config.NATS); err != nil {
 				return nil, err
