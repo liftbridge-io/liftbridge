@@ -31,6 +31,8 @@ func main() {
 		config.Clustering.Namespace = c.String("namespace")
 		config.DataDir = c.String("data-dir")
 		config.Port = c.Int("port")
+		config.TLSCert = c.String("tls-cert")
+		config.TLSKey = c.String("tls-key")
 		level, err := server.GetLogLevel(c.String("level"))
 		if err != nil {
 			return err
@@ -88,6 +90,14 @@ func getFlags() []cli.Flag {
 			Name:  "port, p",
 			Usage: "port to bind to",
 			Value: server.DefaultPort,
+		},
+		cli.StringFlag{
+			Name:  "tls-cert",
+			Usage: "server certificate file",
+		},
+		cli.StringFlag{
+			Name:  "tls-key",
+			Usage: "private key for server certificate",
 		},
 		cli.StringFlag{
 			Name:  "level, l",

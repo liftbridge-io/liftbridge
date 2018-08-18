@@ -18,6 +18,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/liftbridge-io/liftbridge/server/logger"
 	"github.com/liftbridge-io/liftbridge/server/proto"
@@ -186,7 +187,18 @@ func (s *Server) Start() error {
 
 	s.handleSignals()
 
-	api := grpc.NewServer()
+	opts := []grpc.ServerOption{}
+
+	// Setup TLS if key/cert is set.
+	if s.config.TLSKey != "" && s.config.TLSCert != "" {
+		creds, err := credentials.NewServerTLSFromFile(s.config.TLSCert, s.config.TLSKey)
+		if err != nil {
+			return errors.Wrap(err, "failed to setup TLS credentials")
+		}
+		opts = append(opts, grpc.Creds(creds))
+	}
+
+	api := grpc.NewServer(opts...)
 	s.api = api
 	client.RegisterAPIServer(api, &apiServer{s})
 	s.mu.Lock()

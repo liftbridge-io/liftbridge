@@ -1120,3 +1120,30 @@ func TestSubscribeNewOnly(t *testing.T) {
 		t.Fatal("Did not receive expected message")
 	}
 }
+
+// Ensure clients can connect with TLS when enabled.
+func TestTLS(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server with TLS.
+	s1Config, err := NewConfig("./configs/tls.conf")
+	require.NoError(t, err)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Connect with TLS.
+	client, err := liftbridge.Connect([]string{"localhost:5050"}, liftbridge.TLSCert("./configs/certs/server.crt"))
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Connecting without a cert should fail.
+	_, err = liftbridge.Connect([]string{"localhost:5050"})
+	require.Error(t, err)
+}

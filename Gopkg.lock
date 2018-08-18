@@ -74,7 +74,7 @@
     ".",
     "liftbridge-grpc"
   ]
-  revision = "cc48b4b3180a9bd2544847377a23a6a9c600436f"
+  revision = "6d5405efa469f253028f57d2d7508a529592ccc7"
 
 [[projects]]
   branch = "master"
@@ -256,6 +256,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "85a59cf48da8a33e0c7f560cbed95ef1fa581e57ef4e54c4299638ac8efcb525"
+  inputs-digest = "b544dd0d702d85ffeceb24466a99fc88c48c348c79182525b47490cc8cf5d5bb"
   solver-name = "gps-cdcl"
   solver-version = 1

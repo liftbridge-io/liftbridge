@@ -217,7 +217,7 @@ be generated quite easily using the
   - [x] Replication protocol
 - [x] Setup CI
 - [ ] Production-hardening
-- [ ] TLS support
+- [x] TLS support
 - [x] Configurable acks
 - [ ] Log retention by message age
 - [x] Log retention by number of messages
