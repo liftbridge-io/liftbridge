@@ -100,8 +100,8 @@ the setting in the configuration file and the CLI flag if it exists.
 | listen | | The server host/port. | string | localhost:9292 | |
 | host | | The server host. | string | localhost | |
 | port | port | The server port. | int | 9292 | |
-| tls.key | The private key file for server certificate. This must be set in combination with `tls.cert` to enable TLS. | string | | |
-| tls.cert | The server certificate file. This must be set in combination with `tls.key` to enable TLS. | string | | |
+| tls.key | tls-key | The private key file for server certificate. This must be set in combination with `tls.cert` to enable TLS. | string | |
+| tls.cert | tls-cert | The server certificate file. This must be set in combination with `tls.key` to enable TLS. | string | |
 | log.level | level | The logging level. | string | info | [debug, info, warn, error] |
 | data.dir | data-dir | The directory to store data in. | string | /tmp/liftbridge/namespace | |
 | batch.max.messages | | The maximum number of messages to batch when writing to disk. | int | 1024 |
