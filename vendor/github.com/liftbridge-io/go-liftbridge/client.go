@@ -22,6 +22,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 
 	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
@@ -109,6 +110,7 @@ type client struct {
 	pools       map[string]*connPool
 	addrs       map[string]struct{}
 	opts        ClientOptions
+	dialOpts    []grpc.DialOption
 }
 
 // ClientOptions are used to control the Client configuration.
@@ -125,6 +127,10 @@ type ClientOptions struct {
 	// before it is closed and removed from the pool. The default is 30
 	// seconds.
 	KeepAliveTime time.Duration
+
+	// TLSCert is the TLS certificate file to use. The client does not use a
+	// TLS connection if this is not set.
+	TLSCert string
 }
 
 // Connect will attempt to connect to a Liftbridge server with multiple
@@ -136,11 +142,25 @@ func (o ClientOptions) Connect() (Client, error) {
 	var (
 		conn *grpc.ClientConn
 		err  error
+		opts = []grpc.DialOption{}
 	)
+
+	if o.TLSCert != "" {
+		// Setup TLS credentials if cert is provided.
+		creds, err := credentials.NewClientTLSFromFile(o.TLSCert, "")
+		if err != nil {
+			return nil, fmt.Errorf("could not load tls cert: %s", err)
+		}
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
+		// Otherwise use an insecure connection.
+		opts = append(opts, grpc.WithInsecure())
+	}
+
 	perm := rand.Perm(len(o.Brokers))
 	for _, i := range perm {
 		addr := o.Brokers[i]
-		conn, err = grpc.Dial(addr, grpc.WithInsecure())
+		conn, err = grpc.Dial(addr, opts...)
 		if err == nil {
 			break
 		}
@@ -158,6 +178,7 @@ func (o ClientOptions) Connect() (Client, error) {
 		pools:     make(map[string]*connPool),
 		addrs:     addrMap,
 		opts:      o,
+		dialOpts:  opts,
 	}
 	if err := c.updateMetadata(); err != nil {
 		return nil, err
@@ -192,6 +213,14 @@ func MaxConnsPerBroker(max int) ClientOption {
 func KeepAliveTime(keepAlive time.Duration) ClientOption {
 	return func(o *ClientOptions) error {
 		o.KeepAliveTime = keepAlive
+		return nil
+	}
+}
+
+// TLSCert is a ClientOption to set the TLS certificate for the client.
+func TLSCert(cert string) ClientOption {
+	return func(o *ClientOptions) error {
+		o.TLSCert = cert
 		return nil
 	}
 }
@@ -372,7 +401,7 @@ func (c *client) Subscribe(ctx context.Context, subject, name string, handler Ha
 // connFactory dials the address to create a gRPC ClientConn.
 func (c *client) connFactory(addr string) connFactory {
 	return func() (*grpc.ClientConn, error) {
-		return grpc.Dial(addr, grpc.WithInsecure())
+		return grpc.Dial(addr, c.dialOpts...)
 	}
 }
 
@@ -476,7 +505,7 @@ func (c *client) dialBroker() (*grpc.ClientConn, error) {
 		perm = rand.Perm(len(addrs))
 	)
 	for _, i := range perm {
-		conn, err = grpc.Dial(addrs[i], grpc.WithInsecure())
+		conn, err = grpc.Dial(addrs[i], c.dialOpts...)
 		if err != nil {
 			continue
 		}
