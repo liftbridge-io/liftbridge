@@ -191,7 +191,6 @@ func (s *Server) Start() error {
 
 	// Setup TLS if key/cert is set.
 	if s.config.TLSKey != "" && s.config.TLSCert != "" {
-		s.logger.Info("TLS enabled")
 		creds, err := credentials.NewServerTLSFromFile(s.config.TLSCert, s.config.TLSKey)
 		if err != nil {
 			return errors.Wrap(err, "failed to setup TLS credentials")
