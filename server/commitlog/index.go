@@ -29,6 +29,7 @@ type Index struct {
 	options
 	mmap     gommap.MMap
 	file     *os.File
+	size     int64
 	mu       sync.RWMutex
 	position int64
 }
@@ -86,9 +87,9 @@ func NewIndex(opts options) (idx *Index, err error) {
 	fi, err := idx.file.Stat()
 	if err != nil {
 		return nil, errors.Wrap(err, "stat file failed")
-	} else {
-		idx.position = fi.Size()
 	}
+	idx.position = fi.Size()
+	idx.size = fi.Size()
 
 	idx.mmap, err = gommap.Map(idx.file.Fd(), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
 	if err != nil {
@@ -151,6 +152,24 @@ func (idx *Index) ReadAt(p []byte, offset int64) (n int, err error) {
 func (idx *Index) WriteAt(p []byte, offset int64) (n int) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
+
+	// Check if we need to expand the index file.
+	if offset >= idx.size {
+		// Expand the index file.
+		newSize := roundDown(idx.size+idx.bytes, entryWidth)
+		err := idx.file.Truncate(newSize)
+		if err != nil {
+			panic(errors.Wrap(err, "failed to expand index file"))
+		}
+		idx.size = newSize
+
+		// Re-mmap the index.
+		idx.mmap, err = gommap.Map(idx.file.Fd(), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
+		if err != nil {
+			panic(errors.Wrap(err, "failed to mmap expanded index file"))
+		}
+	}
+
 	return copy(idx.mmap[offset:], p)
 }
 
