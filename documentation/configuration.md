@@ -27,17 +27,19 @@ COMMANDS:
      help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --config FILE, -c FILE         load configuration from FILE
-   --server-id value, --id value  ID of the server in the cluster if there is no stored ID
-   --namespace value, --ns value  cluster namespace (default: "liftbridge-default")
-   --nats-servers ADDR[,ADDR1], -n ADDR[,ADDR1]    connect to NATS server(s) at ADDR's
-   --data-dir DIR, -d DIR         store data in DIR (default: "/tmp/liftbridge/<namespace>")
-   --port value, -p value         port to bind to (default: 9292)
-   --level value, -l value        logging level [debug|info|warn|error] (default: "info")
-   --raft-bootstrap-seed          bootstrap the Raft cluster by electing self as leader if there is no existing state
-   --raft-bootstrap-peers value   bootstrap the Raft cluster with the provided list of peer IDs if there is no existing state
-   --help, -h                     show help
-   --version, -v                  print the version
+   --config FILE, -c FILE                      load configuration from FILE
+   --server-id value, --id value               ID of the server in the cluster if there is no stored ID
+   --namespace value, --ns value               cluster namespace (default: "liftbridge-default")
+   --nats-servers ADDR[,ADDR], -n ADDR[,ADDR]  connect to NATS server at ADDR[,ADDR]
+   --data-dir DIR, -d DIR                      store data in DIR (default: "/tmp/liftbridge/<namespace>")
+   --port value, -p value                      port to bind to (default: 9292)
+   --tls-cert value                            server certificate file
+   --tls-key value                             private key for server certificate
+   --level value, -l value                     logging level [debug|info|warn|error] (default: "info")
+   --raft-bootstrap-seed                       bootstrap the Raft cluster by electing self as leader if there is no existing state
+   --raft-bootstrap-peers value                bootstrap the Raft cluster with the provided list of peer IDs if there is no existing state
+   --help, -h                                  show help
+   --version, -v                               print the version
 ```
 
 ## Configuration File Format
@@ -98,6 +100,8 @@ the setting in the configuration file and the CLI flag if it exists.
 | listen | | The server host/port. | string | localhost:9292 | |
 | host | | The server host. | string | localhost | |
 | port | port | The server port. | int | 9292 | |
+| tls.key | The private key file for server certificate. This must be set in combination with `tls.cert` to enable TLS. | string | | |
+| tls.cert | The server certificate file. This must be set in combination with `tls.key` to enable TLS. | string | | |
 | log.level | level | The logging level. | string | info | [debug, info, warn, error] |
 | data.dir | data-dir | The directory to store data in. | string | /tmp/liftbridge/namespace | |
 | batch.max.messages | | The maximum number of messages to batch when writing to disk. | int | 1024 |
