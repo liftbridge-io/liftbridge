@@ -79,6 +79,7 @@ type stream struct {
 	recovered     bool
 	stopFollower  chan struct{}
 	stopLeader    chan struct{}
+	belowMinISR   bool
 }
 
 // newStream creates a new stream. If the stream is recovered, it should not be
@@ -130,8 +131,8 @@ func (s *stream) String() string {
 	return fmt.Sprintf("[subject=%s, name=%s]", s.Subject, s.Name)
 }
 
-// close stops the stream if it is running and closes the commit log.
-func (s *stream) close() error {
+// Close stops the stream if it is running and closes the commit log.
+func (s *stream) Close() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -542,12 +543,26 @@ func (s *stream) commitLoop(stop chan struct{}) {
 		case <-s.commitCheck:
 		}
 
+		s.mu.RLock()
+
+		// Check if the ISR size is below the minimum ISR size. If it is, we
+		// cannot commit any messages.
+		var (
+			minISR  = s.srv.config.Clustering.MinISR
+			isrSize = len(s.isr)
+		)
+		if isrSize < minISR {
+			s.mu.RUnlock()
+			s.srv.logger.Errorf("Unable to commit messages for stream %s, ISR size (%d) below minimum (%d)",
+				s, isrSize, minISR)
+			continue
+		}
+
 		// Commit all messages in the queue that have been replicated by all
 		// replicas in the ISR. Do this by taking the min of all latest offsets
 		// in the ISR.
-		s.mu.RLock()
 		var (
-			latestOffsets = make([]int64, len(s.isr))
+			latestOffsets = make([]int64, isrSize)
 			i             = 0
 		)
 		for _, replica := range s.isr {
@@ -744,10 +759,24 @@ func (s *stream) RemoveFromISR(replica string) error {
 	}
 	delete(s.isr, replica)
 
+	// Check if ISR went below minimum ISR size. This is important for
+	// operators to be aware of.
+	var (
+		minISR  = s.srv.config.Clustering.MinISR
+		isrSize = len(s.isr)
+	)
+	if !s.belowMinISR && isrSize < minISR {
+		s.srv.logger.Errorf("ISR for stream %s has shrunk below minimum size %d, currently %d",
+			s, minISR, isrSize)
+		s.belowMinISR = true
+	}
+
 	// We may need to commit messages since the ISR shrank.
-	select {
-	case s.commitCheck <- struct{}{}:
-	default:
+	if s.isLeading {
+		select {
+		case s.commitCheck <- struct{}{}:
+		default:
+		}
 	}
 
 	return nil
@@ -762,6 +791,18 @@ func (s *stream) AddToISR(rep string) error {
 		return fmt.Errorf("%s not a replica", rep)
 	}
 	s.isr[rep] = &replica{offset: -1}
+
+	// Check if ISR recovered from being below the minimum ISR size.
+	var (
+		minISR  = s.srv.config.Clustering.MinISR
+		isrSize = len(s.isr)
+	)
+	if s.belowMinISR && isrSize >= minISR {
+		s.srv.logger.Infof("ISR for stream %s has recovered from being below minimum size %d, currently %d",
+			s, minISR, isrSize)
+		s.belowMinISR = false
+	}
+
 	return nil
 }
 

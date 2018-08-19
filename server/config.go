@@ -31,6 +31,7 @@ const (
 	defaultMetadataCacheMaxAge     = 2 * time.Minute
 	defaultBatchMaxMessages        = 1024
 	defaultReplicaFetchTimeout     = 5 * time.Second
+	defaultMinInsyncReplicas       = 1
 )
 
 // LogConfig contains settings for controlling the message log for a stream.
@@ -47,12 +48,13 @@ type ClusteringConfig struct {
 	RaftSnapshots           int
 	RaftSnapshotThreshold   uint64
 	RaftCacheSize           int
-	RaftBootstrap           bool
+	RaftBootstrapSeed       bool
 	RaftBootstrapPeers      []string
 	RaftLogging             bool
 	ReplicaMaxLagTime       time.Duration
 	ReplicaMaxLeaderTimeout time.Duration
 	ReplicaFetchTimeout     time.Duration
+	MinISR                  int
 }
 
 // Config contains all settings for a Liftbridge Server.
@@ -88,6 +90,7 @@ func NewDefaultConfig() *Config {
 	config.Clustering.ReplicaFetchTimeout = defaultReplicaFetchTimeout
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Clustering.RaftCacheSize = defaultRaftCacheSize
+	config.Clustering.MinISR = defaultMinInsyncReplicas
 	return config
 }
 
@@ -233,7 +236,7 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 		case "raft.cache.size":
 			config.Clustering.RaftCacheSize = int(v.(int64))
 		case "raft.bootstrap.seed":
-			config.Clustering.RaftBootstrap = v.(bool)
+			config.Clustering.RaftBootstrapSeed = v.(bool)
 		case "raft.bootstrap.peers":
 			peers := v.([]interface{})
 			config.Clustering.RaftBootstrapPeers = make([]string, len(peers))
@@ -254,6 +257,8 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 				return err
 			}
 			config.Clustering.ReplicaFetchTimeout = dur
+		case "min.insync.replicas":
+			config.Clustering.MinISR = int(v.(int64))
 		default:
 			return fmt.Errorf("Unknown clustering configuration setting %q", k)
 		}

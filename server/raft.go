@@ -126,7 +126,7 @@ func (s *Server) setupMetadataRaft() error {
 	// Bootstrap if there is no previous state and we are starting this node as
 	// a seed or a cluster configuration is provided.
 	bootstrap := !existingState &&
-		(s.config.Clustering.RaftBootstrap || len(s.config.Clustering.RaftBootstrapPeers) > 0)
+		(s.config.Clustering.RaftBootstrapSeed || len(s.config.Clustering.RaftBootstrapPeers) > 0)
 	if bootstrap {
 		if err := s.bootstrapCluster(node.Raft); err != nil {
 			node.shutdown()
@@ -170,7 +170,7 @@ func (s *Server) setupMetadataRaft() error {
 			return errors.New("failed to join metadata Raft group")
 		}
 	}
-	if s.config.Clustering.RaftBootstrap {
+	if s.config.Clustering.RaftBootstrapSeed {
 		// If node is started with bootstrap, regardless if state exists or
 		// not, try to detect (and report) other nodes in same cluster started
 		// with bootstrap=true.

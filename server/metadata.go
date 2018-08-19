@@ -511,7 +511,7 @@ func (m *metadataAPI) Reset() error {
 	defer m.mu.Unlock()
 	for _, streams := range m.streams {
 		for _, stream := range streams {
-			if err := stream.close(); err != nil {
+			if err := stream.Close(); err != nil {
 				return err
 			}
 		}
