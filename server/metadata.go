@@ -584,7 +584,8 @@ func (m *metadataAPI) getClusterServerIDs() ([]string, error) {
 // the current broker is not the metadata leader.
 func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
 	isr := stream.GetISR()
-	if len(isr) == 1 {
+	// TODO: add support for "unclean" leader elections.
+	if len(isr) <= 1 {
 		return status.New(codes.FailedPrecondition, "No ISR candidates")
 	}
 	var (
