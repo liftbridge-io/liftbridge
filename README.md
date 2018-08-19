@@ -224,7 +224,7 @@ be generated quite easily using the
 - [x] Log retention by number of messages
 - [ ] Log compaction by key
 - [ ] Consumer-offset checkpointing in the log
-- [ ] Minimum ISR support
+- [x] Minimum ISR support
 - [ ] Additional subscribe semantics
   - [x] Oldest
   - [x] Newest
