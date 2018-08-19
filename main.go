@@ -38,7 +38,7 @@ func main() {
 			return err
 		}
 		config.LogLevel = level
-		config.Clustering.RaftBootstrap = c.Bool("raft-bootstrap-seed")
+		config.Clustering.RaftBootstrapSeed = c.Bool("raft-bootstrap-seed")
 		config.Clustering.RaftBootstrapPeers = c.StringSlice("raft-bootstrap-peers")
 
 		natsServers, err := normalizeNatsServers(c.StringSlice("nats-servers"))
