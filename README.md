@@ -208,14 +208,14 @@ be generated quite easily using the
 
 ## Roadmap
 
-- [ ] Basic documentation
+- [x] Basic documentation
   - [x] Overview
   - [x] FAQ
   - [x] Config
   - [x] Cluster bootstrapping
   - [x] Core concepts
   - [x] Replication protocol
-  - [ ] Configuring for HA and consistency
+  - [x] Configuring for HA and consistency
 - [x] Setup CI
 - [ ] Production-hardening
 - [x] TLS support
