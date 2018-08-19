@@ -26,6 +26,9 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	*client.CreateStreamResponse, error) {
 
 	resp := &client.CreateStreamResponse{}
+	if req.ReplicationFactor == 0 {
+		req.ReplicationFactor = 1
+	}
 	a.logger.Debugf("api: CreateStream [subject=%s, name=%s, replicationFactor=%d]",
 		req.Subject, req.Name, req.ReplicationFactor)
 
