@@ -148,3 +148,4 @@ the configuration file.
 | raft.logging | | Enables logging in the Raft subsystem. | bool | false | |
 | replica.max.lag.time | | If a follower hasn't sent any replication requests or hasn't caught up to the leader's log end offset for at least this time, the leader will remove the follower from ISR. | duration | 10s | |
 | replica.fetch.timeout | | Timeout duration for follower replication requests. | duration | 5s | |
+| min.insync.replicas | | Specifies the minimum number of replicas that must acknowledge a stream write before it can be committed. If the ISR drops below this size, messages cannot be committed. | int | 1 | [1,...] |
