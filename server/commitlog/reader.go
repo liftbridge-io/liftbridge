@@ -97,6 +97,9 @@ LOOP:
 func (r *UncommittedReader) waitForData(seg *Segment) bool {
 	wait := seg.waitForData(r, r.pos)
 	select {
+	case <-r.cl.closed:
+		seg.removeWaiter(r)
+		return false
 	case <-r.ctx.Done():
 		seg.removeWaiter(r)
 		return false
@@ -235,6 +238,9 @@ LOOP:
 func (r *CommittedReader) waitForHW(hw int64) bool {
 	wait := r.cl.waitForHW(r, hw)
 	select {
+	case <-r.cl.closed:
+		r.cl.removeHWWaiter(r)
+		return false
 	case <-r.ctx.Done():
 		r.cl.removeHWWaiter(r)
 		return false

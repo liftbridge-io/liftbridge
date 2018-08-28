@@ -41,7 +41,7 @@ type CommitLog struct {
 	name           string
 	mu             sync.RWMutex
 	hw             int64
-	flushHW        chan struct{}
+	closed         chan struct{}
 	segments       []*Segment
 	vActiveSegment atomic.Value
 	hwWaiters      map[io.Reader]chan struct{}
@@ -89,7 +89,7 @@ func New(opts Options) (*CommitLog, error) {
 		name:      filepath.Base(path),
 		cleaner:   cleaner,
 		hw:        -1,
-		flushHW:   make(chan struct{}),
+		closed:    make(chan struct{}),
 		hwWaiters: make(map[io.Reader]chan struct{}),
 	}
 
@@ -283,7 +283,7 @@ func (l *CommitLog) Close() error {
 	if err := l.checkpointHW(); err != nil {
 		return err
 	}
-	close(l.flushHW)
+	close(l.closed)
 	for _, segment := range l.segments {
 		if err := segment.Close(); err != nil {
 			return err
@@ -411,10 +411,8 @@ func (l *CommitLog) checkpointHWLoop() {
 	for {
 		select {
 		case <-ticker.C:
-		case _, ok := <-l.flushHW:
-			if !ok {
-				return
-			}
+		case <-l.closed:
+			return
 		}
 		l.mu.RLock()
 		if err := l.checkpointHW(); err != nil {
