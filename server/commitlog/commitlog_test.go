@@ -15,10 +15,10 @@ import (
 
 var (
 	msgs = []*proto.Message{
-		&proto.Message{Value: []byte("one")},
-		&proto.Message{Value: []byte("two")},
-		&proto.Message{Value: []byte("three")},
-		&proto.Message{Value: []byte("four")},
+		&proto.Message{Value: []byte("one"), Timestamp: 1},
+		&proto.Message{Value: []byte("two"), Timestamp: 2},
+		&proto.Message{Value: []byte("three"), Timestamp: 3},
+		&proto.Message{Value: []byte("four"), Timestamp: 4},
 	}
 )
 
@@ -35,11 +35,12 @@ func TestNewCommitLog(t *testing.T) {
 	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
 
-	headers := make([]byte, 12)
+	headers := make([]byte, 20)
 	for i, exp := range msgs {
-		msg, offset, err := commitlog.ReadMessage(r, headers)
+		msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
+		require.Equal(t, msgs[i].Timestamp, timestamp)
 		compareMessages(t, exp, msg)
 	}
 }
@@ -72,12 +73,13 @@ func TestCommitLogRecover(t *testing.T) {
 			r, err := l.NewReaderUncommitted(ctx, 0)
 			require.NoError(t, err)
 
-			headers := make([]byte, 12)
+			headers := make([]byte, 20)
 			for i, exp := range msgs {
-				msg, offset, err := commitlog.ReadMessage(r, headers)
+				msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
+				require.Equal(t, msgs[i].Timestamp, timestamp)
 			}
 
 			// Close the log and reopen, then ensure we read back the same
@@ -92,10 +94,11 @@ func TestCommitLogRecover(t *testing.T) {
 			r, err = l.NewReaderUncommitted(ctx, 0)
 			require.NoError(t, err)
 			for i, exp := range msgs {
-				msg, offset, err := commitlog.ReadMessage(r, headers)
+				msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
+				require.Equal(t, msgs[i].Timestamp, timestamp)
 			}
 		})
 	}

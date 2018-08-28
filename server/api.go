@@ -139,10 +139,10 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	}
 
 	a.startGoroutine(func() {
-		headersBuf := make([]byte, 12)
+		headersBuf := make([]byte, 20)
 		for {
 			// TODO: this could be more efficient.
-			m, offset, err := commitlog.ReadMessage(reader, headersBuf)
+			m, offset, timestamp, err := commitlog.ReadMessage(reader, headersBuf)
 			if err != nil {
 				select {
 				case errCh <- status.Convert(err):
@@ -156,7 +156,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 					Offset:    offset,
 					Key:       m.Key(),
 					Value:     m.Value(),
-					Timestamp: m.Timestamp(),
+					Timestamp: timestamp,
 					Headers:   headers,
 					Subject:   string(headers["subject"]),
 					Reply:     string(headers["reply"]),

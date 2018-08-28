@@ -643,7 +643,7 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 		require.Equal(t, int64(1), msg.Offset)
 		close(gotMsg)
 		cancel()
-	})
+	}, liftbridge.StartAtOffset(0))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -728,7 +728,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	})
+	}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -814,7 +814,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	})
+	}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
 	require.NoError(t, err)
 
 	// Wait to get the new message.

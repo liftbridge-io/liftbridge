@@ -9,8 +9,9 @@ import (
 
 const (
 	offsetPos       = 0
-	sizePos         = 8
-	msgSetHeaderLen = 12
+	timestampPos    = 8
+	sizePos         = 16
+	msgSetHeaderLen = 20
 )
 
 type MessageSet []byte
@@ -23,15 +24,17 @@ func EntriesForMessageSet(baseOffset, basePos int64, ms []byte) []Entry {
 	var n int64
 	for len(ms) > 0 {
 		var (
-			relPos = n
-			m      = MessageSet(ms)
-			offset = m.Offset()
-			size   = m.Size()
+			relPos    = n
+			m         = MessageSet(ms)
+			offset    = m.Offset()
+			timestamp = m.Timestamp()
+			size      = m.Size()
 		)
 		entries = append(entries, Entry{
-			Offset:   offset,
-			Position: basePos + relPos,
-			Size:     size + msgSetHeaderLen,
+			Offset:    offset,
+			Timestamp: timestamp,
+			Position:  basePos + relPos,
+			Size:      size + msgSetHeaderLen,
 		})
 		n += msgSetHeaderLen + int64(size)
 		ms = ms[msgSetHeaderLen+size:]
@@ -61,6 +64,10 @@ func NewMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
 			return nil, nil, err
 		}
 		n += 8
+		if err := binary.Write(buf, proto.Encoding, uint64(m.Timestamp)); err != nil {
+			return nil, nil, err
+		}
+		n += 8
 		if err := binary.Write(buf, proto.Encoding, uint32(len)); err != nil {
 			return nil, nil, err
 		}
@@ -70,9 +77,10 @@ func NewMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
 		}
 		n += len
 		entries[i] = Entry{
-			Offset:   offset,
-			Position: basePos + relPos,
-			Size:     len + msgSetHeaderLen,
+			Offset:    offset,
+			Timestamp: m.Timestamp,
+			Position:  basePos + relPos,
+			Size:      len + msgSetHeaderLen,
 		}
 	}
 	return buf.Bytes(), entries, nil
@@ -80,6 +88,10 @@ func NewMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
 
 func (ms MessageSet) Offset() int64 {
 	return int64(proto.Encoding.Uint64(ms[offsetPos : offsetPos+8]))
+}
+
+func (ms MessageSet) Timestamp() int64 {
+	return int64(proto.Encoding.Uint64(ms[timestampPos : timestampPos+8]))
 }
 
 func (ms MessageSet) Size() int32 {

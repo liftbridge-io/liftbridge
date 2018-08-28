@@ -1,21 +1,17 @@
 package proto
 
-import (
-	"time"
-
-	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
-)
+import client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 
 type Message struct {
 	Crc        int32
 	MagicByte  int8
 	Attributes int8
-	Timestamp  time.Time
 	Key        []byte
 	Value      []byte
 	Headers    map[string][]byte
 
 	// Transient fields
+	Timestamp     int64
 	AckInbox      string
 	CorrelationID string
 	AckPolicy     client.AckPolicy
@@ -25,7 +21,6 @@ func (m *Message) Encode(e PacketEncoder) error {
 	e.Push(&CRCField{})
 	e.PutInt8(m.MagicByte)
 	e.PutInt8(m.Attributes)
-	e.PutInt64(m.Timestamp.UnixNano() / int64(time.Millisecond))
 	if err := e.PutBytes(m.Key); err != nil {
 		return err
 	}
@@ -56,11 +51,6 @@ func (m *Message) Decode(d PacketDecoder) error {
 	if m.Attributes, err = d.Int8(); err != nil {
 		return err
 	}
-	t, err := d.Int64()
-	if err != nil {
-		return err
-	}
-	m.Timestamp = time.Unix(t/1000, (t%1000)*int64(time.Millisecond))
 	if m.Key, err = d.Bytes(); err != nil {
 		return err
 	}

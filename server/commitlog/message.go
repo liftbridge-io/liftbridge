@@ -16,10 +16,6 @@ func (m Message) Attributes() int8 {
 	return int8(m[5])
 }
 
-func (m Message) Timestamp() int64 {
-	return int64(proto.Encoding.Uint64(m[6:]))
-}
-
 func (m Message) Key() []byte {
 	start, end, size := m.keyOffsets()
 	if size == -1 {
@@ -59,7 +55,7 @@ func (m Message) Headers() map[string][]byte {
 }
 
 func (m Message) keyOffsets() (start, end, size int32) {
-	start = 14
+	start = 6
 	size = int32(proto.Encoding.Uint32(m[start:]))
 	end = start + 4
 	if size != -1 {

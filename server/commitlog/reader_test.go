@@ -37,7 +37,7 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 			numMsgs := 10
 			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i)}
 			}
 			_, err = l.Append(msgs)
 			require.NoError(t, err)
@@ -47,10 +47,11 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 			r, err := l.NewReaderUncommitted(ctx, int64(idx))
 			require.NoError(t, err)
 
-			headers := make([]byte, 12)
-			msg, offset, err := commitlog.ReadMessage(r, headers)
+			headers := make([]byte, 20)
+			msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 			require.NoError(t, err)
 			require.Equal(t, int64(idx), offset)
+			require.Equal(t, int64(idx), timestamp)
 			compareMessages(t, msgs[idx], msg)
 		})
 	}
@@ -85,7 +86,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	msg := &proto.Message{Value: []byte("hi")}
+	msg := &proto.Message{Value: []byte("hi"), Timestamp: 1}
 	_, err := l.Append([]*proto.Message{msg})
 	require.NoError(t, err)
 
@@ -93,13 +94,14 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	defer cancel()
 	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
-	headers := make([]byte, 12)
-	m, offset, err := commitlog.ReadMessage(r, headers)
+	headers := make([]byte, 20)
+	m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), offset)
+	require.Equal(t, int64(1), timestamp)
 	compareMessages(t, msg, m)
 
-	msg = &proto.Message{Value: []byte("hello")}
+	msg = &proto.Message{Value: []byte("hello"), Timestamp: 2}
 
 	go func() {
 		time.Sleep(5 * time.Millisecond)
@@ -107,9 +109,10 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	m, offset, err = commitlog.ReadMessage(r, headers)
+	m, offset, timestamp, err = commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), offset)
+	require.Equal(t, int64(2), timestamp)
 	compareMessages(t, msg, m)
 }
 
@@ -148,7 +151,7 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 			numMsgs := 10
 			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i)}
 			}
 			_, err = l.Append(msgs)
 			require.NoError(t, err)
@@ -157,10 +160,11 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 			r, err := l.NewReaderCommitted(context.Background(), int64(idx))
 			require.NoError(t, err)
 
-			headers := make([]byte, 12)
-			msg, offset, err := commitlog.ReadMessage(r, headers)
+			headers := make([]byte, 20)
+			msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 			require.NoError(t, err)
 			require.Equal(t, int64(idx), offset)
+			require.Equal(t, int64(idx), timestamp)
 			compareMessages(t, msgs[idx], msg)
 		})
 	}
@@ -219,7 +223,7 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	r, err := l.NewReaderCommitted(context.Background(), 0)
 	require.NoError(t, err)
 
-	msg := &proto.Message{Value: []byte("hello")}
+	msg := &proto.Message{Value: []byte("hello"), Timestamp: 1}
 
 	go func() {
 		time.Sleep(5 * time.Millisecond)
@@ -228,10 +232,11 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 		l.SetHighWatermark(0)
 	}()
 
-	headers := make([]byte, 12)
-	m, offset, err := commitlog.ReadMessage(r, headers)
+	headers := make([]byte, 20)
+	m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), offset)
+	require.Equal(t, int64(1), timestamp)
 	compareMessages(t, msg, m)
 }
 
@@ -249,7 +254,7 @@ func TestReaderCommittedRead(t *testing.T) {
 			numMsgs := 10
 			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i)}
 			}
 			_, err = l.Append(msgs)
 			require.NoError(t, err)
@@ -257,11 +262,12 @@ func TestReaderCommittedRead(t *testing.T) {
 			r, err := l.NewReaderCommitted(context.Background(), 0)
 			require.NoError(t, err)
 
-			headers := make([]byte, 12)
+			headers := make([]byte, 20)
 			for i, msg := range msgs {
-				m, offset, err := commitlog.ReadMessage(r, headers)
+				m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
 				require.Equal(t, int64(i), offset)
+				require.Equal(t, int64(i), timestamp)
 				compareMessages(t, msg, m)
 			}
 		})
@@ -282,7 +288,7 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 			numMsgs := 10
 			msgs := make([]*proto.Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
+				msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i)}
 			}
 			_, err = l.Append(msgs)
 			require.NoError(t, err)
@@ -290,11 +296,12 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 			r, err := l.NewReaderCommitted(context.Background(), 0)
 			require.NoError(t, err)
 
-			headers := make([]byte, 12)
+			headers := make([]byte, 20)
 			for i, msg := range msgs[:5] {
-				m, offset, err := commitlog.ReadMessage(r, headers)
+				m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
 				require.Equal(t, int64(i), offset)
+				require.Equal(t, int64(i), timestamp)
 				compareMessages(t, msg, m)
 			}
 		})
@@ -313,7 +320,7 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 	numMsgs := 10
 	msgs := make([]*proto.Message, numMsgs)
 	for i := 0; i < numMsgs; i++ {
-		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
+		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i)}
 	}
 	_, err = l.Append(msgs)
 	require.NoError(t, err)
@@ -326,11 +333,12 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 		l.SetHighWatermark(9)
 	}()
 
-	headers := make([]byte, 12)
+	headers := make([]byte, 20)
 	for i, msg := range msgs {
-		m, offset, err := commitlog.ReadMessage(r, headers)
+		m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
+		require.Equal(t, int64(i), timestamp)
 		compareMessages(t, msg, m)
 	}
 }
@@ -347,7 +355,7 @@ func TestReaderCommittedCancel(t *testing.T) {
 	numMsgs := 10
 	msgs := make([]*proto.Message, numMsgs)
 	for i := 0; i < numMsgs; i++ {
-		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i))}
+		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i)}
 	}
 	_, err = l.Append(msgs)
 	require.NoError(t, err)
@@ -362,12 +370,13 @@ func TestReaderCommittedCancel(t *testing.T) {
 	}()
 
 	count := 0
-	headers := make([]byte, 12)
+	headers := make([]byte, 20)
 	for i, msg := range msgs {
-		m, offset, err := commitlog.ReadMessage(r, headers)
+		m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 		if count < 5 {
 			require.NoError(t, err)
 			require.Equal(t, int64(i), offset)
+			require.Equal(t, int64(i), timestamp)
 			compareMessages(t, msg, m)
 			count++
 		} else {
@@ -386,10 +395,10 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	})
 	defer cleanup()
 
-	msg1 := &proto.Message{Value: []byte("hi")}
+	msg1 := &proto.Message{Value: []byte("hi"), Timestamp: 1}
 	_, err := l.Append([]*proto.Message{msg1})
 	require.NoError(t, err)
-	msg2 := &proto.Message{Value: []byte("hi")}
+	msg2 := &proto.Message{Value: []byte("hi"), Timestamp: 2}
 	_, err = l.Append([]*proto.Message{msg2})
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
@@ -399,10 +408,11 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 
 	go l.SetHighWatermark(1)
 
-	headers := make([]byte, 12)
-	m, offset, err := commitlog.ReadMessage(r, headers)
+	headers := make([]byte, 20)
+	m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), offset)
+	require.Equal(t, int64(2), timestamp)
 	compareMessages(t, msg2, m)
 }
 
