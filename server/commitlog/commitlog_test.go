@@ -184,6 +184,59 @@ func TestCleaner(t *testing.T) {
 	}
 }
 
+// Ensures OffsetForTimestamp returns the earliest offset whose timestamp is
+// greater than or equal to the given timestamp.
+func TestOffsetForTimestamp(t *testing.T) {
+	opts := commitlog.Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	}
+	l, cleanup := setupWithOptions(t, opts)
+	defer cleanup()
+
+	// Append some messages.
+	numMsgs := 10
+	msgs := make([]*proto.Message, numMsgs)
+	for i := 0; i < numMsgs; i++ {
+		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i * 10)}
+	}
+	for _, msg := range msgs {
+		_, err := l.Append([]*proto.Message{msg})
+		require.NoError(t, err)
+	}
+
+	// Underflowed timestamp should return the first offset.
+	offset, err := l.OffsetForTimestamp(-1)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), offset)
+
+	// Find offset in the first segment.
+	offset, err = l.OffsetForTimestamp(20)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), offset)
+
+	// Find offset in an inner segment.
+	offset, err = l.OffsetForTimestamp(30)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), offset)
+
+	// Find offset in the last segment.
+	offset, err = l.OffsetForTimestamp(90)
+	require.NoError(t, err)
+	require.Equal(t, int64(9), offset)
+
+	// Overflowed timestamp should return the next offset.
+	offset, err = l.OffsetForTimestamp(500)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), offset)
+
+	// Find offset for timestamp not present in log. Should return offset with
+	// next highest timestamp.
+	offset, err = l.OffsetForTimestamp(25)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), offset)
+}
+
 func setup(t require.TestingT) (*commitlog.CommitLog, func()) {
 	opts := commitlog.Options{
 		Path:            tempDir(t),

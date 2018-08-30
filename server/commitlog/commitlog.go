@@ -226,6 +226,49 @@ func (l *CommitLog) OldestOffset() int64 {
 	return l.segments[0].BaseOffset
 }
 
+// OffsetForTimestamp returns the earliest offset whose timestamp is greater
+// than or equal to the given timestamp.
+func (l *CommitLog) OffsetForTimestamp(timestamp int64) (int64, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	// Find the first segment whose base timestamp is greater than the given
+	// timestamp.
+	idx, err := findSegmentIndexByTimestamp(l.segments, timestamp)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to find log segment for timestamp")
+	}
+	// Search the previous segment for the first entry whose timestamp is
+	// greater than or equal to the given timestamp. If this is the first
+	// segment, just search it.
+	var seg *Segment
+	if idx == 0 {
+		seg = l.segments[0]
+	} else {
+		seg = l.segments[idx-1]
+	}
+	entry, err := seg.findEntryByTimestamp(timestamp)
+	if err == nil {
+		return entry.Offset, nil
+	}
+	if err != ErrEntryNotFound && err != io.EOF {
+		return 0, errors.Wrap(err, "failed to find log entry for timestamp")
+	}
+	// This indicates there are no entries in the segment whose timestamp
+	// is greater than or equal to the target timestamp. In this case, search
+	// the next segment if there is one. If there isn't, the timestamp is
+	// beyond the end of the log so return the next offset.
+	if idx < len(l.segments) {
+		seg = l.segments[idx]
+		entry, err := seg.findEntryByTimestamp(timestamp)
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to find log entry for timestamp")
+		}
+		return entry.Offset, nil
+	}
+	return l.segments[len(l.segments)-1].NextOffset(), nil
+}
+
 // SetHighWatermark sets the high watermark on the log. All messages up to and
 // including the high watermark are considered committed.
 func (l *CommitLog) SetHighWatermark(hw int64) {
