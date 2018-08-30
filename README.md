@@ -208,7 +208,7 @@ be generated quite easily using the
 
 ## Roadmap
 
-- [x] Basic documentation
+- [ ] Basic documentation
   - [x] Overview
   - [x] FAQ
   - [x] Config
@@ -216,6 +216,8 @@ be generated quite easily using the
   - [x] Core concepts
   - [x] Replication protocol
   - [x] Configuring for HA and consistency
+  - [ ] Basic examples
+  - [ ] Feature matrix
 - [x] Setup CI
 - [ ] Production-hardening
 - [x] TLS support
