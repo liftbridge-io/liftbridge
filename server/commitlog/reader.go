@@ -9,19 +9,23 @@ import (
 	"golang.org/x/net/context"
 )
 
-func ReadMessage(reader io.Reader, headersBuf []byte) (Message, int64, error) {
+// ReadMessage reads a single message from the given Reader or blocks until one
+// is available. It returns the Message in addition to its offset and
+// timestamp. The headersBuf slice should have a capacity of at least 20.
+func ReadMessage(reader io.Reader, headersBuf []byte) (Message, int64, int64, error) {
 	if _, err := reader.Read(headersBuf); err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	var (
-		offset = int64(proto.Encoding.Uint64(headersBuf[0:]))
-		size   = proto.Encoding.Uint32(headersBuf[8:])
-		buf    = make([]byte, int(size))
+		offset    = int64(proto.Encoding.Uint64(headersBuf[0:]))
+		timestamp = int64(proto.Encoding.Uint64(headersBuf[8:]))
+		size      = proto.Encoding.Uint32(headersBuf[16:])
+		buf       = make([]byte, int(size))
 	)
 	if _, err := reader.Read(buf); err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
-	return Message(buf), offset, nil
+	return Message(buf), offset, timestamp, nil
 }
 
 type UncommittedReader struct {
@@ -97,6 +101,9 @@ LOOP:
 func (r *UncommittedReader) waitForData(seg *Segment) bool {
 	wait := seg.waitForData(r, r.pos)
 	select {
+	case <-r.cl.closed:
+		seg.removeWaiter(r)
+		return false
 	case <-r.ctx.Done():
 		seg.removeWaiter(r)
 		return false
@@ -235,6 +242,9 @@ LOOP:
 func (r *CommittedReader) waitForHW(hw int64) bool {
 	wait := r.cl.waitForHW(r, hw)
 	select {
+	case <-r.cl.closed:
+		r.cl.removeHWWaiter(r)
+		return false
 	case <-r.ctx.Done():
 		r.cl.removeHWWaiter(r)
 		return false

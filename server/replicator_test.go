@@ -126,7 +126,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	// Publish messages.
 	for i := 0; i < num; i++ {
 		err = nc.Publish(stream.Subject, liftbridge.NewMessage(expected[i].Value,
-			liftbridge.MessageOptions{Key: expected[i].Key, AckInbox: acks}))
+			liftbridge.MessageOptions{Key: expected[i].Key, AckInbox: acks, AckPolicy: proto.AckPolicy_ALL}))
 		require.NoError(t, err)
 	}
 
@@ -152,7 +152,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 			if i == num {
 				close(ch)
 			}
-		})
+		}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
 	require.NoError(t, err)
 
 	select {
@@ -193,7 +193,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 			if i == num {
 				close(ch)
 			}
-		})
+		}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
 	require.NoError(t, err)
 
 	select {

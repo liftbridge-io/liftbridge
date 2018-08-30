@@ -17,18 +17,20 @@ message CreateStreamResponse {
 
 // StartPosition determines the start-position type on a subscription.
 enum StartPosition {
-    OFFSET      = 0; // Start at a specified offset
-    EARLIEST    = 1; // Start at the oldest message
-    LATEST      = 2; // Start at the newest message
-    NEW_ONLY    = 3; // Start at new messages after the latest
+    NEW_ONLY    = 0; // Start at new messages after the latest
+    OFFSET      = 1; // Start at a specified offset
+    EARLIEST    = 2; // Start at the oldest message
+    LATEST      = 3; // Start at the newest message
+    TIMESTAMP   = 4; // Start at a specified timestamp
 }
 
 // SubscribeRequest is sent to subscribe to a stream.
 message SubscribeRequest {
-    string        subject       = 1; // Stream NATS subject to subscribe to
-    string        name          = 2; // Stream name to subscribe to
-    StartPosition startPosition = 3; // Where to begin consuming from
-    int64         startOffset   = 4; // Offset to begin consuming from
+    string        subject        = 1; // Stream NATS subject to subscribe to
+    string        name           = 2; // Stream name to subscribe to
+    StartPosition startPosition  = 3; // Where to begin consuming from
+    int64         startOffset    = 4; // Offset to begin consuming from
+    int64         startTimestamp = 5; // Timestamp to begin consuming from
 }
 
 // FetchMetadataRequest is sent to retrieve the latest cluster metadata.

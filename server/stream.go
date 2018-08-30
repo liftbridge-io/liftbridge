@@ -22,9 +22,15 @@ import (
 // message processing loop.
 const recvChannelSize = 64 * 1024
 
-// envelopeCookie is a magic value that indicates if a NATS message is a
-// structured message protobuf.
-var envelopeCookie = []byte("LIFT")
+var (
+	// envelopeCookie is a magic value that indicates if a NATS message is a
+	// structured message protobuf.
+	envelopeCookie = []byte("LIFT")
+
+	// timestamp returns the current time in Unix nanoseconds. This function
+	// exists for mocking purposes.
+	timestamp = func() int64 { return time.Now().UnixNano() }
+)
 
 // replica tracks the latest log offset for a particular stream replica.
 type replica struct {
@@ -385,8 +391,8 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 		return 0
 	}
 
-	// We should have at least 12 bytes for headers.
-	if len(data) <= 12 {
+	// We should have at least 20 bytes for headers.
+	if len(data) <= 20 {
 		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
 		return 0
 	}
@@ -907,7 +913,7 @@ func natsToProtoMessage(msg *nats.Msg) *proto.Message {
 	message := getMessage(msg.Data)
 	m := &proto.Message{
 		MagicByte: 1,
-		Timestamp: time.Now(),
+		Timestamp: timestamp(),
 		Headers:   make(map[string][]byte),
 	}
 	if message != nil {

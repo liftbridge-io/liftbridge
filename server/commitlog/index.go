@@ -19,10 +19,11 @@ var (
 )
 
 const (
-	offsetWidth   = 4
-	positionWidth = 4
-	sizeWidth     = 4
-	entryWidth    = offsetWidth + positionWidth + sizeWidth
+	offsetWidth    = 4
+	timestampWidth = 8
+	positionWidth  = 4
+	sizeWidth      = 4
+	entryWidth     = offsetWidth + timestampWidth + positionWidth + sizeWidth
 )
 
 type Index struct {
@@ -35,28 +36,32 @@ type Index struct {
 }
 
 type Entry struct {
-	Offset   int64
-	Position int64
-	Size     int32
+	Offset    int64
+	Timestamp int64
+	Position  int64
+	Size      int32
 }
 
 // relEntry is an Entry relative to the base fileOffset
 type relEntry struct {
-	Offset   int32
-	Position int32
-	Size     int32
+	Offset    int32
+	Timestamp int64
+	Position  int32
+	Size      int32
 }
 
 func newRelEntry(e Entry, baseOffset int64) relEntry {
 	return relEntry{
-		Offset:   int32(e.Offset - baseOffset),
-		Position: int32(e.Position),
-		Size:     e.Size,
+		Offset:    int32(e.Offset - baseOffset),
+		Timestamp: e.Timestamp,
+		Position:  int32(e.Position),
+		Size:      e.Size,
 	}
 }
 
 func (rel relEntry) fill(e *Entry, baseOffset int64) {
 	e.Offset = baseOffset + int64(rel.Offset)
+	e.Timestamp = rel.Timestamp
 	e.Position = int64(rel.Position)
 	e.Size = rel.Size
 }

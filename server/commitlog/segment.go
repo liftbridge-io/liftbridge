@@ -19,6 +19,10 @@ const (
 	indexSuffix     = ".index"
 )
 
+// ErrEntryNotFound is returned when a segment search cannot find a specific
+// entry.
+var ErrEntryNotFound = errors.New("entry not found")
+
 type Segment struct {
 	writer     io.Writer
 	reader     io.Reader
@@ -197,7 +201,7 @@ func (s *Segment) Replace(old *Segment) (err error) {
 	return s.setupIndex()
 }
 
-// findEntry returns the nearest entry whose offset is greater than or equal to
+// findEntry returns the first entry whose offset is greater than or equal to
 // the given offset.
 func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 	s.RLock()
@@ -211,7 +215,27 @@ func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 		return e.Offset >= offset
 	})
 	if idx == n {
-		return nil, errors.New("entry not found")
+		return nil, ErrEntryNotFound
+	}
+	err = s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth))
+	return e, err
+}
+
+// findEntryByTimestamp returns the first entry whose timestamp is greater than
+// or equal to the given offset.
+func (s *Segment) findEntryByTimestamp(timestamp int64) (e *Entry, err error) {
+	s.RLock()
+	defer s.RUnlock()
+	e = &Entry{}
+	n := int(s.Index.bytes / entryWidth)
+	idx := sort.Search(n, func(i int) bool {
+		if err := s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth)); err != nil {
+			return true
+		}
+		return e.Timestamp >= timestamp
+	})
+	if idx == n {
+		return nil, ErrEntryNotFound
 	}
 	err = s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth))
 	return e, err

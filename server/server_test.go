@@ -643,7 +643,7 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 		require.Equal(t, int64(1), msg.Offset)
 		close(gotMsg)
 		cancel()
-	})
+	}, liftbridge.StartAtOffset(0))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -728,7 +728,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	})
+	}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -814,7 +814,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	})
+	}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -1112,6 +1112,104 @@ func TestSubscribeNewOnly(t *testing.T) {
 	// Publish one more message.
 	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
 	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case <-gotMsg:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure when StartPosition_TIMESTAMP is used with Subscribe, messages are
+// read starting at the given timestamp.
+func TestSubscribeStartTime(t *testing.T) {
+	defer cleanupStorage(t)
+	timestampBefore := timestamp
+	mockTimestamp := int64(0)
+	timestamp = func() int64 {
+		time := mockTimestamp
+		mockTimestamp += 10
+		return time
+	}
+	defer func() {
+		timestamp = timestampBefore
+	}()
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 1,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	num := 5
+	acked := 0
+	gotAcks := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some messages.
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{AckInbox: acks}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	// Subscribe with TIMESTAMP 25. This should start reading from offset 3.
+	gotMsg := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		select {
+		case <-gotMsg:
+			return
+		default:
+		}
+		require.NoError(t, err)
+		require.Equal(t, int64(3), msg.Offset)
+		require.Equal(t, int64(30), msg.Timestamp)
+		close(gotMsg)
+		cancel()
+	}, liftbridge.StartAtTime(time.Unix(0, 25)))
 
 	// Wait to get the new message.
 	select {

@@ -15,10 +15,10 @@ import (
 
 var (
 	msgs = []*proto.Message{
-		&proto.Message{Value: []byte("one")},
-		&proto.Message{Value: []byte("two")},
-		&proto.Message{Value: []byte("three")},
-		&proto.Message{Value: []byte("four")},
+		&proto.Message{Value: []byte("one"), Timestamp: 1},
+		&proto.Message{Value: []byte("two"), Timestamp: 2},
+		&proto.Message{Value: []byte("three"), Timestamp: 3},
+		&proto.Message{Value: []byte("four"), Timestamp: 4},
 	}
 )
 
@@ -35,11 +35,12 @@ func TestNewCommitLog(t *testing.T) {
 	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
 
-	headers := make([]byte, 12)
+	headers := make([]byte, 20)
 	for i, exp := range msgs {
-		msg, offset, err := commitlog.ReadMessage(r, headers)
+		msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
+		require.Equal(t, msgs[i].Timestamp, timestamp)
 		compareMessages(t, exp, msg)
 	}
 }
@@ -72,12 +73,13 @@ func TestCommitLogRecover(t *testing.T) {
 			r, err := l.NewReaderUncommitted(ctx, 0)
 			require.NoError(t, err)
 
-			headers := make([]byte, 12)
+			headers := make([]byte, 20)
 			for i, exp := range msgs {
-				msg, offset, err := commitlog.ReadMessage(r, headers)
+				msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
+				require.Equal(t, msgs[i].Timestamp, timestamp)
 			}
 
 			// Close the log and reopen, then ensure we read back the same
@@ -92,10 +94,11 @@ func TestCommitLogRecover(t *testing.T) {
 			r, err = l.NewReaderUncommitted(ctx, 0)
 			require.NoError(t, err)
 			for i, exp := range msgs {
-				msg, offset, err := commitlog.ReadMessage(r, headers)
+				msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
+				require.Equal(t, msgs[i].Timestamp, timestamp)
 			}
 		})
 	}
@@ -179,6 +182,59 @@ func TestCleaner(t *testing.T) {
 	for i, s := range l.Segments() {
 		require.NotEqual(t, s, segments[i])
 	}
+}
+
+// Ensures OffsetForTimestamp returns the earliest offset whose timestamp is
+// greater than or equal to the given timestamp.
+func TestOffsetForTimestamp(t *testing.T) {
+	opts := commitlog.Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	}
+	l, cleanup := setupWithOptions(t, opts)
+	defer cleanup()
+
+	// Append some messages.
+	numMsgs := 10
+	msgs := make([]*proto.Message, numMsgs)
+	for i := 0; i < numMsgs; i++ {
+		msgs[i] = &proto.Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i * 10)}
+	}
+	for _, msg := range msgs {
+		_, err := l.Append([]*proto.Message{msg})
+		require.NoError(t, err)
+	}
+
+	// Underflowed timestamp should return the first offset.
+	offset, err := l.OffsetForTimestamp(-1)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), offset)
+
+	// Find offset in the first segment.
+	offset, err = l.OffsetForTimestamp(20)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), offset)
+
+	// Find offset in an inner segment.
+	offset, err = l.OffsetForTimestamp(30)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), offset)
+
+	// Find offset in the last segment.
+	offset, err = l.OffsetForTimestamp(90)
+	require.NoError(t, err)
+	require.Equal(t, int64(9), offset)
+
+	// Overflowed timestamp should return the next offset.
+	offset, err = l.OffsetForTimestamp(500)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), offset)
+
+	// Find offset for timestamp not present in log. Should return offset with
+	// next highest timestamp.
+	offset, err = l.OffsetForTimestamp(25)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), offset)
 }
 
 func setup(t require.TestingT) (*commitlog.CommitLog, func()) {

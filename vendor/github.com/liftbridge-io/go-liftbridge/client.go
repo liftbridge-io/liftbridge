@@ -280,6 +280,9 @@ type SubscriptionOptions struct {
 
 	// StartOffset sets the stream offset to begin consuming from.
 	StartOffset int64
+
+	// StartTimestamp sets the stream start position to the given timestamp.
+	StartTimestamp time.Time
 }
 
 // SubscriptionOption is a function on the SubscriptionOptions for a
@@ -300,6 +303,26 @@ func StartAtOffset(offset int64) SubscriptionOption {
 	return func(o *SubscriptionOptions) error {
 		o.StartPosition = proto.StartPosition_OFFSET
 		o.StartOffset = offset
+		return nil
+	}
+}
+
+// StartAtTime sets the desired timestamp to begin consuming from in the
+// stream.
+func StartAtTime(start time.Time) SubscriptionOption {
+	return func(o *SubscriptionOptions) error {
+		o.StartPosition = proto.StartPosition_TIMESTAMP
+		o.StartTimestamp = start
+		return nil
+	}
+}
+
+// StartAtTime sets the desired timestamp to begin consuming from in the
+// stream using a time delta in the past.
+func StartAtTimeDelta(ago time.Duration) SubscriptionOption {
+	return func(o *SubscriptionOptions) error {
+		o.StartPosition = proto.StartPosition_TIMESTAMP
+		o.StartTimestamp = time.Now().Add(-ago)
 		return nil
 	}
 }
@@ -339,10 +362,11 @@ func (c *client) Subscribe(ctx context.Context, subject, name string, handler Ha
 		var (
 			client = proto.NewAPIClient(conn)
 			req    = &proto.SubscribeRequest{
-				Subject:       subject,
-				Name:          name,
-				StartPosition: opts.StartPosition,
-				StartOffset:   opts.StartOffset,
+				Subject:        subject,
+				Name:           name,
+				StartPosition:  opts.StartPosition,
+				StartOffset:    opts.StartOffset,
+				StartTimestamp: opts.StartTimestamp.UnixNano(),
 			}
 		)
 		stream, err = client.Subscribe(ctx, req)
