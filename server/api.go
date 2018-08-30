@@ -47,8 +47,8 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 // when it reaches the end of the stream. Use the request context to close the
 // subscription.
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
-	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, start=%s, offset=%d]",
-		req.Subject, req.Name, req.StartPosition, req.StartOffset)
+	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, start=%s, offset=%d, timestamp=%d]",
+		req.Subject, req.Name, req.StartPosition, req.StartOffset, req.StartTimestamp)
 	stream := a.metadata.GetStream(req.Subject, req.Name)
 	if stream == nil {
 		a.logger.Errorf("api: Failed to subscribe to stream [subject=%s, name=%s]: no such stream",
@@ -117,6 +117,13 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	switch req.StartPosition {
 	case client.StartPosition_OFFSET:
 		startOffset = req.StartOffset
+	case client.StartPosition_TIMESTAMP:
+		offset, err := stream.log.OffsetForTimestamp(req.StartTimestamp)
+		if err != nil {
+			return nil, nil, status.New(
+				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
+		}
+		startOffset = offset
 	case client.StartPosition_EARLIEST:
 		startOffset = stream.log.OldestOffset()
 	case client.StartPosition_LATEST:
@@ -135,7 +142,8 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 		reader, err = stream.log.NewReaderCommitted(ctx, startOffset)
 	)
 	if err != nil {
-		return nil, nil, status.New(codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
+		return nil, nil, status.New(
+			codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
 	}
 
 	a.startGoroutine(func() {

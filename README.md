@@ -225,12 +225,12 @@ be generated quite easily using the
 - [ ] Log compaction by key
 - [ ] Consumer-offset checkpointing in the log
 - [x] Minimum ISR support
-- [ ] Additional subscribe semantics
+- [x] Additional subscribe semantics
   - [x] Oldest
   - [x] Newest
   - [x] New messages only
-  - [ ] By timestamp
-  - [ ] By time delta
+  - [x] By timestamp
+  - [x] By time delta
 - [ ] Single-stream fanout
   - [ ] Opt-in ISR replica reads
   - [ ] Read-replica support
