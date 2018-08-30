@@ -21,6 +21,7 @@ enum StartPosition {
     OFFSET      = 1; // Start at a specified offset
     EARLIEST    = 2; // Start at the oldest message
     LATEST      = 3; // Start at the newest message
+    TIMESTAMP   = 4; // Start at a specified timestamp
 }
 
 // SubscribeRequest is sent to subscribe to a stream.
