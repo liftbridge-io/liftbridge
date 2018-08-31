@@ -216,7 +216,6 @@ be generated quite easily using the
   - [x] Core concepts
   - [x] Replication protocol
   - [x] Configuring for HA and consistency
-  - [ ] Basic examples
   - [ ] Feature matrix
 - [x] Setup CI
 - [ ] Production-hardening
