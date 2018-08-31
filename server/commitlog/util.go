@@ -26,11 +26,8 @@ func findSegmentIndexByTimestamp(segments []*Segment, timestamp int64) (int, err
 	)
 	idx := sort.Search(n, func(i int) bool {
 		// Read the first entry in the segment to determine the base timestamp.
-		var (
-			segment = segments[i]
-			entry   Entry
-		)
-		if e := segment.Index.ReadEntryAtLogOffset(&entry, 0); e != nil {
+		var entry Entry
+		if e := segments[i].Index.ReadEntryAtLogOffset(&entry, 0); e != nil {
 			err = e
 			return true
 		}

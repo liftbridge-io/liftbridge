@@ -38,6 +38,7 @@ const (
 type LogConfig struct {
 	RetentionMaxBytes    int64
 	RetentionMaxMessages int64
+	RetentionMaxAge      time.Duration
 	SegmentMaxBytes      int64
 }
 
@@ -211,6 +212,12 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 			config.Log.RetentionMaxBytes = v.(int64)
 		case "retention.max.messages":
 			config.Log.RetentionMaxMessages = v.(int64)
+		case "retention.max.age":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return err
+			}
+			config.Log.RetentionMaxAge = dur
 		case "segment.max.bytes":
 			config.Log.SegmentMaxBytes = v.(int64)
 		default:

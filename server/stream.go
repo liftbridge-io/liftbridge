@@ -98,6 +98,7 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		MaxLogMessages:  s.config.Log.RetentionMaxMessages,
+		MaxLogAge:       s.config.Log.RetentionMaxAge,
 		Logger:          s.logger,
 	})
 	if err != nil {

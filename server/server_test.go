@@ -444,9 +444,8 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -532,9 +531,8 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -594,9 +592,8 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -680,9 +677,8 @@ func TestStreamRetentionBytes(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -766,9 +762,8 @@ func TestStreamRetentionMessages(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -826,6 +821,92 @@ func TestStreamRetentionMessages(t *testing.T) {
 	}
 }
 
+// Ensure the stream message age retention ensures data is deleted when log
+// segments exceed the TTL.
+func TestStreamRetentionAge(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Log.SegmentMaxBytes = 1
+	s1Config.Log.RetentionMaxAge = time.Nanosecond
+	s1Config.BatchMaxMessages = 1
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:    "foo",
+		Subject: "foo",
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	num := 100
+	acked := 0
+	gotAcks := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some messages.
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{AckInbox: acks}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	// We expect all segments but the last to be truncated due to age, so the
+	// first message read back should have offset 99.
+	msgs := make(chan *proto.Message, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, liftbridge.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case msg := <-msgs:
+		require.Equal(t, int64(99), msg.Offset)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
 // Ensure Subscribe returns an error when an invalid StartPosition is used.
 func TestSubscribeStartPositionInvalid(t *testing.T) {
 	defer cleanupStorage(t)
@@ -848,9 +929,8 @@ func TestSubscribeStartPositionInvalid(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -892,9 +972,8 @@ func TestSubscribeEarliest(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -974,9 +1053,8 @@ func TestSubscribeLatest(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -1056,9 +1134,8 @@ func TestSubscribeNewOnly(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)
@@ -1154,9 +1231,8 @@ func TestSubscribeStartTime(t *testing.T) {
 
 	// Create stream.
 	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
+		Name:    "foo",
+		Subject: "foo",
 	}
 	err = client.CreateStream(context.Background(), stream)
 	require.NoError(t, err)

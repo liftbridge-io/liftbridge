@@ -53,6 +53,7 @@ type Options struct {
 	MaxSegmentBytes      int64 // Max number of bytes a Segment can contain before creating a new Segment
 	MaxLogBytes          int64
 	MaxLogMessages       int64
+	MaxLogAge            time.Duration
 	HWCheckpointInterval time.Duration
 	Logger               logger.Logger
 }
@@ -81,6 +82,7 @@ func New(opts Options) (*CommitLog, error) {
 	}
 	cleanerOpts.Retention.Bytes = opts.MaxLogBytes
 	cleanerOpts.Retention.Messages = opts.MaxLogMessages
+	cleanerOpts.Retention.Age = opts.MaxLogAge
 	cleaner := NewDeleteCleaner(cleanerOpts)
 
 	path, _ := filepath.Abs(opts.Path)

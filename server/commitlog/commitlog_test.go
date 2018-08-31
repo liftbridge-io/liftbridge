@@ -1,4 +1,4 @@
-package commitlog_test
+package commitlog
 
 import (
 	"io/ioutil"
@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 
-	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -37,7 +36,7 @@ func TestNewCommitLog(t *testing.T) {
 
 	headers := make([]byte, 20)
 	for i, exp := range msgs {
-		msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+		msg, offset, timestamp, err := ReadMessage(r, headers)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
 		require.Equal(t, msgs[i].Timestamp, timestamp)
@@ -49,7 +48,7 @@ func TestCommitLogRecover(t *testing.T) {
 	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
 			var err error
-			opts := commitlog.Options{
+			opts := Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
 			}
@@ -75,7 +74,7 @@ func TestCommitLogRecover(t *testing.T) {
 
 			headers := make([]byte, 20)
 			for i, exp := range msgs {
-				msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+				msg, offset, timestamp, err := ReadMessage(r, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
@@ -94,7 +93,7 @@ func TestCommitLogRecover(t *testing.T) {
 			r, err = l.NewReaderUncommitted(ctx, 0)
 			require.NoError(t, err)
 			for i, exp := range msgs {
-				msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+				msg, offset, timestamp, err := ReadMessage(r, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
@@ -105,7 +104,7 @@ func TestCommitLogRecover(t *testing.T) {
 }
 
 func TestCommitLogRecoverHW(t *testing.T) {
-	opts := commitlog.Options{
+	opts := Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
 		MaxLogBytes:     100,
@@ -134,7 +133,7 @@ func BenchmarkCommitLog(b *testing.B) {
 }
 
 func TestOffsets(t *testing.T) {
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 20,
 	})
@@ -187,7 +186,7 @@ func TestCleaner(t *testing.T) {
 // Ensures OffsetForTimestamp returns the earliest offset whose timestamp is
 // greater than or equal to the given timestamp.
 func TestOffsetForTimestamp(t *testing.T) {
-	opts := commitlog.Options{
+	opts := Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
 	}
@@ -237,8 +236,8 @@ func TestOffsetForTimestamp(t *testing.T) {
 	require.Equal(t, int64(3), offset)
 }
 
-func setup(t require.TestingT) (*commitlog.CommitLog, func()) {
-	opts := commitlog.Options{
+func setup(t require.TestingT) (*CommitLog, func()) {
+	opts := Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 6,
 		MaxLogBytes:     30,
@@ -246,8 +245,8 @@ func setup(t require.TestingT) (*commitlog.CommitLog, func()) {
 	return setupWithOptions(t, opts)
 }
 
-func setupWithOptions(t require.TestingT, opts commitlog.Options) (*commitlog.CommitLog, func()) {
-	l, err := commitlog.New(opts)
+func setupWithOptions(t require.TestingT, opts Options) (*CommitLog, func()) {
+	l, err := New(opts)
 	require.NoError(t, err)
 	return l, func() {
 		remove(t, opts.Path)
@@ -255,7 +254,7 @@ func setupWithOptions(t require.TestingT, opts commitlog.Options) (*commitlog.Co
 }
 
 func tempDir(t require.TestingT) string {
-	p, err := ioutil.TempDir("", "commitlogtest")
+	p, err := ioutil.TempDir("", "est")
 	if err != nil {
 		require.NoError(t, err)
 	}
