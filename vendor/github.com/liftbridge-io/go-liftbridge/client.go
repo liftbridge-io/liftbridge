@@ -327,6 +327,24 @@ func StartAtTimeDelta(ago time.Duration) SubscriptionOption {
 	}
 }
 
+// StartAtLatestReceived sets the subscription start position to the last
+// message received in the stream.
+func StartAtLatestReceived() SubscriptionOption {
+	return func(o *SubscriptionOptions) error {
+		o.StartPosition = proto.StartPosition_LATEST
+		return nil
+	}
+}
+
+// StartAtEarliestReceived sets the subscription start position to the earliest
+// message received in the stream.
+func StartAtEarliestReceived() SubscriptionOption {
+	return func(o *SubscriptionOptions) error {
+		o.StartPosition = proto.StartPosition_EARLIEST
+		return nil
+	}
+}
+
 // Subscribe creates an ephemeral subscription for the given stream. It begins
 // receiving messages starting at the configured position and waits for new
 // messages when it reaches the end of the stream. The default start position

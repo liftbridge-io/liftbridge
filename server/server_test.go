@@ -728,7 +728,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
+	}, liftbridge.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -814,7 +814,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
+	}, liftbridge.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -941,7 +941,7 @@ func TestSubscribeEarliest(t *testing.T) {
 		require.Equal(t, int64(1), msg.Offset)
 		close(gotMsg)
 		cancel()
-	}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
+	}, liftbridge.StartAtEarliestReceived())
 
 	// Wait to get the new message.
 	select {
@@ -1023,7 +1023,7 @@ func TestSubscribeLatest(t *testing.T) {
 		require.Equal(t, int64(2), msg.Offset)
 		close(gotMsg)
 		cancel()
-	}, liftbridge.StartAt(proto.StartPosition_LATEST))
+	}, liftbridge.StartAtLatestReceived())
 
 	// Wait to get the new message.
 	select {
@@ -1106,7 +1106,7 @@ func TestSubscribeNewOnly(t *testing.T) {
 		require.Equal(t, int64(5), msg.Offset)
 		close(gotMsg)
 		cancel()
-	}, liftbridge.StartAt(proto.StartPosition_NEW_ONLY))
+	})
 	require.NoError(t, err)
 
 	// Publish one more message.
