@@ -19,9 +19,13 @@ as the unit of storage and parallelism in Liftbridge.
 Streams have a few key properties: a subject, which is the corresponding NATS
 subject, a name, which is a human-readable identifier for the stream, and a
 replication factor, which is the number of nodes the stream should be
-replicated to for redundancy. There can be multiple streams attached to the
-same NATS subject, but within a given subject, the name must be unique. Thus, a
-stream can be uniquely identified by the combination of its subject and name.
+replicated to for redundancy. Optionally, there is a group which is the name of
+a load-balance group for the stream to join. When there are multiple streams in
+the same group, messages will be balanced among them.
+
+There can be multiple streams attached to the same NATS subject, but within a
+given subject, the name must be unique. Thus, a stream can be uniquely
+identified by the combination of its subject and name.
 
 ### Write-Ahead Log
 
