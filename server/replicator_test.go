@@ -152,7 +152,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 			if i == num {
 				close(ch)
 			}
-		}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
+		}, liftbridge.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	select {
@@ -193,7 +193,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 			if i == num {
 				close(ch)
 			}
-		}, liftbridge.StartAt(proto.StartPosition_EARLIEST))
+		}, liftbridge.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	select {
