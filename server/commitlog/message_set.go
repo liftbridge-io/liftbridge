@@ -16,8 +16,8 @@ const (
 
 type MessageSet []byte
 
-func EntriesForMessageSet(baseOffset, basePos int64, ms []byte) []Entry {
-	entries := []Entry{}
+func EntriesForMessageSet(baseOffset, basePos int64, ms []byte) []*Entry {
+	entries := []*Entry{}
 	if len(ms) <= msgSetHeaderLen {
 		return entries
 	}
@@ -30,7 +30,7 @@ func EntriesForMessageSet(baseOffset, basePos int64, ms []byte) []Entry {
 			timestamp = m.Timestamp()
 			size      = m.Size()
 		)
-		entries = append(entries, Entry{
+		entries = append(entries, &Entry{
 			Offset:    offset,
 			Timestamp: timestamp,
 			Position:  basePos + relPos,
@@ -43,11 +43,11 @@ func EntriesForMessageSet(baseOffset, basePos int64, ms []byte) []Entry {
 }
 
 func NewMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
-	MessageSet, []Entry, error) {
+	MessageSet, []*Entry, error) {
 
 	var (
 		buf     = new(bytes.Buffer)
-		entries = make([]Entry, len(msgs))
+		entries = make([]*Entry, len(msgs))
 		n       int32
 	)
 	for i, m := range msgs {
@@ -76,7 +76,7 @@ func NewMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
 			return nil, nil, err
 		}
 		n += len
-		entries[i] = Entry{
+		entries[i] = &Entry{
 			Offset:    offset,
 			Timestamp: m.Timestamp,
 			Position:  basePos + relPos,

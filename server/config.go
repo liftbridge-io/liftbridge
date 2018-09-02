@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
+	"github.com/hako/durafmt"
 	"github.com/nats-io/go-nats"
 	"github.com/nats-io/nuid"
 	log "github.com/sirupsen/logrus"
@@ -32,14 +34,40 @@ const (
 	defaultBatchMaxMessages        = 1024
 	defaultReplicaFetchTimeout     = 5 * time.Second
 	defaultMinInsyncReplicas       = 1
+	defaultRetentionMaxAge         = 7 * 24 * time.Hour
+	defaultRetentionCheckInterval  = 5 * time.Minute
+	defaultMaxSegmentBytes         = 1073741824
 )
 
 // LogConfig contains settings for controlling the message log for a stream.
 type LogConfig struct {
-	RetentionMaxBytes    int64
-	RetentionMaxMessages int64
-	RetentionMaxAge      time.Duration
-	SegmentMaxBytes      int64
+	RetentionMaxBytes      int64
+	RetentionMaxMessages   int64
+	RetentionMaxAge        time.Duration
+	RetentionCheckInterval time.Duration
+	SegmentMaxBytes        int64
+}
+
+func (l LogConfig) RetentionString() string {
+	str := "["
+	prefix := ""
+	if l.RetentionMaxMessages != 0 {
+		str += fmt.Sprintf("Messages: %s", humanize.Comma(l.RetentionMaxMessages))
+		prefix = ", "
+	}
+	if l.RetentionMaxBytes != 0 {
+		str += fmt.Sprintf("%sSize: %s", prefix, humanize.IBytes(uint64(l.RetentionMaxBytes)))
+		prefix = ", "
+	}
+	if l.RetentionMaxAge > 0 {
+		str += fmt.Sprintf("%sAge: %s", prefix, durafmt.Parse(l.RetentionMaxAge))
+		prefix = ", "
+	}
+	if prefix == "" {
+		str += "no limits"
+	}
+	str += "]"
+	return str
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.
@@ -92,6 +120,9 @@ func NewDefaultConfig() *Config {
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Clustering.RaftCacheSize = defaultRaftCacheSize
 	config.Clustering.MinISR = defaultMinInsyncReplicas
+	config.Log.SegmentMaxBytes = defaultMaxSegmentBytes
+	config.Log.RetentionMaxAge = defaultRetentionMaxAge
+	config.Log.RetentionCheckInterval = defaultRetentionCheckInterval
 	return config
 }
 
@@ -218,6 +249,12 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 				return err
 			}
 			config.Log.RetentionMaxAge = dur
+		case "retention.check.interval":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return err
+			}
+			config.Log.RetentionCheckInterval = dur
 		case "segment.max.bytes":
 			config.Log.SegmentMaxBytes = v.(int64)
 		default:

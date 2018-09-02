@@ -205,7 +205,7 @@ func (l *CommitLog) AppendMessageSet(ms []byte) ([]int64, error) {
 	return l.append(segment, ms, entries)
 }
 
-func (l *CommitLog) append(segment *Segment, ms []byte, entries []Entry) ([]int64, error) {
+func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int64, error) {
 	if err := segment.WriteMessageSet(ms, entries); err != nil {
 		return nil, err
 	}
@@ -399,9 +399,9 @@ func (l *CommitLog) Truncate(offset int64) error {
 		if err != nil {
 			return err
 		}
-		for ms, err := ss.Scan(); err == nil; ms, err = ss.Scan() {
+		for ms, entry, err := ss.Scan(); err == nil; ms, entry, err = ss.Scan() {
 			if ms.Offset() < offset {
-				if _, err = newSegment.Write(ms, 1); err != nil {
+				if err := newSegment.WriteMessageSet(ms, []*Entry{entry}); err != nil {
 					return err
 				}
 			} else {
@@ -449,9 +449,7 @@ func (l *CommitLog) split() error {
 }
 
 func (l *CommitLog) checkpointHWLoop() {
-	var (
-		ticker = time.NewTicker(l.HWCheckpointInterval)
-	)
+	ticker := time.NewTicker(l.HWCheckpointInterval)
 	defer ticker.Stop()
 	for {
 		select {

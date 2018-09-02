@@ -1,8 +1,6 @@
 package commitlog
 
 import (
-	"io"
-	"sort"
 	"time"
 
 	"github.com/pkg/errors"
@@ -53,7 +51,7 @@ func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	if c.Retention.Age > 0 {
 		segments, err = c.applyAgeLimit(segments)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to clean log")
+			return nil, errors.Wrap(err, "failed to apply age retention limit")
 		}
 	}
 
@@ -61,7 +59,7 @@ func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	if c.Retention.Messages > 0 {
 		segments, err = c.applyMessagesLimit(segments)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to clean log")
+			return nil, errors.Wrap(err, "failed to apply message retention limit")
 		}
 	}
 
@@ -69,7 +67,7 @@ func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	if c.Retention.Bytes > 0 {
 		segments, err = c.applyBytesLimit(segments)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to clean log")
+			return nil, errors.Wrap(err, "failed to apply bytes retention limit")
 		}
 	}
 
@@ -140,39 +138,26 @@ func (c *DeleteCleaner) applyBytesLimit(segments []*Segment) ([]*Segment, error)
 }
 
 func (c *DeleteCleaner) applyAgeLimit(segments []*Segment) ([]*Segment, error) {
-	// Do a binary search to find the first segment whose base timestamp is
-	// greater than or equal to the TTL. Truncate all segments up to this point
-	// since they are past the age limit.
-	var (
-		n   = len(segments)
-		ttl = computeTTL(c.Retention.Age)
-		err error
-	)
-	idx := sort.Search(n, func(i int) bool {
-		// Read the first entry in the segment to determine the base timestamp.
-		var entry Entry
-		if e := segments[i].Index.ReadEntryAtLogOffset(&entry, 0); e != nil {
-			// EOF means the segment is empty.
-			if e != io.EOF {
-				err = e
-			}
-			return true
-		}
-		return entry.Timestamp >= ttl
-	})
-	if err != nil {
-		return nil, err
-	}
-	if idx == n {
-		// All of the segments are expired. We must retain the last segment
-		// still.
-		idx = n - 1
+	// We must retain at least the active segment.
+	if len(segments) == 1 {
+		return segments, nil
 	}
 
-	// Truncate up to the index.
-	for i := 0; i < idx; i++ {
-		if err := segments[i].Delete(); err != nil {
-			return nil, err
+	var (
+		ttl = computeTTL(c.Retention.Age)
+		idx int
+	)
+
+	// Delete all segments whose last-written timestamp is less than the TTL
+	// with the exception of the active (last) segment.
+	for i, seg := range segments {
+		if i != len(segments)-1 && seg.lastWriteTime < ttl {
+			if err := seg.Delete(); err != nil {
+				return nil, err
+			}
+		} else {
+			idx = i
+			break
 		}
 	}
 

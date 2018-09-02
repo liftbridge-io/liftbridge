@@ -70,7 +70,7 @@ func TestDeleteCleanerBytes(t *testing.T) {
 	segs := make([]*Segment, 5)
 	for i := 0; i < 5; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
-		segs[i].Write(make([]byte, 20), 1)
+		segs[i].Write(make([]byte, 20), []*Entry{&Entry{}})
 	}
 	actual, err := cleaner.Clean(segs)
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestDeleteCleanerMessages(t *testing.T) {
 	segs := make([]*Segment, 20)
 	for i := 0; i < 20; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
-		segs[i].Write(make([]byte, 20), 1)
+		segs[i].Write(make([]byte, 20), []*Entry{&Entry{}})
 	}
 	actual, err := cleaner.Clean(segs)
 	require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestDeleteCleanerBytesMessages(t *testing.T) {
 	segs := make([]*Segment, 20)
 	for i := 0; i < 20; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
-		segs[i].Write(make([]byte, 20), 1)
+		segs[i].Write(make([]byte, 20), []*Entry{&Entry{}})
 	}
 	actual, err := cleaner.Clean(segs)
 	require.NoError(t, err)

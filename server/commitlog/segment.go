@@ -24,17 +24,18 @@ const (
 var ErrEntryNotFound = errors.New("entry not found")
 
 type Segment struct {
-	writer     io.Writer
-	reader     io.Reader
-	log        *os.File
-	Index      *Index
-	BaseOffset int64
-	nextOffset int64
-	position   int64
-	maxBytes   int64
-	path       string
-	suffix     string
-	waiters    map[io.Reader]chan struct{}
+	writer        io.Writer
+	reader        io.Reader
+	log           *os.File
+	Index         *Index
+	BaseOffset    int64
+	nextOffset    int64
+	lastWriteTime int64
+	position      int64
+	maxBytes      int64
+	path          string
+	suffix        string
+	waiters       map[io.Reader]chan struct{}
 
 	sync.RWMutex
 }
@@ -108,8 +109,8 @@ func (s *Segment) Position() int64 {
 	return s.position
 }
 
-func (s *Segment) WriteMessageSet(ms []byte, entries []Entry) error {
-	if _, err := s.Write(ms, len(entries)); err != nil {
+func (s *Segment) WriteMessageSet(ms []byte, entries []*Entry) error {
+	if _, err := s.Write(ms, entries); err != nil {
 		return err
 	}
 	return s.Index.WriteEntries(entries)
@@ -117,15 +118,17 @@ func (s *Segment) WriteMessageSet(ms []byte, entries []Entry) error {
 
 // Write writes a byte slice to the log at the current position.
 // It increments the offset as well as sets the position to the new tail.
-func (s *Segment) Write(p []byte, numMsgs int) (n int, err error) {
+func (s *Segment) Write(p []byte, entries []*Entry) (n int, err error) {
 	s.Lock()
 	defer s.Unlock()
 	n, err = s.writer.Write(p)
 	if err != nil {
 		return n, errors.Wrap(err, "log write failed")
 	}
+	numMsgs := len(entries)
 	s.nextOffset += int64(numMsgs)
 	s.position += int64(n)
+	s.lastWriteTime = entries[numMsgs-1].Timestamp
 	s.notifyWaiters()
 	return n, nil
 }
@@ -268,23 +271,23 @@ func NewSegmentScanner(segment *Segment) *SegmentScanner {
 
 // Scan should be called repeatedly to iterate over the messages in the
 // segment, it will return io.EOF when there are no more messages.
-func (s *SegmentScanner) Scan() (ms MessageSet, err error) {
+func (s *SegmentScanner) Scan() (MessageSet, *Entry, error) {
 	entry, err := s.is.Scan()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	header := make(MessageSet, msgSetHeaderLen)
 	_, err = s.s.ReadAt(header, entry.Position)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	payload := make([]byte, header.Size())
 	_, err = s.s.ReadAt(payload, entry.Position+msgSetHeaderLen)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	msgSet := append(header, payload...)
-	return msgSet, nil
+	return msgSet, entry, nil
 }
 
 func (s *Segment) logPath() string {
