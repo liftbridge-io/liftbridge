@@ -37,6 +37,7 @@ const (
 	defaultRetentionMaxAge         = 7 * 24 * time.Hour
 	defaultRetentionCheckInterval  = 5 * time.Minute
 	defaultMaxSegmentBytes         = 1073741824
+	defaultLogRollTime             = defaultRetentionMaxAge
 )
 
 // LogConfig contains settings for controlling the message log for a stream.
@@ -46,6 +47,7 @@ type LogConfig struct {
 	RetentionMaxAge        time.Duration
 	RetentionCheckInterval time.Duration
 	SegmentMaxBytes        int64
+	LogRollTime            time.Duration
 }
 
 func (l LogConfig) RetentionString() string {
@@ -257,6 +259,12 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 			config.Log.RetentionCheckInterval = dur
 		case "segment.max.bytes":
 			config.Log.SegmentMaxBytes = v.(int64)
+		case "log.roll.time":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return err
+			}
+			config.Log.LogRollTime = dur
 		default:
 			return fmt.Errorf("Unknown log configuration setting %q", k)
 		}

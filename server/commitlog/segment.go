@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -24,18 +25,19 @@ const (
 var ErrEntryNotFound = errors.New("entry not found")
 
 type Segment struct {
-	writer        io.Writer
-	reader        io.Reader
-	log           *os.File
-	Index         *Index
-	BaseOffset    int64
-	nextOffset    int64
-	lastWriteTime int64
-	position      int64
-	maxBytes      int64
-	path          string
-	suffix        string
-	waiters       map[io.Reader]chan struct{}
+	writer         io.Writer
+	reader         io.Reader
+	log            *os.File
+	Index          *Index
+	BaseOffset     int64
+	nextOffset     int64
+	firstWriteTime int64
+	lastWriteTime  int64
+	position       int64
+	maxBytes       int64
+	path           string
+	suffix         string
+	waiters        map[io.Reader]chan struct{}
 
 	sync.RWMutex
 }
@@ -91,10 +93,22 @@ func (s *Segment) setupIndex() (err error) {
 	return nil
 }
 
-func (s *Segment) IsFull() bool {
+// CheckSplit determines if a new log segment should be rolled out either
+// because this segment is full or LogRollTime has passed since the first
+// message was written to the segment.
+func (s *Segment) CheckSplit(logRollTime time.Duration) bool {
 	s.RLock()
 	defer s.RUnlock()
-	return s.position >= s.maxBytes
+	if s.position >= s.maxBytes {
+		return true
+	}
+	if logRollTime == 0 || s.firstWriteTime == 0 {
+		// Don't roll a new segment if there have been no writes to the segment
+		// or LogRollTime is disabled.
+		return false
+	}
+	// Check if LogRollTime has passed since first write.
+	return time.Now().UnixNano()-s.firstWriteTime >= int64(logRollTime)
 }
 
 func (s *Segment) NextOffset() int64 {
@@ -128,6 +142,9 @@ func (s *Segment) Write(p []byte, entries []*Entry) (n int, err error) {
 	numMsgs := len(entries)
 	s.nextOffset += int64(numMsgs)
 	s.position += int64(n)
+	if s.firstWriteTime == 0 {
+		s.firstWriteTime = entries[0].Timestamp
+	}
 	s.lastWriteTime = entries[numMsgs-1].Timestamp
 	s.notifyWaiters()
 	return n, nil

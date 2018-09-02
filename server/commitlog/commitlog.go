@@ -31,6 +31,7 @@ const (
 	hwFileName                  = "replication-offset-checkpoint"
 	defaultMaxSegmentBytes      = 1073741824
 	defaultHWCheckpointInterval = 5 * time.Second
+	defaultCleanerInterval      = 5 * time.Minute
 )
 
 // CommitLog implements the server.CommitLog interface, which is a durable
@@ -49,12 +50,14 @@ type CommitLog struct {
 
 // Options contains settings for configuring a CommitLog.
 type Options struct {
-	Path                 string
-	MaxSegmentBytes      int64 // Max number of bytes a Segment can contain before creating a new Segment
-	MaxLogBytes          int64
-	MaxLogMessages       int64
-	MaxLogAge            time.Duration
-	HWCheckpointInterval time.Duration
+	Path                 string        // Path to log directory
+	MaxSegmentBytes      int64         // Max number of bytes a Segment can contain before creating a new Segment
+	MaxLogBytes          int64         // Retention by bytes
+	MaxLogMessages       int64         // Retention by messages
+	MaxLogAge            time.Duration // Retention by age
+	CleanerInterval      time.Duration // Frequency to enforce retention policy
+	HWCheckpointInterval time.Duration // Frequency to checkpoint HW to disk
+	LogRollTime          time.Duration // Max time before a new log segment is rolled out.
 	Logger               logger.Logger
 }
 
@@ -74,6 +77,9 @@ func New(opts Options) (*CommitLog, error) {
 	}
 	if opts.HWCheckpointInterval == 0 {
 		opts.HWCheckpointInterval = defaultHWCheckpointInterval
+	}
+	if opts.CleanerInterval == 0 {
+		opts.CleanerInterval = defaultCleanerInterval
 	}
 
 	cleanerOpts := DeleteCleanerOptions{
@@ -104,6 +110,7 @@ func New(opts Options) (*CommitLog, error) {
 	}
 
 	go l.checkpointHWLoop()
+	go l.cleanerLoop()
 
 	return l, nil
 }
@@ -425,10 +432,12 @@ func (l *CommitLog) Segments() []*Segment {
 }
 
 func (l *CommitLog) checkSplit() bool {
-	return l.activeSegment().IsFull()
+	return l.activeSegment().CheckSplit(l.LogRollTime)
 }
 
 func (l *CommitLog) split() error {
+	// TODO: We should shrink the previous active segment's index after rolling
+	// the new segment.
 	offset := l.NewestOffset() + 1
 	l.Logger.Debugf("Appending new log segment for %s with base offset %d", l.Path, offset)
 	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes)
@@ -446,6 +455,26 @@ func (l *CommitLog) split() error {
 	l.mu.Unlock()
 	l.vActiveSegment.Store(segment)
 	return nil
+}
+
+func (l *CommitLog) cleanerLoop() {
+	ticker := time.NewTicker(l.CleanerInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+		case <-l.closed:
+			return
+		}
+		l.mu.Lock()
+		segments, err := l.cleaner.Clean(l.segments)
+		if err != nil {
+			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
+		} else {
+			l.segments = segments
+		}
+		l.mu.Unlock()
+	}
 }
 
 func (l *CommitLog) checkpointHWLoop() {
