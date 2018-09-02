@@ -20,9 +20,15 @@ const (
 	indexSuffix     = ".index"
 )
 
-// ErrEntryNotFound is returned when a segment search cannot find a specific
-// entry.
-var ErrEntryNotFound = errors.New("entry not found")
+var (
+	// ErrEntryNotFound is returned when a segment search cannot find a
+	// specific entry.
+	ErrEntryNotFound = errors.New("entry not found")
+
+	// timestamp returns the current time in Unix nanoseconds. This function
+	// exists for mocking purposes.
+	timestamp = func() int64 { return time.Now().UnixNano() }
+)
 
 type Segment struct {
 	writer         io.Writer
@@ -108,7 +114,7 @@ func (s *Segment) CheckSplit(logRollTime time.Duration) bool {
 		return false
 	}
 	// Check if LogRollTime has passed since first write.
-	return time.Now().UnixNano()-s.firstWriteTime >= int64(logRollTime)
+	return timestamp()-s.firstWriteTime >= int64(logRollTime)
 }
 
 func (s *Segment) NextOffset() int64 {
