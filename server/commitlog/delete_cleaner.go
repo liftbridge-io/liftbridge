@@ -152,6 +152,7 @@ func (c *DeleteCleaner) applyAgeLimit(segments []*Segment) ([]*Segment, error) {
 	// with the exception of the active (last) segment.
 	for i, seg := range segments {
 		if i != len(segments)-1 && seg.lastWriteTime < ttl {
+			println("deleting segment", i)
 			if err := seg.Delete(); err != nil {
 				return nil, err
 			}

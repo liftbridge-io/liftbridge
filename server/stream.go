@@ -99,6 +99,7 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		MaxLogMessages:  s.config.Log.RetentionMaxMessages,
 		MaxLogAge:       s.config.Log.RetentionMaxAge,
+		LogRollTime:     s.config.Log.LogRollTime,
 		Logger:          s.logger,
 	})
 	if err != nil {

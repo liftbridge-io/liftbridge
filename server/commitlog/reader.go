@@ -1,6 +1,7 @@
 package commitlog
 
 import (
+	"fmt"
 	"io"
 	"sync"
 
@@ -196,6 +197,8 @@ LOOP:
 			// If we're reading from the HW segment, read up to the HW pos.
 			lim = min(lim, r.hwPos-r.pos)
 		}
+		fmt.Printf("hw: %d, idx: %d, lim: %d, hwPos: %d, pos: %d\n", r.hw, r.idx, lim, r.hwPos, r.pos)
+		println("segments", len(segments))
 		readSize, err = segment.ReadAt(p[n:lim], r.pos)
 		n += readSize
 		r.pos += int64(readSize)

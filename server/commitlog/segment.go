@@ -25,6 +25,9 @@ var (
 	// specific entry.
 	ErrEntryNotFound = errors.New("entry not found")
 
+	// ErrSegmentClosed is returned on read/write to a closed segment.
+	ErrSegmentClosed = errors.New("segment has been closed")
+
 	// timestamp returns the current time in Unix nanoseconds. This function
 	// exists for mocking purposes.
 	timestamp = func() int64 { return time.Now().UnixNano() }
@@ -44,6 +47,7 @@ type Segment struct {
 	path           string
 	suffix         string
 	waiters        map[io.Reader]chan struct{}
+	closed         bool
 
 	sync.RWMutex
 }
@@ -81,6 +85,7 @@ func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*
 // Initialization is:
 // - Initialize Index position
 // - Initialize Segment nextOffset
+// - Initialize firstWriteTime/lastWriteTime
 func (s *Segment) setupIndex() (err error) {
 	s.Index, err = NewIndex(options{
 		path:       s.indexPath(),
@@ -93,8 +98,16 @@ func (s *Segment) setupIndex() (err error) {
 	if err != nil {
 		return err
 	}
+	// If lastEntry is nil, the index is empty.
 	if lastEntry != nil {
 		s.nextOffset = lastEntry.Offset + 1
+		s.lastWriteTime = lastEntry.Timestamp
+		// Read the first entry to get firstWriteTime.
+		var firstEntry Entry
+		if err := s.Index.ReadEntryAtFileOffset(&firstEntry, 0); err != nil {
+			return err
+		}
+		s.firstWriteTime = firstEntry.Timestamp
 	}
 	return nil
 }
@@ -111,10 +124,14 @@ func (s *Segment) CheckSplit(logRollTime time.Duration) bool {
 	if logRollTime == 0 || s.firstWriteTime == 0 {
 		// Don't roll a new segment if there have been no writes to the segment
 		// or LogRollTime is disabled.
+		println(logRollTime, s.firstWriteTime)
 		return false
 	}
 	// Check if LogRollTime has passed since first write.
-	return timestamp()-s.firstWriteTime >= int64(logRollTime)
+	t := timestamp()
+	fmt.Println(time.Duration(t-s.firstWriteTime), logRollTime)
+	return t-s.firstWriteTime >= int64(logRollTime)
+	//return timestamp()-s.firstWriteTime >= int64(logRollTime)
 }
 
 func (s *Segment) NextOffset() int64 {
@@ -141,6 +158,9 @@ func (s *Segment) WriteMessageSet(ms []byte, entries []*Entry) error {
 func (s *Segment) Write(p []byte, entries []*Entry) (n int, err error) {
 	s.Lock()
 	defer s.Unlock()
+	if s.closed {
+		return 0, ErrSegmentClosed
+	}
 	n, err = s.writer.Write(p)
 	if err != nil {
 		return n, errors.Wrap(err, "log write failed")
@@ -159,6 +179,9 @@ func (s *Segment) Write(p []byte, entries []*Entry) (n int, err error) {
 func (s *Segment) ReadAt(p []byte, off int64) (n int, err error) {
 	s.RLock()
 	defer s.RUnlock()
+	if s.closed {
+		return 0, ErrSegmentClosed
+	}
 	return s.log.ReadAt(p, off)
 }
 
@@ -194,7 +217,11 @@ func (s *Segment) Close() error {
 	if err := s.log.Close(); err != nil {
 		return err
 	}
-	return s.Index.Close()
+	if err := s.Index.Close(); err != nil {
+		return err
+	}
+	s.closed = true
+	return nil
 }
 
 // Cleaner creates a cleaner segment for this segment.

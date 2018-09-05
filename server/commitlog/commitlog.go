@@ -178,10 +178,8 @@ func (l *CommitLog) open() error {
 // Append writes the given batch of messages to the log and returns their
 // corresponding offsets in the log.
 func (l *CommitLog) Append(msgs []*proto.Message) ([]int64, error) {
-	if l.checkSplit() {
-		if err := l.split(); err != nil {
-			return nil, err
-		}
+	if err := l.checkAndPerformSplit(); err != nil {
+		return nil, err
 	}
 	var (
 		segment          = l.activeSegment()
@@ -198,10 +196,8 @@ func (l *CommitLog) Append(msgs []*proto.Message) ([]int64, error) {
 // AppendMessageSet writes the given message set data to the log and returns
 // the corresponding offsets in the log.
 func (l *CommitLog) AppendMessageSet(ms []byte) ([]int64, error) {
-	if l.checkSplit() {
-		if err := l.split(); err != nil {
-			return nil, err
-		}
+	if err := l.checkAndPerformSplit(); err != nil {
+		return nil, err
 	}
 	var (
 		segment      = l.activeSegment()
@@ -431,8 +427,15 @@ func (l *CommitLog) Segments() []*Segment {
 	return l.segments
 }
 
-func (l *CommitLog) checkSplit() bool {
-	return l.activeSegment().CheckSplit(l.LogRollTime)
+// checkAndPerformSplit determines if a new log segment should be rolled out
+// either because the active segment is full or LogRollTime has passed since
+// the first message was written to it. It then performs the split if eligible,
+// returning any error resulting from the split.
+func (l *CommitLog) checkAndPerformSplit() error {
+	if l.activeSegment().CheckSplit(l.LogRollTime) {
+		return l.split()
+	}
+	return nil
 }
 
 func (l *CommitLog) split() error {
@@ -467,6 +470,7 @@ func (l *CommitLog) cleanerLoop() {
 			return
 		}
 		l.mu.Lock()
+		// TODO: should this also check if the active segment should be split?
 		segments, err := l.cleaner.Clean(l.segments)
 		if err != nil {
 			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
