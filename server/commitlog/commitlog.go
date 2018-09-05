@@ -432,9 +432,14 @@ func (l *CommitLog) Segments() []*Segment {
 // the first message was written to it. It then performs the split if eligible,
 // returning any error resulting from the split.
 func (l *CommitLog) checkAndPerformSplit() error {
-	if l.activeSegment().CheckSplit(l.LogRollTime) {
-		return l.split()
+	activeSegment := l.activeSegment()
+	if !activeSegment.CheckSplit(l.LogRollTime) {
+		return nil
 	}
+	if err := l.split(); err != nil {
+		return err
+	}
+	activeSegment.Seal()
 	return nil
 }
 

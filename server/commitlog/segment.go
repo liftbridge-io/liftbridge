@@ -25,7 +25,7 @@ var (
 	// specific entry.
 	ErrEntryNotFound = errors.New("entry not found")
 
-	// ErrSegmentClosed is returned on read/write to a closed segment.
+	// ErrSegmentClosed is returned on writes to a closed segment.
 	ErrSegmentClosed = errors.New("segment has been closed")
 
 	// timestamp returns the current time in Unix nanoseconds. This function
@@ -47,6 +47,7 @@ type Segment struct {
 	path           string
 	suffix         string
 	waiters        map[io.Reader]chan struct{}
+	sealed         bool
 	closed         bool
 
 	sync.RWMutex
@@ -124,14 +125,24 @@ func (s *Segment) CheckSplit(logRollTime time.Duration) bool {
 	if logRollTime == 0 || s.firstWriteTime == 0 {
 		// Don't roll a new segment if there have been no writes to the segment
 		// or LogRollTime is disabled.
-		println(logRollTime, s.firstWriteTime)
 		return false
 	}
 	// Check if LogRollTime has passed since first write.
-	t := timestamp()
-	fmt.Println(time.Duration(t-s.firstWriteTime), logRollTime)
-	return t-s.firstWriteTime >= int64(logRollTime)
-	//return timestamp()-s.firstWriteTime >= int64(logRollTime)
+	return timestamp()-s.firstWriteTime >= int64(logRollTime)
+}
+
+// Seal a segment from being written to. This is called on the former active
+// segment after a new segment is rolled. This is a no-op if the segment is
+// already sealed.
+func (s *Segment) Seal() {
+	s.Lock()
+	defer s.Unlock()
+	if s.sealed {
+		return
+	}
+	s.sealed = true
+	// Notify any readers waiting for data.
+	s.notifyWaiters()
 }
 
 func (s *Segment) NextOffset() int64 {
@@ -180,7 +191,10 @@ func (s *Segment) ReadAt(p []byte, off int64) (n int, err error) {
 	s.RLock()
 	defer s.RUnlock()
 	if s.closed {
-		return 0, ErrSegmentClosed
+		// Return EOF since this typically happens as a result of reading from
+		// a segment that has been sealed, so the caller knows to jump to the
+		// next segment.
+		return 0, io.EOF
 	}
 	return s.log.ReadAt(p, off)
 }

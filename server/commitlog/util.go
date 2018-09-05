@@ -36,6 +36,20 @@ func findSegmentIndexByTimestamp(segments []*Segment, timestamp int64) (int, err
 	return idx, err
 }
 
+// findSegmentByBaseOffset returns the first segment whose base offset is
+// greater than or equal to the given offset. Returns nil if there is no such
+// segment.
+func findSegmentByBaseOffset(segments []*Segment, offset int64) *Segment {
+	n := len(segments)
+	idx := sort.Search(n, func(i int) bool {
+		return segments[i].BaseOffset >= offset
+	})
+	if idx == n {
+		return nil
+	}
+	return segments[idx]
+}
+
 func roundDown(total, factor int64) int64 {
 	return factor * (total / factor)
 }
