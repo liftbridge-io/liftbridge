@@ -86,10 +86,18 @@ func NewIndex(opts options) (idx *Index, err error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "open file failed")
 	}
-	if err := idx.file.Truncate(roundDown(opts.bytes, entryWidth)); err != nil {
-		return nil, err
-	}
 	fi, err := idx.file.Stat()
+	if err != nil {
+		return nil, errors.Wrap(err, "stat file failed")
+	}
+	// Pre-allocate the index if we just created it.
+	if fi.Size() == 0 {
+		if err := idx.file.Truncate(roundDown(opts.bytes, entryWidth)); err != nil {
+			return nil, err
+		}
+	}
+	// Get updated stats after resize.
+	fi, err = idx.file.Stat()
 	if err != nil {
 		return nil, errors.Wrap(err, "stat file failed")
 	}
@@ -216,13 +224,13 @@ func (idx *Index) TruncateEntries(number int) error {
 
 func (idx *Index) InitializePosition() (*Entry, error) {
 	// Find the first empty entry.
-	n := int(idx.bytes / entryWidth)
+	n := int(idx.size / entryWidth)
 	entry := new(Entry)
 	i := sort.Search(n, func(i int) bool {
 		if err := idx.ReadEntryAtFileOffset(entry, int64(i*entryWidth)); err != nil {
 			panic(err)
 		}
-		return entry.Position == 0 && entry.Size == 0
+		return entry.Position == 0 && entry.Timestamp == 0 && entry.Size == 0
 	})
 	// Initialize the position.
 	idx.mu.Lock()
