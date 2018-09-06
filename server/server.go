@@ -134,6 +134,15 @@ func (s *Server) Start() (err error) {
 	s.logger.Infof("Starting server on %s...",
 		net.JoinHostPort(s.config.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
 
+	// Set a lower bound of one second for LogRollTime to avoid frequent log
+	// rolls which will cause performance problems. This is mainly here because
+	// LogRollTime defaults to RetentionMaxAge if it's not set explicitly, so
+	// users could otherwise unknowingly cause frequent log rolls.
+	if logRollTime := s.config.Log.LogRollTime; logRollTime != 0 && logRollTime < time.Second {
+		s.logger.Info("Defaulting log.roll.time to 1 second to avoid frequent log rolls")
+		s.config.Log.LogRollTime = time.Second
+	}
+
 	if err := s.startMetadataRaft(); err != nil {
 		return errors.Wrap(err, "failed to start Raft node")
 	}

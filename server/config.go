@@ -124,6 +124,7 @@ func NewDefaultConfig() *Config {
 	config.Clustering.MinISR = defaultMinInsyncReplicas
 	config.Log.SegmentMaxBytes = defaultMaxSegmentBytes
 	config.Log.RetentionMaxAge = defaultRetentionMaxAge
+	config.Log.LogRollTime = defaultLogRollTime
 	config.Log.RetentionCheckInterval = defaultRetentionCheckInterval
 	return config
 }
@@ -159,6 +160,9 @@ func NewConfig(configFile string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Reset LogRollTime since this will get overwritten later.
+	config.Log.LogRollTime = 0
 
 	for k, v := range c {
 		switch strings.ToLower(k) {
@@ -215,6 +219,12 @@ func NewConfig(configFile string) (*Config, error) {
 			return nil, fmt.Errorf("Unknown configuration setting %q", k)
 		}
 	}
+
+	// If LogRollTime is not set, default it to the retention time.
+	if config.Log.LogRollTime == 0 {
+		config.Log.LogRollTime = config.Log.RetentionMaxAge
+	}
+
 	return config, nil
 }
 
