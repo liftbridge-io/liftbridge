@@ -3,10 +3,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
 
+	"github.com/nats-io/go-nats"
 	"github.com/urfave/cli"
 
 	"github.com/liftbridge-io/liftbridge/server"
@@ -21,31 +23,51 @@ func main() {
 	app.Version = version
 	app.Flags = getFlags()
 	app.Action = func(c *cli.Context) error {
+		// Read config from file if present.
 		config, err := server.NewConfig(c.String("config"))
 		if err != nil {
 			return err
 		}
-		if id := c.String("id"); id != "" {
-			config.Clustering.ServerID = id
-		}
-		config.Clustering.Namespace = c.String("namespace")
-		config.DataDir = c.String("data-dir")
-		config.Port = c.Int("port")
-		config.TLSCert = c.String("tls-cert")
-		config.TLSKey = c.String("tls-key")
-		level, err := server.GetLogLevel(c.String("level"))
-		if err != nil {
-			return err
-		}
-		config.LogLevel = level
-		config.Clustering.RaftBootstrapSeed = c.Bool("raft-bootstrap-seed")
-		config.Clustering.RaftBootstrapPeers = c.StringSlice("raft-bootstrap-peers")
 
-		natsServers, err := normalizeNatsServers(c.StringSlice("nats-servers"))
-		if err != nil {
-			return err
+		// Override with flags.
+		if c.IsSet("id") {
+			config.Clustering.ServerID = c.String("id")
 		}
-		config.NATS.Servers = natsServers
+		if c.IsSet("namespace") {
+			config.Clustering.Namespace = c.String("namespace")
+		}
+		if c.IsSet("port") {
+			config.Port = c.Int("port")
+		}
+		if c.IsSet("level") {
+			level, err := server.GetLogLevel(c.String("level"))
+			if err != nil {
+				return err
+			}
+			config.LogLevel = level
+		}
+		if c.IsSet("raft-bootstrap-seed") {
+			config.Clustering.RaftBootstrapSeed = c.Bool("raft-bootstrap-seed")
+		}
+		if c.IsSet("raft-bootstrap-peers") {
+			config.Clustering.RaftBootstrapPeers = c.StringSlice("raft-bootstrap-peers")
+		}
+		if c.IsSet("data-dir") {
+			config.DataDir = c.String("data-dir")
+		}
+		if c.IsSet("tls-cert") {
+			config.TLSCert = c.String("tls-cert")
+		}
+		if c.IsSet("tls-key") {
+			config.TLSKey = c.String("tls-key")
+		}
+		if c.IsSet("nats-servers") {
+			natsServers, err := normalizeNatsServers(c.StringSlice("nats-servers"))
+			if err != nil {
+				return err
+			}
+			config.NATS.Servers = natsServers
+		}
 
 		server := server.New(config)
 		if err := server.Start(); err != nil {
@@ -68,7 +90,7 @@ func getFlags() []cli.Flag {
 		},
 		cli.StringFlag{
 			Name:  "server-id, id",
-			Usage: "ID of the server in the cluster if there is no stored ID",
+			Usage: "ID of the server in the cluster if there is no stored ID (default: random ID)",
 		},
 		cli.StringFlag{
 			Name:  "namespace, ns",
@@ -77,7 +99,7 @@ func getFlags() []cli.Flag {
 		},
 		cli.StringSliceFlag{
 			Name:  "nats-servers, n",
-			Usage: "connect to NATS server at `ADDR[,ADDR]`",
+			Usage: fmt.Sprintf("connect to NATS cluster at `ADDR[,ADDR]` (default: %q)", nats.DefaultURL),
 			// NOTE: cannot use Value here as urfave/cli has another bug
 			// where it does not replace this value with the specified values but appends them:-(
 			// Value: &cli.StringSlice{nats.DefaultURL},

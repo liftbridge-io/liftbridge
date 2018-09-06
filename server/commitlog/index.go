@@ -111,6 +111,14 @@ func NewIndex(opts options) (idx *Index, err error) {
 	return idx, nil
 }
 
+// Position returns the current position in the index to write to next. This
+// value also represents the total length of the index.
+func (idx *Index) Position() int64 {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.position
+}
+
 func (idx *Index) WriteEntries(entries []Entry) (err error) {
 	b := new(bytes.Buffer)
 	for _, entry := range entries {
