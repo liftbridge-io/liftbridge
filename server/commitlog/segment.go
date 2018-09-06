@@ -207,10 +207,10 @@ func (s *Segment) findEntry(offset int64) (e *Entry, err error) {
 	s.RLock()
 	defer s.RUnlock()
 	e = &Entry{}
-	n := int(s.Index.size / entryWidth)
+	n := int(s.Index.Position() / entryWidth)
 	idx := sort.Search(n, func(i int) bool {
 		if err := s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth)); err != nil {
-			return true
+			panic(err)
 		}
 		return e.Offset >= offset
 	})
@@ -227,10 +227,10 @@ func (s *Segment) findEntryByTimestamp(timestamp int64) (e *Entry, err error) {
 	s.RLock()
 	defer s.RUnlock()
 	e = &Entry{}
-	n := int(s.Index.size / entryWidth)
+	n := int(s.Index.Position() / entryWidth)
 	idx := sort.Search(n, func(i int) bool {
 		if err := s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth)); err != nil {
-			return true
+			panic(err)
 		}
 		return e.Timestamp >= timestamp
 	})
