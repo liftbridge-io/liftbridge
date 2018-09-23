@@ -28,9 +28,9 @@ COMMANDS:
 
 GLOBAL OPTIONS:
    --config FILE, -c FILE                      load configuration from FILE
-   --server-id value, --id value               ID of the server in the cluster if there is no stored ID
+   --server-id value, --id value               ID of the server in the cluster if there is no stored ID (default: random ID)
    --namespace value, --ns value               cluster namespace (default: "liftbridge-default")
-   --nats-servers ADDR[,ADDR], -n ADDR[,ADDR]  connect to NATS server at ADDR[,ADDR]
+   --nats-servers ADDR[,ADDR], -n ADDR[,ADDR]  connect to NATS cluster at ADDR[,ADDR] (default: "nats://localhost:4222")
    --data-dir DIR, -d DIR                      store data in DIR (default: "/tmp/liftbridge/<namespace>")
    --port value, -p value                      port to bind to (default: 9292)
    --tls-cert value                            server certificate file
@@ -129,6 +129,9 @@ the configuration file.
 |:----|:----|:----|:----|:----|:----|
 | retention.max.bytes | | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. | int64 | 0 | |
 | retention.max.messages | | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. | int64 | 0 | |
+| retention.max.age | | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL. | duration | 168h | |
+| retention.check.interval | | The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy. | duration | 5m | |
+| log.roll.time | | The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when `segment.max.bytes` is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. | duration | value of `retention.max.age` | |
 | segment.max.bytes | | The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. | int64 | 1073741824 | |
 
 ### Clustering Configuration Settings
