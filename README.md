@@ -221,7 +221,7 @@ be generated quite easily using the
 - [ ] Production-hardening
 - [x] TLS support
 - [x] Configurable acks
-- [ ] Log retention by message age
+- [x] Log retention by message age
 - [x] Log retention by number of messages
 - [ ] Log compaction by key
 - [ ] Consumer-offset checkpointing in the log

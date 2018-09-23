@@ -98,6 +98,8 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		MaxLogMessages:  s.config.Log.RetentionMaxMessages,
+		MaxLogAge:       s.config.Log.RetentionMaxAge,
+		LogRollTime:     s.config.Log.LogRollTime,
 		Logger:          s.logger,
 	})
 	if err != nil {
@@ -397,7 +399,7 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 		return 0
 	}
 	offset := int64(proto.Encoding.Uint64(data[:8]))
-	if offset != s.log.NewestOffset()+1 {
+	if offset < s.log.NewestOffset()+1 {
 		return 0
 	}
 	offsets, err := s.log.AppendMessageSet(data)
@@ -529,7 +531,7 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 		r := &replicator{
 			replica:    replica,
 			stream:     s,
-			requests:   make(chan replicationRequest),
+			requests:   make(chan replicationRequest, 1),
 			maxLagTime: s.srv.config.Clustering.ReplicaMaxLagTime,
 			leader:     s.srv.config.Clustering.ServerID,
 		}

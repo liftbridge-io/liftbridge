@@ -89,7 +89,13 @@ func New(config *Config) *Server {
 
 // Start the Server. This is not a blocking call. It will return an error if
 // the Server cannot start properly.
-func (s *Server) Start() error {
+func (s *Server) Start() (err error) {
+	defer func() {
+		if err != nil {
+			s.Stop()
+		}
+	}()
+
 	// Remove server's ID from the cluster peers list if present.
 	if len(s.config.Clustering.RaftBootstrapPeers) > 0 {
 		peers := make([]string, 0, len(s.config.Clustering.RaftBootstrapPeers))
@@ -101,29 +107,18 @@ func (s *Server) Start() error {
 		s.config.Clustering.RaftBootstrapPeers = peers
 	}
 
+	// Create the data directory if it doesn't exist.
 	if err := os.MkdirAll(s.config.DataDir, os.ModePerm); err != nil {
 		return errors.Wrap(err, "failed to create data path directories")
 	}
 
-	// Attempt to recover state.
-	file := filepath.Join(s.config.DataDir, stateFile)
-	data, err := ioutil.ReadFile(file)
-	if err == nil {
-		// Recovered previous state.
-		state := &proto.ServerState{}
-		if err := state.Unmarshal(data); err == nil {
-			s.config.Clustering.ServerID = state.ServerID
-		}
+	// Recover and persist metadata state.
+	if err := s.recoverAndPersistState(); err != nil {
+		return errors.Wrap(err, "failed to recover or persist metadata state")
 	}
 
-	// Persist server state.
-	state := &proto.ServerState{ServerID: s.config.Clustering.ServerID}
-	data, err = state.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	if err := ioutil.WriteFile(file, data, 0666); err != nil {
-		return errors.Wrap(err, "failed to persist server state")
+	if err := s.createNATSConns(); err != nil {
+		return errors.Wrap(err, "failed to connect to NATS")
 	}
 
 	hp := net.JoinHostPort(s.config.Host, strconv.Itoa(s.config.Port))
@@ -133,92 +128,36 @@ func (s *Server) Start() error {
 	}
 	s.listener = l
 
-	// NATS connection used for stream data.
-	nc, err := s.createNATSConn("streams")
-	if err != nil {
-		s.Stop()
-		return errors.Wrap(err, "failed to connect to NATS")
-	}
-	s.nc = nc
-
-	// NATS connection used for Raft metadata replication.
-	ncr, err := s.createNATSConn("raft")
-	if err != nil {
-		s.Stop()
-		return errors.Wrap(err, "failed to connect to NATS")
-	}
-	s.ncRaft = ncr
-
-	// NATS connection used for stream replication.
-	ncRepl, err := s.createNATSConn("replication")
-	if err != nil {
-		s.Stop()
-		return errors.Wrap(err, "failed to connect to NATS")
-	}
-	s.ncRepl = ncRepl
-
-	// NATS connection used for sending acks.
-	ncAcks, err := s.createNATSConn("acks")
-	if err != nil {
-		s.Stop()
-		return errors.Wrap(err, "failed to connect to NATS")
-	}
-	s.ncAcks = ncAcks
-
-	s.logger.Infof("Server ID: %s", s.config.Clustering.ServerID)
-	s.logger.Infof("Namespace: %s", s.config.Clustering.Namespace)
+	s.logger.Infof("Server ID:        %s", s.config.Clustering.ServerID)
+	s.logger.Infof("Namespace:        %s", s.config.Clustering.Namespace)
+	s.logger.Infof("Retention Policy: %s", s.config.Log.RetentionString())
 	s.logger.Infof("Starting server on %s...",
 		net.JoinHostPort(s.config.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
 
+	// Set a lower bound of one second for LogRollTime to avoid frequent log
+	// rolls which will cause performance problems. This is mainly here because
+	// LogRollTime defaults to RetentionMaxAge if it's not set explicitly, so
+	// users could otherwise unknowingly cause frequent log rolls.
+	if logRollTime := s.config.Log.LogRollTime; logRollTime != 0 && logRollTime < time.Second {
+		s.logger.Info("Defaulting log.roll.time to 1 second to avoid frequent log rolls")
+		s.config.Log.LogRollTime = time.Second
+	}
+
 	if err := s.startMetadataRaft(); err != nil {
-		s.Stop()
 		return errors.Wrap(err, "failed to start Raft node")
 	}
 
 	if _, err := s.ncRaft.Subscribe(s.serverInfoInbox(), s.handleServerInfoRequest); err != nil {
-		s.Stop()
 		return errors.Wrap(err, "failed to subscribe to server info subject")
 	}
 
 	if _, err := s.ncRaft.Subscribe(s.streamStatusInbox(), s.handleStreamStatusRequest); err != nil {
-		s.Stop()
 		return errors.Wrap(err, "failed to subscribe to stream status subject")
 	}
 
 	s.handleSignals()
 
-	opts := []grpc.ServerOption{}
-
-	// Setup TLS if key/cert is set.
-	if s.config.TLSKey != "" && s.config.TLSCert != "" {
-		creds, err := credentials.NewServerTLSFromFile(s.config.TLSCert, s.config.TLSKey)
-		if err != nil {
-			return errors.Wrap(err, "failed to setup TLS credentials")
-		}
-		opts = append(opts, grpc.Creds(creds))
-	}
-
-	api := grpc.NewServer(opts...)
-	s.api = api
-	client.RegisterAPIServer(api, &apiServer{s})
-	s.mu.Lock()
-	s.running = true
-	s.mu.Unlock()
-	s.startGoroutine(func() {
-		err = api.Serve(s.listener)
-		s.mu.Lock()
-		s.running = false
-		s.mu.Unlock()
-		if err != nil {
-			select {
-			case <-s.shutdownCh:
-				return
-			default:
-				s.logger.Fatal(err)
-			}
-		}
-	})
-	return err
+	return errors.Wrap(s.startAPIServer(), "failed to start API server")
 }
 
 // Stop will attempt to gracefully shut the Server down by signaling the stop
@@ -270,6 +209,99 @@ func (s *Server) Stop() error {
 
 	// Wait for goroutines to stop.
 	s.goroutineWait.Wait()
+
+	return nil
+}
+
+// recoverAndPersistState recovers any existing server metadata state from disk
+// to initialize the server then writes the metadata back to disk.
+func (s *Server) recoverAndPersistState() error {
+	// Attempt to recover state.
+	file := filepath.Join(s.config.DataDir, stateFile)
+	data, err := ioutil.ReadFile(file)
+	if err == nil {
+		// Recovered previous state.
+		state := &proto.ServerState{}
+		if err := state.Unmarshal(data); err == nil {
+			s.config.Clustering.ServerID = state.ServerID
+		}
+	}
+
+	// Persist server state.
+	state := &proto.ServerState{ServerID: s.config.Clustering.ServerID}
+	data, err = state.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return ioutil.WriteFile(file, data, 0666)
+}
+
+// createNATSConns creates various NATS connections used by the server,
+// including connections for stream data, Raft, replication, and acks.
+func (s *Server) createNATSConns() error {
+	// NATS connection used for stream data.
+	nc, err := s.createNATSConn("streams")
+	if err != nil {
+		return err
+	}
+	s.nc = nc
+
+	// NATS connection used for Raft metadata replication.
+	ncr, err := s.createNATSConn("raft")
+	if err != nil {
+		return err
+	}
+	s.ncRaft = ncr
+
+	// NATS connection used for stream replication.
+	ncRepl, err := s.createNATSConn("replication")
+	if err != nil {
+		return err
+	}
+	s.ncRepl = ncRepl
+
+	// NATS connection used for sending acks.
+	ncAcks, err := s.createNATSConn("acks")
+	if err != nil {
+		return err
+	}
+	s.ncAcks = ncAcks
+	return nil
+}
+
+// startAPIServer configures and starts the gRPC API server.
+func (s *Server) startAPIServer() error {
+	opts := []grpc.ServerOption{}
+
+	// Setup TLS if key/cert is set.
+	if s.config.TLSKey != "" && s.config.TLSCert != "" {
+		creds, err := credentials.NewServerTLSFromFile(s.config.TLSCert, s.config.TLSKey)
+		if err != nil {
+			return errors.Wrap(err, "failed to setup TLS credentials")
+		}
+		opts = append(opts, grpc.Creds(creds))
+	}
+
+	api := grpc.NewServer(opts...)
+	s.api = api
+	client.RegisterAPIServer(api, &apiServer{s})
+	s.mu.Lock()
+	s.running = true
+	s.mu.Unlock()
+	s.startGoroutine(func() {
+		err := api.Serve(s.listener)
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+		if err != nil {
+			select {
+			case <-s.shutdownCh:
+				return
+			default:
+				s.logger.Fatal(err)
+			}
+		}
+	})
 
 	return nil
 }

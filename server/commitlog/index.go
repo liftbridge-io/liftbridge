@@ -50,7 +50,7 @@ type relEntry struct {
 	Size      int32
 }
 
-func newRelEntry(e Entry, baseOffset int64) relEntry {
+func newRelEntry(e *Entry, baseOffset int64) relEntry {
 	return relEntry{
 		Offset:    int32(e.Offset - baseOffset),
 		Timestamp: e.Timestamp,
@@ -119,7 +119,7 @@ func (idx *Index) Position() int64 {
 	return idx.position
 }
 
-func (idx *Index) WriteEntries(entries []Entry) (err error) {
+func (idx *Index) WriteEntries(entries []*Entry) (err error) {
 	b := new(bytes.Buffer)
 	for _, entry := range entries {
 		relEntry := newRelEntry(entry, idx.baseOffset)

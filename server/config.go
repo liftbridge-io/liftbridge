@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
+	"github.com/hako/durafmt"
 	"github.com/nats-io/go-nats"
 	"github.com/nats-io/nuid"
 	log "github.com/sirupsen/logrus"
@@ -32,13 +34,42 @@ const (
 	defaultBatchMaxMessages        = 1024
 	defaultReplicaFetchTimeout     = 5 * time.Second
 	defaultMinInsyncReplicas       = 1
+	defaultRetentionMaxAge         = 7 * 24 * time.Hour
+	defaultRetentionCheckInterval  = 5 * time.Minute
+	defaultMaxSegmentBytes         = 1073741824
+	defaultLogRollTime             = defaultRetentionMaxAge
 )
 
 // LogConfig contains settings for controlling the message log for a stream.
 type LogConfig struct {
-	RetentionMaxBytes    int64
-	RetentionMaxMessages int64
-	SegmentMaxBytes      int64
+	RetentionMaxBytes      int64
+	RetentionMaxMessages   int64
+	RetentionMaxAge        time.Duration
+	RetentionCheckInterval time.Duration
+	SegmentMaxBytes        int64
+	LogRollTime            time.Duration
+}
+
+func (l LogConfig) RetentionString() string {
+	str := "["
+	prefix := ""
+	if l.RetentionMaxMessages != 0 {
+		str += fmt.Sprintf("Messages: %s", humanize.Comma(l.RetentionMaxMessages))
+		prefix = ", "
+	}
+	if l.RetentionMaxBytes != 0 {
+		str += fmt.Sprintf("%sSize: %s", prefix, humanize.IBytes(uint64(l.RetentionMaxBytes)))
+		prefix = ", "
+	}
+	if l.RetentionMaxAge > 0 {
+		str += fmt.Sprintf("%sAge: %s", prefix, durafmt.Parse(l.RetentionMaxAge))
+		prefix = ", "
+	}
+	if prefix == "" {
+		str += "no limits"
+	}
+	str += "]"
+	return str
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.
@@ -91,6 +122,10 @@ func NewDefaultConfig() *Config {
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Clustering.RaftCacheSize = defaultRaftCacheSize
 	config.Clustering.MinISR = defaultMinInsyncReplicas
+	config.Log.SegmentMaxBytes = defaultMaxSegmentBytes
+	config.Log.RetentionMaxAge = defaultRetentionMaxAge
+	config.Log.LogRollTime = defaultLogRollTime
+	config.Log.RetentionCheckInterval = defaultRetentionCheckInterval
 	return config
 }
 
@@ -125,6 +160,9 @@ func NewConfig(configFile string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Reset LogRollTime since this will get overwritten later.
+	config.Log.LogRollTime = 0
 
 	for k, v := range c {
 		switch strings.ToLower(k) {
@@ -181,6 +219,12 @@ func NewConfig(configFile string) (*Config, error) {
 			return nil, fmt.Errorf("Unknown configuration setting %q", k)
 		}
 	}
+
+	// If LogRollTime is not set, default it to the retention time.
+	if config.Log.LogRollTime == 0 {
+		config.Log.LogRollTime = config.Log.RetentionMaxAge
+	}
+
 	return config, nil
 }
 
@@ -211,8 +255,26 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 			config.Log.RetentionMaxBytes = v.(int64)
 		case "retention.max.messages":
 			config.Log.RetentionMaxMessages = v.(int64)
+		case "retention.max.age":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return err
+			}
+			config.Log.RetentionMaxAge = dur
+		case "retention.check.interval":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return err
+			}
+			config.Log.RetentionCheckInterval = dur
 		case "segment.max.bytes":
 			config.Log.SegmentMaxBytes = v.(int64)
+		case "log.roll.time":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return err
+			}
+			config.Log.LogRollTime = dur
 		default:
 			return fmt.Errorf("Unknown log configuration setting %q", k)
 		}

@@ -1,6 +1,18 @@
 package commitlog
 
-import "github.com/liftbridge-io/liftbridge/server/logger"
+import (
+	"time"
+
+	"github.com/pkg/errors"
+
+	"github.com/liftbridge-io/liftbridge/server/logger"
+)
+
+// computeTTL calculates the age cutoff for messages when there is an age
+// retention policy. This function exists for mocking purposes.
+var computeTTL = func(age time.Duration) int64 {
+	return time.Now().Add(-age).UnixNano()
+}
 
 type Cleaner interface {
 	Clean([]*Segment) ([]*Segment, error)
@@ -10,13 +22,14 @@ type DeleteCleanerOptions struct {
 	Retention struct {
 		Bytes    int64
 		Messages int64
+		Age      time.Duration
 	}
 	Logger logger.Logger
 	Name   string
 }
 
 // DeleteCleaner implements the delete cleanup policy which deletes old log
-// segments.
+// segments based on the retention policy.
 type DeleteCleaner struct {
 	DeleteCleanerOptions
 }
@@ -27,26 +40,34 @@ func NewDeleteCleaner(opts DeleteCleanerOptions) *DeleteCleaner {
 
 func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	var err error
-	if len(segments) == 0 || (c.Retention.Bytes == 0 && c.Retention.Messages == 0) {
+	if len(segments) == 0 || (c.Retention.Bytes == 0 && c.Retention.Messages == 0 && c.Retention.Age == 0) {
 		return segments, nil
 	}
 
 	c.Logger.Debugf("Cleaning log %s based on retention policy %+v", c.Name, c.Retention)
 	defer c.Logger.Debugf("Finished cleaning log %s", c.Name)
 
-	// Limit by number of messages first.
-	if c.Retention.Messages > 0 {
-		segments, err = c.applyMessagesLimit(segments)
+	// Limit by age first.
+	if c.Retention.Age > 0 {
+		segments, err = c.applyAgeLimit(segments)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "failed to apply age retention limit")
 		}
 	}
 
-	// Limit by number of bytes.
+	// Next limit by number of messages.
+	if c.Retention.Messages > 0 {
+		segments, err = c.applyMessagesLimit(segments)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to apply message retention limit")
+		}
+	}
+
+	// Lastly limit by number of bytes.
 	if c.Retention.Bytes > 0 {
 		segments, err = c.applyBytesLimit(segments)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "failed to apply bytes retention limit")
 		}
 	}
 
@@ -75,8 +96,7 @@ func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, erro
 		}
 		if i > -1 {
 			for ; i > -1; i-- {
-				s := segments[i]
-				if err := s.Delete(); err != nil {
+				if err := segments[i].Delete(); err != nil {
 					return nil, err
 				}
 			}
@@ -107,8 +127,7 @@ func (c *DeleteCleaner) applyBytesLimit(segments []*Segment) ([]*Segment, error)
 		}
 		if i > -1 {
 			for ; i > -1; i-- {
-				s := segments[i]
-				if err := s.Delete(); err != nil {
+				if err := segments[i].Delete(); err != nil {
 					return nil, err
 				}
 			}
@@ -116,4 +135,31 @@ func (c *DeleteCleaner) applyBytesLimit(segments []*Segment) ([]*Segment, error)
 	}
 
 	return cleanedSegments, nil
+}
+
+func (c *DeleteCleaner) applyAgeLimit(segments []*Segment) ([]*Segment, error) {
+	// We must retain at least the active segment.
+	if len(segments) == 1 {
+		return segments, nil
+	}
+
+	var (
+		ttl = computeTTL(c.Retention.Age)
+		idx int
+	)
+
+	// Delete all segments whose last-written timestamp is less than the TTL
+	// with the exception of the active (last) segment.
+	for i, seg := range segments {
+		if i != len(segments)-1 && seg.lastWriteTime < ttl {
+			if err := seg.Delete(); err != nil {
+				return nil, err
+			}
+		} else {
+			idx = i
+			break
+		}
+	}
+
+	return segments[idx:], nil
 }

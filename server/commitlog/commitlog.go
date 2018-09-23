@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	atomic_file "github.com/natefinch/atomic"
 	"github.com/pkg/errors"
@@ -31,6 +32,7 @@ const (
 	hwFileName                  = "replication-offset-checkpoint"
 	defaultMaxSegmentBytes      = 1073741824
 	defaultHWCheckpointInterval = 5 * time.Second
+	defaultCleanerInterval      = 5 * time.Minute
 )
 
 // CommitLog implements the server.CommitLog interface, which is a durable
@@ -43,17 +45,20 @@ type CommitLog struct {
 	hw             int64
 	closed         chan struct{}
 	segments       []*Segment
-	vActiveSegment atomic.Value
+	vActiveSegment *Segment
 	hwWaiters      map[io.Reader]chan struct{}
 }
 
 // Options contains settings for configuring a CommitLog.
 type Options struct {
-	Path                 string
-	MaxSegmentBytes      int64 // Max number of bytes a Segment can contain before creating a new Segment
-	MaxLogBytes          int64
-	MaxLogMessages       int64
-	HWCheckpointInterval time.Duration
+	Path                 string        // Path to log directory
+	MaxSegmentBytes      int64         // Max number of bytes a Segment can contain before creating a new Segment
+	MaxLogBytes          int64         // Retention by bytes
+	MaxLogMessages       int64         // Retention by messages
+	MaxLogAge            time.Duration // Retention by age
+	CleanerInterval      time.Duration // Frequency to enforce retention policy
+	HWCheckpointInterval time.Duration // Frequency to checkpoint HW to disk
+	LogRollTime          time.Duration // Max time before a new log segment is rolled out.
 	Logger               logger.Logger
 }
 
@@ -74,6 +79,9 @@ func New(opts Options) (*CommitLog, error) {
 	if opts.HWCheckpointInterval == 0 {
 		opts.HWCheckpointInterval = defaultHWCheckpointInterval
 	}
+	if opts.CleanerInterval == 0 {
+		opts.CleanerInterval = defaultCleanerInterval
+	}
 
 	cleanerOpts := DeleteCleanerOptions{
 		Name:   opts.Path,
@@ -81,6 +89,7 @@ func New(opts Options) (*CommitLog, error) {
 	}
 	cleanerOpts.Retention.Bytes = opts.MaxLogBytes
 	cleanerOpts.Retention.Messages = opts.MaxLogMessages
+	cleanerOpts.Retention.Age = opts.MaxLogAge
 	cleaner := NewDeleteCleaner(cleanerOpts)
 
 	path, _ := filepath.Abs(opts.Path)
@@ -102,6 +111,7 @@ func New(opts Options) (*CommitLog, error) {
 	}
 
 	go l.checkpointHWLoop()
+	go l.cleanerLoop()
 
 	return l, nil
 }
@@ -137,7 +147,7 @@ func (l *CommitLog) open() error {
 			if err != nil {
 				return err
 			}
-			segment, err := NewSegment(l.Path, int64(baseOffset), l.MaxSegmentBytes)
+			segment, err := NewSegment(l.Path, int64(baseOffset), l.MaxSegmentBytes, false)
 			if err != nil {
 				return err
 			}
@@ -156,23 +166,23 @@ func (l *CommitLog) open() error {
 		}
 	}
 	if len(l.segments) == 0 {
-		segment, err := NewSegment(l.Path, 0, l.MaxSegmentBytes)
+		segment, err := NewSegment(l.Path, 0, l.MaxSegmentBytes, true)
 		if err != nil {
 			return err
 		}
 		l.segments = append(l.segments, segment)
 	}
-	l.vActiveSegment.Store(l.segments[len(l.segments)-1])
+	activeSegment := l.segments[len(l.segments)-1]
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
+		unsafe.Pointer(activeSegment))
 	return nil
 }
 
 // Append writes the given batch of messages to the log and returns their
 // corresponding offsets in the log.
 func (l *CommitLog) Append(msgs []*proto.Message) ([]int64, error) {
-	if l.checkSplit() {
-		if err := l.split(); err != nil {
-			return nil, err
-		}
+	if _, err := l.checkAndPerformSplit(); err != nil {
+		return nil, err
 	}
 	var (
 		segment          = l.activeSegment()
@@ -189,10 +199,8 @@ func (l *CommitLog) Append(msgs []*proto.Message) ([]int64, error) {
 // AppendMessageSet writes the given message set data to the log and returns
 // the corresponding offsets in the log.
 func (l *CommitLog) AppendMessageSet(ms []byte) ([]int64, error) {
-	if l.checkSplit() {
-		if err := l.split(); err != nil {
-			return nil, err
-		}
+	if _, err := l.checkAndPerformSplit(); err != nil {
+		return nil, err
 	}
 	var (
 		segment      = l.activeSegment()
@@ -203,7 +211,7 @@ func (l *CommitLog) AppendMessageSet(ms []byte) ([]int64, error) {
 	return l.append(segment, ms, entries)
 }
 
-func (l *CommitLog) append(segment *Segment, ms []byte, entries []Entry) ([]int64, error) {
+func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int64, error) {
 	if err := segment.WriteMessageSet(ms, entries); err != nil {
 		return nil, err
 	}
@@ -315,7 +323,7 @@ func (l *CommitLog) HighWatermark() int64 {
 }
 
 func (l *CommitLog) activeSegment() *Segment {
-	return l.vActiveSegment.Load().(*Segment)
+	return (*Segment)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment))))
 }
 
 // Close closes each log segment file and stops the background goroutine
@@ -392,14 +400,14 @@ func (l *CommitLog) Truncate(offset int64) error {
 			ss              = NewSegmentScanner(segment)
 			newSegment, err = NewSegment(
 				segment.path, segment.BaseOffset,
-				segment.maxBytes, truncatedSuffix)
+				segment.maxBytes, true, truncatedSuffix)
 		)
 		if err != nil {
 			return err
 		}
-		for ms, err := ss.Scan(); err == nil; ms, err = ss.Scan() {
+		for ms, entry, err := ss.Scan(); err == nil; ms, entry, err = ss.Scan() {
 			if ms.Offset() < offset {
-				if _, err = newSegment.Write(ms, 1); err != nil {
+				if err := newSegment.WriteMessageSet(ms, []*Entry{entry}); err != nil {
 					return err
 				}
 			} else {
@@ -411,7 +419,9 @@ func (l *CommitLog) Truncate(offset int64) error {
 		}
 		segments[idx] = newSegment
 	}
-	l.vActiveSegment.Store(segments[len(segments)-1])
+	activeSegment := segments[len(segments)-1]
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
+		unsafe.Pointer(activeSegment))
 	l.segments = segments
 	return nil
 }
@@ -422,34 +432,100 @@ func (l *CommitLog) Segments() []*Segment {
 	return l.segments
 }
 
-func (l *CommitLog) checkSplit() bool {
-	return l.activeSegment().IsFull()
+// checkAndPerformSplit determines if a new log segment should be rolled out
+// either because the active segment is full or LogRollTime has passed since
+// the first message was written to it. It then performs the split if eligible,
+// returning any error resulting from the split. The returned bool indicates if
+// a split was performed.
+func (l *CommitLog) checkAndPerformSplit() (split bool, err error) {
+	// Do this in a loop because segment splitting may fail due to a competing
+	// thread performing the split at the same time. If this happens, we just
+	// retry the check on the new active segment.
+	for {
+		activeSegment := l.activeSegment()
+		if !activeSegment.CheckSplit(l.LogRollTime) {
+			return
+		}
+		split = true
+		if err := l.split(activeSegment); err != nil {
+			// ErrSegmentExists indicates another thread has already performed
+			// the segment split, so reload the new active segment and check
+			// again.
+			if err == ErrSegmentExists {
+				continue
+			}
+			return false, err
+		}
+		activeSegment.Seal()
+	}
 }
 
-func (l *CommitLog) split() error {
+func (l *CommitLog) split(oldActiveSegment *Segment) error {
+	// TODO: We should shrink the previous active segment's index after rolling
+	// the new segment.
 	offset := l.NewestOffset() + 1
 	l.Logger.Debugf("Appending new log segment for %s with base offset %d", l.Path, offset)
-	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes)
+	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes, true)
 	if err != nil {
 		return err
 	}
+	// Do a CAS on the active segment to ensure no other threads have replaced
+	// it already. If this fails, it means another thread has already replaced
+	// it, so delete the new segment and return ErrSegmentExists.
+	if !atomic.CompareAndSwapPointer(
+		(*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
+		unsafe.Pointer(oldActiveSegment), unsafe.Pointer(segment)) {
+		segment.Delete()
+		return ErrSegmentExists
+	}
 	l.mu.Lock()
-	segments := append(l.segments, segment)
-	segments, err = l.cleaner.Clean(segments)
+	l.segments = append(l.segments, segment)
+	segments, err := l.cleaner.Clean(l.segments)
 	if err != nil {
 		l.mu.Unlock()
 		return err
 	}
 	l.segments = segments
 	l.mu.Unlock()
-	l.vActiveSegment.Store(segment)
 	return nil
 }
 
+func (l *CommitLog) cleanerLoop() {
+	ticker := time.NewTicker(l.CleanerInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+		case <-l.closed:
+			return
+		}
+
+		// Check to see if the active segment should be split.
+		split, err := l.checkAndPerformSplit()
+		if err != nil {
+			l.Logger.Errorf("Failed to split log %s: %v", l.Path, err)
+			continue
+		}
+
+		// If we rolled a new segment, we don't need to run the cleaner since
+		// it already ran.
+		if split {
+			continue
+		}
+
+		l.mu.Lock()
+		segments, err := l.cleaner.Clean(l.segments)
+		if err != nil {
+			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
+		} else {
+			l.segments = segments
+		}
+		l.mu.Unlock()
+	}
+}
+
 func (l *CommitLog) checkpointHWLoop() {
-	var (
-		ticker = time.NewTicker(l.HWCheckpointInterval)
-	)
+	ticker := time.NewTicker(l.HWCheckpointInterval)
 	defer ticker.Stop()
 	for {
 		select {

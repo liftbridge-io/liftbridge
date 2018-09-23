@@ -26,17 +26,28 @@ func findSegmentIndexByTimestamp(segments []*Segment, timestamp int64) (int, err
 	)
 	idx := sort.Search(n, func(i int) bool {
 		// Read the first entry in the segment to determine the base timestamp.
-		var (
-			segment = segments[i]
-			entry   Entry
-		)
-		if e := segment.Index.ReadEntryAtLogOffset(&entry, 0); e != nil {
+		var entry Entry
+		if e := segments[i].Index.ReadEntryAtLogOffset(&entry, 0); e != nil {
 			err = e
 			return true
 		}
 		return entry.Timestamp > timestamp
 	})
 	return idx, err
+}
+
+// findSegmentByBaseOffset returns the first segment whose base offset is
+// greater than or equal to the given offset. Returns nil if there is no such
+// segment.
+func findSegmentByBaseOffset(segments []*Segment, offset int64) *Segment {
+	n := len(segments)
+	idx := sort.Search(n, func(i int) bool {
+		return segments[i].BaseOffset >= offset
+	})
+	if idx == n {
+		return nil
+	}
+	return segments[idx]
 }
 
 func roundDown(total, factor int64) int64 {

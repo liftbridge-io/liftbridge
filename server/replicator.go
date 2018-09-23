@@ -82,9 +82,13 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		// by the leader to know when to commit messages.
 		r.stream.updateISRLatestOffset(r.replica, req.Offset)
 
+		var (
+			latest   = r.stream.log.NewestOffset()
+			earliest = r.stream.log.OldestOffset()
+		)
+
 		// Check if we're caught up.
-		newest := r.stream.log.NewestOffset()
-		if req.Offset >= newest {
+		if req.Offset >= latest {
 			r.lastCaughtUp = now
 			r.mu.Unlock()
 			r.sendHW(req.replyInbox)
@@ -98,8 +102,8 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		if err != nil {
 			r.stream.srv.logger.Errorf(
 				"Failed to create replication reader for stream %s "+
-					"and replica %s (requested offset %d, latest %d): %v",
-				r.stream, r.replica, req.Offset+1, newest, err)
+					"and replica %s (requested offset %d, earliest %d, latest %d): %v",
+				r.stream, r.replica, req.Offset+1, earliest, latest, err)
 			r.mu.Unlock()
 			continue
 		}

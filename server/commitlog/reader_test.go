@@ -1,4 +1,4 @@
-package commitlog_test
+package commitlog
 
 import (
 	"io"
@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 
-	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -27,7 +26,7 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
 			var err error
-			l, cleanup := setupWithOptions(t, commitlog.Options{
+			l, cleanup := setupWithOptions(t, Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
 			})
@@ -48,7 +47,7 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 			require.NoError(t, err)
 
 			headers := make([]byte, 20)
-			msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+			msg, offset, timestamp, err := ReadMessage(r, headers)
 			require.NoError(t, err)
 			require.Equal(t, int64(idx), offset)
 			require.Equal(t, int64(idx), timestamp)
@@ -58,7 +57,7 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 }
 
 func TestReaderUncommittedBlockCancel(t *testing.T) {
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 10,
 	})
@@ -79,7 +78,7 @@ func TestReaderUncommittedBlockCancel(t *testing.T) {
 }
 
 func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
 	})
@@ -95,7 +94,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	r, err := l.NewReaderUncommitted(ctx, 0)
 	require.NoError(t, err)
 	headers := make([]byte, 20)
-	m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+	m, offset, timestamp, err := ReadMessage(r, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), offset)
 	require.Equal(t, int64(1), timestamp)
@@ -109,7 +108,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	m, offset, timestamp, err = commitlog.ReadMessage(r, headers)
+	m, offset, timestamp, err = ReadMessage(r, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), offset)
 	require.Equal(t, int64(2), timestamp)
@@ -117,7 +116,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 }
 
 func TestReaderUncommittedReadError(t *testing.T) {
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
 	})
@@ -141,7 +140,7 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
 			var err error
-			l, cleanup := setupWithOptions(t, commitlog.Options{
+			l, cleanup := setupWithOptions(t, Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
 			})
@@ -161,7 +160,7 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 			require.NoError(t, err)
 
 			headers := make([]byte, 20)
-			msg, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+			msg, offset, timestamp, err := ReadMessage(r, headers)
 			require.NoError(t, err)
 			require.Equal(t, int64(idx), offset)
 			require.Equal(t, int64(idx), timestamp)
@@ -171,7 +170,7 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 }
 
 func TestReaderCommittedBlockCancel(t *testing.T) {
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 10,
 	})
@@ -188,7 +187,7 @@ func TestReaderCommittedBlockCancel(t *testing.T) {
 }
 
 func TestReaderCommittedReadError(t *testing.T) {
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
 	})
@@ -213,7 +212,7 @@ func TestReaderCommittedReadError(t *testing.T) {
 }
 
 func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 10,
 	})
@@ -233,7 +232,7 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	}()
 
 	headers := make([]byte, 20)
-	m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+	m, offset, timestamp, err := ReadMessage(r, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), offset)
 	require.Equal(t, int64(1), timestamp)
@@ -244,7 +243,7 @@ func TestReaderCommittedRead(t *testing.T) {
 	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
 			var err error
-			l, cleanup := setupWithOptions(t, commitlog.Options{
+			l, cleanup := setupWithOptions(t, Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
 			})
@@ -264,7 +263,7 @@ func TestReaderCommittedRead(t *testing.T) {
 
 			headers := make([]byte, 20)
 			for i, msg := range msgs {
-				m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+				m, offset, timestamp, err := ReadMessage(r, headers)
 				require.NoError(t, err)
 				require.Equal(t, int64(i), offset)
 				require.Equal(t, int64(i), timestamp)
@@ -278,7 +277,7 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
 			var err error
-			l, cleanup := setupWithOptions(t, commitlog.Options{
+			l, cleanup := setupWithOptions(t, Options{
 				Path:            tempDir(t),
 				MaxSegmentBytes: test.segmentSize,
 			})
@@ -298,7 +297,7 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 
 			headers := make([]byte, 20)
 			for i, msg := range msgs[:5] {
-				m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+				m, offset, timestamp, err := ReadMessage(r, headers)
 				require.NoError(t, err)
 				require.Equal(t, int64(i), offset)
 				require.Equal(t, int64(i), timestamp)
@@ -310,7 +309,7 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 
 func TestReaderCommittedWaitForHW(t *testing.T) {
 	var err error
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 30,
 	})
@@ -335,7 +334,7 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 
 	headers := make([]byte, 20)
 	for i, msg := range msgs {
-		m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+		m, offset, timestamp, err := ReadMessage(r, headers)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
 		require.Equal(t, int64(i), timestamp)
@@ -345,7 +344,7 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 
 func TestReaderCommittedCancel(t *testing.T) {
 	var err error
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 30,
 	})
@@ -372,7 +371,7 @@ func TestReaderCommittedCancel(t *testing.T) {
 	count := 0
 	headers := make([]byte, 20)
 	for i, msg := range msgs {
-		m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+		m, offset, timestamp, err := ReadMessage(r, headers)
 		if count < 5 {
 			require.NoError(t, err)
 			require.Equal(t, int64(i), offset)
@@ -389,7 +388,7 @@ func TestReaderCommittedCancel(t *testing.T) {
 // Ensure ReadMessage waits for the next message when the offset exceeds the
 // HW.
 func TestReaderCommittedCapOffset(t *testing.T) {
-	l, cleanup := setupWithOptions(t, commitlog.Options{
+	l, cleanup := setupWithOptions(t, Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
 	})
@@ -409,14 +408,14 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	go l.SetHighWatermark(1)
 
 	headers := make([]byte, 20)
-	m, offset, timestamp, err := commitlog.ReadMessage(r, headers)
+	m, offset, timestamp, err := ReadMessage(r, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), offset)
 	require.Equal(t, int64(2), timestamp)
 	compareMessages(t, msg2, m)
 }
 
-func compareMessages(t *testing.T, exp *proto.Message, act commitlog.Message) {
+func compareMessages(t *testing.T, exp *proto.Message, act Message) {
 	// TODO: check timestamp
 	require.Equal(t, exp.MagicByte, act.MagicByte())
 	require.Equal(t, exp.Attributes, act.Attributes())
