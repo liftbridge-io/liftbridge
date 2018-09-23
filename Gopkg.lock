@@ -26,6 +26,12 @@
   version = "v1.1.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/dustin/go-humanize"
+  packages = ["."]
+  revision = "9f541cc9db5d55bce703bd99987c9d5cb8eea45e"
+
+[[projects]]
   name = "github.com/golang/protobuf"
   packages = [
     "proto",
@@ -36,6 +42,12 @@
   ]
   revision = "b4deda0973fb4c70b50d226b1af49f3da59f5265"
   version = "v1.1.0"
+
+[[projects]]
+  name = "github.com/hako/durafmt"
+  packages = ["."]
+  revision = "7b7ae1e72eade09dbc9c2cfba3e6c4bae7b8bcac"
+  version = "1.0.0"
 
 [[projects]]
   branch = "master"
@@ -256,6 +268,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "b544dd0d702d85ffeceb24466a99fc88c48c348c79182525b47490cc8cf5d5bb"
+  inputs-digest = "879973a7528b9dd2e16212750907af20986a5e22d62e31e6be7908a0402ddd62"
   solver-name = "gps-cdcl"
   solver-version = 1
