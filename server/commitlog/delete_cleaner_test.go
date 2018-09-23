@@ -17,7 +17,7 @@ func noopLogger() logger.Logger {
 }
 
 func createSegment(t require.TestingT, dir string, baseOffset, maxBytes int64) *Segment {
-	s, err := NewSegment(dir, baseOffset, maxBytes)
+	s, err := NewSegment(dir, baseOffset, maxBytes, false)
 	require.NoError(t, err)
 	return s
 }
