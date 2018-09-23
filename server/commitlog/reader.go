@@ -267,14 +267,6 @@ func (l *CommitLog) NewReaderCommitted(ctx context.Context, offset int64) (io.Re
 		hwSeg    *Segment
 		err      error
 	)
-	if hw != -1 {
-		hwIdx, hwPosition, err := getHWPos(segments, hw)
-		if err != nil {
-			return nil, err
-		}
-		hwPos = hwPosition
-		hwSeg = segments[hwIdx]
-	}
 
 	// If offset exceeds HW, wait for the next message. This also covers the
 	// case when the log is empty.
@@ -288,6 +280,15 @@ func (l *CommitLog) NewReaderCommitted(ctx context.Context, offset int64) (io.Re
 			ctx:   ctx,
 			hw:    hw,
 		}, nil
+	}
+
+	if hw != -1 {
+		hwIdx, hwPosition, err := getHWPos(segments, hw)
+		if err != nil {
+			return nil, err
+		}
+		hwPos = hwPosition
+		hwSeg = segments[hwIdx]
 	}
 
 	if oldest := l.OldestOffset(); offset < oldest {

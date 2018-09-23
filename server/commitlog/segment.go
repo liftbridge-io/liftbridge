@@ -28,6 +28,10 @@ var (
 	// ErrSegmentClosed is returned on writes to a closed segment.
 	ErrSegmentClosed = errors.New("segment has been closed")
 
+	// ErrSegmentExists is returned when attempting to create a segment that
+	// already exists.
+	ErrSegmentExists = errors.New("segment already exists")
+
 	// timestamp returns the current time in Unix nanoseconds. This function
 	// exists for mocking purposes.
 	timestamp = func() int64 { return time.Now().UnixNano() }
@@ -53,7 +57,7 @@ type Segment struct {
 	sync.RWMutex
 }
 
-func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*Segment, error) {
+func NewSegment(path string, baseOffset, maxBytes int64, isNew bool, args ...interface{}) (*Segment, error) {
 	var suffix string
 	if len(args) != 0 {
 		suffix = args[0].(string)
@@ -65,6 +69,13 @@ func NewSegment(path string, baseOffset, maxBytes int64, args ...interface{}) (*
 		path:       path,
 		suffix:     suffix,
 		waiters:    make(map[io.Reader]chan struct{}),
+	}
+	// If this is a new segment, ensure the file doesn't already exist.
+	if isNew {
+		if _, err := os.Stat(s.logPath()); err == nil {
+			// Segment file already exists.
+			return nil, ErrSegmentExists
+		}
 	}
 	log, err := os.OpenFile(s.logPath(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -240,7 +251,7 @@ func (s *Segment) Close() error {
 
 // Cleaner creates a cleaner segment for this segment.
 func (s *Segment) Cleaner() (*Segment, error) {
-	return NewSegment(s.path, s.BaseOffset, s.maxBytes, cleanedSuffix)
+	return NewSegment(s.path, s.BaseOffset, s.maxBytes, true, cleanedSuffix)
 }
 
 // Replace replaces the given segment with the callee.
