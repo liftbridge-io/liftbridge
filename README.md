@@ -182,8 +182,7 @@ nats {
 
 # Specify message log settings.
 log {
-    segment.max.bytes: 1000000
-    retention.max.bytes: 100000000000
+    retention.max.age: "24h"
 }
 
 # Specify cluster settings.
