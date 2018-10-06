@@ -276,6 +276,7 @@ func (s *Segment) Replace(old *Segment) (err error) {
 	s.log = log
 	s.writer = log
 	s.reader = log
+	s.closed = false
 	return s.setupIndex()
 }
 
