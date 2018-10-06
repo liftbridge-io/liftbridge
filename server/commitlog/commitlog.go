@@ -461,8 +461,6 @@ func (l *CommitLog) checkAndPerformSplit() (split bool, err error) {
 }
 
 func (l *CommitLog) split(oldActiveSegment *Segment) error {
-	// TODO: We should shrink the previous active segment's index after rolling
-	// the new segment.
 	offset := l.NewestOffset() + 1
 	l.Logger.Debugf("Appending new log segment for %s with base offset %d", l.Path, offset)
 	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes, true)
