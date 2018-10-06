@@ -206,14 +206,21 @@ func (idx *Index) Sync() error {
 	return nil
 }
 
-func (idx *Index) Close() (err error) {
-	if err = idx.Sync(); err != nil {
-		return
+func (idx *Index) Close() error {
+	if err := idx.Sync(); err != nil {
+		return err
 	}
-	if err = idx.file.Truncate(idx.position); err != nil {
-		return
+	if err := idx.Shrink(); err != nil {
+		return err
 	}
 	return idx.file.Close()
+}
+
+// Shrink truncates the memory-mapped index file to the size of its contents.
+func (idx *Index) Shrink() error {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.file.Truncate(idx.position)
 }
 
 func (idx *Index) Name() string {

@@ -154,6 +154,7 @@ func (s *Segment) Seal() {
 	s.sealed = true
 	// Notify any readers waiting for data.
 	s.notifyWaiters()
+	s.Index.Shrink()
 }
 
 func (s *Segment) NextOffset() int64 {
