@@ -724,10 +724,7 @@ func (s *stream) sendReplicationRequest() (int, error) {
 // any potentially uncommitted messages in the log.
 //
 // TODO: There are a couple edge cases with this method of truncating the log
-// that could result in data loss or replica divergence. These can be solved by
-// using a leader epoch rather than the high watermark for truncation. This
-// solution was implemented in Kafka and is described here:
-// https://cwiki.apache.org/confluence/x/oQQIB
+// that could result in data loss or replica divergence. See issue #38.
 func (s *stream) truncateToHW() error {
 	var (
 		newestOffset = s.log.NewestOffset()
