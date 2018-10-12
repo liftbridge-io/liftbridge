@@ -313,6 +313,12 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 				return err
 			}
 			config.Clustering.ReplicaMaxLagTime = dur
+		case "replica.max.leader.timeout":
+			dur, err := time.ParseDuration(v.(string))
+			if err != nil {
+				return err
+			}
+			config.Clustering.ReplicaMaxLeaderTimeout = dur
 		case "replica.fetch.timeout":
 			dur, err := time.ParseDuration(v.(string))
 			if err != nil {
