@@ -11,7 +11,7 @@
   branch = "master"
   name = "github.com/armon/go-metrics"
   packages = ["."]
-  revision = "3c58d8115a78a6879e5df75ae900846768d36895"
+  revision = "f0300d1749da6fa982027e449ec0c7a145510c3c"
 
 [[projects]]
   name = "github.com/boltdb/bolt"
@@ -22,14 +22,14 @@
 [[projects]]
   name = "github.com/davecgh/go-spew"
   packages = ["spew"]
-  revision = "346938d642f2ec3594ed81d874461961cd0faa76"
-  version = "v1.1.0"
+  revision = "8991bc29aa16c548c550c7ff78260e27b9ab7c73"
+  version = "v1.1.1"
 
 [[projects]]
-  branch = "master"
   name = "github.com/dustin/go-humanize"
   packages = ["."]
   revision = "9f541cc9db5d55bce703bd99987c9d5cb8eea45e"
+  version = "v1.0.0"
 
 [[projects]]
   name = "github.com/golang/protobuf"
@@ -50,10 +50,10 @@
   version = "1.0.0"
 
 [[projects]]
-  branch = "master"
   name = "github.com/hashicorp/go-immutable-radix"
   packages = ["."]
-  revision = "7f3cd4390caab3250a57f30efdb2a65dd7649ecf"
+  revision = "27df80928bb34bb1b0d6d0e01b9e679902e7a6b5"
+  version = "v1.0.0"
 
 [[projects]]
   branch = "master"
@@ -62,10 +62,10 @@
   revision = "fa3f63826f7c23912c15263591e65d54d080b458"
 
 [[projects]]
-  branch = "master"
   name = "github.com/hashicorp/golang-lru"
   packages = ["simplelru"]
-  revision = "0fb14efe8c47ae851c0034ed7a448854d3d34cf3"
+  revision = "20f1fb78b0740ba8c3cb143a61e86ba5c8669768"
+  version = "v0.5.0"
 
 [[projects]]
   name = "github.com/hashicorp/raft"
@@ -190,7 +190,7 @@
     "ed25519/internal/edwards25519",
     "ssh/terminal"
   ]
-  revision = "c126467f60eb25f8f27e5a981f32a87e3965053f"
+  revision = "505ab145d0a99da450461ae2c1a9f6cd10d1f447"
 
 [[projects]]
   branch = "master"
@@ -218,7 +218,7 @@
     "windows/svc/eventlog",
     "windows/svc/mgr"
   ]
-  revision = "ac767d655b305d4e9612f5f6e33120b9176c4ad4"
+  revision = "9a3f9b0469bbc6b8802087ae5c0af9f61502de01"
 
 [[projects]]
   name = "golang.org/x/text"
@@ -245,7 +245,7 @@
   branch = "master"
   name = "google.golang.org/genproto"
   packages = ["googleapis/rpc/status"]
-  revision = "02b4e95473316948020af0b7a4f0f22c73929b0e"
+  revision = "bd9b4fb69e2ffd37621a6caa54dcbead29b546f2"
 
 [[projects]]
   name = "google.golang.org/grpc"
