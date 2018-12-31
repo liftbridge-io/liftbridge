@@ -130,6 +130,12 @@
   version = "v1.0.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/nsip/gommap"
+  packages = ["."]
+  revision = "f7881c3a959f144c8f9760d55e9878c35a9206db"
+
+[[projects]]
   name = "github.com/pkg/errors"
   packages = ["."]
   revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
@@ -155,12 +161,6 @@
   ]
   revision = "f35b8ab0b5a2cef36673838d662e249dd9c94686"
   version = "v1.2.2"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/tysontate/gommap"
-  packages = ["."]
-  revision = "e87a6e482c2ceaa54bd76e0fb30d1f2d40dd3f01"
 
 [[projects]]
   name = "github.com/urfave/cli"
@@ -268,6 +268,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "879973a7528b9dd2e16212750907af20986a5e22d62e31e6be7908a0402ddd62"
+  inputs-digest = "cf6a3bf73795f02beee67a5a84acef70bf10994b97ca900f9f494290b004f05e"
   solver-name = "gps-cdcl"
   solver-version = 1
