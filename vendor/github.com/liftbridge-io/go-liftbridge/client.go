@@ -34,8 +34,9 @@ import (
 const MaxReplicationFactor int32 = -1
 
 const (
-	defaultMaxConnsPerBroker = 2
-	defaultKeepAliveTime     = 30 * time.Second
+	defaultMaxConnsPerBroker   = 2
+	defaultKeepAliveTime       = 30 * time.Second
+	defaultResubscribeWaitTime = 30 * time.Second
 )
 
 var (
@@ -111,6 +112,7 @@ type client struct {
 	addrs       map[string]struct{}
 	opts        ClientOptions
 	dialOpts    []grpc.DialOption
+	closed      bool
 }
 
 // ClientOptions are used to control the Client configuration.
@@ -131,6 +133,14 @@ type ClientOptions struct {
 	// TLSCert is the TLS certificate file to use. The client does not use a
 	// TLS connection if this is not set.
 	TLSCert string
+
+	// ResubscribeWaitTime is the amount of time to attempt to re-establish a
+	// stream subscription after being disconnected. For example, if the server
+	// serving a subscription dies and the stream is replicated, the client
+	// will attempt to re-establish the subscription once the stream leader has
+	// failed over. This failover can take several moments, so this option
+	// gives the client time to retry. The default is 30 seconds.
+	ResubscribeWaitTime time.Duration
 }
 
 // Connect will attempt to connect to a Liftbridge server with multiple
@@ -180,7 +190,7 @@ func (o ClientOptions) Connect() (Client, error) {
 		opts:      o,
 		dialOpts:  opts,
 	}
-	if err := c.updateMetadata(); err != nil {
+	if _, err := c.updateMetadata(); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -190,8 +200,9 @@ func (o ClientOptions) Connect() (Client, error) {
 // client.
 func DefaultClientOptions() ClientOptions {
 	return ClientOptions{
-		MaxConnsPerBroker: defaultMaxConnsPerBroker,
-		KeepAliveTime:     defaultKeepAliveTime,
+		MaxConnsPerBroker:   defaultMaxConnsPerBroker,
+		KeepAliveTime:       defaultKeepAliveTime,
+		ResubscribeWaitTime: defaultResubscribeWaitTime,
 	}
 }
 
@@ -200,7 +211,7 @@ func DefaultClientOptions() ClientOptions {
 type ClientOption func(*ClientOptions) error
 
 // MaxConnsPerBroker is a ClientOption to set the maximum number of connections
-// to pool for a given broker in the cluster.
+// to pool for a given broker in the cluster. The default is 2.
 func MaxConnsPerBroker(max int) ClientOption {
 	return func(o *ClientOptions) error {
 		o.MaxConnsPerBroker = max
@@ -209,7 +220,8 @@ func MaxConnsPerBroker(max int) ClientOption {
 }
 
 // KeepAliveTime is a ClientOption to set the amount of time a pooled
-// connection can be idle before it is closed and removed from the pool.
+// connection can be idle before it is closed and removed from the pool. The
+// default is 30 seconds.
 func KeepAliveTime(keepAlive time.Duration) ClientOption {
 	return func(o *ClientOptions) error {
 		o.KeepAliveTime = keepAlive
@@ -221,6 +233,19 @@ func KeepAliveTime(keepAlive time.Duration) ClientOption {
 func TLSCert(cert string) ClientOption {
 	return func(o *ClientOptions) error {
 		o.TLSCert = cert
+		return nil
+	}
+}
+
+// ResubscribeWaitTime is a ClientOption to set the amount of time to attempt
+// to re-establish a stream subscription after being disconnected. For example,
+// if the server serving a subscription dies and the stream is replicated, the
+// client will attempt to re-establish the subscription once the stream leader
+// has failed over. This failover can take several moments, so this option
+// gives the client time to retry. The default is 30 seconds.
+func ResubscribeWaitTime(wait time.Duration) ClientOption {
+	return func(o *ClientOptions) error {
+		o.ResubscribeWaitTime = wait
 		return nil
 	}
 }
@@ -244,14 +269,21 @@ func Connect(addrs []string, options ...ClientOption) (Client, error) {
 
 // Close the client connection.
 func (c *client) Close() error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil
+	}
 	for _, pool := range c.pools {
 		if err := pool.close(); err != nil {
 			return err
 		}
 	}
-	return c.conn.Close()
+	if err := c.conn.Close(); err != nil {
+		return err
+	}
+	c.closed = true
+	return nil
 }
 
 // CreateStream creates a new stream attached to a NATS subject. It returns
@@ -369,11 +401,13 @@ func (c *client) Subscribe(ctx context.Context, subject, name string, handler Ha
 	for i := 0; i < 5; i++ {
 		pool, addr, err = c.getPoolAndAddr(subject, name)
 		if err != nil {
+			time.Sleep(50 * time.Millisecond)
 			c.updateMetadata()
 			continue
 		}
 		conn, err = pool.get(c.connFactory(addr))
 		if err != nil {
+			time.Sleep(50 * time.Millisecond)
 			c.updateMetadata()
 			continue
 		}
@@ -390,7 +424,7 @@ func (c *client) Subscribe(ctx context.Context, subject, name string, handler Ha
 		stream, err = client.Subscribe(ctx, req)
 		if err != nil {
 			if status.Code(err) == codes.Unavailable {
-				time.Sleep(25 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				c.updateMetadata()
 				continue
 			}
@@ -403,7 +437,7 @@ func (c *client) Subscribe(ctx context.Context, subject, name string, handler Ha
 		if status.Code(err) == codes.FailedPrecondition {
 			// This indicates the server was not the stream leader. Refresh
 			// metadata and retry after waiting a bit.
-			time.Sleep(time.Duration(10+i*25) * time.Millisecond)
+			time.Sleep(time.Duration(10+i*50) * time.Millisecond)
 			c.updateMetadata()
 			continue
 		}
@@ -422,17 +456,59 @@ func (c *client) Subscribe(ctx context.Context, subject, name string, handler Ha
 
 	go func() {
 		defer pool.put(conn)
+		var (
+			lastOffset  int64
+			lastError   error
+			resubscribe bool
+			closed      bool
+		)
 		for {
 			var (
 				msg, err = stream.Recv()
 				code     = status.Code(err)
 			)
+			if msg != nil {
+				lastOffset = msg.Offset
+			}
+			if err != nil {
+				lastError = err
+			}
 			if err == nil || (err != nil && code != codes.Canceled) {
+				if code == codes.Unavailable {
+					// This indicates the server went away. Attempt to
+					// resubscribe to the stream leader starting at the last
+					// received offset unless the connection has been closed.
+					c.mu.RLock()
+					closed = c.closed
+					c.mu.RUnlock()
+					if !closed {
+						resubscribe = true
+						break
+					}
+				}
 				handler(msg, err)
 			}
 			if err != nil {
 				break
 			}
+		}
+
+		// Attempt to resubscribe to the stream leader starting at the last
+		// received offset. Do this in a loop with a backoff since it may take
+		// some time for the leader to failover.
+		if resubscribe {
+			deadline := time.Now().Add(c.opts.ResubscribeWaitTime)
+			for time.Now().Before(deadline) && !closed {
+				err := c.Subscribe(ctx, subject, name, handler, StartAtOffset(lastOffset+1))
+				if err == nil {
+					return
+				}
+				time.Sleep(time.Second + (time.Duration(rand.Intn(500)) * time.Millisecond))
+				c.mu.RLock()
+				closed = c.closed
+				c.mu.RUnlock()
+			}
+			handler(nil, lastError)
 		}
 	}()
 
@@ -450,13 +526,13 @@ func (c *client) connFactory(addr string) connFactory {
 // updateMetadata fetches the latest cluster metadata, including stream and
 // broker information. This maintains a map from broker ID to address and a map
 // from stream to broker address.
-func (c *client) updateMetadata() error {
+func (c *client) updateMetadata() (*proto.FetchMetadataResponse, error) {
 	var resp *proto.FetchMetadataResponse
 	if err := c.doResilientRPC(func(client proto.APIClient) (err error) {
 		resp, err = client.FetchMetadata(context.Background(), &proto.FetchMetadataRequest{})
 		return err
 	}); err != nil {
-		return err
+		return nil, err
 	}
 
 	c.mu.Lock()
@@ -480,7 +556,7 @@ func (c *client) updateMetadata() error {
 		subjectStreams[metadata.Stream.Name] = c.brokerAddrs[metadata.Leader]
 	}
 	c.streamAddrs = streamAddrs
-	return nil
+	return resp, nil
 }
 
 // getPoolAndAddr returns the connPool and broker address for the given stream.
@@ -548,8 +624,8 @@ func (c *client) dialBroker() (*grpc.ClientConn, error) {
 	)
 	for _, i := range perm {
 		conn, err = grpc.Dial(addrs[i], c.dialOpts...)
-		if err != nil {
-			continue
+		if err == nil {
+			break
 		}
 	}
 	if conn == nil {

@@ -45,6 +45,7 @@ func TestCreateStream(t *testing.T) {
 
 	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
+	defer client.Close()
 
 	stream := liftbridge.StreamInfo{
 		Name:              "foo",
@@ -83,6 +84,7 @@ func TestCreateStreamPropagate(t *testing.T) {
 	// Connect and send the request to the follower.
 	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
+	defer client.Close()
 
 	stream := liftbridge.StreamInfo{
 		Name:              "foo",
@@ -115,6 +117,7 @@ func TestCreateStreamInsufficientReplicas(t *testing.T) {
 
 	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
+	defer client.Close()
 
 	stream := liftbridge.StreamInfo{
 		Name:              "foo",
@@ -179,6 +182,7 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	// Create the stream.
 	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
+	defer client.Close()
 
 	info := liftbridge.StreamInfo{
 		Name:              "foo",
@@ -234,6 +238,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 
 	client, err := liftbridge.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
+	defer client.Close()
 
 	info := liftbridge.StreamInfo{
 		Name:              "foo",
