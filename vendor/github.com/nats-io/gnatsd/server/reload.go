@@ -278,7 +278,13 @@ func (r *routesOption) Apply(server *Server) {
 	// Remove routes.
 	for _, remove := range r.remove {
 		for _, client := range routes {
-			if client.route.url == remove {
+			var url *url.URL
+			client.mu.Lock()
+			if client.route != nil {
+				url = client.route.url
+			}
+			client.mu.Unlock()
+			if url != nil && urlsAreEqual(url, remove) {
 				// Do not attempt to reconnect when route is removed.
 				client.setRouteNoReconnectOnClose()
 				client.closeConnection(RouteRemoved)
@@ -656,11 +662,14 @@ func (s *Server) reloadAuthorization() {
 		s.removeUnauthorizedSubs(client)
 	}
 
-	for _, client := range routes {
+	for _, route := range routes {
 		// Disconnect any unauthorized routes.
-		if !s.isRouterAuthorized(client) {
-			client.setRouteNoReconnectOnClose()
-			client.authViolation()
+		// Do this only for route that were accepted, not initiated
+		// because in the later case, we don't have the user name/password
+		// of the remote server.
+		if !route.isSolicitedRoute() && !s.isRouterAuthorized(route) {
+			route.setRouteNoReconnectOnClose()
+			route.authViolation()
 		}
 	}
 }
@@ -692,7 +701,7 @@ func diffRoutes(old, new []*url.URL) (add, remove []*url.URL) {
 removeLoop:
 	for _, oldRoute := range old {
 		for _, newRoute := range new {
-			if oldRoute == newRoute {
+			if urlsAreEqual(oldRoute, newRoute) {
 				continue removeLoop
 			}
 		}
@@ -703,7 +712,7 @@ removeLoop:
 addLoop:
 	for _, newRoute := range new {
 		for _, oldRoute := range old {
-			if oldRoute == newRoute {
+			if urlsAreEqual(oldRoute, newRoute) {
 				continue addLoop
 			}
 		}
