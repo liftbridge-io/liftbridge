@@ -30,10 +30,6 @@
   version = "1.0.48"
 
 [[constraint]]
-  name = "github.com/cespare/xxhash"
-  version = "1.0.0"
-
-[[constraint]]
   name = "github.com/golang/protobuf"
   version = "1.1.0"
 
@@ -83,7 +79,7 @@
 
 [[constraint]]
   branch = "master"
-  name = "github.com/tysontate/gommap"
+  name = "github.com/nsip/gommap"
 
 [[constraint]]
   name = "github.com/urfave/cli"
