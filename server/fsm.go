@@ -30,7 +30,7 @@ func (s *Server) recoverLatestCommittedFSMLog(applyIndex uint64) (*raft.Log, err
 	}
 	log := &raft.Log{}
 	for i := commitIndex; i >= firstIndex; i-- {
-		if i == applyIndex {
+		if i == applyIndex && applyIndex == commitIndex {
 			// We are committing the first FSM log.
 			return nil, nil
 		}
