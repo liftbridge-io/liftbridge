@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/dustin/go-humanize/english"
 	"github.com/hashicorp/raft"
 	"github.com/pkg/errors"
 
@@ -29,7 +30,7 @@ func (s *Server) recoverLatestCommittedFSMLog(applyIndex uint64) (*raft.Log, err
 	}
 	log := &raft.Log{}
 	for i := commitIndex; i >= firstIndex; i-- {
-		if i == applyIndex {
+		if i == applyIndex && applyIndex == commitIndex {
 			// We are committing the first FSM log.
 			return nil, nil
 		}
@@ -87,7 +88,8 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 				if err != nil {
 					panic(fmt.Sprintf("failed to recover from Raft log: %v", err))
 				}
-				s.logger.Debugf("fsm: Finished replaying Raft log, recovered %d streams", count)
+				s.logger.Debugf("fsm: Finished replaying Raft log, recovered %s",
+					english.Plural(count, "stream", ""))
 			}()
 			s.latestRecoveredLog = nil
 		}
@@ -251,7 +253,8 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 		}
 		count++
 	}
-	s.logger.Debugf("fsm: Finished restoring Raft state from snapshot, recovered %d streams", count)
+	s.logger.Debugf("fsm: Finished restoring Raft state from snapshot, recovered %s",
+		english.Plural(count, "stream", ""))
 	return nil
 }
 
