@@ -255,7 +255,6 @@ func (s *Server) createRaftNode() (bool, error) {
 	if s.config.Clustering.RaftSnapshotThreshold != 0 {
 		config.SnapshotThreshold = s.config.Clustering.RaftSnapshotThreshold
 	}
-	config.SnapshotInterval = 10 * time.Second
 
 	// Setup a channel for reliable leader notifications.
 	raftNotifyCh := make(chan bool, 1)
