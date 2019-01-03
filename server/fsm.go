@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/dustin/go-humanize/english"
 	"github.com/hashicorp/raft"
 	"github.com/pkg/errors"
 
@@ -29,7 +30,7 @@ func (s *Server) recoverLatestCommittedFSMLog(applyIndex uint64) (*raft.Log, err
 	}
 	log := &raft.Log{}
 	for i := commitIndex; i >= firstIndex; i-- {
-		if i == applyIndex {
+		if i == applyIndex && applyIndex == commitIndex {
 			// We are committing the first FSM log.
 			return nil, nil
 		}
@@ -58,13 +59,14 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 	// we know we've completed the recovery process and subsequent entries are
 	// newly committed operations. During the recovery process, any recovered
 	// streams will not be started until recovery is finished to avoid starting
-	// streams in an intermediate state. When recovery completes, we'll call
-	// finishedRecovery() to start the recovered streams.
+	// streams in an intermediate state. When recovery completes, we'll start
+	// the stream manager to start the recovered streams and begin processing
+	// new updates.
 	if !s.startedRecovery {
 		lastCommittedLog, err := s.recoverLatestCommittedFSMLog(l.Index)
 		// If this returns an error, something is very wrong.
 		if err != nil {
-			panic(err)
+			panic(fmt.Sprintf("failed to recover latest committed Raft log entry: %v", err))
 		}
 		s.latestRecoveredLog = lastCommittedLog
 		s.startedRecovery = true
@@ -73,35 +75,34 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		}
 	}
 
-	// Check if this is a "recovered" Raft entry, meaning we are still applying
-	// logs up to and including the latest recovered log.
-	recovered := false
-	if s.latestRecoveredLog != nil && l.Index <= s.latestRecoveredLog.Index {
-		recovered = true
-		if l.Index == s.latestRecoveredLog.Index {
-			// We've applied all entries up to the latest recovered log, so
-			// recovery is finished. Call finishedRecovery() to start any
-			// recovered streams.
-			defer func() {
-				count, err := s.finishedRecovery()
-				if err != nil {
-					panic(fmt.Sprintf("failed to recover from Raft log: %v", err))
-				}
-				s.logger.Debugf("fsm: Finished replaying Raft log, recovered %d streams", count)
-			}()
-			s.latestRecoveredLog = nil
-		}
-	}
-
 	// Unmarshal the log data and apply the operation to the FSM.
 	log := &proto.RaftLog{}
 	if err := log.Unmarshal(l.Data); err != nil {
 		panic(err)
 	}
-	value, err := s.apply(log, l.Index, recovered)
+	value, err := s.apply(log, l.Index)
 	if err != nil {
 		panic(err)
 	}
+
+	if (s.latestRecoveredLog != nil && l.Index == s.latestRecoveredLog.Index) || s.latestRecoveredLog == nil {
+		// We've applied all entries up to the latest recovered log or there
+		// were no existing entries, so recovery is finished. Start the stream
+		// manager to start any recovered streams and begin processing new
+		// updates.
+		recovered, err := s.streams.Start()
+		if err != nil {
+			panic(fmt.Sprintf("failed to start stream manager: %v", err))
+		}
+		if s.latestRecoveredLog != nil {
+			s.logger.Debugf("fsm: Finished replaying Raft log, recovered %s",
+				english.Plural(recovered, "stream", ""))
+		} else {
+			// Set this so we only start the stream manager once.
+			s.latestRecoveredLog = l
+		}
+	}
+
 	return value
 }
 
@@ -109,16 +110,15 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 // should be made available on the ApplyFuture returned by Raft.Apply if that
 // method was called on the same Raft node as the FSM. An error is returned if
 // the operation could not be applied. The index parameter is the index of the
-// entry in the Raft log. The recovered parameter indicates if this entry is
-// being applied during the recovery process.
-func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interface{}, error) {
+// entry in the Raft log.
+func (s *Server) apply(log *proto.RaftLog, index uint64) (interface{}, error) {
 	switch log.Op {
 	case proto.Op_CREATE_STREAM:
 		stream := log.CreateStreamOp.Stream
 		// Make sure to set the leader epoch on the stream.
 		stream.LeaderEpoch = index
 		stream.Epoch = index
-		err := s.applyCreateStream(stream, recovered)
+		err := s.applyCreateStream(stream)
 		// If err is ErrStreamExists, we want to return this value back to the
 		// caller.
 		if err == ErrStreamExists {
@@ -208,11 +208,11 @@ func (f *fsmSnapshot) Release() {}
 // happening.
 func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 	var (
-		streams = s.metadata.GetStreams()
+		streams = s.metadata.GetStreamProtos()
 		protos  = make([]*proto.Stream, len(streams))
 	)
 	for i, stream := range streams {
-		protos[i] = stream.Stream
+		protos[i] = stream.Unwrap()
 	}
 	return &fsmSnapshot{&proto.MetadataSnapshot{Streams: protos}}, nil
 }
@@ -244,35 +244,26 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 	if err := s.metadata.Reset(); err != nil {
 		return err
 	}
-	count := 0
 	for _, stream := range snap.Streams {
-		if err := s.applyCreateStream(stream, false); err != nil {
+		if err := s.applyCreateStream(stream); err != nil {
 			return err
 		}
-		count++
 	}
-	s.logger.Debugf("fsm: Finished restoring Raft state from snapshot, recovered %d streams", count)
+	s.logger.Debug("fsm: Finished restoring Raft state from snapshot")
 	return nil
 }
 
-// applyCreateStream adds the given stream to the metadata store. If the stream
-// is being recovered, it will not be started until after the recovery process
-// completes. If it is not being recovered, the stream will be started as a
-// leader or follower if applicable. ErrStreamExists is returned if the stream
-// already exists.
-func (s *Server) applyCreateStream(protoStream *proto.Stream, recovered bool) error {
-	// QUESTION: If this broker is not a replica for the stream, can we just
-	// store a "lightweight" representation of the stream (i.e. the protobuf)
-	// for recovery purposes? There is no need to initialize a commit log for
-	// it.
-	stream, err := s.metadata.AddStream(protoStream, recovered)
+// applyCreateStream adds the given stream to the metadata store.
+// ErrStreamExists is returned if the stream already exists.
+func (s *Server) applyCreateStream(stream *proto.Stream) error {
+	streamProto, err := s.metadata.AddStream(stream)
 	if err == ErrStreamExists {
 		return err
 	}
 	if err != nil {
 		return errors.Wrap(err, "failed to add stream to metadata store")
 	}
-	s.logger.Debugf("fsm: Created stream %s", stream)
+	s.logger.Debugf("fsm: Created stream %s", streamProto)
 	return nil
 }
 
@@ -280,23 +271,12 @@ func (s *Server) applyCreateStream(protoStream *proto.Stream, recovered bool) er
 // stream epoch. If the stream epoch is greater than or equal to the specified
 // epoch, this does nothing.
 func (s *Server) applyShrinkISR(subject, name, replica string, epoch uint64) error {
-	stream := s.metadata.GetStream(subject, name)
-	if stream == nil {
+	stream, err := s.metadata.RemoveFromISR(subject, name, replica, epoch)
+	if err == ErrNoSuchStream {
 		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
+	} else if err != nil {
+		return errors.Wrap(err, "failed to remove replica from ISR")
 	}
-
-	// Idempotency check.
-	if stream.GetEpoch() >= epoch {
-		return nil
-	}
-
-	if err := stream.RemoveFromISR(replica); err != nil {
-		return errors.Wrap(err, fmt.Sprintf("failed to remove %s from ISR for stream %s",
-			replica, stream))
-	}
-
-	stream.SetEpoch(epoch)
-
 	s.logger.Warnf("fsm: Removed replica %s from ISR for stream %s", replica, stream)
 	return nil
 }
@@ -305,23 +285,12 @@ func (s *Server) applyShrinkISR(subject, name, replica string, epoch uint64) err
 // epoch. If the stream epoch is greater than or equal to the specified epoch,
 // this does nothing.
 func (s *Server) applyExpandISR(subject, name, replica string, epoch uint64) error {
-	stream := s.metadata.GetStream(subject, name)
-	if stream == nil {
+	stream, err := s.metadata.AddToISR(subject, name, replica, epoch)
+	if err == ErrNoSuchStream {
 		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
+	} else if err != nil {
+		return errors.Wrap(err, "failed to add replica to ISR")
 	}
-
-	// Idempotency check.
-	if stream.GetEpoch() >= epoch {
-		return nil
-	}
-
-	if err := stream.AddToISR(replica); err != nil {
-		return errors.Wrap(err, fmt.Sprintf("failed to add %s to ISR for stream %s",
-			replica, stream))
-	}
-
-	stream.SetEpoch(epoch)
-
 	s.logger.Infof("fsm: Added replica %s to ISR for stream %s", replica, stream)
 	return nil
 }
@@ -330,22 +299,12 @@ func (s *Server) applyExpandISR(subject, name, replica string, epoch uint64) err
 // updates the stream epoch. If the stream epoch is greater than or equal to
 // the specified epoch, this does nothing.
 func (s *Server) applyChangeStreamLeader(subject, name string, leader string, epoch uint64) error {
-	stream := s.metadata.GetStream(subject, name)
-	if stream == nil {
+	stream, err := s.metadata.SetLeader(subject, name, leader, epoch)
+	if err == ErrNoSuchStream {
 		return fmt.Errorf("No such stream [subject=%s, name=%s]", subject, name)
-	}
-
-	// Idempotency check.
-	if stream.GetEpoch() >= epoch {
-		return nil
-	}
-
-	if err := stream.SetLeader(leader, epoch); err != nil {
+	} else if err != nil {
 		return errors.Wrap(err, "failed to change stream leader")
 	}
-
-	stream.SetEpoch(epoch)
-
 	s.logger.Debugf("fsm: Changed leader for stream %s to %s", stream, leader)
 	return nil
 }

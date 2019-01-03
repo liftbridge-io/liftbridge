@@ -22,12 +22,18 @@ const (
 	maxReplicationFactor    int32 = -1
 )
 
-// ErrStreamExists is returned by CreateStream when attempting to create a
-// stream that already has the provided subject and name.
-var ErrStreamExists = errors.New("stream already exists")
+var (
+	// ErrStreamExists is returned by CreateStream when attempting to create a
+	// stream that already has the provided subject and name.
+	ErrStreamExists = errors.New("stream already exists")
+
+	// ErrNoSuchStream is returned when retrieving a stream that does not
+	// exist.
+	ErrNoSuchStream = errors.New("stream does not exist")
+)
 
 // subjectStreams maps a name to a stream within the scope of a subject.
-type subjectStreams map[string]*stream
+type subjectStreams map[string]*proto.StreamWrapper
 
 // leaderReport tracks witnesses for a stream leader. Witnesses are replicas
 // which have reported the leader as unresponsive. If a quorum of replicas
@@ -35,7 +41,7 @@ type subjectStreams map[string]*stream
 // select a new leader.
 type leaderReport struct {
 	mu              sync.Mutex
-	stream          *stream
+	stream          *proto.StreamWrapper
 	timer           *time.Timer
 	witnessReplicas map[string]struct{}
 	api             *metadataAPI
@@ -53,7 +59,7 @@ func (l *leaderReport) addWitness(replica string) *status.Status {
 
 	var (
 		// Subtract 1 to exclude leader.
-		isrSize      = l.stream.ISRSize() - 1
+		isrSize      = len(l.stream.GetISR()) - 1
 		leaderFailed = len(l.witnessReplicas) >= isrSize/2+1
 	)
 
@@ -87,22 +93,26 @@ func (l *leaderReport) cancel() {
 }
 
 // metadataAPI is the internal API for interacting with cluster data. All
-// stream access should go through the exported methods of the metadataAPI.
+// stream config access should go through the exported methods of the
+// metadataAPI. Changes to the metadataAPI store drive the streamManagerAPI via
+// the updates channel.
 type metadataAPI struct {
 	*Server
+	streamManager   *streamManagerAPI
 	streams         map[string]subjectStreams
 	mu              sync.RWMutex
-	leaderReports   map[*stream]*leaderReport
+	leaderReports   map[*proto.StreamWrapper]*leaderReport
 	cachedBrokers   []*client.Broker
 	cachedServerIDs map[string]struct{}
 	lastCached      time.Time
 }
 
-func newMetadataAPI(s *Server) *metadataAPI {
+func newMetadataAPI(s *Server, streamManager *streamManagerAPI) *metadataAPI {
 	return &metadataAPI{
 		Server:        s,
 		streams:       make(map[string]subjectStreams),
-		leaderReports: make(map[*stream]*leaderReport),
+		streamManager: streamManager,
+		leaderReports: make(map[*proto.StreamWrapper]*leaderReport),
 	}
 }
 
@@ -234,10 +244,10 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor) *client.FetchMetadataResponse {
 	// If no descriptors were provided, fetch metadata for all streams.
 	if len(streams) == 0 {
-		for _, stream := range m.GetStreams() {
+		for _, stream := range m.GetStreamProtos() {
 			streams = append(streams, &client.StreamDescriptor{
-				Subject: stream.Subject,
-				Name:    stream.Name,
+				Subject: stream.GetSubject(),
+				Name:    stream.GetName(),
 			})
 		}
 	}
@@ -245,7 +255,7 @@ func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor)
 	metadata := make([]*client.StreamMetadata, len(streams))
 
 	for i, descriptor := range streams {
-		stream := m.GetStream(descriptor.Subject, descriptor.Name)
+		stream := m.GetStreamProto(descriptor.Subject, descriptor.Name)
 		if stream == nil {
 			// Stream does not exist.
 			metadata[i] = &client.StreamMetadata{
@@ -332,7 +342,7 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 	}
 
 	// Verify the stream exists.
-	stream := m.GetStream(req.Subject, req.Name)
+	stream := m.GetStreamProto(req.Subject, req.Name)
 	if stream == nil {
 		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such stream [subject=%s, name=%s]",
 			req.Subject, req.Name))
@@ -372,7 +382,7 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 	}
 
 	// Verify the stream exists.
-	stream := m.GetStream(req.Subject, req.Name)
+	stream := m.GetStreamProto(req.Subject, req.Name)
 	if stream == nil {
 		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such stream [subject=%s, name=%s]",
 			req.Subject, req.Name))
@@ -413,7 +423,7 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	}
 
 	// Verify the stream exists.
-	stream := m.GetStream(req.Subject, req.Name)
+	stream := m.GetStreamProto(req.Subject, req.Name)
 	if stream == nil {
 		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such stream [subject=%s, name=%s]",
 			req.Subject, req.Name))
@@ -445,41 +455,116 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 
 // AddStream adds the given stream to the metadata store. It returns
 // ErrStreamExists if there already exists a stream with the given subject and
-// name. If the stream is recovered, this will not start the stream until
-// recovery completes.
-func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+// name.
+func (m *metadataAPI) AddStream(stream *proto.Stream) (*proto.StreamWrapper, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	streams := m.streams[protoStream.Subject]
+	streams := m.streams[stream.Subject]
 	if streams == nil {
 		streams = make(subjectStreams)
-		m.streams[protoStream.Subject] = streams
+		m.streams[stream.Subject] = streams
 	}
-	if _, ok := streams[protoStream.Name]; ok {
+	if _, ok := streams[stream.Name]; ok {
 		// Stream for subject with name already exists.
 		return nil, ErrStreamExists
 	}
 
-	// This will initialize/recover the durable commit log.
-	stream, err := m.newStream(protoStream, recovered)
-	if err != nil {
-		return nil, err
-	}
+	streamProto := proto.NewStreamWrapper(stream)
+	streams[stream.Name] = streamProto
 
-	streams[stream.Name] = stream
+	// Signal the stream manager.
+	m.streamManager.StreamCreated(streamProto)
 
-	// Start leader/follower loop if necessary.
-	leader, epoch := stream.GetLeader()
-	err = stream.SetLeader(leader, epoch)
-	return stream, err
+	return streamProto, nil
 }
 
-// GetStreams returns all streams from the metadata store.
-func (m *metadataAPI) GetStreams() []*stream {
+// RemoveFromISR removes the given replica from the stream and updates the
+// stream epoch. If the stream epoch is greater than or equal to the specified
+// epoch, this does nothing. Returns ErrNoSuchStream if the stream doesn't
+// exist.
+func (m *metadataAPI) RemoveFromISR(subject, name, replica string, epoch uint64) (*proto.StreamWrapper, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stream := m.getStreamProto(subject, name)
+	if stream == nil {
+		return nil, ErrNoSuchStream
+	}
+
+	// Idempotency check.
+	if stream.GetEpoch() >= epoch {
+		return stream, nil
+	}
+
+	stream.RemoveFromISR(replica, epoch)
+
+	// Signal the stream manager.
+	m.streamManager.ISRShrunk(stream, replica)
+
+	return stream, nil
+}
+
+// AddToISR adds the given replica to the stream and updates the stream epoch.
+// If the stream epoch is greater than or equal to the specified epoch, this
+// does nothing. Returns ErrNoSuchStream if the stream doesn't exist.
+func (m *metadataAPI) AddToISR(subject, name, replica string, epoch uint64) (*proto.StreamWrapper, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stream := m.getStreamProto(subject, name)
+	if stream == nil {
+		return nil, ErrNoSuchStream
+	}
+
+	// Idempotency check.
+	if stream.GetEpoch() >= epoch {
+		return stream, nil
+	}
+
+	stream.AddToISR(replica, epoch)
+
+	// Signal the stream manager.
+	m.streamManager.ISRExpanded(stream, replica)
+
+	return stream, nil
+}
+
+// SetLeader sets the leader for the the stream to the given replica and
+// updates the stream epoch. If the stream epoch is greater than or equal to
+// the specified epoch, this does nothing. If the stream's current leader epoch
+// is greater than the given epoch, this returns an error. Returns
+// ErrNoSuchStream if the stream doesn't exist.
+func (m *metadataAPI) SetLeader(subject, name, leader string, epoch uint64) (*proto.StreamWrapper, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stream := m.getStreamProto(subject, name)
+	if stream == nil {
+		return nil, ErrNoSuchStream
+	}
+
+	// Idempotency check.
+	if stream.GetEpoch() >= epoch {
+		return stream, nil
+	}
+
+	_, leaderEpoch := stream.GetLeader()
+	if epoch < leaderEpoch {
+		return nil, fmt.Errorf("proposed leader epoch %d is less than current epoch %d",
+			epoch, leaderEpoch)
+	}
+
+	stream.SetLeader(leader, epoch, epoch)
+
+	// Signal the stream manager.
+	m.streamManager.LeaderChanged(stream, leader, epoch)
+
+	return stream, nil
+}
+
+// GetStreamProtos returns all stream protos from the metadata store.
+func (m *metadataAPI) GetStreamProtos() []*proto.StreamWrapper {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	ret := make([]*stream, 0, len(m.streams))
+	ret := make([]*proto.StreamWrapper, 0, len(m.streams))
 	for _, streams := range m.streams {
 		for _, stream := range streams {
 			ret = append(ret, stream)
@@ -488,39 +573,23 @@ func (m *metadataAPI) GetStreams() []*stream {
 	return ret
 }
 
-// GetStream returns the stream with the given subject and name. It returns nil
-// if no such stream exists.
-func (m *metadataAPI) GetStream(subject, name string) *stream {
+// GetStreamProto returns the stream proto with the given subject and name. It
+// returns nil if no such stream exists.
+func (m *metadataAPI) GetStreamProto(subject, name string) *proto.StreamWrapper {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	streams := m.streams[subject]
-	if streams == nil {
-		return nil
-	}
-	stream := streams[name]
-	if stream == nil {
-		return nil
-	}
-	return stream
+	return m.getStreamProto(subject, name)
 }
 
-// Reset closes all streams and clears all existing state in the metadata
-// store.
+// Reset clears all existing state in the metadata store.
 func (m *metadataAPI) Reset() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, streams := range m.streams {
-		for _, stream := range streams {
-			if err := stream.Close(); err != nil {
-				return err
-			}
-		}
-	}
 	m.streams = make(map[string]subjectStreams)
 	for _, report := range m.leaderReports {
 		report.cancel()
 	}
-	m.leaderReports = make(map[*stream]*leaderReport)
+	m.leaderReports = make(map[*proto.StreamWrapper]*leaderReport)
 	return nil
 }
 
@@ -531,7 +600,22 @@ func (m *metadataAPI) LostLeadership() {
 	for _, report := range m.leaderReports {
 		report.cancel()
 	}
-	m.leaderReports = make(map[*stream]*leaderReport)
+	m.leaderReports = make(map[*proto.StreamWrapper]*leaderReport)
+}
+
+// getStream returns the stream proto with the given subject and name. It
+// returns nil if no such stream exists. Use GetStream for the thread-safe
+// version.
+func (m *metadataAPI) getStreamProto(subject, name string) *proto.StreamWrapper {
+	streams := m.streams[subject]
+	if streams == nil {
+		return nil
+	}
+	stream := streams[name]
+	if stream == nil {
+		return nil
+	}
+	return stream
 }
 
 // getStreamReplicas selects replicationFactor replicas to participate in the
@@ -582,7 +666,7 @@ func (m *metadataAPI) getClusterServerIDs() ([]string, error) {
 // electNewStreamLeader selects a new leader for the given stream, applies this
 // update to the Raft group, and notifies the replica set. This will fail if
 // the current broker is not the metadata leader.
-func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
+func (m *metadataAPI) electNewStreamLeader(stream *proto.StreamWrapper) *status.Status {
 	isr := stream.GetISR()
 	// TODO: add support for "unclean" leader elections.
 	if len(isr) <= 1 {
@@ -610,8 +694,8 @@ func (m *metadataAPI) electNewStreamLeader(stream *stream) *status.Status {
 	op := &proto.RaftLog{
 		Op: proto.Op_CHANGE_LEADER,
 		ChangeLeaderOp: &proto.ChangeLeaderOp{
-			Subject: stream.Subject,
-			Name:    stream.Name,
+			Subject: stream.GetSubject(),
+			Name:    stream.GetName(),
 			Leader:  leader,
 		},
 	}

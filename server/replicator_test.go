@@ -18,7 +18,7 @@ func waitForHW(t *testing.T, timeout time.Duration, subject, name string, hw int
 LOOP:
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			stream := s.metadata.GetStream(subject, name)
+			stream := s.streams.GetStream(subject, name)
 			if stream == nil {
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP
@@ -38,7 +38,7 @@ func waitForStream(t *testing.T, timeout time.Duration, subject, name string, se
 LOOP:
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			stream := s.metadata.GetStream(subject, name)
+			stream := s.streams.GetStream(subject, name)
 			if stream == nil {
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP

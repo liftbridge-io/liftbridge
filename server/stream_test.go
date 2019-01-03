@@ -51,13 +51,13 @@ func TestStreamCommitLoopCommitNoAck(t *testing.T) {
 	require.NoError(t, server.Start())
 	defer server.Stop()
 
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	s.commitQueue = queue.New(5)
@@ -119,13 +119,13 @@ func TestStreamCommitLoopCommitAck(t *testing.T) {
 	require.NoError(t, server.Start())
 	defer server.Stop()
 
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	s.commitQueue = queue.New(5)
@@ -186,13 +186,13 @@ func TestStreamCommitLoopEmptyQueue(t *testing.T) {
 	require.NoError(t, server.Start())
 	defer server.Stop()
 
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	s.commitQueue = queue.New(5)
@@ -249,13 +249,13 @@ func TestStreamCommitLoopDisposedQueue(t *testing.T) {
 	require.NoError(t, server.Start())
 	defer server.Stop()
 
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	s.commitQueue = queue.New(5)
@@ -310,13 +310,13 @@ func TestStreamCommitLoopNoCommitBelowMinISR(t *testing.T) {
 
 	server := createServer(false)
 	server.config.Clustering.MinISR = 2
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	s.commitQueue = queue.New(5)
@@ -361,10 +361,10 @@ func TestStreamCommitLoopNoCommitBelowMinISR(t *testing.T) {
 func TestStreamRemoveFromISRNotReplica(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject: "foo",
 		Name:    "foo",
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	require.Error(t, s.RemoveFromISR("foo"))
@@ -375,13 +375,13 @@ func TestStreamRemoveFromISRNotReplica(t *testing.T) {
 func TestStreamRemoveFromISRFollower(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b", "c"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	require.NoError(t, s.RemoveFromISR("b"))
@@ -402,13 +402,13 @@ func TestStreamRemoveFromISRFollower(t *testing.T) {
 func TestStreamRemoveFromISRLeader(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "a",
 		Isr:      []string{"a", "b", "c"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	s.isLeading = true
@@ -431,13 +431,13 @@ func TestStreamRemoveFromISRBelowMin(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
 	server.config.Clustering.MinISR = 3
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b", "c"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	require.NoError(t, s.RemoveFromISR("b"))
@@ -450,10 +450,10 @@ func TestStreamRemoveFromISRBelowMin(t *testing.T) {
 func TestStreamAddToISRNotReplica(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject: "foo",
 		Name:    "foo",
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	require.Error(t, s.AddToISR("foo"))
@@ -463,13 +463,13 @@ func TestStreamAddToISRNotReplica(t *testing.T) {
 func TestStreamAddToISR(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -486,13 +486,13 @@ func TestStreamAddToISRRecoverMin(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
 	server.config.Clustering.MinISR = 3
-	s, err := server.newStream(&proto.Stream{
+	s, err := server.newStream(proto.NewStreamWrapper(&proto.Stream{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}))
 	require.NoError(t, err)
 	defer s.Close()
 	s.belowMinISR = true

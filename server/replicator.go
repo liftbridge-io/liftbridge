@@ -168,8 +168,8 @@ func (r *replicator) tick(stop chan struct{}) {
 // from the ISR.
 func (r *replicator) shrinkISR() {
 	req := &proto.ShrinkISROp{
-		Subject:         r.stream.Subject,
-		Name:            r.stream.Name,
+		Subject:         r.stream.GetSubject(),
+		Name:            r.stream.GetName(),
 		ReplicaToRemove: r.replica,
 		Leader:          r.leader,
 		LeaderEpoch:     r.epoch,
@@ -185,8 +185,8 @@ func (r *replicator) shrinkISR() {
 // the ISR.
 func (r *replicator) expandISR() {
 	req := &proto.ExpandISROp{
-		Subject:      r.stream.Subject,
-		Name:         r.stream.Name,
+		Subject:      r.stream.GetSubject(),
+		Name:         r.stream.GetName(),
 		ReplicaToAdd: r.replica,
 		Leader:       r.leader,
 		LeaderEpoch:  r.epoch,

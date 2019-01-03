@@ -49,7 +49,7 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
 	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, start=%s, offset=%d, timestamp=%d]",
 		req.Subject, req.Name, req.StartPosition, req.StartOffset, req.StartTimestamp)
-	stream := a.metadata.GetStream(req.Subject, req.Name)
+	stream := a.streams.GetStream(req.Subject, req.Name)
 	if stream == nil {
 		a.logger.Errorf("api: Failed to subscribe to stream [subject=%s, name=%s]: no such stream",
 			req.Subject, req.Name)

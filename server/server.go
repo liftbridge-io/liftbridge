@@ -42,10 +42,11 @@ type Server struct {
 	logger             logger.Logger
 	api                *grpc.Server
 	metadata           *metadataAPI
+	streams            *streamManagerAPI
 	shutdownCh         chan struct{}
 	raft               *raftNode
-	leaderSub          *nats.Subscription
 	startedRecovery    bool
+	leaderSub          *nats.Subscription
 	latestRecoveredLog *raft.Log
 	mu                 sync.RWMutex
 	shutdown           bool
@@ -83,7 +84,8 @@ func New(config *Config) *Server {
 		logger:     logger,
 		shutdownCh: make(chan struct{}),
 	}
-	s.metadata = newMetadataAPI(s)
+	s.streams = newStreamManagerAPI(s)
+	s.metadata = newMetadataAPI(s, s.streams)
 	return s
 }
 
@@ -181,6 +183,13 @@ func (s *Server) Stop() error {
 
 	if s.metadata != nil {
 		if err := s.metadata.Reset(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
+
+	if s.streams != nil {
+		if err := s.streams.Stop(); err != nil {
 			s.mu.Unlock()
 			return err
 		}
@@ -338,23 +347,6 @@ func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 	}
 
 	return opts.Connect()
-}
-
-// finishedRecovery should be called when the FSM has finished replaying any
-// unapplied log entries. This will start any streams recovered during the
-// replay.
-func (s *Server) finishedRecovery() (int, error) {
-	count := 0
-	for _, stream := range s.metadata.GetStreams() {
-		recovered, err := stream.StartRecovered()
-		if err != nil {
-			return 0, err
-		}
-		if recovered {
-			count++
-		}
-	}
-	return count, nil
 }
 
 // startMetadataRaft creates and starts an embedded Raft node to participate in
@@ -620,7 +612,7 @@ func (s *Server) handleStreamStatusRequest(m *nats.Msg) {
 		return
 	}
 
-	stream := s.metadata.GetStream(req.Subject, req.Name)
+	stream := s.streams.GetStream(req.Subject, req.Name)
 
 	resp := &proto.StreamStatusResponse{Exists: stream != nil}
 	if stream != nil {

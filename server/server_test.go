@@ -93,7 +93,7 @@ func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, 
 			if !s.isRunning() {
 				continue
 			}
-			stream := s.metadata.GetStream(subject, name)
+			stream := s.streams.GetStream(subject, name)
 			if stream == nil {
 				continue
 			}

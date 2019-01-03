@@ -67,7 +67,7 @@ func (r *replica) getLatestOffset() int64 {
 // from the ISR. Followers replicate the leader's log by fetching messages from
 // it. All stream access should go through exported methods.
 type stream struct {
-	*proto.Stream
+	*proto.StreamWrapper
 	mu            sync.RWMutex
 	sub           *nats.Subscription // Subscription to stream NATS subject
 	leaderReplSub *nats.Subscription // Subscription for replication requests from followers
@@ -82,19 +82,16 @@ type stream struct {
 	replicators   map[string]*replicator
 	commitQueue   *queue.Queue
 	commitCheck   chan struct{}
-	recovered     bool
 	stopFollower  chan struct{}
 	stopLeader    chan struct{}
 	belowMinISR   bool
 }
 
-// newStream creates a new stream. If the stream is recovered, it should not be
-// started until the recovery process has completed to avoid starting it in an
-// intermediate state. This call will initialize or recover the stream's
-// backing commit log or return an error if it fails to do so.
-func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+// newStream creates a new stream. This call will initialize or recover the
+// stream's backing commit log or return an error if it fails to do so.
+func (s *Server) newStream(protoStream *proto.StreamWrapper) (*stream, error) {
 	log, err := commitlog.New(commitlog.Options{
-		Path:            filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name),
+		Path:            filepath.Join(s.config.DataDir, "streams", protoStream.GetSubject(), protoStream.GetName()),
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		MaxLogMessages:  s.config.Log.RetentionMaxMessages,
@@ -107,28 +104,27 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 	}
 
 	h := sha1.New()
-	h.Write([]byte(protoStream.Subject))
+	h.Write([]byte(protoStream.GetSubject()))
 	subjectHash := fmt.Sprintf("%x", h.Sum(nil))
 
-	replicas := make(map[string]struct{}, len(protoStream.Replicas))
-	for _, replica := range protoStream.Replicas {
+	replicas := make(map[string]struct{}, len(protoStream.GetReplicas()))
+	for _, replica := range protoStream.GetReplicas() {
 		replicas[replica] = struct{}{}
 	}
 
-	isr := make(map[string]*replica, len(protoStream.Isr))
-	for _, rep := range protoStream.Isr {
+	isr := make(map[string]*replica, len(protoStream.GetISR()))
+	for _, rep := range protoStream.GetISR() {
 		isr[rep] = &replica{offset: -1}
 	}
 
 	st := &stream{
-		Stream:      protoStream,
-		log:         log,
-		srv:         s,
-		subjectHash: subjectHash,
-		replicas:    replicas,
-		isr:         isr,
-		commitCheck: make(chan struct{}, len(protoStream.Replicas)),
-		recovered:   recovered,
+		StreamWrapper: protoStream,
+		log:           log,
+		srv:           s,
+		subjectHash:   subjectHash,
+		replicas:      replicas,
+		isr:           isr,
+		commitCheck:   make(chan struct{}, len(protoStream.GetReplicas())),
 	}
 
 	return st, nil
@@ -136,7 +132,7 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 
 // String returns a human-readable string representation of the stream.
 func (s *stream) String() string {
-	return fmt.Sprintf("[subject=%s, name=%s]", s.Subject, s.Name)
+	return s.StreamWrapper.String()
 }
 
 // Close stops the stream if it is running and closes the commit log.
@@ -157,52 +153,22 @@ func (s *stream) Close() error {
 	return s.log.Close()
 }
 
-// SetLeader sets the leader for the stream to the given replica and leader
-// epoch. If the stream's current leader epoch is greater than the given epoch,
-// this returns an error. This will also start the stream as a leader or
-// follower, if applicable, unless the stream is in recovery mode.
-func (s *stream) SetLeader(leader string, epoch uint64) error {
+// LeaderChanged causes the stream to begin running either as a leader or
+// follower, if applicable. This should be called whenever the leader of a
+// stream changes.
+func (s *stream) LeaderChanged() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if epoch < s.LeaderEpoch {
-		return fmt.Errorf("proposed leader epoch %d is less than current epoch %d",
-			epoch, s.LeaderEpoch)
-	}
-	s.Leader = leader
-	s.LeaderEpoch = epoch
-
-	if s.recovered {
-		// If this stream is being recovered, we will start the leader/follower
-		// loop later.
-		return nil
-	}
-
 	return s.startLeadingOrFollowing()
-}
-
-// StartRecovered starts the stream as a leader or follower, if applicable, if
-// it's in recovery mode. This should be called for each stream after the
-// recovery process completes.
-func (s *stream) StartRecovered() (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.recovered {
-		return false, nil
-	}
-	if err := s.startLeadingOrFollowing(); err != nil {
-		return false, err
-	}
-	s.recovered = false
-	return true, nil
 }
 
 // startLeadingOrFollowing starts the stream as a leader or follower, if
 // applicable.
 func (s *stream) startLeadingOrFollowing() error {
-	if s.Leader == s.srv.config.Clustering.ServerID {
+	leader, leaderEpoch := s.GetLeader()
+	if leader == s.srv.config.Clustering.ServerID {
 		s.srv.logger.Debugf("Server becoming leader for stream %s", s)
-		if err := s.becomeLeader(s.LeaderEpoch); err != nil {
+		if err := s.becomeLeader(leaderEpoch); err != nil {
 			s.srv.logger.Errorf("Server failed becoming leader for stream %s: %v", s, err)
 			return err
 		}
@@ -214,14 +180,6 @@ func (s *stream) startLeadingOrFollowing() error {
 		}
 	}
 	return nil
-}
-
-// GetLeader returns the replica that is the stream leader and the leader
-// epoch.
-func (s *stream) GetLeader() (string, uint64) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Leader, s.LeaderEpoch
 }
 
 // IsLeader indicates if this server is the stream leader.
@@ -255,7 +213,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	s.startReplicating(epoch, s.stopLeader)
 
 	// Subscribe to the NATS subject and begin sequencing messages.
-	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.Group, func(m *nats.Msg) {
+	sub, err := s.srv.nc.QueueSubscribe(s.GetSubject(), s.GetGroup(), func(m *nats.Msg) {
 		s.recvChan <- m
 	})
 	if err != nil {
@@ -324,8 +282,9 @@ func (s *stream) becomeFollower() error {
 
 	// Start fetching messages from the leader's log starting at the HW.
 	s.stopFollower = make(chan struct{})
-	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
-	s.srv.startGoroutine(func() { s.replicationRequestLoop(s.Leader, s.LeaderEpoch, s.stopFollower) })
+	leader, leaderEpoch := s.GetLeader()
+	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, leader)
+	s.srv.startGoroutine(func() { s.replicationRequestLoop(leader, leaderEpoch, s.stopFollower) })
 
 	s.isFollowing = true
 	s.isLeading = false
@@ -376,9 +335,10 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 	}
 
 	leaderEpoch := proto.Encoding.Uint64(msg.Data[:8])
+	_, currentLeaderEpoch := s.GetLeader()
 
 	s.mu.RLock()
-	if s.LeaderEpoch != leaderEpoch {
+	if currentLeaderEpoch != leaderEpoch {
 		s.mu.RUnlock()
 		return 0
 	}
@@ -413,7 +373,7 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 // requests to.
 func (s *stream) getReplicationRequestInbox() string {
 	return fmt.Sprintf("%s.%s.%s.replicate",
-		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
+		s.srv.config.Clustering.Namespace, s.subjectHash, s.GetName())
 }
 
 // messageProcessingLoop is a long-running loop that processes messages
@@ -494,8 +454,8 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 // queue and committed when the entire ISR has replicated them.
 func (s *stream) processPendingMessage(offset int64, msg *proto.Message) {
 	ack := &client.Ack{
-		StreamSubject: s.Subject,
-		StreamName:    s.Name,
+		StreamSubject: s.GetSubject(),
+		StreamName:    s.GetName(),
 		MsgSubject:    string(msg.Headers["subject"]),
 		Offset:        offset,
 		AckInbox:      msg.AckInbox,
@@ -516,7 +476,7 @@ func (s *stream) processPendingMessage(offset int64, msg *proto.Message) {
 // startReplicating starts a long-running goroutine which handles committing
 // messages in the commit queue and a replication goroutine for each replica.
 func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
-	if s.ReplicationFactor > 1 {
+	if s.GetReplicationFactor() > 1 {
 		s.srv.logger.Debugf("Replicating stream %s to followers", s)
 	}
 	s.commitQueue = queue.New(100)
@@ -675,8 +635,8 @@ func (s *stream) checkLeaderHealth(leader string, epoch uint64, leaderLastSeen t
 			"(last seen: %s), reporting leader to controller",
 			leader, s, lastSeenElapsed)
 		req := &proto.ReportLeaderOp{
-			Subject:     s.Subject,
-			Name:        s.Name,
+			Subject:     s.GetSubject(),
+			Name:        s.GetName(),
 			Replica:     s.srv.config.Clustering.ServerID,
 			Leader:      leader,
 			LeaderEpoch: epoch,
@@ -809,42 +769,6 @@ func (s *stream) AddToISR(rep string) error {
 	}
 
 	return nil
-}
-
-// GetEpoch returns the current stream epoch. The epoch is a monotonically
-// increasing number which increases when a change is made to the stream. This
-// is used to determine if an operation is outdated.
-func (s *stream) GetEpoch() uint64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Epoch
-}
-
-// SetEpoch sets the current stream epoch. See GetEpoch for information on the
-// epoch's purpose.
-func (s *stream) SetEpoch(epoch uint64) {
-	s.mu.Lock()
-	s.Epoch = epoch
-	s.mu.Unlock()
-}
-
-// Marshal serializes the stream into a byte slice.
-func (s *stream) Marshal() []byte {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	data, err := s.Stream.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	return data
-}
-
-// ISRSize returns the current number of replicas in the in-sync replicas set.
-func (s *stream) ISRSize() int {
-	s.mu.RLock()
-	size := len(s.isr)
-	s.mu.RUnlock()
-	return size
 }
 
 // GetISR returns the in-sync replicas set.
