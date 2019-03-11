@@ -252,17 +252,6 @@ func (r *replicator) replicate(
 // writeMessageToBuffer writes the headers and message byte slices to the bytes
 // buffer.
 func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {
-	temp := make([]byte, len(headers)+len(message))
-	n := copy(temp, headers)
-	copy(temp[n:], message)
-	commitlog.Validate(temp)
-	//var m proto.Message
-	//d := proto.NewDecoder(message)
-	//if err := m.Decode(d); err != nil {
-	//	fmt.Println(headers)
-	//	fmt.Println(message)
-	//	panic(err)
-	//}
 	if _, err := buf.Write(headers); err != nil {
 		return err
 	}

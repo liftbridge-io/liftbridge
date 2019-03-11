@@ -147,7 +147,6 @@ LOOP:
 			}
 			// Otherwise, wait for segment to be written to (or split).
 			waiting = true
-			//println("***wait for segment to be written to***")
 			if !r.waitForData(ctx, r.seg) {
 				err = io.EOF
 				break
@@ -160,7 +159,6 @@ LOOP:
 		segments = r.cl.Segments()
 		nextSeg := findSegmentByBaseOffset(segments, r.seg.BaseOffset+1)
 		for nextSeg == nil {
-			//println("***wait for data, no segment***")
 			if !r.waitForData(ctx, r.seg) {
 				err = io.EOF
 				break LOOP
@@ -198,9 +196,6 @@ func (l *CommitLog) newReaderUncommitted(offset int64) (contextReader, error) {
 	if contains {
 		e, err := seg.findEntry(offset)
 		if err != nil {
-			fmt.Println("offset", offset)
-			fmt.Println("baseOffset", seg.BaseOffset)
-			fmt.Println("nextOffset", seg.NextOffset())
 			return nil, err
 		}
 		position = e.Position
