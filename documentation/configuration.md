@@ -129,9 +129,10 @@ the configuration file.
 | retention.max.bytes | | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. | int64 | 0 | |
 | retention.max.messages | | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. | int64 | 0 | |
 | retention.max.age | | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL. | duration | 168h | |
-| retention.check.interval | | The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy. | duration | 5m | |
+| cleaner.interval | | The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled. | duration | 5m | |
 | log.roll.time | | The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when `segment.max.bytes` is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. | duration | value of `retention.max.age` | |
 | segment.max.bytes | | The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. | int64 | 1073741824 | |
+| compact | | Enables stream log compaction. Compaction works by retaining only the latest message for each key and discarding older messages. The frequency in which compaction runs is controlled by `cleaner.interval`. | bool | false | |
 
 ### Clustering Configuration Settings
 

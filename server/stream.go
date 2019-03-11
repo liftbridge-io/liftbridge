@@ -93,13 +93,16 @@ type stream struct {
 // intermediate state. This call will initialize or recover the stream's
 // backing commit log or return an error if it fails to do so.
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+	file := filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name)
 	log, err := commitlog.New(commitlog.Options{
-		Path:            filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name),
+		Path:            file,
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		MaxLogMessages:  s.config.Log.RetentionMaxMessages,
 		MaxLogAge:       s.config.Log.RetentionMaxAge,
 		LogRollTime:     s.config.Log.LogRollTime,
+		CleanerInterval: s.config.Log.CleanerInterval,
+		Compact:         s.config.Log.Compact,
 		Logger:          s.logger,
 	})
 	if err != nil {

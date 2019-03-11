@@ -39,14 +39,15 @@ const (
 // write-ahead log.
 type CommitLog struct {
 	Options
-	cleaner        Cleaner
+	deleteCleaner  Cleaner
+	compactCleaner Cleaner
 	name           string
 	mu             sync.RWMutex
 	hw             int64
 	closed         chan struct{}
 	segments       []*Segment
 	vActiveSegment *Segment
-	hwWaiters      map[io.Reader]chan struct{}
+	hwWaiters      map[contextReader]chan struct{}
 }
 
 // Options contains settings for configuring a CommitLog.
@@ -56,6 +57,7 @@ type Options struct {
 	MaxLogBytes          int64         // Retention by bytes
 	MaxLogMessages       int64         // Retention by messages
 	MaxLogAge            time.Duration // Retention by age
+	Compact              bool          // Run  compaction on log clean
 	CleanerInterval      time.Duration // Frequency to enforce retention policy
 	HWCheckpointInterval time.Duration // Frequency to checkpoint HW to disk
 	LogRollTime          time.Duration // Max time before a new log segment is rolled out.
@@ -92,14 +94,21 @@ func New(opts Options) (*CommitLog, error) {
 	cleanerOpts.Retention.Age = opts.MaxLogAge
 	cleaner := NewDeleteCleaner(cleanerOpts)
 
+	compactCleanerOpts := CompactCleanerOptions{
+		Name:   opts.Path,
+		Logger: opts.Logger,
+	}
+	compactCleaner := NewCompactCleaner(compactCleanerOpts)
+
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
-		Options:   opts,
-		name:      filepath.Base(path),
-		cleaner:   cleaner,
-		hw:        -1,
-		closed:    make(chan struct{}),
-		hwWaiters: make(map[io.Reader]chan struct{}),
+		Options:        opts,
+		name:           filepath.Base(path),
+		deleteCleaner:  cleaner,
+		compactCleaner: compactCleaner,
+		hw:             -1,
+		closed:         make(chan struct{}),
+		hwWaiters:      make(map[contextReader]chan struct{}),
 	}
 
 	if err := l.init(); err != nil {
@@ -296,23 +305,23 @@ func (l *CommitLog) notifyHWWaiters() {
 	}
 }
 
-func (c *CommitLog) waitForHW(r io.Reader, hw int64) <-chan struct{} {
+func (l *CommitLog) waitForHW(r contextReader, hw int64) <-chan struct{} {
 	wait := make(chan struct{})
-	c.mu.Lock()
+	l.mu.Lock()
 	// Check if HW has changed.
-	if c.hw != hw {
+	if l.hw != hw {
 		close(wait)
 	} else {
-		c.hwWaiters[r] = wait
+		l.hwWaiters[r] = wait
 	}
-	c.mu.Unlock()
+	l.mu.Unlock()
 	return wait
 }
 
-func (c *CommitLog) removeHWWaiter(r io.Reader) {
-	c.mu.Lock()
-	delete(c.hwWaiters, r)
-	c.mu.Unlock()
+func (l *CommitLog) removeHWWaiter(r contextReader) {
+	l.mu.Lock()
+	delete(l.hwWaiters, r)
+	l.mu.Unlock()
 }
 
 // HighWatermark returns the high watermark for the log.
@@ -478,14 +487,8 @@ func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	}
 	l.mu.Lock()
 	l.segments = append(l.segments, segment)
-	segments, err := l.cleaner.Clean(l.segments)
-	if err != nil {
-		l.mu.Unlock()
-		return err
-	}
-	l.segments = segments
 	l.mu.Unlock()
-	return nil
+	return l.clean()
 }
 
 func (l *CommitLog) cleanerLoop() {
@@ -511,15 +514,32 @@ func (l *CommitLog) cleanerLoop() {
 			continue
 		}
 
-		l.mu.Lock()
-		segments, err := l.cleaner.Clean(l.segments)
-		if err != nil {
+		if err := l.clean(); err != nil {
 			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
-		} else {
-			l.segments = segments
 		}
+	}
+}
+
+func (l *CommitLog) clean() error {
+	segments, err := l.deleteCleaner.Clean(l.Segments())
+	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	l.segments = segments
+	l.mu.Unlock()
+	if l.Compact {
+		segments, err = l.compactCleaner.Clean(l.Segments())
+		if err != nil {
+			return err
+		}
+		// TODO: This won't work if the active segment was split during
+		// cleaning.
+		l.mu.Lock()
+		l.segments = segments
 		l.mu.Unlock()
 	}
+	return nil
 }
 
 func (l *CommitLog) checkpointHWLoop() {

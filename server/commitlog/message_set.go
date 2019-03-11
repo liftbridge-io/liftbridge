@@ -3,6 +3,7 @@ package commitlog
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
@@ -15,6 +16,39 @@ const (
 )
 
 type MessageSet []byte
+
+func Validate(data []byte) {
+	original := data
+	count := 0
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println("=== CAUGHT PANIC ===")
+			fmt.Println("msg body:", original)
+			fmt.Println("msg length:", len(original))
+			fmt.Println("msg count:", count)
+			fmt.Println("====================")
+			panic(err)
+		}
+	}()
+
+	for len(data) > 0 {
+		var (
+			ms   = MessageSet(data)
+			_    = ms.Offset()
+			_    = ms.Timestamp()
+			size = ms.Size()
+			m    = ms.Message()
+		)
+		_ = m.Crc()
+		_ = m.MagicByte()
+		_ = m.Attributes()
+		_ = m.Key()
+		_ = m.Value()
+		_ = m.Headers()
+		data = data[msgSetHeaderLen+size:]
+		count++
+	}
+}
 
 func EntriesForMessageSet(baseOffset, basePos int64, ms []byte) []*Entry {
 	entries := []*Entry{}

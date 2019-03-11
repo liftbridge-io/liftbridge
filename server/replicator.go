@@ -3,12 +3,13 @@ package server
 import (
 	"bytes"
 	"encoding/binary"
-	"io"
+	//"fmt"
 	"sync"
 	"time"
 
 	"golang.org/x/net/context"
 
+	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -77,6 +78,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		now := time.Now()
 		r.mu.Lock()
 		r.lastSeen = now
+		r.mu.Unlock()
 
 		// Update the ISR replica's latest offset for the stream. This is used
 		// by the leader to know when to commit messages.
@@ -89,6 +91,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 
 		// Check if we're caught up.
 		if req.Offset >= latest {
+			r.mu.Lock()
 			r.lastCaughtUp = now
 			r.mu.Unlock()
 			r.sendHW(req.replyInbox)
@@ -98,21 +101,23 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		// Create a log reader starting at the requested offset.
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		reader, err := r.stream.log.NewReaderUncommitted(ctx, req.Offset+1)
+
+		reader, err := r.stream.log.NewReader(req.Offset+1, true)
 		if err != nil {
 			r.stream.srv.logger.Errorf(
 				"Failed to create replication reader for stream %s "+
 					"and replica %s (requested offset %d, earliest %d, latest %d): %v",
 				r.stream, r.replica, req.Offset+1, earliest, latest, err)
-			r.mu.Unlock()
-			continue
-		}
-		r.mu.Unlock()
-
-		// Send a batch of messages to the replica.
-		if err := r.replicate(reader, req.replyInbox, req.Offset); err != nil {
 			// Send a response to short-circuit request timeout.
 			r.sendHW(req.replyInbox)
+			continue
+		}
+
+		// Send a batch of messages to the replica.
+		if err := r.replicate(ctx, reader, req.replyInbox, req.Offset); err != nil {
+			// Send a response to short-circuit request timeout.
+			r.sendHW(req.replyInbox)
+			continue
 		}
 	}
 }
@@ -200,11 +205,10 @@ func (r *replicator) expandISR() {
 
 // replicate sends a batch of messages to the given NATS inbox along with the
 // leader epoch and HW.
-func (r *replicator) replicate(reader io.Reader, inbox string, offset int64) error {
-	var (
-		buf     = new(bytes.Buffer)
-		tempBuf []byte
-	)
+func (r *replicator) replicate(
+	ctx context.Context, reader *commitlog.Reader, inbox string, offset int64) error {
+
+	buf := new(bytes.Buffer)
 	// Write the leader epoch to the buffer.
 	if err := binary.Write(buf, proto.Encoding, r.epoch); err != nil {
 		r.stream.srv.logger.Errorf("Failed to write leader epoch to buffer while replicating: %v", err)
@@ -219,30 +223,20 @@ func (r *replicator) replicate(reader io.Reader, inbox string, offset int64) err
 
 	newestOffset := r.stream.log.NewestOffset()
 	for offset < newestOffset && buf.Len() < replicationMaxSize {
-		// Read the message headers.
-		if _, err := reader.Read(r.headersBuf[:]); err != nil {
-			r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
-			return err
-		}
-		// Header format: offset (8 bytes), timestamp (8 bytes), size (4 bytes).
-		offset = int64(proto.Encoding.Uint64(r.headersBuf[0:]))
-		size := proto.Encoding.Uint32(r.headersBuf[16:])
-		tempBuf = make([]byte, size)
-
-		// Read the message body.
-		if _, err := reader.Read(tempBuf); err != nil {
+		message, _, _, err := reader.ReadMessage(ctx, r.headersBuf[:])
+		if err != nil {
 			r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
 			return err
 		}
 
 		// Check if this message will put us over the batch size limit. If it
 		// does, flush the batch now.
-		if size+uint32(len(r.headersBuf))+uint32(buf.Len()) > replicationMaxSize {
+		if uint32(len(message))+uint32(len(r.headersBuf))+uint32(buf.Len()) > replicationMaxSize {
 			break
 		}
 
 		// Write the message to the buffer.
-		if err := writeMessageToBuffer(buf, r.headersBuf[:], tempBuf); err != nil {
+		if err := writeMessageToBuffer(buf, r.headersBuf[:], message); err != nil {
 			r.stream.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
 			return err
 		}
@@ -258,6 +252,17 @@ func (r *replicator) replicate(reader io.Reader, inbox string, offset int64) err
 // writeMessageToBuffer writes the headers and message byte slices to the bytes
 // buffer.
 func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {
+	temp := make([]byte, len(headers)+len(message))
+	n := copy(temp, headers)
+	copy(temp[n:], message)
+	commitlog.Validate(temp)
+	//var m proto.Message
+	//d := proto.NewDecoder(message)
+	//if err := m.Decode(d); err != nil {
+	//	fmt.Println(headers)
+	//	fmt.Println(message)
+	//	panic(err)
+	//}
 	if _, err := buf.Write(headers); err != nil {
 		return err
 	}

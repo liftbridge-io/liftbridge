@@ -35,21 +35,24 @@ const (
 	defaultReplicaFetchTimeout     = 5 * time.Second
 	defaultMinInsyncReplicas       = 1
 	defaultRetentionMaxAge         = 7 * 24 * time.Hour
-	defaultRetentionCheckInterval  = 5 * time.Minute
+	defaultCleanerInterval         = 5 * time.Minute
 	defaultMaxSegmentBytes         = 1073741824
 	defaultLogRollTime             = defaultRetentionMaxAge
 )
 
 // LogConfig contains settings for controlling the message log for a stream.
 type LogConfig struct {
-	RetentionMaxBytes      int64
-	RetentionMaxMessages   int64
-	RetentionMaxAge        time.Duration
-	RetentionCheckInterval time.Duration
-	SegmentMaxBytes        int64
-	LogRollTime            time.Duration
+	RetentionMaxBytes    int64
+	RetentionMaxMessages int64
+	RetentionMaxAge      time.Duration
+	CleanerInterval      time.Duration
+	SegmentMaxBytes      int64
+	LogRollTime          time.Duration
+	Compact              bool
 }
 
+// RetentionString returns a human-readable string representation of the
+// retention policy.
 func (l LogConfig) RetentionString() string {
 	str := "["
 	prefix := ""
@@ -68,6 +71,7 @@ func (l LogConfig) RetentionString() string {
 	if prefix == "" {
 		str += "no limits"
 	}
+	str += fmt.Sprintf(", Compact: %t", l.Compact)
 	str += "]"
 	return str
 }
@@ -125,7 +129,7 @@ func NewDefaultConfig() *Config {
 	config.Log.SegmentMaxBytes = defaultMaxSegmentBytes
 	config.Log.RetentionMaxAge = defaultRetentionMaxAge
 	config.Log.LogRollTime = defaultLogRollTime
-	config.Log.RetentionCheckInterval = defaultRetentionCheckInterval
+	config.Log.CleanerInterval = defaultCleanerInterval
 	return config
 }
 
@@ -261,12 +265,12 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 				return err
 			}
 			config.Log.RetentionMaxAge = dur
-		case "retention.check.interval":
+		case "cleaner.interval":
 			dur, err := time.ParseDuration(v.(string))
 			if err != nil {
 				return err
 			}
-			config.Log.RetentionCheckInterval = dur
+			config.Log.CleanerInterval = dur
 		case "segment.max.bytes":
 			config.Log.SegmentMaxBytes = v.(int64)
 		case "log.roll.time":
@@ -275,6 +279,8 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 				return err
 			}
 			config.Log.LogRollTime = dur
+		case "compact":
+			config.Log.Compact = v.(bool)
 		default:
 			return fmt.Errorf("Unknown log configuration setting %q", k)
 		}

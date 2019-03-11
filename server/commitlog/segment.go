@@ -25,12 +25,18 @@ var (
 	// specific entry.
 	ErrEntryNotFound = errors.New("entry not found")
 
-	// ErrSegmentClosed is returned on writes to a closed segment.
+	// ErrSegmentClosed is returned on reads/writes to a closed segment.
 	ErrSegmentClosed = errors.New("segment has been closed")
 
 	// ErrSegmentExists is returned when attempting to create a segment that
 	// already exists.
 	ErrSegmentExists = errors.New("segment already exists")
+
+	// ErrSegmentReplaced is returned when attempting to read from a segment
+	// that has been replaced due to log compaction. When this error is
+	// encountered, operations should be retried in order to run against the
+	// new segment.
+	ErrSegmentReplaced = errors.New("segment was replaced")
 
 	// timestamp returns the current time in Unix nanoseconds. This function
 	// exists for mocking purposes.
@@ -50,9 +56,10 @@ type Segment struct {
 	maxBytes       int64
 	path           string
 	suffix         string
-	waiters        map[io.Reader]chan struct{}
+	waiters        map[contextReader]chan struct{}
 	sealed         bool
 	closed         bool
+	replaced       bool
 
 	sync.RWMutex
 }
@@ -68,7 +75,7 @@ func NewSegment(path string, baseOffset, maxBytes int64, isNew bool, args ...int
 		nextOffset: baseOffset,
 		path:       path,
 		suffix:     suffix,
-		waiters:    make(map[io.Reader]chan struct{}),
+		waiters:    make(map[contextReader]chan struct{}),
 	}
 	// If this is a new segment, ensure the file doesn't already exist.
 	if isNew {
@@ -203,10 +210,10 @@ func (s *Segment) ReadAt(p []byte, off int64) (n int, err error) {
 	s.RLock()
 	defer s.RUnlock()
 	if s.closed {
-		// Return EOF since this typically happens as a result of reading from
-		// a segment that has been sealed, so the caller knows to jump to the
-		// next segment.
-		return 0, io.EOF
+		if s.replaced {
+			return 0, ErrSegmentReplaced
+		}
+		return 0, ErrSegmentClosed
 	}
 	return s.log.ReadAt(p, off)
 }
@@ -218,7 +225,7 @@ func (s *Segment) notifyWaiters() {
 	}
 }
 
-func (s *Segment) waitForData(r io.Reader, pos int64) <-chan struct{} {
+func (s *Segment) waitForData(r contextReader, pos int64) <-chan struct{} {
 	wait := make(chan struct{})
 	s.Lock()
 	// Check if data has been written and/or the segment was filled.
@@ -231,15 +238,20 @@ func (s *Segment) waitForData(r io.Reader, pos int64) <-chan struct{} {
 	return wait
 }
 
-func (s *Segment) removeWaiter(r io.Reader) {
+func (s *Segment) removeWaiter(r contextReader) {
 	s.Lock()
 	delete(s.waiters, r)
 	s.Unlock()
 }
 
+// Close a segment such that it can no longer be read from or written to.
 func (s *Segment) Close() error {
 	s.Lock()
 	defer s.Unlock()
+	return s.close()
+}
+
+func (s *Segment) close() error {
 	if err := s.log.Close(); err != nil {
 		return err
 	}
@@ -257,10 +269,14 @@ func (s *Segment) Cleaner() (*Segment, error) {
 
 // Replace replaces the given segment with the callee.
 func (s *Segment) Replace(old *Segment) (err error) {
-	if err = old.Close(); err != nil {
+	s.Lock()
+	defer s.Unlock()
+	old.Lock()
+	defer old.Unlock()
+	if err = old.close(); err != nil {
 		return err
 	}
-	if err = s.Close(); err != nil {
+	if err = s.close(); err != nil {
 		return err
 	}
 	if err = os.Rename(s.logPath(), old.logPath()); err != nil {
@@ -278,6 +294,7 @@ func (s *Segment) Replace(old *Segment) (err error) {
 	s.writer = log
 	s.reader = log
 	s.closed = false
+	old.replaced = true
 	return s.setupIndex()
 }
 
