@@ -181,7 +181,7 @@ func TestCompactCleanerTruncateConcurrent(t *testing.T) {
 	require.NoError(t, l.Clean())
 
 	require.Equal(t, int64(0), l.OldestOffset())
-	require.Equal(t, int64(0), l.NewestOffset())
+	require.Equal(t, int64(-1), l.NewestOffset())
 }
 
 func appendToLog(t *testing.T, l *CommitLog, entries []keyValue) {

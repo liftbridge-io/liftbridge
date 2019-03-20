@@ -108,7 +108,10 @@ func TestDeleteCleanerMessages(t *testing.T) {
 	segs := make([]*Segment, 20)
 	for i := 0; i < 20; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
-		segs[i].Write(make([]byte, 20), []*Entry{&Entry{}})
+		entries := []*Entry{
+			&Entry{Offset: int64(i), Timestamp: time.Now().UnixNano()},
+		}
+		segs[i].Write(make([]byte, 20), entries)
 	}
 	actual, err := cleaner.Clean(segs)
 	require.NoError(t, err)
