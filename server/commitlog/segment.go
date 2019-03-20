@@ -201,6 +201,12 @@ func (s *Segment) IsEmpty() bool {
 	return s.firstOffset == nil
 }
 
+func (s *Segment) MessageCount() int64 {
+	s.RLock()
+	defer s.RUnlock()
+	return s.Index.CountEntries()
+}
+
 func (s *Segment) WriteMessageSet(ms []byte, entries []*Entry) error {
 	if _, err := s.Write(ms, entries); err != nil {
 		return err

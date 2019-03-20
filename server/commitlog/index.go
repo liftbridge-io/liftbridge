@@ -119,6 +119,12 @@ func (idx *Index) Position() int64 {
 	return idx.position
 }
 
+func (idx *Index) CountEntries() int64 {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.position / entryWidth
+}
+
 func (idx *Index) WriteEntries(entries []*Entry) (err error) {
 	b := new(bytes.Buffer)
 	for _, entry := range entries {

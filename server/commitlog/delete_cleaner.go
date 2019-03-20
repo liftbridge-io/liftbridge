@@ -88,16 +88,14 @@ func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, erro
 	var (
 		lastSeg         = segments[len(segments)-1]
 		cleanedSegments = []*Segment{lastSeg}
-		// NOTE: this won't work when compaction is enabled because there will be gaps.
-		// Cache message count on segments?
-		totalMessages = int64(lastSeg.NextOffset() - lastSeg.BaseOffset)
+		totalMessages   = lastSeg.MessageCount()
 	)
 
 	if len(segments) > 1 {
 		var i int
 		for i = len(segments) - 2; i > -1; i-- {
 			s := segments[i]
-			totalMessages += int64(s.NextOffset() - s.BaseOffset)
+			totalMessages += s.MessageCount()
 			if totalMessages > c.Retention.Messages {
 				break
 			}
