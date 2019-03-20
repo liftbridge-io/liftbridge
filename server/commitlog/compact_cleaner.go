@@ -67,17 +67,29 @@ func (c *CompactCleaner) compact(segments []*Segment) (compacted []*Segment, err
 			latestOffset := keysToOffsets[string(ms.Message().Key())]
 			// Retain all messages with no keys and last message for each key.
 			if ms.Message().Key() == nil || latestOffset == ms.Offset() {
-				entries := EntriesForMessageSet(cs.NextOffset(), cs.Position(), ms)
+				entries := EntriesForMessageSet(cs.Position(), ms)
 				if err := cs.WriteMessageSet(ms, entries); err != nil {
 					return nil, err
 				}
 			}
 		}
 
-		if err = cs.Replace(seg); err != nil {
-			return nil, err
+		if cs.IsEmpty() {
+			// Delete the new segment if it's empty.
+			if err := cs.Delete(); err != nil {
+				return nil, err
+			}
+			// Also delete the old segment since it's been compacted.
+			if err := seg.Delete(); err != nil {
+				return nil, err
+			}
+		} else {
+			// Otherwise replace the old segment with the compacted one.
+			if err = cs.Replace(seg); err != nil {
+				return nil, err
+			}
+			compacted = append(compacted, cs)
 		}
-		compacted = append(compacted, cs)
 	}
 	compacted = append(compacted, segments[len(segments)-1])
 	return compacted, nil

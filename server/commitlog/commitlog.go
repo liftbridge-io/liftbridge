@@ -221,8 +221,7 @@ func (l *CommitLog) AppendMessageSet(ms []byte) ([]int64, error) {
 	var (
 		segment      = l.activeSegment()
 		basePosition = segment.Position()
-		baseOffset   = segment.NextOffset()
-		entries      = EntriesForMessageSet(baseOffset, basePosition, ms)
+		entries      = EntriesForMessageSet(basePosition, ms)
 	)
 	return l.append(segment, ms, entries)
 }
