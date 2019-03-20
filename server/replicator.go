@@ -221,9 +221,13 @@ func (r *replicator) replicate(
 		return err
 	}
 
-	newestOffset := r.stream.log.NewestOffset()
+	var (
+		newestOffset = r.stream.log.NewestOffset()
+		message      commitlog.Message
+		err          error
+	)
 	for offset < newestOffset && buf.Len() < replicationMaxSize {
-		message, _, _, err := reader.ReadMessage(ctx, r.headersBuf[:])
+		message, offset, _, err = reader.ReadMessage(ctx, r.headersBuf[:])
 		if err != nil {
 			r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
 			return err
