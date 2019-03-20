@@ -161,13 +161,7 @@ func (l *CommitLog) open() error {
 			if err != nil {
 				return err
 			}
-			// TODO: This will no longer be needed once we improve compaction
-			// to not write empty segments.
-			if segment.IsEmpty() {
-				segment.Delete()
-			} else {
-				l.segments = append(l.segments, segment)
-			}
+			l.segments = append(l.segments, segment)
 		} else if file.Name() == hwFileName {
 			// Recover high watermark.
 			b, err := ioutil.ReadFile(filepath.Join(l.Path, file.Name()))
