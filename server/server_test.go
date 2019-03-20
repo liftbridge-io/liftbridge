@@ -16,6 +16,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
+
+	"github.com/liftbridge-io/liftbridge/server/commitlog"
 )
 
 var storagePath string
@@ -114,6 +116,16 @@ func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, 
 		stackFatalf(t, "No stream leader found")
 	}
 	return leader
+}
+
+func cleanStream(t *testing.T, subject, name string, server *Server) {
+	stream := server.metadata.GetStream(subject, name)
+	if stream == nil {
+		stackFatalf(t, "No such stream %s", name)
+	}
+	if err := (stream.log.(*commitlog.CommitLog)).Clean(); err != nil {
+		stackFatalf(t, "Error cleaning log: %v", err)
+	}
 }
 
 // Ensure starting a node fails when there is no seed node to join and no
@@ -1290,6 +1302,126 @@ func TestSubscribeStartTime(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case <-gotMsg:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure when StartPosition_EARLIEST is used with Subscribe after compaction
+// is run, messages are read starting at the oldest offset.
+func TestCompactionSubscribeEarliest(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Log.Compact = true
+	// These will force a segment per message.
+	s1Config.BatchMaxMessages = 1
+	s1Config.Log.SegmentMaxBytes = 1
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:    "foo",
+		Subject: "foo",
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	num := 10
+	acked := 0
+	gotAcks := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some messages (offsets 0-9).
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{Key: []byte("foo"), AckInbox: acks}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	// Force log compaction.
+	cleanStream(t, "foo", "foo", s1)
+
+	// Subscribe with EARLIEST. This should start reading from offset 8
+	// (compaction skips the active/last segment, so there are two messages in
+	// the log at this point).
+	msgs := make(chan *proto.Message, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, liftbridge.StartAtEarliestReceived())
+
+	// Wait to get the message.
+	select {
+	case msg := <-msgs:
+		require.Equal(t, int64(8), msg.Offset)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+
+	// Restart the server to test log hydration.
+	client.Close()
+	s1.Stop()
+	s1 = runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait to elect self as leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err = liftbridge.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Make sure we get the same result subscribing with EARLIEST.
+	msgs = make(chan *proto.Message, 1)
+	ctx, cancel = context.WithCancel(context.Background())
+	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, liftbridge.StartAtEarliestReceived())
+
+	// Wait to get the message.
+	select {
+	case msg := <-msgs:
+		require.Equal(t, int64(8), msg.Offset)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}

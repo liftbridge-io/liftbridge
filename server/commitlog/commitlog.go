@@ -139,7 +139,8 @@ func (l *CommitLog) open() error {
 		return errors.Wrap(err, "read dir failed")
 	}
 	for _, file := range files {
-		// if this file is an index file, make sure it has a corresponding .log file
+		// If this file is an index file, make sure it has a corresponding .log
+		// file.
 		if strings.HasSuffix(file.Name(), indexFileSuffix) {
 			_, err := os.Stat(filepath.Join(
 				l.Path, strings.Replace(file.Name(), indexFileSuffix, logFileSuffix, 1)))
@@ -156,11 +157,17 @@ func (l *CommitLog) open() error {
 			if err != nil {
 				return err
 			}
-			segment, err := NewSegment(l.Path, int64(baseOffset), l.MaxSegmentBytes, false)
+			segment, err := NewSegment(l.Path, int64(baseOffset), l.MaxSegmentBytes, false, "")
 			if err != nil {
 				return err
 			}
-			l.segments = append(l.segments, segment)
+			// TODO: This will no longer be needed once we improve compaction
+			// to not write empty segments.
+			if segment.IsEmpty() {
+				segment.Delete()
+			} else {
+				l.segments = append(l.segments, segment)
+			}
 		} else if file.Name() == hwFileName {
 			// Recover high watermark.
 			b, err := ioutil.ReadFile(filepath.Join(l.Path, file.Name()))
@@ -175,7 +182,7 @@ func (l *CommitLog) open() error {
 		}
 	}
 	if len(l.segments) == 0 {
-		segment, err := NewSegment(l.Path, 0, l.MaxSegmentBytes, true)
+		segment, err := NewSegment(l.Path, 0, l.MaxSegmentBytes, true, "")
 		if err != nil {
 			return err
 		}
@@ -232,15 +239,19 @@ func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int
 }
 
 // NewestOffset returns the offset of the last message in the log.
+// TODO: This should use a bool to indicate empty (once we switch to unsigned
+// offsets).
 func (l *CommitLog) NewestOffset() int64 {
-	return l.activeSegment().NextOffset() - 1
+	return l.activeSegment().LastOffset()
 }
 
 // OldestOffset returns the offset of the first message in the log.
+// TODO: This should use a bool to indicate empty (once we switch to unsigned
+// offsets).
 func (l *CommitLog) OldestOffset() int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.segments[0].BaseOffset
+	return l.segments[0].FirstOffset()
 }
 
 // OffsetForTimestamp returns the earliest offset whose timestamp is greater
@@ -407,9 +418,7 @@ func (l *CommitLog) Truncate(offset int64) error {
 	if replace {
 		var (
 			ss              = NewSegmentScanner(segment)
-			newSegment, err = NewSegment(
-				segment.path, segment.BaseOffset,
-				segment.maxBytes, true, truncatedSuffix)
+			newSegment, err = segment.Truncated()
 		)
 		if err != nil {
 			return err
@@ -472,7 +481,7 @@ func (l *CommitLog) checkAndPerformSplit() (split bool, err error) {
 func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	offset := l.NewestOffset() + 1
 	l.Logger.Debugf("Appending new log segment for %s with base offset %d", l.Path, offset)
-	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes, true)
+	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes, true, "")
 	if err != nil {
 		return err
 	}
@@ -488,7 +497,7 @@ func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	l.mu.Lock()
 	l.segments = append(l.segments, segment)
 	l.mu.Unlock()
-	return l.clean()
+	return l.Clean()
 }
 
 func (l *CommitLog) cleanerLoop() {
@@ -514,13 +523,13 @@ func (l *CommitLog) cleanerLoop() {
 			continue
 		}
 
-		if err := l.clean(); err != nil {
+		if err := l.Clean(); err != nil {
 			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
 		}
 	}
 }
 
-func (l *CommitLog) clean() error {
+func (l *CommitLog) Clean() error {
 	segments, err := l.deleteCleaner.Clean(l.Segments())
 	if err != nil {
 		return err

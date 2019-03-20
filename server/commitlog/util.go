@@ -1,6 +1,9 @@
 package commitlog
 
-import "sort"
+import (
+	"os"
+	"sort"
+)
 
 // findSegment returns the first segment whose next assignable offset is
 // greater than the given offset. Returns nil and the index where the segment
@@ -61,4 +64,9 @@ func findSegmentByBaseOffset(segments []*Segment, offset int64) *Segment {
 
 func roundDown(total, factor int64) int64 {
 	return factor * (total / factor)
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

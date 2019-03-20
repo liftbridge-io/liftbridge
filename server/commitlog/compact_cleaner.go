@@ -58,7 +58,7 @@ func (c *CompactCleaner) compact(segments []*Segment) (compacted []*Segment, err
 	// Write new segments.
 	// TODO: Join segments that are below the bytes limit.
 	for _, seg := range segments[:len(segments)-1] {
-		cs, err := seg.Cleaner()
+		cs, err := seg.Cleaned()
 		if err != nil {
 			return nil, err
 		}

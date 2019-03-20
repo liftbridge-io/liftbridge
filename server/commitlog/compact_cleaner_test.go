@@ -68,7 +68,7 @@ func TestCompactCleaner(t *testing.T) {
 	appendToLog(t, l, entries)
 
 	// Force a compaction.
-	require.NoError(t, l.clean())
+	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
 		&expectedMsg{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
@@ -112,7 +112,7 @@ func TestCompactCleanerNoKeys(t *testing.T) {
 	appendToLog(t, l, entries)
 
 	// Force a compaction.
-	require.NoError(t, l.clean())
+	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
 		&expectedMsg{Offset: 0, Msg: &proto.Message{Value: []byte("first")}},
@@ -132,6 +132,56 @@ func TestCompactCleanerNoKeys(t *testing.T) {
 		require.Equal(t, exp.Offset, offset)
 		compareMessages(t, exp.Msg, msg)
 	}
+}
+
+// Ensure neither log truncation nor compaction fail when run concurrently.
+func TestCompactCleanerTruncateConcurrent(t *testing.T) {
+	opts := Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+		Compact:         true,
+	}
+	l, cleanup := setupWithOptions(t, opts)
+
+	stop := make(chan bool)
+	wait := make(chan bool)
+	defer func() {
+		stop <- true
+		<-wait
+		cleanup()
+	}()
+	go func() {
+		for {
+			select {
+			case <-stop:
+				wait <- true
+				return
+			default:
+				require.NoError(t, l.Truncate(0))
+			}
+		}
+	}()
+
+	// Append some messages.
+	entries := []keyValue{
+		keyValue{[]byte("foo"), []byte("first")},
+		keyValue{[]byte("bar"), []byte("first")},
+		keyValue{[]byte("foo"), []byte("second")},
+		keyValue{[]byte("foo"), []byte("third")},
+		keyValue{[]byte("bar"), []byte("second")},
+		keyValue{[]byte("baz"), []byte("first")},
+		keyValue{[]byte("baz"), []byte("second")},
+		keyValue{[]byte("qux"), []byte("first")},
+		keyValue{[]byte("foo"), []byte("fourth")},
+		keyValue{[]byte("baz"), []byte("third")},
+	}
+	appendToLog(t, l, entries)
+
+	// Force a compaction.
+	require.NoError(t, l.Clean())
+
+	require.Equal(t, int64(0), l.OldestOffset())
+	require.Equal(t, int64(0), l.NewestOffset())
 }
 
 func appendToLog(t *testing.T, l *CommitLog, entries []keyValue) {
