@@ -59,8 +59,8 @@ RETRY:
 	msg, offset, timestamp, err := r.readMessage(ctx, headersBuf)
 	if err != nil {
 		if pkgErrors.Cause(err) == ErrSegmentReplaced {
-			// ErrSegmentReplaced indicates we attempted to read from a log segment
-			// that was replaced due to compaction, so reinitialize the
+			// ErrSegmentReplaced indicates we attempted to read from a log
+			// segment that was replaced due to compaction, so reinitialize the
 			// contextReader and try again to read from the new segment.
 			if r.uncommitted {
 				r.ctxReader, err = r.log.newReaderUncommitted(r.offset)
@@ -151,21 +151,30 @@ LOOP:
 				err = io.EOF
 				break
 			}
+			// At this point, either the segment has more data or, if it was
+			// full, a new segment was rolled. Try to read from the segment
+			// again.
 			continue
 		}
 
-		// If there are not enough segments to read, wait for new segment to be
-		// appended or the context to be canceled.
+		// We hit an EOF after waiting for data which means a new segment was
+		// rolled, so move to the next segment.
 		segments = r.cl.Segments()
 		nextSeg := findSegmentByBaseOffset(segments, r.seg.BaseOffset+1)
+
+		// If there are not enough segments to read, wait for new segment to be
+		// appended or the context to be canceled.
 		for nextSeg == nil {
 			if !r.waitForData(ctx, r.seg) {
 				err = io.EOF
 				break LOOP
 			}
 			segments = r.cl.Segments()
+			nextSeg = findSegmentByBaseOffset(segments, r.seg.BaseOffset+1)
 		}
 		r.seg = nextSeg
+		r.pos = 0
+		waiting = false
 	}
 
 	return n, err
