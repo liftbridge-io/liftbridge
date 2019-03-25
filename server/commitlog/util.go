@@ -19,6 +19,12 @@ func findSegment(segments []*Segment, offset int64) (*Segment, int) {
 	return segments[idx], idx
 }
 
+// findSegmentContains returns the first segment whose next assignable offset
+// is greater than the given offset and a bool indicating if the returned
+// segment contains the offset, meaning the offset is between the segment's
+// base offset and next assignable offset. Note that because the segment could
+// be compacted, "contains" does not guarantee the offset is actually present,
+// only that it's within the bounds.
 func findSegmentContains(segments []*Segment, offset int64) (*Segment, bool) {
 	seg, _ := findSegment(segments, offset)
 	if seg == nil {
