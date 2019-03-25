@@ -274,7 +274,7 @@ func (r *committedReader) readLoop(
 	var readSize int
 LOOP:
 	for {
-		lim := int64(len(p))
+		lim := int64(len(p[n:]))
 		if r.seg == r.hwSeg {
 			// If we're reading from the HW segment, read up to the HW pos.
 			lim = min(lim, r.hwPos-r.pos)
@@ -351,7 +351,6 @@ func (l *CommitLog) newReaderCommitted(offset int64) (contextReader, error) {
 		hwPos    = int64(-1)
 		segments = l.Segments()
 		hwSeg    *Segment
-		err      error
 	)
 
 	// If offset exceeds HW, wait for the next message. This also covers the
@@ -376,21 +375,19 @@ func (l *CommitLog) newReaderCommitted(offset int64) (contextReader, error) {
 		hwSeg = segments[hwIdx]
 	}
 
-	if oldest := l.OldestOffset(); offset < oldest {
-		offset = oldest
-	}
-	seg, _ := findSegment(segments, offset)
-	if seg == nil {
-		return nil, ErrSegmentNotFound
-	}
-	entry, err := seg.findEntry(offset)
-	if err != nil {
-		return nil, err
+	position := int64(0)
+	seg, contains := findSegmentContains(segments, offset)
+	if contains {
+		entry, err := seg.findEntry(offset)
+		if err != nil {
+			return nil, err
+		}
+		position = entry.Position
 	}
 	return &committedReader{
 		cl:    l,
 		seg:   seg,
-		pos:   entry.Position,
+		pos:   position,
 		hwSeg: hwSeg,
 		hwPos: hwPos,
 		hw:    hw,
