@@ -208,17 +208,17 @@ func (s *Segment) MessageCount() int64 {
 }
 
 func (s *Segment) WriteMessageSet(ms []byte, entries []*Entry) error {
-	if _, err := s.Write(ms, entries); err != nil {
-		return err
-	}
-	return s.Index.WriteEntries(entries)
-}
-
-// Write writes a byte slice to the log at the current position.
-// It increments the offset as well as sets the position to the new tail.
-func (s *Segment) Write(p []byte, entries []*Entry) (n int, err error) {
 	s.Lock()
 	defer s.Unlock()
+	if _, err := s.write(ms, entries); err != nil {
+		return err
+	}
+	return s.Index.writeEntries(entries)
+}
+
+// write a byte slice to the log at the current position. This increments the
+// offset as well as sets the position to the new tail.
+func (s *Segment) write(p []byte, entries []*Entry) (n int, err error) {
 	if s.closed {
 		return 0, ErrSegmentClosed
 	}
