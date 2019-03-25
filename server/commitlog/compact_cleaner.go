@@ -35,19 +35,24 @@ func (c *CompactCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	}
 
 	c.Logger.Debugf("Compacting log %s", c.Name)
-	defer c.Logger.Debugf("Finished compacting log %s", c.Name)
+	compacted, removed, err := c.compact(segments)
+	if err == nil {
+		c.Logger.Debugf("Finished compacting log %s, removed %d messages", c.Name, removed)
+	}
 
-	var err error
-	segments, err = c.compact(segments)
-	return segments, errors.Wrap(err, "failed to compact log")
+	return compacted, errors.Wrap(err, "failed to compact log")
 
 }
 
-func (c *CompactCleaner) compact(segments []*Segment) (compacted []*Segment, err error) {
+func (c *CompactCleaner) compact(segments []*Segment) ([]*Segment, int, error) {
 	// Compact messages up to the last segment by scanning keys and retaining
 	// only the latest.
 	// TODO: Implement option for configuring minimum compaction lag.
-	keysToOffsets := make(map[string]int64)
+	var (
+		compacted     = make([]*Segment, 0, len(segments))
+		removed       = 0
+		keysToOffsets = make(map[string]int64)
+	)
 	for _, segment := range segments[:len(segments)-1] {
 		ss := NewSegmentScanner(segment)
 		for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
@@ -60,7 +65,7 @@ func (c *CompactCleaner) compact(segments []*Segment) (compacted []*Segment, err
 	for _, seg := range segments[:len(segments)-1] {
 		cs, err := seg.Cleaned()
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		ss := NewSegmentScanner(seg)
 		for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
@@ -69,28 +74,39 @@ func (c *CompactCleaner) compact(segments []*Segment) (compacted []*Segment, err
 			if ms.Message().Key() == nil || latestOffset == ms.Offset() {
 				entries := EntriesForMessageSet(cs.Position(), ms)
 				if err := cs.WriteMessageSet(ms, entries); err != nil {
-					return nil, err
+					return nil, 0, err
 				}
+			} else {
+				removed++
 			}
 		}
 
 		if cs.IsEmpty() {
-			// Delete the new segment if it's empty.
-			if err := cs.Delete(); err != nil {
-				return nil, err
-			}
-			// Also delete the old segment since it's been compacted.
-			if err := seg.Delete(); err != nil {
-				return nil, err
+			// If the new segment is empty, remove it along with the old one.
+			if err := cleanupEmptySegment(cs, seg); err != nil {
+				return nil, 0, err
 			}
 		} else {
 			// Otherwise replace the old segment with the compacted one.
 			if err = cs.Replace(seg); err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 			compacted = append(compacted, cs)
 		}
 	}
 	compacted = append(compacted, segments[len(segments)-1])
-	return compacted, nil
+	return compacted, removed, nil
+}
+
+func cleanupEmptySegment(new, old *Segment) error {
+	// Delete the new segment if it's empty.
+	if err := new.Delete(); err != nil {
+		return err
+	}
+	// Also delete the old segment since it's been compacted. Set the replaced
+	// flag since this is in the read path.
+	old.Lock()
+	old.replaced = true
+	old.Unlock()
+	return old.Delete()
 }

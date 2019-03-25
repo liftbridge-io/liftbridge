@@ -10,9 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
-	"unsafe"
 
 	atomic_file "github.com/natefinch/atomic"
 	"github.com/pkg/errors"
@@ -182,9 +180,7 @@ func (l *CommitLog) open() error {
 		}
 		l.segments = append(l.segments, segment)
 	}
-	activeSegment := l.segments[len(l.segments)-1]
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
-		unsafe.Pointer(activeSegment))
+	l.vActiveSegment = l.segments[len(l.segments)-1]
 	return nil
 }
 
@@ -235,7 +231,7 @@ func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int
 // TODO: This should use a bool to indicate empty (once we switch to unsigned
 // offsets).
 func (l *CommitLog) NewestOffset() int64 {
-	return l.activeSegment().LastOffset()
+	return l.activeSegment().NextOffset() - 1
 }
 
 // OldestOffset returns the offset of the first message in the log.
@@ -336,7 +332,9 @@ func (l *CommitLog) HighWatermark() int64 {
 }
 
 func (l *CommitLog) activeSegment() *Segment {
-	return (*Segment)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment))))
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.vActiveSegment
 }
 
 // Close closes each log segment file and stops the background goroutine
@@ -430,9 +428,7 @@ func (l *CommitLog) Truncate(offset int64) error {
 		}
 		segments[idx] = newSegment
 	}
-	activeSegment := segments[len(segments)-1]
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
-		unsafe.Pointer(activeSegment))
+	l.vActiveSegment = segments[len(segments)-1]
 	l.segments = segments
 	return nil
 }
@@ -448,16 +444,15 @@ func (l *CommitLog) Segments() []*Segment {
 // the first message was written to it. It then performs the split if eligible,
 // returning any error resulting from the split. The returned bool indicates if
 // a split was performed.
-func (l *CommitLog) checkAndPerformSplit() (split bool, err error) {
+func (l *CommitLog) checkAndPerformSplit() (bool, error) {
 	// Do this in a loop because segment splitting may fail due to a competing
 	// thread performing the split at the same time. If this happens, we just
 	// retry the check on the new active segment.
 	for {
 		activeSegment := l.activeSegment()
 		if !activeSegment.CheckSplit(l.LogRollTime) {
-			return
+			return false, nil
 		}
-		split = true
 		if err := l.split(activeSegment); err != nil {
 			// ErrSegmentExists indicates another thread has already performed
 			// the segment split, so reload the new active segment and check
@@ -468,6 +463,7 @@ func (l *CommitLog) checkAndPerformSplit() (split bool, err error) {
 			return false, err
 		}
 		activeSegment.Seal()
+		return true, nil
 	}
 }
 
@@ -478,19 +474,20 @@ func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	if err != nil {
 		return err
 	}
-	// Do a CAS on the active segment to ensure no other threads have replaced
-	// it already. If this fails, it means another thread has already replaced
-	// it, so delete the new segment and return ErrSegmentExists.
-	if !atomic.CompareAndSwapPointer(
-		(*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
-		unsafe.Pointer(oldActiveSegment), unsafe.Pointer(segment)) {
-		segment.Delete()
-		return ErrSegmentExists
-	}
 	l.mu.Lock()
-	l.segments = append(l.segments, segment)
+	segments := append(l.segments, segment)
+	l.segments = segments
+	l.vActiveSegment = segment
 	l.mu.Unlock()
-	return l.Clean()
+	cleaned, err := l.clean(segments)
+	if err != nil {
+		l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
+	} else {
+		l.mu.Lock()
+		l.segments = cleaned
+		l.mu.Unlock()
+	}
+	return nil
 }
 
 func (l *CommitLog) cleanerLoop() {
@@ -523,25 +520,32 @@ func (l *CommitLog) cleanerLoop() {
 }
 
 func (l *CommitLog) Clean() error {
-	segments, err := l.deleteCleaner.Clean(l.Segments())
+	cleaned, err := l.clean(l.Segments())
 	if err != nil {
 		return err
 	}
+	// TODO: This will cause problems if the active segment is split
+	// while this is run because of the segments replace.
 	l.mu.Lock()
-	l.segments = segments
+	l.segments = cleaned
 	l.mu.Unlock()
-	if l.Compact {
-		segments, err = l.compactCleaner.Clean(l.Segments())
-		if err != nil {
-			return err
-		}
-		// TODO: This won't work if the active segment was split during
-		// cleaning.
-		l.mu.Lock()
-		l.segments = segments
-		l.mu.Unlock()
-	}
 	return nil
+}
+
+func (l *CommitLog) clean(segments []*Segment) ([]*Segment, error) {
+	cleaned, err := l.deleteCleaner.Clean(segments)
+	if err != nil {
+		l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
+		return nil, err
+	}
+	if l.Compact {
+		cleaned, err = l.compactCleaner.Clean(cleaned)
+		if err != nil {
+			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
+			return nil, err
+		}
+	}
+	return cleaned, nil
 }
 
 func (l *CommitLog) checkpointHWLoop() {
