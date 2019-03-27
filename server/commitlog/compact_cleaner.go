@@ -28,14 +28,15 @@ func NewCompactCleaner(opts CompactCleanerOptions) *CompactCleaner {
 
 // Clean performs log compaction by rewriting segments such that they contain
 // only the last message for a given key. Compaction is applied to all segments
-// up to but excluding the active (last) segment.
-func (c *CompactCleaner) Clean(segments []*Segment) ([]*Segment, error) {
+// up to but excluding the active (last) segment or the provided HW, whichever
+// comes first.
+func (c *CompactCleaner) Clean(hw int64, segments []*Segment) ([]*Segment, error) {
 	if len(segments) <= 1 {
 		return segments, nil
 	}
 
 	c.Logger.Debugf("Compacting log %s", c.Name)
-	compacted, removed, err := c.compact(segments)
+	compacted, removed, err := c.compact(hw, segments)
 	if err == nil {
 		c.Logger.Debugf("Finished compacting log %s, removed %d messages", c.Name, removed)
 	}
@@ -44,23 +45,28 @@ func (c *CompactCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 
 }
 
-func (c *CompactCleaner) compact(segments []*Segment) ([]*Segment, int, error) {
-	// Compact messages up to the last segment by scanning keys and retaining
-	// only the latest.
+func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment, int, error) {
+	// Compact messages up to the last segment or HW, whichever is first, by
+	// scanning keys and retaining only the latest.
 	// TODO: Implement option for configuring minimum compaction lag.
 	var (
 		compacted     = make([]*Segment, 0, len(segments))
 		removed       = 0
 		keysToOffsets = make(map[string]int64)
 	)
-	for _, segment := range segments[:len(segments)-1] {
+SCAN:
+	for _, segment := range segments {
 		ss := NewSegmentScanner(segment)
 		for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
-			keysToOffsets[string(ms.Message().Key())] = ms.Offset()
+			offset := ms.Offset()
+			if offset > hw {
+				break SCAN
+			}
+			keysToOffsets[string(ms.Message().Key())] = offset
 		}
 	}
 
-	// Write new segments.
+	// Write new segments. Skip the last segment since we will not compact it.
 	// TODO: Join segments that are below the bytes limit.
 	for _, seg := range segments[:len(segments)-1] {
 		cs, err := seg.Cleaned()
@@ -69,9 +75,14 @@ func (c *CompactCleaner) compact(segments []*Segment) ([]*Segment, int, error) {
 		}
 		ss := NewSegmentScanner(seg)
 		for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
-			latestOffset := keysToOffsets[string(ms.Message().Key())]
+			var (
+				offset       = ms.Offset()
+				key          = ms.Message().Key()
+				latestOffset = keysToOffsets[string(key)]
+			)
 			// Retain all messages with no keys and last message for each key.
-			if ms.Message().Key() == nil || latestOffset == ms.Offset() {
+			// Also retain all messages after the HW.
+			if key == nil || offset == latestOffset || offset >= hw {
 				entries := EntriesForMessageSet(cs.Position(), ms)
 				if err := cs.WriteMessageSet(ms, entries); err != nil {
 					return nil, 0, err
@@ -94,6 +105,7 @@ func (c *CompactCleaner) compact(segments []*Segment) ([]*Segment, int, error) {
 			compacted = append(compacted, cs)
 		}
 	}
+	// Add the last segment back in to the compacted list.
 	compacted = append(compacted, segments[len(segments)-1])
 	return compacted, removed, nil
 }

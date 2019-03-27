@@ -37,8 +37,8 @@ const (
 // write-ahead log.
 type CommitLog struct {
 	Options
-	deleteCleaner  Cleaner
-	compactCleaner Cleaner
+	deleteCleaner  *DeleteCleaner
+	compactCleaner *CompactCleaner
 	name           string
 	mu             sync.RWMutex
 	hw             int64
@@ -51,7 +51,7 @@ type CommitLog struct {
 // Options contains settings for configuring a CommitLog.
 type Options struct {
 	Path                 string        // Path to log directory
-	MaxSegmentBytes      int64         // Max number of bytes a Segment can contain before creating a new Segment
+	MaxSegmentBytes      int64         // Max bytes a Segment can contain before creating a new one
 	MaxLogBytes          int64         // Retention by bytes
 	MaxLogMessages       int64         // Retention by messages
 	MaxLogAge            time.Duration // Retention by age
@@ -539,7 +539,7 @@ func (l *CommitLog) clean(segments []*Segment) ([]*Segment, error) {
 		return nil, err
 	}
 	if l.Compact {
-		cleaned, err = l.compactCleaner.Clean(cleaned)
+		cleaned, err = l.compactCleaner.Clean(l.HighWatermark(), cleaned)
 		if err != nil {
 			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
 			return nil, err

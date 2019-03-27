@@ -23,7 +23,7 @@ type expectedMsg struct {
 func TestCompactCleanerNoSegments(t *testing.T) {
 	opts := CompactCleanerOptions{Name: "foo", Logger: noopLogger()}
 	cleaner := NewCompactCleaner(opts)
-	segments, err := cleaner.Clean(nil)
+	segments, err := cleaner.Clean(0, nil)
 	require.NoError(t, err)
 	require.Nil(t, segments)
 }
@@ -36,7 +36,7 @@ func TestCompactCleanerOneSegment(t *testing.T) {
 	defer remove(t, dir)
 
 	expected := []*Segment{createSegment(t, dir, 0, 100)}
-	actual, err := cleaner.Clean(expected)
+	actual, err := cleaner.Clean(0, expected)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
 }
@@ -65,17 +65,69 @@ func TestCompactCleaner(t *testing.T) {
 		keyValue{[]byte("foo"), []byte("fourth")},
 		keyValue{[]byte("baz"), []byte("third")},
 	}
-	appendToLog(t, l, entries)
+	appendToLog(t, l, entries, true)
 
 	// Force a compaction.
 	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
 		&expectedMsg{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
-		&expectedMsg{Offset: 6, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("second")}},
 		&expectedMsg{Offset: 7, Msg: &proto.Message{Key: []byte("qux"), Value: []byte("first")}},
 		&expectedMsg{Offset: 8, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("fourth")}},
 		// This one is present because it's in the active segment.
+		&expectedMsg{Offset: 9, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("third")}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := l.NewReader(0, true)
+	require.NoError(t, err)
+	headers := make([]byte, 20)
+	for _, exp := range expected {
+		msg, offset, _, err := r.ReadMessage(ctx, headers)
+		require.NoError(t, err)
+		require.Equal(t, exp.Offset, offset)
+		compareMessages(t, exp.Msg, msg)
+	}
+}
+
+// Ensure Clean retains only the latest message for each key up to the HW.
+func TestCompactCleanerHW(t *testing.T) {
+	opts := Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+		Compact:         true,
+	}
+	l, cleanup := setupWithOptions(t, opts)
+	defer cleanup()
+
+	// Append some messages.
+	entries := []keyValue{
+		keyValue{[]byte("foo"), []byte("first")},
+		keyValue{[]byte("bar"), []byte("first")},
+		keyValue{[]byte("foo"), []byte("second")},
+		keyValue{[]byte("foo"), []byte("third")},
+		keyValue{[]byte("bar"), []byte("second")},
+		keyValue{[]byte("baz"), []byte("first")},
+		keyValue{[]byte("baz"), []byte("second")},
+		keyValue{[]byte("qux"), []byte("first")},
+		keyValue{[]byte("foo"), []byte("fourth")},
+		keyValue{[]byte("baz"), []byte("third")},
+	}
+	appendToLog(t, l, entries, false)
+	l.SetHighWatermark(5)
+
+	// Force a compaction.
+	require.NoError(t, l.Clean())
+
+	expected := []*expectedMsg{
+		&expectedMsg{Offset: 3, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("third")}},
+		&expectedMsg{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
+		&expectedMsg{Offset: 5, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("first")}},
+		// These are retained because they are after the HW.
+		&expectedMsg{Offset: 6, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("second")}},
+		&expectedMsg{Offset: 7, Msg: &proto.Message{Key: []byte("qux"), Value: []byte("first")}},
+		&expectedMsg{Offset: 8, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("fourth")}},
 		&expectedMsg{Offset: 9, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("third")}},
 	}
 
@@ -109,7 +161,7 @@ func TestCompactCleanerNoKeys(t *testing.T) {
 		keyValue{nil, []byte("third")},
 		keyValue{nil, []byte("fourth")},
 	}
-	appendToLog(t, l, entries)
+	appendToLog(t, l, entries, true)
 
 	// Force a compaction.
 	require.NoError(t, l.Clean())
@@ -175,7 +227,7 @@ func TestCompactCleanerTruncateConcurrent(t *testing.T) {
 		keyValue{[]byte("foo"), []byte("fourth")},
 		keyValue{[]byte("baz"), []byte("third")},
 	}
-	appendToLog(t, l, entries)
+	appendToLog(t, l, entries, true)
 
 	// Force a compaction.
 	require.NoError(t, l.Clean())
@@ -184,13 +236,16 @@ func TestCompactCleanerTruncateConcurrent(t *testing.T) {
 	require.Equal(t, int64(-1), l.NewestOffset())
 }
 
-func appendToLog(t *testing.T, l *CommitLog, entries []keyValue) {
+func appendToLog(t *testing.T, l *CommitLog, entries []keyValue, commit bool) {
 	for _, entry := range entries {
 		msg := &proto.Message{
 			Key:   entry.key,
 			Value: entry.value,
 		}
-		_, err := l.Append([]*proto.Message{msg})
+		offsets, err := l.Append([]*proto.Message{msg})
 		require.NoError(t, err)
+		if commit {
+			l.SetHighWatermark(offsets[len(offsets)-1])
+		}
 	}
 }
