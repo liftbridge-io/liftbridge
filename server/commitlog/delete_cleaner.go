@@ -14,13 +14,6 @@ var computeTTL = func(age time.Duration) int64 {
 	return time.Now().Add(-age).UnixNano()
 }
 
-// Cleaner performs a transformation over log segments.
-type Cleaner interface {
-	// Clean performs a transformation over the given log segments and returns
-	// the cleaned segments.
-	Clean([]*Segment) ([]*Segment, error)
-}
-
 // DeleteCleanerOptions contains configuration settings for the DeleteCleaner.
 type DeleteCleanerOptions struct {
 	Retention struct {
