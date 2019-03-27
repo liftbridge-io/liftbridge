@@ -10,7 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unsafe"
 
 	atomic_file "github.com/natefinch/atomic"
 	"github.com/pkg/errors"
@@ -180,7 +182,9 @@ func (l *CommitLog) open() error {
 		}
 		l.segments = append(l.segments, segment)
 	}
-	l.vActiveSegment = l.segments[len(l.segments)-1]
+	activeSegment := l.segments[len(l.segments)-1]
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
+		unsafe.Pointer(activeSegment))
 	return nil
 }
 
@@ -332,9 +336,7 @@ func (l *CommitLog) HighWatermark() int64 {
 }
 
 func (l *CommitLog) activeSegment() *Segment {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.vActiveSegment
+	return (*Segment)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment))))
 }
 
 // Close closes each log segment file and stops the background goroutine
@@ -428,7 +430,9 @@ func (l *CommitLog) Truncate(offset int64) error {
 		}
 		segments[idx] = newSegment
 	}
-	l.vActiveSegment = segments[len(segments)-1]
+	activeSegment := segments[len(segments)-1]
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
+		unsafe.Pointer(activeSegment))
 	l.segments = segments
 	return nil
 }
@@ -474,10 +478,18 @@ func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	if err != nil {
 		return err
 	}
+	// Do a CAS on the active segment to ensure no other threads have replaced
+	// it already. If this fails, it means another thread has already replaced
+	// it, so delete the new segment and return ErrSegmentExists.
+	if !atomic.CompareAndSwapPointer(
+		(*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
+		unsafe.Pointer(oldActiveSegment), unsafe.Pointer(segment)) {
+		segment.Delete()
+		return ErrSegmentExists
+	}
 	l.mu.Lock()
 	segments := append(l.segments, segment)
 	l.segments = segments
-	l.vActiveSegment = segment
 	l.mu.Unlock()
 	cleaned, err := l.clean(segments)
 	if err != nil {
