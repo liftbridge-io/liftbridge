@@ -120,7 +120,12 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 
 	isr := make(map[string]*replica, len(protoStream.Isr))
 	for _, rep := range protoStream.Isr {
-		isr[rep] = &replica{offset: -1}
+		offset := int64(-1)
+		// For this server, initialize the replica offset to the newest offset.
+		if rep == s.config.Clustering.ServerID {
+			offset = log.NewestOffset()
+		}
+		isr[rep] = &replica{offset: offset}
 	}
 
 	st := &stream{
@@ -582,11 +587,13 @@ func (s *stream) commitLoop(stop chan struct{}) {
 		}
 		s.mu.RUnlock()
 		var (
-			minLatest     = min(latestOffsets)
-			toCommit, err = s.commitQueue.TakeUntil(func(pending interface{}) bool {
+			minLatest      = min(latestOffsets)
+			committed, err = s.commitQueue.TakeUntil(func(pending interface{}) bool {
 				return pending.(*client.Ack).Offset <= minLatest
 			})
 		)
+
+		s.log.SetHighWatermark(minLatest)
 
 		// An error here indicates the queue was disposed as a result of the
 		// leader stepping down.
@@ -594,14 +601,12 @@ func (s *stream) commitLoop(stop chan struct{}) {
 			return
 		}
 
-		if len(toCommit) == 0 {
+		if len(committed) == 0 {
 			continue
 		}
 
-		// Commit by updating the HW and sending acks (if applicable).
-		hw := toCommit[len(toCommit)-1].(*client.Ack).Offset
-		s.log.SetHighWatermark(hw)
-		for _, ackIface := range toCommit {
+		// Ack any committed entries (if applicable).
+		for _, ackIface := range committed {
 			ack := ackIface.(*client.Ack)
 			// Only send an ack if the AckPolicy is ALL.
 			if ack.AckPolicy == client.AckPolicy_ALL {

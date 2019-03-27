@@ -381,3 +381,163 @@ func TestAckPolicyLeader(t *testing.T) {
 		t.Fatal("Did not receive expected ack")
 	}
 }
+
+// Ensure messages in the log still get committed after the leader is
+// restarted.
+func TestCommitOnRestart(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.MinISR = 2
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5051)
+	s2Config.Clustering.MinISR = 2
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	servers := []*Server{s1, s2}
+	leader := getMetadataLeader(t, 10*time.Second, servers...)
+
+	client, err := liftbridge.Connect([]string{"localhost:5050", "localhost:5051"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	stream := liftbridge.StreamInfo{
+		Name:              "foo",
+		Subject:           "foo",
+		ReplicationFactor: 2,
+	}
+	err = client.CreateStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Subscribe to acks.
+	acks := "acks"
+	num := 5
+	acked := 0
+	gotAcks := make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some messages.
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{AckInbox: acks, AckPolicy: proto.AckPolicy_ALL}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	// Kill stream follower.
+	leader = getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, servers...)
+	var follower *Server
+	for i, server := range servers {
+		if server != leader {
+			follower = server
+			servers = append(servers[:i], servers[i+1:]...)
+			break
+		}
+	}
+	follower.Stop()
+
+	// Subscribe to acks.
+	acks = "acks2"
+	acked = 0
+	gotAcks = make(chan struct{})
+	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
+		_, err := liftbridge.UnmarshalAck(m.Data)
+		require.NoError(t, err)
+		acked++
+		if acked == num {
+			close(gotAcks)
+		}
+	})
+	require.NoError(t, err)
+	nc.Flush()
+
+	// Publish some more messages.
+	for i := 0; i < num; i++ {
+		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.MessageOptions{AckInbox: acks}))
+		require.NoError(t, err)
+	}
+
+	// Wait for acks.
+	select {
+	case <-gotAcks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected acks")
+	}
+
+	var (
+		leaderConfig   *Config
+		followerConfig *Config
+	)
+	if leader == s1 {
+		leaderConfig = s1Config
+		followerConfig = s2Config
+	} else {
+		leaderConfig = s2Config
+		followerConfig = s1Config
+	}
+
+	// Restart the leader.
+	leader.Stop()
+	leader = runServerWithConfig(t, leaderConfig)
+	defer leader.Stop()
+
+	// Bring the follower back up.
+	follower = runServerWithConfig(t, followerConfig)
+	defer follower.Stop()
+
+	// Wait for stream leader to be elected.
+	getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, leader, follower)
+
+	// Ensure all messages have been committed by reading them back.
+	i := 0
+	ch := make(chan struct{})
+	err = client.Subscribe(context.Background(), stream.Subject, stream.Name,
+		func(msg *proto.Message, err error) {
+			if i == num*2 && err != nil {
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, int64(i), msg.Offset)
+			i++
+			if i == num*2 {
+				close(ch)
+			}
+		}, liftbridge.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+}
