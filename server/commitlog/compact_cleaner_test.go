@@ -194,14 +194,10 @@ func TestCompactCleanerTruncateConcurrent(t *testing.T) {
 		Compact:         true,
 	}
 	l, cleanup := setupWithOptions(t, opts)
+	defer cleanup()
 
 	stop := make(chan bool)
 	wait := make(chan bool)
-	defer func() {
-		stop <- true
-		<-wait
-		cleanup()
-	}()
 	go func() {
 		for {
 			select {
@@ -229,11 +225,14 @@ func TestCompactCleanerTruncateConcurrent(t *testing.T) {
 	}
 	appendToLog(t, l, entries, true)
 
+	stop <- true
+	<-wait
+
 	// Force a compaction.
 	require.NoError(t, l.Clean())
+	require.NoError(t, l.Truncate(0))
 
 	require.Equal(t, int64(0), l.OldestOffset())
-	require.Equal(t, int64(-1), l.NewestOffset())
 }
 
 func appendToLog(t *testing.T, l *CommitLog, entries []keyValue, commit bool) {
