@@ -32,7 +32,7 @@ const (
 	defaultRaftCacheSize           = 512
 	defaultMetadataCacheMaxAge     = 2 * time.Minute
 	defaultBatchMaxMessages        = 1024
-	defaultReplicaFetchTimeout     = 5 * time.Second
+	defaultReplicaFetchTimeout     = 3 * time.Second
 	defaultMinInsyncReplicas       = 1
 	defaultRetentionMaxAge         = 7 * 24 * time.Hour
 	defaultCleanerInterval         = 5 * time.Minute
