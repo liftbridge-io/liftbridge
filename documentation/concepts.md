@@ -150,7 +150,7 @@ hours", "retain 100GB worth of messages", or "retain 1,000,000 messages".
 Additionally, Liftbridge supports log *compaction*. Publishers can, optionally,
 set a *key* on a [message envelope](#message-envelope). A stream can be
 configured to compact by key. In this case, it retains only the last message
-for each unique key.
+for each unique key. Messages that do not have a key are always retained.
 
 ## Controller
 

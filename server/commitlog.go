@@ -1,10 +1,7 @@
 package server
 
 import (
-	"io"
-
-	"golang.org/x/net/context"
-
+	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -14,13 +11,10 @@ type CommitLog interface {
 	// filesystem.
 	Delete() error
 
-	// NewReaderUncommitted returns an io.Reader which reads data from the log
-	// starting at the given offset.
-	NewReaderUncommitted(ctx context.Context, offset int64) (io.Reader, error)
-
-	// NewReaderCommitted returns an io.Reader which reads only committed data
-	// from the log starting at the given offset.
-	NewReaderCommitted(ctx context.Context, offset int64) (io.Reader, error)
+	// NewReader creates a new Reader starting at the given offset. If
+	// uncommitted is true, the Reader will read uncommitted messages from the
+	// log. Otherwise, it will only return committed messages.
+	NewReader(offset int64, uncommitted bool) (*commitlog.Reader, error)
 
 	// Truncate removes all messages from the log starting at the given offset.
 	Truncate(offset int64) error

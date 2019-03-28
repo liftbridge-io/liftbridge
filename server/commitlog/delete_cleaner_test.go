@@ -17,7 +17,7 @@ func noopLogger() logger.Logger {
 }
 
 func createSegment(t require.TestingT, dir string, baseOffset, maxBytes int64) *Segment {
-	s, err := NewSegment(dir, baseOffset, maxBytes, false)
+	s, err := NewSegment(dir, baseOffset, maxBytes, false, "")
 	require.NoError(t, err)
 	return s
 }
@@ -62,7 +62,7 @@ func TestDeleteCleanerOneSegment(t *testing.T) {
 // Ensure Clean deletes segments to maintain the bytes limit.
 func TestDeleteCleanerBytes(t *testing.T) {
 	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
-	opts.Retention.Bytes = 50
+	opts.Retention.Bytes = 100
 	cleaner := NewDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
@@ -70,7 +70,7 @@ func TestDeleteCleanerBytes(t *testing.T) {
 	segs := make([]*Segment, 5)
 	for i := 0; i < 5; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
-		segs[i].Write(make([]byte, 20), []*Entry{&Entry{}})
+		writeToSegment(t, segs[i], int64(i), []byte("blah"))
 	}
 	actual, err := cleaner.Clean(segs)
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestDeleteCleanerMessages(t *testing.T) {
 	segs := make([]*Segment, 20)
 	for i := 0; i < 20; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
-		segs[i].Write(make([]byte, 20), []*Entry{&Entry{}})
+		writeToSegment(t, segs[i], int64(i), []byte("blah"))
 	}
 	actual, err := cleaner.Clean(segs)
 	require.NoError(t, err)
@@ -140,7 +140,7 @@ func TestDeleteCleanerMessagesBelowLimit(t *testing.T) {
 func TestDeleteCleanerBytesMessages(t *testing.T) {
 	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Messages = 15
-	opts.Retention.Bytes = 100
+	opts.Retention.Bytes = 200
 	cleaner := NewDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
@@ -148,7 +148,7 @@ func TestDeleteCleanerBytesMessages(t *testing.T) {
 	segs := make([]*Segment, 20)
 	for i := 0; i < 20; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
-		segs[i].Write(make([]byte, 20), []*Entry{&Entry{}})
+		writeToSegment(t, segs[i], int64(i), []byte("blah"))
 	}
 	actual, err := cleaner.Clean(segs)
 	require.NoError(t, err)
@@ -218,4 +218,71 @@ func TestDeleteCleanerMessagesBelowAgeLimit(t *testing.T) {
 	actual, err := cleaner.Clean(expected)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
+}
+
+// Ensure Clean correctly calculates the number of messages in the log when
+// it's been compacted.
+func TestDeleteCleanerMessagesCompacted(t *testing.T) {
+	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts.Retention.Messages = 10
+	cleaner := NewDeleteCleaner(opts)
+	dir := tempDir(t)
+	defer remove(t, dir)
+
+	// Write segment with gaps in the offsets to emulate compaction.
+	seg1 := createSegment(t, dir, 0, 1024)
+	writeToSegment(t, seg1, 2, []byte("blah"))
+	writeToSegment(t, seg1, 4, []byte("blah"))
+	writeToSegment(t, seg1, 12, []byte("blah"))
+
+	seg2 := createSegment(t, dir, 13, 1024)
+	writeToSegment(t, seg2, 13, []byte("blah"))
+	writeToSegment(t, seg2, 14, []byte("blah"))
+	writeToSegment(t, seg2, 15, []byte("blah"))
+
+	segs := []*Segment{seg1, seg2}
+	actual, err := cleaner.Clean(segs)
+
+	require.NoError(t, err)
+	require.Len(t, actual, 2)
+
+	// Ensure no messages were actually deleted.
+	ss := NewSegmentScanner(actual[0])
+	_, entry, err := ss.Scan()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), entry.Offset)
+	_, entry, err = ss.Scan()
+	require.NoError(t, err)
+	require.Equal(t, int64(4), entry.Offset)
+	_, entry, err = ss.Scan()
+	require.NoError(t, err)
+	require.Equal(t, int64(12), entry.Offset)
+	_, _, err = ss.Scan()
+	require.Error(t, err)
+
+	ss = NewSegmentScanner(actual[1])
+	_, entry, err = ss.Scan()
+	require.NoError(t, err)
+	require.Equal(t, int64(13), entry.Offset)
+	_, entry, err = ss.Scan()
+	require.NoError(t, err)
+	require.Equal(t, int64(14), entry.Offset)
+	_, entry, err = ss.Scan()
+	require.NoError(t, err)
+	require.Equal(t, int64(15), entry.Offset)
+	_, _, err = ss.Scan()
+	require.Error(t, err)
+}
+
+func writeToSegment(t *testing.T, seg *Segment, offset int64, data []byte) {
+	ms, entries, err := NewMessageSetFromProto(int64(offset), seg.Position(),
+		[]*proto.Message{
+			&proto.Message{
+				Timestamp: time.Now().UnixNano(),
+				Value:     data,
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NoError(t, seg.WriteMessageSet(ms, entries))
 }

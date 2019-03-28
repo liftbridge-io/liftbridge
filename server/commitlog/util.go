@@ -1,9 +1,13 @@
 package commitlog
 
-import "sort"
+import (
+	"os"
+	"sort"
+)
 
-// findSegments returns the nearest segment whose base offset is greater than
-// or equal to the given offset.
+// findSegment returns the first segment whose next assignable offset is
+// greater than the given offset. Returns nil and the index where the segment
+// would be if there is no such segment.
 func findSegment(segments []*Segment, offset int64) (*Segment, int) {
 	n := len(segments)
 	idx := sort.Search(n, func(i int) bool {
@@ -13,6 +17,20 @@ func findSegment(segments []*Segment, offset int64) (*Segment, int) {
 		return nil, idx
 	}
 	return segments[idx], idx
+}
+
+// findSegmentContains returns the first segment whose next assignable offset
+// is greater than the given offset and a bool indicating if the returned
+// segment contains the offset, meaning the offset is between the segment's
+// base offset and next assignable offset. Note that because the segment could
+// be compacted, "contains" does not guarantee the offset is actually present,
+// only that it's within the bounds.
+func findSegmentContains(segments []*Segment, offset int64) (*Segment, bool) {
+	seg, _ := findSegment(segments, offset)
+	if seg == nil {
+		return nil, false
+	}
+	return seg, seg.BaseOffset <= offset
 }
 
 // findSegmentIndexByTimestamp returns the index of the first segment whose
@@ -52,4 +70,9 @@ func findSegmentByBaseOffset(segments []*Segment, offset int64) *Segment {
 
 func roundDown(total, factor int64) int64 {
 	return factor * (total / factor)
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

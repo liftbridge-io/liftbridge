@@ -4,8 +4,8 @@ import "github.com/liftbridge-io/liftbridge/server/proto"
 
 type Message []byte
 
-func (m Message) Crc() int32 {
-	return int32(proto.Encoding.Uint32(m))
+func (m Message) Crc() uint32 {
+	return proto.Encoding.Uint32(m)
 }
 
 func (m Message) MagicByte() int8 {

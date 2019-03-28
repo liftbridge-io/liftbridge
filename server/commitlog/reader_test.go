@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 
@@ -43,11 +44,11 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 			idx := 4
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			r, err := l.NewReaderUncommitted(ctx, int64(idx))
+			r, err := l.NewReader(int64(idx), true)
 			require.NoError(t, err)
 
 			headers := make([]byte, 20)
-			msg, offset, timestamp, err := ReadMessage(r, headers)
+			msg, offset, timestamp, err := r.ReadMessage(ctx, headers)
 			require.NoError(t, err)
 			require.Equal(t, int64(idx), offset)
 			require.Equal(t, int64(idx), timestamp)
@@ -68,13 +69,17 @@ func TestReaderUncommittedBlockCancel(t *testing.T) {
 	_, err := l.Append([]*proto.Message{msg})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	r, err := l.NewReaderUncommitted(ctx, 0)
+	r, err := l.NewReader(0, true)
 	require.NoError(t, err)
-	p := make([]byte, 100)
+
+	headers := make([]byte, 20)
+	_, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
 	go cancel()
-	_, err = r.Read(p)
-	require.Equal(t, io.EOF, err)
+	_, _, _, err = r.ReadMessage(ctx, headers)
+	require.Equal(t, io.EOF, errors.Cause(err))
 }
 
 func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
@@ -91,10 +96,10 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r, err := l.NewReaderUncommitted(ctx, 0)
+	r, err := l.NewReader(0, true)
 	require.NoError(t, err)
 	headers := make([]byte, 20)
-	m, offset, timestamp, err := ReadMessage(r, headers)
+	m, offset, timestamp, err := r.ReadMessage(ctx, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), offset)
 	require.Equal(t, int64(1), timestamp)
@@ -108,7 +113,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	m, offset, timestamp, err = ReadMessage(r, headers)
+	m, offset, timestamp, err = r.ReadMessage(ctx, headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), offset)
 	require.Equal(t, int64(2), timestamp)
@@ -126,13 +131,13 @@ func TestReaderUncommittedReadError(t *testing.T) {
 	_, err := l.Append([]*proto.Message{msg})
 	require.NoError(t, err)
 
-	r, err := l.NewReaderUncommitted(context.Background(), 0)
+	r, err := l.NewReader(0, true)
 	require.NoError(t, err)
 
 	require.NoError(t, l.Close())
 
 	p := make([]byte, 10)
-	_, err = r.Read(p)
+	_, _, _, err = r.ReadMessage(context.Background(), p)
 	require.Error(t, err)
 }
 
@@ -156,11 +161,11 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 			require.NoError(t, err)
 			l.SetHighWatermark(4)
 			idx := 2
-			r, err := l.NewReaderCommitted(context.Background(), int64(idx))
+			r, err := l.NewReader(int64(idx), false)
 			require.NoError(t, err)
 
 			headers := make([]byte, 20)
-			msg, offset, timestamp, err := ReadMessage(r, headers)
+			msg, offset, timestamp, err := r.ReadMessage(context.Background(), headers)
 			require.NoError(t, err)
 			require.Equal(t, int64(idx), offset)
 			require.Equal(t, int64(idx), timestamp)
@@ -178,12 +183,12 @@ func TestReaderCommittedBlockCancel(t *testing.T) {
 	defer cleanup()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	r, err := l.NewReaderCommitted(ctx, 0)
+	r, err := l.NewReader(0, false)
 	require.NoError(t, err)
-	p := make([]byte, 100)
 	go cancel()
-	_, err = r.Read(p)
-	require.Equal(t, io.EOF, err)
+	headers := make([]byte, 20)
+	_, _, _, err = r.ReadMessage(ctx, headers)
+	require.Equal(t, io.EOF, errors.Cause(err))
 }
 
 func TestReaderCommittedReadError(t *testing.T) {
@@ -201,13 +206,13 @@ func TestReaderCommittedReadError(t *testing.T) {
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 
-	r, err := l.NewReaderCommitted(context.Background(), 0)
+	r, err := l.NewReader(0, false)
 	require.NoError(t, err)
 
 	require.NoError(t, l.Close())
 
-	p := make([]byte, 10)
-	_, err = r.Read(p)
+	headers := make([]byte, 20)
+	_, _, _, err = r.ReadMessage(context.Background(), headers)
 	require.Error(t, err)
 }
 
@@ -219,7 +224,7 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	r, err := l.NewReaderCommitted(context.Background(), 0)
+	r, err := l.NewReader(0, false)
 	require.NoError(t, err)
 
 	msg := &proto.Message{Value: []byte("hello"), Timestamp: 1}
@@ -232,7 +237,7 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	}()
 
 	headers := make([]byte, 20)
-	m, offset, timestamp, err := ReadMessage(r, headers)
+	m, offset, timestamp, err := r.ReadMessage(context.Background(), headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), offset)
 	require.Equal(t, int64(1), timestamp)
@@ -258,12 +263,12 @@ func TestReaderCommittedRead(t *testing.T) {
 			_, err = l.Append(msgs)
 			require.NoError(t, err)
 			l.SetHighWatermark(9)
-			r, err := l.NewReaderCommitted(context.Background(), 0)
+			r, err := l.NewReader(0, false)
 			require.NoError(t, err)
 
 			headers := make([]byte, 20)
 			for i, msg := range msgs {
-				m, offset, timestamp, err := ReadMessage(r, headers)
+				m, offset, timestamp, err := r.ReadMessage(context.Background(), headers)
 				require.NoError(t, err)
 				require.Equal(t, int64(i), offset)
 				require.Equal(t, int64(i), timestamp)
@@ -292,12 +297,12 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 			_, err = l.Append(msgs)
 			require.NoError(t, err)
 			l.SetHighWatermark(4)
-			r, err := l.NewReaderCommitted(context.Background(), 0)
+			r, err := l.NewReader(0, false)
 			require.NoError(t, err)
 
 			headers := make([]byte, 20)
 			for i, msg := range msgs[:5] {
-				m, offset, timestamp, err := ReadMessage(r, headers)
+				m, offset, timestamp, err := r.ReadMessage(context.Background(), headers)
 				require.NoError(t, err)
 				require.Equal(t, int64(i), offset)
 				require.Equal(t, int64(i), timestamp)
@@ -324,7 +329,7 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 	_, err = l.Append(msgs)
 	require.NoError(t, err)
 	l.SetHighWatermark(4)
-	r, err := l.NewReaderCommitted(context.Background(), 0)
+	r, err := l.NewReader(0, false)
 	require.NoError(t, err)
 
 	go func() {
@@ -334,7 +339,7 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 
 	headers := make([]byte, 20)
 	for i, msg := range msgs {
-		m, offset, timestamp, err := ReadMessage(r, headers)
+		m, offset, timestamp, err := r.ReadMessage(context.Background(), headers)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
 		require.Equal(t, int64(i), timestamp)
@@ -360,7 +365,7 @@ func TestReaderCommittedCancel(t *testing.T) {
 	require.NoError(t, err)
 	l.SetHighWatermark(4)
 	ctx, cancel := context.WithCancel(context.Background())
-	r, err := l.NewReaderCommitted(ctx, 0)
+	r, err := l.NewReader(0, false)
 	require.NoError(t, err)
 
 	go func() {
@@ -371,7 +376,7 @@ func TestReaderCommittedCancel(t *testing.T) {
 	count := 0
 	headers := make([]byte, 20)
 	for i, msg := range msgs {
-		m, offset, timestamp, err := ReadMessage(r, headers)
+		m, offset, timestamp, err := r.ReadMessage(ctx, headers)
 		if count < 5 {
 			require.NoError(t, err)
 			require.Equal(t, int64(i), offset)
@@ -379,7 +384,7 @@ func TestReaderCommittedCancel(t *testing.T) {
 			compareMessages(t, msg, m)
 			count++
 		} else {
-			require.Equal(t, io.EOF, err)
+			require.Equal(t, io.EOF, errors.Cause(err))
 		}
 	}
 	require.Equal(t, 5, count)
@@ -402,13 +407,13 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 
-	r, err := l.NewReaderCommitted(context.Background(), 5)
+	r, err := l.NewReader(5, false)
 	require.NoError(t, err)
 
 	go l.SetHighWatermark(1)
 
 	headers := make([]byte, 20)
-	m, offset, timestamp, err := ReadMessage(r, headers)
+	m, offset, timestamp, err := r.ReadMessage(context.Background(), headers)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), offset)
 	require.Equal(t, int64(2), timestamp)

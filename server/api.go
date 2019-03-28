@@ -8,8 +8,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/liftbridge-io/liftbridge/server/commitlog"
 )
 
 const raftApplyTimeout = 30 * time.Second
@@ -139,7 +137,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
-		reader, err = stream.log.NewReaderCommitted(ctx, startOffset)
+		reader, err = stream.log.NewReader(startOffset, false)
 	)
 	if err != nil {
 		return nil, nil, status.New(
@@ -150,7 +148,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 		headersBuf := make([]byte, 20)
 		for {
 			// TODO: this could be more efficient.
-			m, offset, timestamp, err := commitlog.ReadMessage(reader, headersBuf)
+			m, offset, timestamp, err := reader.ReadMessage(ctx, headersBuf)
 			if err != nil {
 				select {
 				case errCh <- status.Convert(err):

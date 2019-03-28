@@ -14,10 +14,7 @@ var computeTTL = func(age time.Duration) int64 {
 	return time.Now().Add(-age).UnixNano()
 }
 
-type Cleaner interface {
-	Clean([]*Segment) ([]*Segment, error)
-}
-
+// DeleteCleanerOptions contains configuration settings for the DeleteCleaner.
 type DeleteCleanerOptions struct {
 	Retention struct {
 		Bytes    int64
@@ -34,10 +31,14 @@ type DeleteCleaner struct {
 	DeleteCleanerOptions
 }
 
+// NewDeleteCleaner returns a new Cleaner which enforces log retention
+// policies by deleting segments.
 func NewDeleteCleaner(opts DeleteCleanerOptions) *DeleteCleaner {
 	return &DeleteCleaner{opts}
 }
 
+// Clean will enforce the log retention policy by deleting old segments.
+// Deletion only occurs at the segment granularity.
 func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	var err error
 	if len(segments) == 0 || (c.Retention.Bytes == 0 && c.Retention.Messages == 0 && c.Retention.Age == 0) {
@@ -80,15 +81,14 @@ func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, erro
 	var (
 		lastSeg         = segments[len(segments)-1]
 		cleanedSegments = []*Segment{lastSeg}
-		// NOTE: this won't work when compaction is enabled because there will be gaps.
-		totalMessages = int64(lastSeg.NextOffset() - lastSeg.BaseOffset)
+		totalMessages   = lastSeg.MessageCount()
 	)
 
 	if len(segments) > 1 {
 		var i int
 		for i = len(segments) - 2; i > -1; i-- {
 			s := segments[i]
-			totalMessages += int64(s.NextOffset() - s.BaseOffset)
+			totalMessages += s.MessageCount()
 			if totalMessages > c.Retention.Messages {
 				break
 			}

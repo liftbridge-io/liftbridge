@@ -1,11 +1,11 @@
 package commitlog
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/context"
 )
 
 // Ensure CheckSplit returns false when the segment has not been written to and
@@ -17,7 +17,7 @@ func TestSegmentCheckSplitFull(t *testing.T) {
 	s := createSegment(t, dir, 0, 10)
 	require.False(t, s.CheckSplit(1))
 
-	s.Write(make([]byte, 10), []*Entry{&Entry{}})
+	s.write(make([]byte, 10), []*Entry{&Entry{}})
 	require.True(t, s.CheckSplit(1))
 }
 
@@ -45,7 +45,7 @@ func TestSegmentCheckSplitNotFull(t *testing.T) {
 	}()
 
 	s := createSegment(t, dir, 0, 10)
-	s.Write(make([]byte, 5), []*Entry{&Entry{}})
+	s.write(make([]byte, 5), []*Entry{&Entry{}})
 	s.firstWriteTime = 1
 	require.False(t, s.CheckSplit(5))
 }
@@ -64,9 +64,15 @@ func TestSegmentCheckSplitLogRollTimeExceeded(t *testing.T) {
 	}()
 
 	s := createSegment(t, dir, 0, 10)
-	s.Write(make([]byte, 5), []*Entry{&Entry{}})
+	s.write(make([]byte, 5), []*Entry{&Entry{}})
 	s.firstWriteTime = 1
 	require.True(t, s.CheckSplit(1))
+}
+
+type mockContextReader struct{}
+
+func (m *mockContextReader) Read(ctx context.Context, buf []byte) (int, error) {
+	return 0, nil
 }
 
 // Ensure Seal marks a Segment as sealed, notify waiters, and shrinks the
@@ -82,7 +88,7 @@ func TestSegmentSeal(t *testing.T) {
 	require.Equal(t, int64(10485760), stats.Size())
 
 	// Add a waiter.
-	ch := s.waitForData(strings.NewReader("mock"), 0)
+	ch := s.waitForData(&mockContextReader{}, 0)
 
 	s.Seal()
 

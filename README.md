@@ -32,7 +32,7 @@ for more context and some of the inspiration behind it.
 - Wildcard subscription support
 - At-least-once delivery support
 - Message key-value support
-- Log compaction by key (WIP)
+- Log compaction by key
 - Single static binary (~16MB)
 - Designed to be high-throughput (more on this to come)
 - Supremely simple
@@ -222,7 +222,7 @@ be generated quite easily using the
 - [x] Configurable acks
 - [x] Log retention by message age
 - [x] Log retention by number of messages
-- [ ] Log compaction by key
+- [x] Log compaction by key
 - [ ] Consumer-offset checkpointing in the log
 - [x] Minimum ISR support
 - [x] Additional subscribe semantics

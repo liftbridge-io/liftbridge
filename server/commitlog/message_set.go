@@ -16,7 +16,7 @@ const (
 
 type MessageSet []byte
 
-func EntriesForMessageSet(baseOffset, basePos int64, ms []byte) []*Entry {
+func EntriesForMessageSet(basePos int64, ms []byte) []*Entry {
 	entries := []*Entry{}
 	if len(ms) <= msgSetHeaderLen {
 		return entries

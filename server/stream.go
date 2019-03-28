@@ -86,6 +86,7 @@ type stream struct {
 	stopFollower  chan struct{}
 	stopLeader    chan struct{}
 	belowMinISR   bool
+	shutdown      sync.WaitGroup
 }
 
 // newStream creates a new stream. If the stream is recovered, it should not be
@@ -93,13 +94,16 @@ type stream struct {
 // intermediate state. This call will initialize or recover the stream's
 // backing commit log or return an error if it fails to do so.
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+	file := filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name)
 	log, err := commitlog.New(commitlog.Options{
-		Path:            filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name),
+		Path:            file,
 		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
 		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
 		MaxLogMessages:  s.config.Log.RetentionMaxMessages,
 		MaxLogAge:       s.config.Log.RetentionMaxAge,
 		LogRollTime:     s.config.Log.LogRollTime,
+		CleanerInterval: s.config.Log.CleanerInterval,
+		Compact:         s.config.Log.Compact,
 		Logger:          s.logger,
 	})
 	if err != nil {
@@ -117,7 +121,12 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 
 	isr := make(map[string]*replica, len(protoStream.Isr))
 	for _, rep := range protoStream.Isr {
-		isr[rep] = &replica{offset: -1}
+		offset := int64(-1)
+		// For this server, initialize the replica offset to the newest offset.
+		if rep == s.config.Clustering.ServerID {
+			offset = log.NewestOffset()
+		}
+		isr[rep] = &replica{offset: offset}
 	}
 
 	st := &stream{
@@ -249,12 +258,16 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	// Start message processing loop.
 	s.recvChan = make(chan *nats.Msg, recvChannelSize)
 	s.stopLeader = make(chan struct{})
-	s.srv.startGoroutine(func() { s.messageProcessingLoop(s.recvChan, s.stopLeader) })
+	s.srv.startGoroutine(func() {
+		s.messageProcessingLoop(s.recvChan, s.stopLeader)
+		s.shutdown.Done()
+	})
 
 	// Start replicating to followers.
 	s.startReplicating(epoch, s.stopLeader)
 
 	// Subscribe to the NATS subject and begin sequencing messages.
+	// TODO: This should be drained on shutdown.
 	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.Group, func(m *nats.Msg) {
 		s.recvChan <- m
 	})
@@ -295,7 +308,16 @@ func (s *stream) stopLeading() error {
 	}
 
 	// Stop processing messages and replicating.
+	s.shutdown.Add(1) // Message processing loop
+	s.shutdown.Add(1) // Commit loop
+	if replicas := len(s.replicas); replicas > 1 {
+		s.shutdown.Add(replicas - 1) // Replicator loops (minus one to exclude self)
+	}
 	close(s.stopLeader)
+
+	// Wait for loops to shutdown.
+	s.shutdown.Wait()
+
 	s.commitQueue.Dispose()
 
 	return nil
@@ -325,7 +347,9 @@ func (s *stream) becomeFollower() error {
 	// Start fetching messages from the leader's log starting at the HW.
 	s.stopFollower = make(chan struct{})
 	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
-	s.srv.startGoroutine(func() { s.replicationRequestLoop(s.Leader, s.LeaderEpoch, s.stopFollower) })
+	s.srv.startGoroutine(func() {
+		s.replicationRequestLoop(s.Leader, s.LeaderEpoch, s.stopFollower)
+	})
 
 	s.isFollowing = true
 	s.isLeading = false
@@ -336,7 +360,8 @@ func (s *stream) becomeFollower() error {
 // stopFollowing causes the stream to step down as a follower by stopping
 // replication requests and the leader failure detector.
 func (s *stream) stopFollowing() error {
-	// Stop replication request and leader failure detector loops.
+	// Stop replication request and leader failure detector loop.
+	// TODO: Do graceful shutdown similar to stopLeading().
 	close(s.stopFollower)
 	return nil
 }
@@ -386,6 +411,12 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 
 	// Update HW from leader's HW.
 	hw := int64(proto.Encoding.Uint64(msg.Data[8:]))
+	if replicaHW := s.log.HighWatermark(); replicaHW > hw {
+		// TODO: Force a leader election here?
+		s.srv.logger.Warnf("Replica HW %d is higher than leader HW %d for stream %s",
+			replicaHW, hw, s)
+		return 0
+	}
 	s.log.SetHighWatermark(hw)
 
 	data := msg.Data[16:]
@@ -520,7 +551,10 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 		s.srv.logger.Debugf("Replicating stream %s to followers", s)
 	}
 	s.commitQueue = queue.New(100)
-	s.srv.startGoroutine(func() { s.commitLoop(stop) })
+	s.srv.startGoroutine(func() {
+		s.commitLoop(stop)
+		s.shutdown.Done()
+	})
 
 	s.replicators = make(map[string]*replicator, len(s.replicas)-1)
 	for replica := range s.replicas {
@@ -536,7 +570,10 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 			leader:     s.srv.config.Clustering.ServerID,
 		}
 		s.replicators[replica] = r
-		s.srv.startGoroutine(func() { r.start(epoch, stop) })
+		s.srv.startGoroutine(func() {
+			r.start(epoch, stop)
+			s.shutdown.Done()
+		})
 	}
 }
 
@@ -561,14 +598,15 @@ func (s *stream) commitLoop(stop chan struct{}) {
 		)
 		if isrSize < minISR {
 			s.mu.RUnlock()
-			s.srv.logger.Errorf("Unable to commit messages for stream %s, ISR size (%d) below minimum (%d)",
+			s.srv.logger.Errorf(
+				"Unable to commit messages for stream %s, ISR size (%d) below minimum (%d)",
 				s, isrSize, minISR)
 			continue
 		}
 
 		// Commit all messages in the queue that have been replicated by all
 		// replicas in the ISR. Do this by taking the min of all latest offsets
-		// in the ISR.
+		// in the ISR, updating the HW, and acking queue entries.
 		var (
 			latestOffsets = make([]int64, isrSize)
 			i             = 0
@@ -579,11 +617,13 @@ func (s *stream) commitLoop(stop chan struct{}) {
 		}
 		s.mu.RUnlock()
 		var (
-			minLatest     = min(latestOffsets)
-			toCommit, err = s.commitQueue.TakeUntil(func(pending interface{}) bool {
+			minLatest      = min(latestOffsets)
+			committed, err = s.commitQueue.TakeUntil(func(pending interface{}) bool {
 				return pending.(*client.Ack).Offset <= minLatest
 			})
 		)
+
+		s.log.SetHighWatermark(minLatest)
 
 		// An error here indicates the queue was disposed as a result of the
 		// leader stepping down.
@@ -591,14 +631,12 @@ func (s *stream) commitLoop(stop chan struct{}) {
 			return
 		}
 
-		if len(toCommit) == 0 {
+		if len(committed) == 0 {
 			continue
 		}
 
-		// Commit by updating the HW and sending acks (if applicable).
-		hw := toCommit[len(toCommit)-1].(*client.Ack).Offset
-		s.log.SetHighWatermark(hw)
-		for _, ackIface := range toCommit {
+		// Ack any committed entries (if applicable).
+		for _, ackIface := range committed {
 			ack := ackIface.(*client.Ack)
 			// Only send an ack if the AckPolicy is ALL.
 			if ack.AckPolicy == client.AckPolicy_ALL {

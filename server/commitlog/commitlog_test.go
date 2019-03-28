@@ -31,12 +31,12 @@ func TestNewCommitLog(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r, err := l.NewReaderUncommitted(ctx, 0)
+	r, err := l.NewReader(0, true)
 	require.NoError(t, err)
 
 	headers := make([]byte, 20)
 	for i, exp := range msgs {
-		msg, offset, timestamp, err := ReadMessage(r, headers)
+		msg, offset, timestamp, err := r.ReadMessage(ctx, headers)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
 		require.Equal(t, msgs[i].Timestamp, timestamp)
@@ -69,12 +69,12 @@ func TestCommitLogRecover(t *testing.T) {
 			// Read them back as a sanity check.
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			r, err := l.NewReaderUncommitted(ctx, 0)
+			r, err := l.NewReader(0, true)
 			require.NoError(t, err)
 
 			headers := make([]byte, 20)
 			for i, exp := range msgs {
-				msg, offset, timestamp, err := ReadMessage(r, headers)
+				msg, offset, timestamp, err := r.ReadMessage(ctx, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
@@ -90,10 +90,10 @@ func TestCommitLogRecover(t *testing.T) {
 
 			ctx, cancel = context.WithCancel(context.Background())
 			defer cancel()
-			r, err = l.NewReaderUncommitted(ctx, 0)
+			r, err = l.NewReader(0, true)
 			require.NoError(t, err)
 			for i, exp := range msgs {
-				msg, offset, timestamp, err := ReadMessage(r, headers)
+				msg, offset, timestamp, err := r.ReadMessage(ctx, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)

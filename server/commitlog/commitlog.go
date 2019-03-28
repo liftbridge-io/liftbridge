@@ -39,23 +39,25 @@ const (
 // write-ahead log.
 type CommitLog struct {
 	Options
-	cleaner        Cleaner
+	deleteCleaner  *DeleteCleaner
+	compactCleaner *CompactCleaner
 	name           string
 	mu             sync.RWMutex
 	hw             int64
 	closed         chan struct{}
 	segments       []*Segment
 	vActiveSegment *Segment
-	hwWaiters      map[io.Reader]chan struct{}
+	hwWaiters      map[contextReader]chan struct{}
 }
 
 // Options contains settings for configuring a CommitLog.
 type Options struct {
 	Path                 string        // Path to log directory
-	MaxSegmentBytes      int64         // Max number of bytes a Segment can contain before creating a new Segment
+	MaxSegmentBytes      int64         // Max bytes a Segment can contain before creating a new one
 	MaxLogBytes          int64         // Retention by bytes
 	MaxLogMessages       int64         // Retention by messages
 	MaxLogAge            time.Duration // Retention by age
+	Compact              bool          // Run compaction on log clean
 	CleanerInterval      time.Duration // Frequency to enforce retention policy
 	HWCheckpointInterval time.Duration // Frequency to checkpoint HW to disk
 	LogRollTime          time.Duration // Max time before a new log segment is rolled out.
@@ -92,14 +94,21 @@ func New(opts Options) (*CommitLog, error) {
 	cleanerOpts.Retention.Age = opts.MaxLogAge
 	cleaner := NewDeleteCleaner(cleanerOpts)
 
+	compactCleanerOpts := CompactCleanerOptions{
+		Name:   opts.Path,
+		Logger: opts.Logger,
+	}
+	compactCleaner := NewCompactCleaner(compactCleanerOpts)
+
 	path, _ := filepath.Abs(opts.Path)
 	l := &CommitLog{
-		Options:   opts,
-		name:      filepath.Base(path),
-		cleaner:   cleaner,
-		hw:        -1,
-		closed:    make(chan struct{}),
-		hwWaiters: make(map[io.Reader]chan struct{}),
+		Options:        opts,
+		name:           filepath.Base(path),
+		deleteCleaner:  cleaner,
+		compactCleaner: compactCleaner,
+		hw:             -1,
+		closed:         make(chan struct{}),
+		hwWaiters:      make(map[contextReader]chan struct{}),
 	}
 
 	if err := l.init(); err != nil {
@@ -130,7 +139,8 @@ func (l *CommitLog) open() error {
 		return errors.Wrap(err, "read dir failed")
 	}
 	for _, file := range files {
-		// if this file is an index file, make sure it has a corresponding .log file
+		// If this file is an index file, make sure it has a corresponding .log
+		// file.
 		if strings.HasSuffix(file.Name(), indexFileSuffix) {
 			_, err := os.Stat(filepath.Join(
 				l.Path, strings.Replace(file.Name(), indexFileSuffix, logFileSuffix, 1)))
@@ -147,7 +157,7 @@ func (l *CommitLog) open() error {
 			if err != nil {
 				return err
 			}
-			segment, err := NewSegment(l.Path, int64(baseOffset), l.MaxSegmentBytes, false)
+			segment, err := NewSegment(l.Path, int64(baseOffset), l.MaxSegmentBytes, false, "")
 			if err != nil {
 				return err
 			}
@@ -166,7 +176,7 @@ func (l *CommitLog) open() error {
 		}
 	}
 	if len(l.segments) == 0 {
-		segment, err := NewSegment(l.Path, 0, l.MaxSegmentBytes, true)
+		segment, err := NewSegment(l.Path, 0, l.MaxSegmentBytes, true, "")
 		if err != nil {
 			return err
 		}
@@ -205,8 +215,7 @@ func (l *CommitLog) AppendMessageSet(ms []byte) ([]int64, error) {
 	var (
 		segment      = l.activeSegment()
 		basePosition = segment.Position()
-		baseOffset   = segment.NextOffset()
-		entries      = EntriesForMessageSet(baseOffset, basePosition, ms)
+		entries      = EntriesForMessageSet(basePosition, ms)
 	)
 	return l.append(segment, ms, entries)
 }
@@ -223,15 +232,19 @@ func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int
 }
 
 // NewestOffset returns the offset of the last message in the log.
+// TODO: This should use a bool to indicate empty (once we switch to unsigned
+// offsets).
 func (l *CommitLog) NewestOffset() int64 {
 	return l.activeSegment().NextOffset() - 1
 }
 
 // OldestOffset returns the offset of the first message in the log.
+// TODO: This should use a bool to indicate empty (once we switch to unsigned
+// offsets).
 func (l *CommitLog) OldestOffset() int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.segments[0].BaseOffset
+	return l.segments[0].FirstOffset()
 }
 
 // OffsetForTimestamp returns the earliest offset whose timestamp is greater
@@ -296,23 +309,23 @@ func (l *CommitLog) notifyHWWaiters() {
 	}
 }
 
-func (c *CommitLog) waitForHW(r io.Reader, hw int64) <-chan struct{} {
+func (l *CommitLog) waitForHW(r contextReader, hw int64) <-chan struct{} {
 	wait := make(chan struct{})
-	c.mu.Lock()
+	l.mu.Lock()
 	// Check if HW has changed.
-	if c.hw != hw {
+	if l.hw != hw {
 		close(wait)
 	} else {
-		c.hwWaiters[r] = wait
+		l.hwWaiters[r] = wait
 	}
-	c.mu.Unlock()
+	l.mu.Unlock()
 	return wait
 }
 
-func (c *CommitLog) removeHWWaiter(r io.Reader) {
-	c.mu.Lock()
-	delete(c.hwWaiters, r)
-	c.mu.Unlock()
+func (l *CommitLog) removeHWWaiter(r contextReader) {
+	l.mu.Lock()
+	delete(l.hwWaiters, r)
+	l.mu.Unlock()
 }
 
 // HighWatermark returns the high watermark for the log.
@@ -398,9 +411,7 @@ func (l *CommitLog) Truncate(offset int64) error {
 	if replace {
 		var (
 			ss              = NewSegmentScanner(segment)
-			newSegment, err = NewSegment(
-				segment.path, segment.BaseOffset,
-				segment.maxBytes, true, truncatedSuffix)
+			newSegment, err = segment.Truncated()
 		)
 		if err != nil {
 			return err
@@ -437,16 +448,15 @@ func (l *CommitLog) Segments() []*Segment {
 // the first message was written to it. It then performs the split if eligible,
 // returning any error resulting from the split. The returned bool indicates if
 // a split was performed.
-func (l *CommitLog) checkAndPerformSplit() (split bool, err error) {
+func (l *CommitLog) checkAndPerformSplit() (bool, error) {
 	// Do this in a loop because segment splitting may fail due to a competing
 	// thread performing the split at the same time. If this happens, we just
 	// retry the check on the new active segment.
 	for {
 		activeSegment := l.activeSegment()
 		if !activeSegment.CheckSplit(l.LogRollTime) {
-			return
+			return false, nil
 		}
-		split = true
 		if err := l.split(activeSegment); err != nil {
 			// ErrSegmentExists indicates another thread has already performed
 			// the segment split, so reload the new active segment and check
@@ -457,13 +467,14 @@ func (l *CommitLog) checkAndPerformSplit() (split bool, err error) {
 			return false, err
 		}
 		activeSegment.Seal()
+		return true, nil
 	}
 }
 
 func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	offset := l.NewestOffset() + 1
 	l.Logger.Debugf("Appending new log segment for %s with base offset %d", l.Path, offset)
-	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes, true)
+	segment, err := NewSegment(l.Path, offset, l.MaxSegmentBytes, true, "")
 	if err != nil {
 		return err
 	}
@@ -477,14 +488,17 @@ func (l *CommitLog) split(oldActiveSegment *Segment) error {
 		return ErrSegmentExists
 	}
 	l.mu.Lock()
-	l.segments = append(l.segments, segment)
-	segments, err := l.cleaner.Clean(l.segments)
-	if err != nil {
-		l.mu.Unlock()
-		return err
-	}
+	segments := append(l.segments, segment)
 	l.segments = segments
 	l.mu.Unlock()
+	cleaned, err := l.clean(segments)
+	if err != nil {
+		l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
+	} else {
+		l.mu.Lock()
+		l.segments = cleaned
+		l.mu.Unlock()
+	}
 	return nil
 }
 
@@ -511,15 +525,39 @@ func (l *CommitLog) cleanerLoop() {
 			continue
 		}
 
-		l.mu.Lock()
-		segments, err := l.cleaner.Clean(l.segments)
+		if err := l.Clean(); err != nil {
+			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
+		}
+	}
+}
+
+func (l *CommitLog) Clean() error {
+	cleaned, err := l.clean(l.Segments())
+	if err != nil {
+		return err
+	}
+	// TODO: This will cause problems if the active segment is split
+	// while this is run because of the segments replace.
+	l.mu.Lock()
+	l.segments = cleaned
+	l.mu.Unlock()
+	return nil
+}
+
+func (l *CommitLog) clean(segments []*Segment) ([]*Segment, error) {
+	cleaned, err := l.deleteCleaner.Clean(segments)
+	if err != nil {
+		l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
+		return nil, err
+	}
+	if l.Compact {
+		cleaned, err = l.compactCleaner.Clean(l.HighWatermark(), cleaned)
 		if err != nil {
 			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
-		} else {
-			l.segments = segments
+			return nil, err
 		}
-		l.mu.Unlock()
 	}
+	return cleaned, nil
 }
 
 func (l *CommitLog) checkpointHWLoop() {

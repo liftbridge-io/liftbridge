@@ -119,7 +119,13 @@ func (idx *Index) Position() int64 {
 	return idx.position
 }
 
-func (idx *Index) WriteEntries(entries []*Entry) (err error) {
+func (idx *Index) CountEntries() int64 {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.position / entryWidth
+}
+
+func (idx *Index) writeEntries(entries []*Entry) (err error) {
 	b := new(bytes.Buffer)
 	for _, entry := range entries {
 		relEntry := newRelEntry(entry, idx.baseOffset)
@@ -127,8 +133,8 @@ func (idx *Index) WriteEntries(entries []*Entry) (err error) {
 			return errors.Wrap(err, "binary write failed")
 		}
 	}
-	idx.WriteAt(b.Bytes(), idx.position)
 	idx.mu.Lock()
+	idx.writeAt(b.Bytes(), idx.position)
 	idx.position += entryWidth * int64(len(entries))
 	idx.mu.Unlock()
 	return nil
@@ -170,10 +176,7 @@ func (idx *Index) ReadAt(p []byte, offset int64) (n int, err error) {
 	return n, nil
 }
 
-func (idx *Index) WriteAt(p []byte, offset int64) (n int) {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
+func (idx *Index) writeAt(p []byte, offset int64) (n int) {
 	// Check if we need to expand the index file.
 	if offset >= idx.size {
 		// Expand the index file.
