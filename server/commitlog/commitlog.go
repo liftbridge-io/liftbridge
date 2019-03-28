@@ -489,6 +489,8 @@ func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	}
 	l.mu.Lock()
 	segments := append(l.segments, segment)
+	// TODO: This will cause problems if a background clean is running because
+	// of the segments replace.
 	l.segments = segments
 	l.mu.Unlock()
 	cleaned, err := l.clean(segments)
@@ -545,6 +547,7 @@ func (l *CommitLog) Clean() error {
 }
 
 func (l *CommitLog) clean(segments []*Segment) ([]*Segment, error) {
+	// TODO: Only allow one clean to run at a time.
 	cleaned, err := l.deleteCleaner.Clean(segments)
 	if err != nil {
 		l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
