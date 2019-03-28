@@ -57,7 +57,7 @@ type Options struct {
 	MaxLogBytes          int64         // Retention by bytes
 	MaxLogMessages       int64         // Retention by messages
 	MaxLogAge            time.Duration // Retention by age
-	Compact              bool          // Run  compaction on log clean
+	Compact              bool          // Run compaction on log clean
 	CleanerInterval      time.Duration // Frequency to enforce retention policy
 	HWCheckpointInterval time.Duration // Frequency to checkpoint HW to disk
 	LogRollTime          time.Duration // Max time before a new log segment is rolled out.
