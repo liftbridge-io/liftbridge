@@ -13,6 +13,7 @@ require (
 	github.com/hashicorp/go-msgpack v0.0.0-20150518234257-fa3f63826f7c // indirect
 	github.com/hashicorp/raft v1.0.0
 	github.com/hashicorp/raft-boltdb v0.0.0-20171010151810-6e5ba93211ea
+	github.com/kr/pretty v0.1.0 // indirect
 	github.com/liftbridge-io/go-liftbridge v0.0.0-20181231191109-b4f9a50124b8
 	github.com/liftbridge-io/liftbridge v0.0.0-20190328045118-ea1a979b5687
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20180718011723-80d0727461af
@@ -22,6 +23,7 @@ require (
 	github.com/nats-io/nkeys v0.0.2 // indirect
 	github.com/nats-io/nuid v1.0.0
 	github.com/nsip/gommap v0.0.0-20181229045655-f7881c3a959f
+	github.com/pascaldekloe/goe v0.1.0 // indirect
 	github.com/pkg/errors v0.8.0
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.2.2
@@ -30,4 +32,6 @@ require (
 	golang.org/x/sys v0.0.0-20181228144115-9a3f9b0469bb // indirect
 	google.golang.org/genproto v0.0.0-20181221175505-bd9b4fb69e2f // indirect
 	google.golang.org/grpc v1.17.0
+	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
+	gopkg.in/vmihailenco/msgpack.v2 v2.9.1 // indirect
 )
