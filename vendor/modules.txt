@@ -32,12 +32,6 @@ github.com/konsorten/go-windows-terminal-sequences
 # github.com/liftbridge-io/go-liftbridge v0.0.0-20181231191109-b4f9a50124b8
 github.com/liftbridge-io/go-liftbridge/liftbridge-grpc
 github.com/liftbridge-io/go-liftbridge
-# github.com/liftbridge-io/liftbridge v0.0.0-20190328045118-ea1a979b5687
-github.com/liftbridge-io/liftbridge/server
-github.com/liftbridge-io/liftbridge/server/commitlog
-github.com/liftbridge-io/liftbridge/server/conf
-github.com/liftbridge-io/liftbridge/server/logger
-github.com/liftbridge-io/liftbridge/server/proto
 # github.com/liftbridge-io/nats-on-a-log v0.0.0-20180718011723-80d0727461af
 github.com/liftbridge-io/nats-on-a-log
 # github.com/natefinch/atomic v0.0.0-20150920032501-a62ce929ffcc

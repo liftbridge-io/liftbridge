@@ -1,4 +1,4 @@
-module github.com/mfcochauxlaberge/liftbridge
+module github.com/liftbridge-io/liftbridge
 
 go 1.12
 
@@ -15,7 +15,6 @@ require (
 	github.com/hashicorp/raft-boltdb v0.0.0-20171010151810-6e5ba93211ea
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/liftbridge-io/go-liftbridge v0.0.0-20181231191109-b4f9a50124b8
-	github.com/liftbridge-io/liftbridge v0.0.0-20190328045118-ea1a979b5687
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20180718011723-80d0727461af
 	github.com/natefinch/atomic v0.0.0-20150920032501-a62ce929ffcc
 	github.com/nats-io/gnatsd v1.3.0
