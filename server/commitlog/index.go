@@ -178,9 +178,12 @@ func (idx *Index) ReadAt(p []byte, offset int64) (n int, err error) {
 
 func (idx *Index) writeAt(p []byte, offset int64) (n int) {
 	// Check if we need to expand the index file.
-	if offset >= idx.size {
+	if pSize := int64(len(p)); offset+pSize >= idx.size {
 		// Expand the index file.
 		newSize := roundDown(idx.size+idx.bytes, entryWidth)
+		if newSize < offset+pSize {
+			newSize = idx.size + pSize
+		}
 		err := idx.file.Truncate(newSize)
 		if err != nil {
 			panic(errors.Wrap(err, "failed to expand index file"))
