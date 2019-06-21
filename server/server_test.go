@@ -116,6 +116,16 @@ func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, 
 	return leader
 }
 
+func forceLogClean(t *testing.T, subject, name string, s *Server) {
+	stream := s.metadata.GetStream(subject, name)
+	if stream == nil {
+		stackFatalf(t, "Stream not found")
+	}
+	if err := stream.log.Clean(); err != nil {
+		stackFatalf(t, "Log clean failed: %s", err)
+	}
+}
+
 // Ensure starting a node fails when there is no seed node to join and no
 // cluster topology is provided.
 func TestNoSeed(t *testing.T) {
@@ -632,6 +642,9 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 		t.Fatal("Did not receive expected acks")
 	}
 
+	// Force log clean.
+	forceLogClean(t, stream.Subject, stream.Name, s1)
+
 	// Subscribe with underflowed offset. This should set the offset to 1.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -717,7 +730,10 @@ func TestStreamRetentionBytes(t *testing.T) {
 		t.Fatal("Did not receive expected acks")
 	}
 
-	// The first message read back should have offset 85.
+	// Force log clean.
+	forceLogClean(t, stream.Subject, stream.Name, s1)
+
+	// The first message read back should have offset 86.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
@@ -730,7 +746,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(85), msg.Offset)
+		require.Equal(t, int64(86), msg.Offset)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
@@ -748,7 +764,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxMessages = 50
+	s1Config.Log.RetentionMaxMessages = 5
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -774,7 +790,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 
 	// Subscribe to acks.
 	acks := "acks"
-	num := 100
+	num := 10
 	acked := 0
 	gotAcks := make(chan struct{})
 	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
@@ -802,7 +818,10 @@ func TestStreamRetentionMessages(t *testing.T) {
 		t.Fatal("Did not receive expected acks")
 	}
 
-	// The first message read back should have offset 49.
+	// Force log clean.
+	forceLogClean(t, stream.Subject, stream.Name, s1)
+
+	// The first message read back should have offset 5.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
@@ -815,7 +834,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(49), msg.Offset)
+		require.Equal(t, int64(5), msg.Offset)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
@@ -886,6 +905,9 @@ func TestStreamRetentionAge(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected acks")
 	}
+
+	// Force log clean.
+	forceLogClean(t, stream.Subject, stream.Name, s1)
 
 	// We expect all segments but the last to be truncated due to age, so the
 	// first message read back should have offset 99.
@@ -1011,6 +1033,9 @@ func TestSubscribeEarliest(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected acks")
 	}
+
+	// Force log clean.
+	forceLogClean(t, stream.Subject, stream.Name, s1)
 
 	// Subscribe with EARLIEST. This should start reading from offset 1.
 	gotMsg := make(chan struct{})

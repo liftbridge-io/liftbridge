@@ -76,29 +76,30 @@ func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 }
 
 func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, error) {
+	if len(segments) <= 1 {
+		return segments, nil
+	}
+
 	// We start at the most recent segment and work our way backwards until we
 	// meet the retention size.
 	var (
-		lastSeg         = segments[len(segments)-1]
-		cleanedSegments = []*Segment{lastSeg}
-		totalMessages   = lastSeg.MessageCount()
+		cleanedSegments = make([]*Segment, 0, len(segments))
+		totalMessages   int64
 	)
 
-	if len(segments) > 1 {
-		var i int
-		for i = len(segments) - 2; i > -1; i-- {
-			s := segments[i]
-			totalMessages += s.MessageCount()
-			if totalMessages > c.Retention.Messages {
-				break
-			}
-			cleanedSegments = append([]*Segment{s}, cleanedSegments...)
+	var i int
+	for i = len(segments) - 1; i > -1; i-- {
+		s := segments[i]
+		totalMessages += s.MessageCount()
+		if totalMessages > c.Retention.Messages {
+			break
 		}
-		if i > -1 {
-			for ; i > -1; i-- {
-				if err := segments[i].Delete(); err != nil {
-					return nil, err
-				}
+		cleanedSegments = append([]*Segment{s}, cleanedSegments...)
+	}
+	if i > -1 {
+		for ; i > -1; i-- {
+			if err := segments[i].Delete(); err != nil {
+				return nil, err
 			}
 		}
 	}
