@@ -177,6 +177,9 @@ func TestCleaner(t *testing.T) {
 
 	_, err = l.Append(msgs)
 	require.NoError(t, err)
+
+	l.Clean()
+
 	require.Equal(t, 1, len(l.Segments()))
 	for i, s := range l.Segments() {
 		require.NotEqual(t, s, segments[i])

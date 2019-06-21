@@ -22,9 +22,7 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
-var (
-	ErrSegmentNotFound = errors.New("segment not found")
-)
+var ErrSegmentNotFound = errors.New("segment not found")
 
 const (
 	logFileSuffix               = ".log"
@@ -145,7 +143,7 @@ func (l *CommitLog) open() error {
 			_, err := os.Stat(filepath.Join(
 				l.Path, strings.Replace(file.Name(), indexFileSuffix, logFileSuffix, 1)))
 			if os.IsNotExist(err) {
-				if err := os.Remove(file.Name()); err != nil {
+				if err := os.Remove(filepath.Join(l.Path, file.Name())); err != nil {
 					return err
 				}
 			} else if err != nil {
@@ -489,18 +487,8 @@ func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	}
 	l.mu.Lock()
 	segments := append(l.segments, segment)
-	// TODO: This will cause problems if a background clean is running because
-	// of the segments replace.
 	l.segments = segments
 	l.mu.Unlock()
-	cleaned, err := l.clean(segments)
-	if err != nil {
-		l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
-	} else {
-		l.mu.Lock()
-		l.segments = cleaned
-		l.mu.Unlock()
-	}
 	return nil
 }
 
@@ -533,30 +521,37 @@ func (l *CommitLog) cleanerLoop() {
 	}
 }
 
+// Clean applies retention and compaction rules against the log, if applicable.
 func (l *CommitLog) Clean() error {
-	cleaned, err := l.clean(l.Segments())
+	l.mu.RLock()
+	oldSegments := l.segments
+	l.mu.RUnlock()
+	cleaned, err := l.clean(oldSegments)
 	if err != nil {
 		return err
 	}
-	// TODO: This will cause problems if the active segment is split
-	// while this is run because of the segments replace.
 	l.mu.Lock()
+	newSegments := l.segments
+	if len(newSegments) > len(oldSegments) {
+		// New segments were added while cleaning. Rebase the new segments onto
+		// the cleaned ones.
+		for _, seg := range newSegments[len(oldSegments):] {
+			cleaned = append(cleaned, seg)
+		}
+	}
 	l.segments = cleaned
 	l.mu.Unlock()
 	return nil
 }
 
 func (l *CommitLog) clean(segments []*Segment) ([]*Segment, error) {
-	// TODO: Only allow one clean to run at a time.
 	cleaned, err := l.deleteCleaner.Clean(segments)
 	if err != nil {
-		l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
 		return nil, err
 	}
 	if l.Compact {
-		cleaned, err = l.compactCleaner.Clean(l.HighWatermark(), cleaned)
+		cleaned, err = l.compactCleaner.Compact(l.HighWatermark(), cleaned)
 		if err != nil {
-			l.Logger.Errorf("Failed to clean log %s: %v", l.Path, err)
 			return nil, err
 		}
 	}

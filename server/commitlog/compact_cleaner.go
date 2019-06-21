@@ -1,6 +1,8 @@
 package commitlog
 
 import (
+	"time"
+
 	"github.com/pkg/errors"
 
 	"github.com/liftbridge-io/liftbridge/server/logger"
@@ -26,19 +28,24 @@ func NewCompactCleaner(opts CompactCleanerOptions) *CompactCleaner {
 	return &CompactCleaner{opts}
 }
 
-// Clean performs log compaction by rewriting segments such that they contain
+// Compact performs log compaction by rewriting segments such that they contain
 // only the last message for a given key. Compaction is applied to all segments
 // up to but excluding the active (last) segment or the provided HW, whichever
 // comes first.
-func (c *CompactCleaner) Clean(hw int64, segments []*Segment) ([]*Segment, error) {
+func (c *CompactCleaner) Compact(hw int64, segments []*Segment) ([]*Segment, error) {
 	if len(segments) <= 1 {
 		return segments, nil
 	}
 
 	c.Logger.Debugf("Compacting log %s", c.Name)
+	before := time.Now()
 	compacted, removed, err := c.compact(hw, segments)
 	if err == nil {
-		c.Logger.Debugf("Finished compacting log %s, removed %d messages", c.Name, removed)
+		c.Logger.Debugf("Finished compacting log %s\n"+
+			"\tMessages Removed: %d\n"+
+			"\tSegments: %d -> %d\n"+
+			"\tDuration: %s",
+			c.Name, removed, len(segments), len(compacted), time.Since(before))
 	}
 
 	return compacted, errors.Wrap(err, "failed to compact log")

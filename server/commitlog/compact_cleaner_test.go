@@ -19,16 +19,16 @@ type expectedMsg struct {
 	Msg    *proto.Message
 }
 
-// Ensure Clean is a no-op when there are no segments.
+// Ensure Compact is a no-op when there are no segments.
 func TestCompactCleanerNoSegments(t *testing.T) {
 	opts := CompactCleanerOptions{Name: "foo", Logger: noopLogger()}
 	cleaner := NewCompactCleaner(opts)
-	segments, err := cleaner.Clean(0, nil)
+	segments, err := cleaner.Compact(0, nil)
 	require.NoError(t, err)
 	require.Nil(t, segments)
 }
 
-// Ensure Clean is a no-op when there is one segment.
+// Ensure Compact is a no-op when there is one segment.
 func TestCompactCleanerOneSegment(t *testing.T) {
 	opts := CompactCleanerOptions{Name: "foo", Logger: noopLogger()}
 	cleaner := NewCompactCleaner(opts)
@@ -36,12 +36,12 @@ func TestCompactCleanerOneSegment(t *testing.T) {
 	defer remove(t, dir)
 
 	expected := []*Segment{createSegment(t, dir, 0, 100)}
-	actual, err := cleaner.Clean(0, expected)
+	actual, err := cleaner.Compact(0, expected)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
 }
 
-// Ensure Clean retains only the latest message for each key up to the last
+// Ensure Compact retains only the latest message for each key up to the last
 // segment.
 func TestCompactCleaner(t *testing.T) {
 	opts := Options{
@@ -91,7 +91,7 @@ func TestCompactCleaner(t *testing.T) {
 	}
 }
 
-// Ensure Clean retains only the latest message for each key up to the HW.
+// Ensure Compact retains only the latest message for each key up to the HW.
 func TestCompactCleanerHW(t *testing.T) {
 	opts := Options{
 		Path:            tempDir(t),
@@ -144,7 +144,7 @@ func TestCompactCleanerHW(t *testing.T) {
 	}
 }
 
-// Ensure Clean retains all messages that do not have keys.
+// Ensure Compact retains all messages that do not have keys.
 func TestCompactCleanerNoKeys(t *testing.T) {
 	opts := Options{
 		Path:            tempDir(t),

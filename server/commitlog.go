@@ -44,6 +44,10 @@ type CommitLog interface {
 	// returns the corresponding offsets in the log.
 	AppendMessageSet(ms []byte) ([]int64, error)
 
+	// Clean applies retention and compaction rules against the log, if
+	// applicable.
+	Clean() error
+
 	// Close closes each log segment file and stops the background goroutine
 	// checkpointing the high watermark to disk.
 	Close() error
