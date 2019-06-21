@@ -521,6 +521,7 @@ func (l *CommitLog) cleanerLoop() {
 	}
 }
 
+// Clean applies retention and compaction rules against the log, if applicable.
 func (l *CommitLog) Clean() error {
 	l.mu.RLock()
 	oldSegments := l.segments
