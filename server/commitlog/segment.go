@@ -301,12 +301,12 @@ func (s *Segment) close() error {
 
 // Cleaned creates a cleaned segment for this segment.
 func (s *Segment) Cleaned() (*Segment, error) {
-	return NewSegment(s.path, s.BaseOffset, s.maxBytes, true, cleanedSuffix)
+	return NewSegment(s.path, s.BaseOffset, s.maxBytes, false, cleanedSuffix)
 }
 
 // Truncated creates a truncated segment for this segment.
 func (s *Segment) Truncated() (*Segment, error) {
-	return NewSegment(s.path, s.BaseOffset, s.maxBytes, true, truncatedSuffix)
+	return NewSegment(s.path, s.BaseOffset, s.maxBytes, false, truncatedSuffix)
 }
 
 // Replace replaces the given segment with the callee.
