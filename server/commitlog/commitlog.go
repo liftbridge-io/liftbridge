@@ -145,7 +145,7 @@ func (l *CommitLog) open() error {
 			_, err := os.Stat(filepath.Join(
 				l.Path, strings.Replace(file.Name(), indexFileSuffix, logFileSuffix, 1)))
 			if os.IsNotExist(err) {
-				if err := os.Remove(file.Name()); err != nil {
+				if err := os.Remove(filepath.Join(l.Path, file.Name())); err != nil {
 					return err
 				}
 			} else if err != nil {
