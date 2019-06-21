@@ -36,7 +36,7 @@ const (
 	defaultMinInsyncReplicas       = 1
 	defaultRetentionMaxAge         = 7 * 24 * time.Hour
 	defaultCleanerInterval         = 5 * time.Minute
-	defaultMaxSegmentBytes         = 1073741824
+	defaultMaxSegmentBytes         = 1073741824 // 1GB
 	defaultLogRollTime             = defaultRetentionMaxAge
 )
 
