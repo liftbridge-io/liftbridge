@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -95,6 +96,8 @@ func (s *Server) Start() (err error) {
 			s.Stop()
 		}
 	}()
+
+	rand.Seed(time.Now().UnixNano())
 
 	// Remove server's ID from the cluster peers list if present.
 	if len(s.config.Clustering.RaftBootstrapPeers) > 0 {
