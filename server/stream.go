@@ -96,15 +96,16 @@ type stream struct {
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
 	file := filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name)
 	log, err := commitlog.New(commitlog.Options{
-		Path:            file,
-		MaxSegmentBytes: s.config.Log.SegmentMaxBytes,
-		MaxLogBytes:     s.config.Log.RetentionMaxBytes,
-		MaxLogMessages:  s.config.Log.RetentionMaxMessages,
-		MaxLogAge:       s.config.Log.RetentionMaxAge,
-		LogRollTime:     s.config.Log.LogRollTime,
-		CleanerInterval: s.config.Log.CleanerInterval,
-		Compact:         s.config.Log.Compact,
-		Logger:          s.logger,
+		Path:                 file,
+		MaxSegmentBytes:      s.config.Log.SegmentMaxBytes,
+		MaxLogBytes:          s.config.Log.RetentionMaxBytes,
+		MaxLogMessages:       s.config.Log.RetentionMaxMessages,
+		MaxLogAge:            s.config.Log.RetentionMaxAge,
+		LogRollTime:          s.config.Log.LogRollTime,
+		CleanerInterval:      s.config.Log.CleanerInterval,
+		Compact:              s.config.Log.Compact,
+		CompactMaxGoroutines: s.config.Log.CompactMaxGoroutines,
+		Logger:               s.logger,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create commit log")
