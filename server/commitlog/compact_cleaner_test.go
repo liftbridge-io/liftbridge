@@ -1,6 +1,8 @@
 package commitlog
 
 import (
+	"fmt"
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -233,6 +235,67 @@ func TestCompactCleanerTruncateConcurrent(t *testing.T) {
 	require.NoError(t, l.Truncate(0))
 
 	require.Equal(t, int64(0), l.OldestOffset())
+}
+
+func BenchmarkClean1GBSegments(b *testing.B) {
+	benchmarkClean(b, 1024*1024*1024)
+}
+
+func BenchmarkClean512MBSegments(b *testing.B) {
+	benchmarkClean(b, 1024*1024*512)
+}
+
+func BenchmarkClean256MBSegments(b *testing.B) {
+	benchmarkClean(b, 1024*1024*256)
+}
+
+func BenchmarkClean128MBSegments(b *testing.B) {
+	benchmarkClean(b, 1024*1024*128)
+}
+
+func BenchmarkClean64MBSegments(b *testing.B) {
+	benchmarkClean(b, 1024*1024*64)
+}
+
+var msgSizes = []int{
+	128,
+	1024,
+	1024 * 64,
+}
+
+func benchmarkClean(b *testing.B, segmentSize int64) {
+	for _, msgSize := range msgSizes {
+		b.Run(fmt.Sprintf("%d", msgSize), func(subB *testing.B) {
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				opts := Options{
+					Path:            tempDir(b),
+					MaxSegmentBytes: segmentSize,
+					Compact:         true,
+				}
+				l, cleanup := setupWithOptions(b, opts)
+				defer cleanup()
+
+				keys := []string{"foobar", "foo", "bar", "baz", "qux", "quux", "quuz"}
+
+				buf := make([]byte, msgSize)
+				for i := 0; i < 200000; i++ {
+					msg := &proto.Message{
+						Key:   []byte(keys[rand.Intn(len(keys))]),
+						Value: buf,
+					}
+					offsets, err := l.Append([]*proto.Message{msg})
+					require.NoError(b, err)
+					l.SetHighWatermark(offsets[len(offsets)-1])
+				}
+				println(segmentSize, len(l.Segments()))
+
+				b.StartTimer()
+				require.NoError(b, l.Clean())
+			}
+			b.StopTimer()
+		})
+	}
 }
 
 func appendToLog(t *testing.T, l *CommitLog, entries []keyValue, commit bool) {

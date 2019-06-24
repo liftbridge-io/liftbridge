@@ -56,6 +56,7 @@ type Options struct {
 	MaxLogMessages       int64         // Retention by messages
 	MaxLogAge            time.Duration // Retention by age
 	Compact              bool          // Run compaction on log clean
+	CompactMaxGoroutines int           // Max number of goroutines to use in a log compaction
 	CleanerInterval      time.Duration // Frequency to enforce retention policy
 	HWCheckpointInterval time.Duration // Frequency to checkpoint HW to disk
 	LogRollTime          time.Duration // Max time before a new log segment is rolled out.
@@ -93,8 +94,9 @@ func New(opts Options) (*CommitLog, error) {
 	cleaner := NewDeleteCleaner(cleanerOpts)
 
 	compactCleanerOpts := CompactCleanerOptions{
-		Name:   opts.Path,
-		Logger: opts.Logger,
+		Name:          opts.Path,
+		Logger:        opts.Logger,
+		MaxGoroutines: opts.CompactMaxGoroutines,
 	}
 	compactCleaner := NewCompactCleaner(compactCleanerOpts)
 

@@ -36,8 +36,9 @@ const (
 	defaultMinInsyncReplicas       = 1
 	defaultRetentionMaxAge         = 7 * 24 * time.Hour
 	defaultCleanerInterval         = 5 * time.Minute
-	defaultMaxSegmentBytes         = 1073741824 // 1GB
+	defaultMaxSegmentBytes         = 1024 * 1024 * 256 // 256MB
 	defaultLogRollTime             = defaultRetentionMaxAge
+	defaultCompactMaxGoroutines    = 10
 )
 
 // LogConfig contains settings for controlling the message log for a stream.
@@ -49,6 +50,7 @@ type LogConfig struct {
 	SegmentMaxBytes      int64
 	LogRollTime          time.Duration
 	Compact              bool
+	CompactMaxGoroutines int
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -281,6 +283,8 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 			config.Log.LogRollTime = dur
 		case "compact":
 			config.Log.Compact = v.(bool)
+		case "compact.max.goroutines":
+			config.Log.CompactMaxGoroutines = v.(int)
 		default:
 			return fmt.Errorf("Unknown log configuration setting %q", k)
 		}
