@@ -231,16 +231,14 @@ func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int
 	return offsets, nil
 }
 
-// NewestOffset returns the offset of the last message in the log.
-// TODO: This should use a bool to indicate empty (once we switch to unsigned
-// offsets).
+// NewestOffset returns the offset of the last message in the log or -1 if
+// empty.
 func (l *CommitLog) NewestOffset() int64 {
 	return l.activeSegment().NextOffset() - 1
 }
 
-// OldestOffset returns the offset of the first message in the log.
-// TODO: This should use a bool to indicate empty (once we switch to unsigned
-// offsets).
+// OldestOffset returns the offset of the first message in the log or -1 if
+// empty.
 func (l *CommitLog) OldestOffset() int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()

@@ -49,8 +49,8 @@ type Segment struct {
 	log            *os.File
 	Index          *Index
 	BaseOffset     int64
-	firstOffset    *int64
-	lastOffset     *int64
+	firstOffset    int64
+	lastOffset     int64
 	firstWriteTime int64
 	lastWriteTime  int64
 	position       int64
@@ -67,11 +67,13 @@ type Segment struct {
 
 func NewSegment(path string, baseOffset, maxBytes int64, isNew bool, suffix string) (*Segment, error) {
 	s := &Segment{
-		maxBytes:   maxBytes,
-		BaseOffset: baseOffset,
-		path:       path,
-		suffix:     suffix,
-		waiters:    make(map[contextReader]chan struct{}),
+		maxBytes:    maxBytes,
+		BaseOffset:  baseOffset,
+		firstOffset: -1,
+		lastOffset:  -1,
+		path:        path,
+		suffix:      suffix,
+		waiters:     make(map[contextReader]chan struct{}),
 	}
 	// If this is a new segment, ensure the file doesn't already exist.
 	if isNew && exists(s.logPath()) {
@@ -112,14 +114,14 @@ func (s *Segment) setupIndex() (err error) {
 	}
 	// If lastEntry is nil, the index is empty.
 	if lastEntry != nil {
-		s.lastOffset = &lastEntry.Offset
+		s.lastOffset = lastEntry.Offset
 		s.lastWriteTime = lastEntry.Timestamp
 		// Read the first entry to get firstOffset and firstWriteTime.
 		var firstEntry Entry
 		if err := s.Index.ReadEntryAtFileOffset(&firstEntry, 0); err != nil {
 			return err
 		}
-		s.firstOffset = &firstEntry.Offset
+		s.firstOffset = firstEntry.Offset
 		s.firstWriteTime = firstEntry.Timestamp
 	}
 	return nil
@@ -163,30 +165,22 @@ func (s *Segment) NextOffset() int64 {
 	defer s.RUnlock()
 	// If the segment hasn't been written to, the next offset should be the
 	// base offset.
-	if s.lastOffset == nil {
+	if s.lastOffset == -1 {
 		return s.BaseOffset
 	}
-	return *s.lastOffset + 1
+	return s.lastOffset + 1
 }
 
 func (s *Segment) FirstOffset() int64 {
 	s.RLock()
 	defer s.RUnlock()
-	// TODO: Should return a value and bool when we switch to unsigned ints?
-	if s.firstOffset == nil {
-		return 0
-	}
-	return *s.firstOffset
+	return s.firstOffset
 }
 
 func (s *Segment) LastOffset() int64 {
 	s.RLock()
 	defer s.RUnlock()
-	// TODO: Should return a value and bool when we switch to unsigned ints?
-	if s.lastOffset == nil {
-		return -1
-	}
-	return *s.lastOffset
+	return s.lastOffset
 }
 
 func (s *Segment) Position() int64 {
@@ -198,7 +192,7 @@ func (s *Segment) Position() int64 {
 func (s *Segment) IsEmpty() bool {
 	s.RLock()
 	defer s.RUnlock()
-	return s.firstOffset == nil
+	return s.firstOffset == -1
 }
 
 func (s *Segment) MessageCount() int64 {
@@ -229,11 +223,11 @@ func (s *Segment) write(p []byte, entries []*Entry) (n int, err error) {
 	s.position += int64(n)
 	if s.firstWriteTime == 0 {
 		first := entries[0]
-		s.firstOffset = &first.Offset
+		s.firstOffset = first.Offset
 		s.firstWriteTime = first.Timestamp
 	}
 	last := entries[len(entries)-1]
-	s.lastOffset = &last.Offset
+	s.lastOffset = last.Offset
 	s.lastWriteTime = last.Timestamp
 	s.notifyWaiters()
 	return n, nil

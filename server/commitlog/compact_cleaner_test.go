@@ -234,7 +234,7 @@ func TestCompactCleanerTruncateConcurrent(t *testing.T) {
 	require.NoError(t, l.Clean())
 	require.NoError(t, l.Truncate(0))
 
-	require.Equal(t, int64(0), l.OldestOffset())
+	require.Equal(t, int64(-1), l.OldestOffset())
 }
 
 func BenchmarkClean1GBSegments(b *testing.B) {

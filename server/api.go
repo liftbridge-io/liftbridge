@@ -134,6 +134,11 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 			fmt.Sprintf("Unknown StartPosition %s", req.StartPosition))
 	}
 
+	// If log is empty, next offset will be 0.
+	if startOffset < 0 {
+		startOffset = 0
+	}
+
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
