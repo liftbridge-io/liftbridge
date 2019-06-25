@@ -135,7 +135,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	}
 
 	// If log is empty, next offset will be 0.
-	if startOffset == -1 {
+	if startOffset < 0 {
 		startOffset = 0
 	}
 
