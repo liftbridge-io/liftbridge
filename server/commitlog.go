@@ -19,10 +19,12 @@ type CommitLog interface {
 	// Truncate removes all messages from the log starting at the given offset.
 	Truncate(offset int64) error
 
-	// NewestOffset returns the offset of the last message in the log.
+	// NewestOffset returns the offset of the last message in the log or -1 if
+	// empty.
 	NewestOffset() int64
 
-	// OldestOffset returns the offset of the first message in the log.
+	// OldestOffset returns the offset of the first message in the log or -1 if
+	// empty.
 	OldestOffset() int64
 
 	// OffsetForTimestamp returns the earliest offset whose timestamp is

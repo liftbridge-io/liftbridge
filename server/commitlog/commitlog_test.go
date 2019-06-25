@@ -139,7 +139,7 @@ func TestOffsets(t *testing.T) {
 	})
 	defer l.Close()
 	defer cleanup()
-	require.Equal(t, int64(0), l.OldestOffset())
+	require.Equal(t, int64(-1), l.OldestOffset())
 	require.Equal(t, int64(-1), l.NewestOffset())
 
 	numMsgs := 5

@@ -8,11 +8,11 @@ import (
 
 func TestFindSegment(t *testing.T) {
 	segments := []*Segment{
-		&Segment{BaseOffset: 0, lastOffset: int64Ptr(9)},
-		&Segment{BaseOffset: 10, lastOffset: int64Ptr(19)},
-		&Segment{BaseOffset: 20, lastOffset: int64Ptr(29)},
-		&Segment{BaseOffset: 30, lastOffset: int64Ptr(39)},
-		&Segment{BaseOffset: 40, lastOffset: int64Ptr(49)},
+		&Segment{BaseOffset: 0, lastOffset: 9},
+		&Segment{BaseOffset: 10, lastOffset: 19},
+		&Segment{BaseOffset: 20, lastOffset: 29},
+		&Segment{BaseOffset: 30, lastOffset: 39},
+		&Segment{BaseOffset: 40, lastOffset: 49},
 	}
 	seg, idx := findSegment(segments, 0)
 	require.Equal(t, 0, idx)
