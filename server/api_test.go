@@ -6,10 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liftbridge-io/go-liftbridge"
+	lift "github.com/liftbridge-io/go-liftbridge"
 	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 	natsdTest "github.com/nats-io/gnatsd/test"
-	"github.com/nats-io/go-nats"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -43,7 +42,7 @@ func TestCreateStream(t *testing.T) {
 
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -52,7 +51,7 @@ func TestCreateStream(t *testing.T) {
 
 	// Creating the same stream returns ErrStreamExists.
 	err = client.CreateStream(context.Background(), "foo", "bar")
-	require.Equal(t, liftbridge.ErrStreamExists, err)
+	require.Equal(t, lift.ErrStreamExists, err)
 }
 
 // Ensure creating a stream works when we send the request to the metadata
@@ -77,7 +76,7 @@ func TestCreateStreamPropagate(t *testing.T) {
 	getMetadataLeader(t, 10*time.Second, s1, s2)
 
 	// Connect and send the request to the follower.
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -86,7 +85,7 @@ func TestCreateStreamPropagate(t *testing.T) {
 
 	// Creating the same stream returns ErrStreamExists.
 	err = client.CreateStream(context.Background(), "foo", "foo")
-	require.Equal(t, liftbridge.ErrStreamExists, err)
+	require.Equal(t, lift.ErrStreamExists, err)
 }
 
 // Ensure creating a stream fails when the replication factor is greater than
@@ -105,12 +104,12 @@ func TestCreateStreamInsufficientReplicas(t *testing.T) {
 
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
 	err = client.CreateStream(context.Background(), "foo", "foo",
-		liftbridge.ReplicationFactor(2))
+		lift.ReplicationFactor(2))
 	require.Error(t, err)
 }
 
@@ -166,14 +165,14 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	getMetadataLeader(t, 10*time.Second, s1, s2)
 
 	// Create the stream.
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
 	name := "foo"
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name,
-		liftbridge.ReplicationFactor(2))
+		lift.ReplicationFactor(2))
 	require.NoError(t, err)
 
 	require.NoError(t, client.Close())
@@ -220,7 +219,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -258,28 +257,10 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	acksRecv := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acksRecv++
-		if acksRecv == num+5 {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage(expected[i].Value,
-			liftbridge.Key(expected[i].Key), liftbridge.AckInbox(acks)))
+		_, err = client.Publish(context.Background(), subject, expected[i].Value,
+			lift.Key(expected[i].Key))
 		require.NoError(t, err)
 	}
 
@@ -299,8 +280,8 @@ func TestStreamPublishSubscribe(t *testing.T) {
 		})
 	}
 	for i := 0; i < 5; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage(expected[i+num].Value,
-			liftbridge.Key(expected[i+num].Key), liftbridge.AckInbox(acks)))
+		_, err = client.Publish(context.Background(), subject, expected[i+num].Value,
+			lift.Key(expected[i+num].Key))
 		require.NoError(t, err)
 	}
 
@@ -311,15 +292,8 @@ func TestStreamPublishSubscribe(t *testing.T) {
 		t.Fatal("Did not receive all expected messages")
 	}
 
-	// Make sure we got all the acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Did not receive all expected acks")
-	}
-
 	// Make sure we can play back the log.
-	client2, err := liftbridge.Connect([]string{"localhost:5050"})
+	client2, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client2.Close()
 	i = num
@@ -336,7 +310,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 			if i == num+5 {
 				close(ch1)
 			}
-		}, liftbridge.StartAtOffset(int64(num)))
+		}, lift.StartAtOffset(int64(num)))
 	require.NoError(t, err)
 
 	select {

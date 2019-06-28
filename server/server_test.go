@@ -9,10 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liftbridge-io/go-liftbridge"
+	lift "github.com/liftbridge-io/go-liftbridge"
 	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 	natsdTest "github.com/nats-io/gnatsd/test"
-	"github.com/nats-io/go-nats"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
@@ -448,7 +447,7 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -458,38 +457,12 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 5
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 5
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Subscribe with overflowed offset. This should wait for new messages
@@ -501,11 +474,11 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 		require.Equal(t, int64(5), msg.Offset)
 		close(gotMsg)
 		cancel()
-	}, liftbridge.StartAtOffset(100))
+	}, lift.StartAtOffset(100))
 	require.NoError(t, err)
 
 	// Publish one more message.
-	err = nc.Publish(subject, liftbridge.NewMessage([]byte("test")))
+	_, err = client.Publish(context.Background(), subject, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -533,7 +506,7 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -542,10 +515,6 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
-
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
 
 	// Subscribe with overflowed offset. This should wait for new messages
 	// starting at offset 0.
@@ -560,7 +529,7 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish message.
-	err = nc.Publish(subject, liftbridge.NewMessage([]byte("test")))
+	_, err = client.Publish(context.Background(), subject, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the message.
@@ -592,7 +561,7 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -602,38 +571,12 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 2
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 2
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Force log clean.
@@ -647,7 +590,7 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 		require.Equal(t, int64(1), msg.Offset)
 		close(gotMsg)
 		cancel()
-	}, liftbridge.StartAtOffset(0))
+	}, lift.StartAtOffset(0))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -678,7 +621,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -688,38 +631,12 @@ func TestStreamRetentionBytes(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 100
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 100
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Force log clean.
@@ -732,7 +649,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	}, liftbridge.StartAtEarliestReceived())
+	}, lift.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -764,7 +681,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -774,38 +691,12 @@ func TestStreamRetentionMessages(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 10
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 10
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Force log clean.
@@ -818,7 +709,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	}, liftbridge.StartAtEarliestReceived())
+	}, lift.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -850,7 +741,7 @@ func TestStreamRetentionAge(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -860,38 +751,12 @@ func TestStreamRetentionAge(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 100
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 100
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Force log clean.
@@ -905,7 +770,7 @@ func TestStreamRetentionAge(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	}, liftbridge.StartAtEarliestReceived())
+	}, lift.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -933,7 +798,7 @@ func TestSubscribeStartPositionInvalid(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -943,12 +808,8 @@ func TestSubscribeStartPositionInvalid(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
 	// Subscribe with invalid StartPosition.
-	err = client.Subscribe(context.Background(), subject, name, nil, liftbridge.StartAt(9999))
+	err = client.Subscribe(context.Background(), subject, name, nil, lift.StartAt(9999))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Unknown StartPosition")
 }
@@ -974,7 +835,7 @@ func TestSubscribeEarliest(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -984,38 +845,12 @@ func TestSubscribeEarliest(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 2
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 2
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Force log clean.
@@ -1029,7 +864,7 @@ func TestSubscribeEarliest(t *testing.T) {
 		require.Equal(t, int64(1), msg.Offset)
 		close(gotMsg)
 		cancel()
-	}, liftbridge.StartAtEarliestReceived())
+	}, lift.StartAtEarliestReceived())
 
 	// Wait to get the new message.
 	select {
@@ -1056,7 +891,7 @@ func TestSubscribeLatest(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1066,38 +901,12 @@ func TestSubscribeLatest(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 3
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 3
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Subscribe with LATEST. This should start reading from offset 2.
@@ -1108,7 +917,7 @@ func TestSubscribeLatest(t *testing.T) {
 		require.Equal(t, int64(2), msg.Offset)
 		close(gotMsg)
 		cancel()
-	}, liftbridge.StartAtLatestReceived())
+	}, lift.StartAtLatestReceived())
 
 	// Wait to get the new message.
 	select {
@@ -1135,7 +944,7 @@ func TestSubscribeNewOnly(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1145,38 +954,12 @@ func TestSubscribeNewOnly(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 5
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 5
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Subscribe with NEW_ONLY. This should wait for new messages starting at
@@ -1192,7 +975,7 @@ func TestSubscribeNewOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish one more message.
-	err = nc.Publish(subject, liftbridge.NewMessage([]byte("test")))
+	_, err = client.Publish(context.Background(), subject, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -1230,7 +1013,7 @@ func TestSubscribeStartTime(t *testing.T) {
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050"})
+	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1240,38 +1023,12 @@ func TestSubscribeStartTime(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 5
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some messages.
+	num := 5
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Subscribe with TIMESTAMP 25. This should start reading from offset 3.
@@ -1288,7 +1045,7 @@ func TestSubscribeStartTime(t *testing.T) {
 		require.Equal(t, int64(30), msg.Timestamp)
 		close(gotMsg)
 		cancel()
-	}, liftbridge.StartAtTime(time.Unix(0, 25)))
+	}, lift.StartAtTime(time.Unix(0, 25)))
 
 	// Wait to get the new message.
 	select {
@@ -1316,11 +1073,11 @@ func TestTLS(t *testing.T) {
 	getMetadataLeader(t, 10*time.Second, s1)
 
 	// Connect with TLS.
-	client, err := liftbridge.Connect([]string{"localhost:5050"}, liftbridge.TLSCert("./configs/certs/server.crt"))
+	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSCert("./configs/certs/server.crt"))
 	require.NoError(t, err)
 	defer client.Close()
 
 	// Connecting without a cert should fail.
-	_, err = liftbridge.Connect([]string{"localhost:5050"})
+	_, err = lift.Connect([]string{"localhost:5050"})
 	require.Error(t, err)
 }

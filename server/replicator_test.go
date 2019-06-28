@@ -5,10 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liftbridge-io/go-liftbridge"
+	lift "github.com/liftbridge-io/go-liftbridge"
 	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 	natsdTest "github.com/nats-io/gnatsd/test"
-	"github.com/nats-io/go-nats"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 )
@@ -82,14 +81,14 @@ func TestStreamLeaderFailover(t *testing.T) {
 	servers := []*Server{s1, s2, s3}
 	getMetadataLeader(t, 10*time.Second, servers...)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
 	defer client.Close()
 
 	name := "foo"
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name,
-		liftbridge.ReplicationFactor(3))
+		lift.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	num := 100
@@ -102,37 +101,11 @@ func TestStreamLeaderFailover(t *testing.T) {
 		}
 	}
 
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	acksRecv := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acksRecv++
-		if acksRecv == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage(expected[i].Value,
-			liftbridge.Key(expected[i].Key), liftbridge.AckInbox(acks), liftbridge.AckPolicyAll()))
+		_, err := client.Publish(context.Background(), subject, expected[i].Value,
+			lift.Key(expected[i].Key), lift.AckPolicyAll())
 		require.NoError(t, err)
-	}
-
-	// Make sure we got all the acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(10 * time.Second):
-		t.Fatal("Did not receive all expected acks")
 	}
 
 	// Make sure we can play back the log.
@@ -150,7 +123,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 			if i == num {
 				close(ch)
 			}
-		}, liftbridge.StartAtEarliestReceived())
+		}, lift.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	select {
@@ -191,7 +164,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 			if i == num {
 				close(ch)
 			}
-		}, liftbridge.StartAtEarliestReceived())
+		}, lift.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	select {
@@ -231,7 +204,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 	servers := []*Server{s1, s2, s3}
 	leader := getMetadataLeader(t, 10*time.Second, servers...)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -239,25 +212,8 @@ func TestCommitOnISRShrink(t *testing.T) {
 	name := "foo"
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name,
-		liftbridge.ReplicationFactor(3))
+		lift.ReplicationFactor(3))
 	require.NoError(t, err)
-
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	cid := "cid"
-	gotAck := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		ack, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		require.Equal(t, cid, ack.CorrelationId)
-		close(gotAck)
-	})
-	require.NoError(t, err)
-	nc.Flush()
 
 	// Kill a stream follower.
 	leader = getStreamLeader(t, 10*time.Second, subject, name, servers...)
@@ -273,10 +229,12 @@ func TestCommitOnISRShrink(t *testing.T) {
 
 	// Publish message to stream. This should not get committed until the ISR
 	// shrinks.
-	err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-		liftbridge.CorrelationID(cid), liftbridge.AckInbox(acks), liftbridge.AckPolicyAll()))
-	require.NoError(t, err)
-	nc.Flush()
+	gotAck := make(chan error)
+	go func() {
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
+		gotAck <- err
+	}()
 
 	// Ensure we don't receive an ack yet.
 	select {
@@ -320,7 +278,7 @@ func TestAckPolicyLeader(t *testing.T) {
 	servers := []*Server{s1, s2, s3}
 	leader := getMetadataLeader(t, 10*time.Second, servers...)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -328,25 +286,8 @@ func TestAckPolicyLeader(t *testing.T) {
 	name := "foo"
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name,
-		liftbridge.ReplicationFactor(3))
+		lift.ReplicationFactor(3))
 	require.NoError(t, err)
-
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	cid := "cid"
-	gotAck := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		ack, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		require.Equal(t, cid, ack.CorrelationId)
-		close(gotAck)
-	})
-	require.NoError(t, err)
-	nc.Flush()
 
 	// Kill a stream follower.
 	leader = getStreamLeader(t, 10*time.Second, subject, name, servers...)
@@ -363,17 +304,13 @@ func TestAckPolicyLeader(t *testing.T) {
 	// Publish message to stream. This should not get committed until the ISR
 	// shrinks, but an ack should still be received immediately since
 	// AckPolicy_LEADER is set (default AckPolicy).
-	err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-		liftbridge.CorrelationID(cid), liftbridge.AckInbox(acks)))
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	cid := "cid"
+	ack, err := client.Publish(ctx, subject, []byte("hello"),
+		lift.CorrelationID(cid))
 	require.NoError(t, err)
-	nc.Flush()
-
-	// Wait for ack.
-	select {
-	case <-gotAck:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected ack")
-	}
+	require.NotNil(t, ack)
+	require.Equal(t, cid, ack.CorrelationId)
 }
 
 // Ensure messages in the log still get committed after the leader is
@@ -400,7 +337,7 @@ func TestCommitOnRestart(t *testing.T) {
 	servers := []*Server{s1, s2}
 	leader := getMetadataLeader(t, 10*time.Second, servers...)
 
-	client, err := liftbridge.Connect([]string{"localhost:5050", "localhost:5051"})
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051"})
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -408,41 +345,15 @@ func TestCommitOnRestart(t *testing.T) {
 	name := "foo"
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name,
-		liftbridge.ReplicationFactor(2))
+		lift.ReplicationFactor(2))
 	require.NoError(t, err)
-
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
-	// Subscribe to acks.
-	acks := "acks"
-	num := 5
-	acked := 0
-	gotAcks := make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
 
 	// Publish some messages.
+	num := 5
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks), liftbridge.AckPolicyAll()))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	// Kill stream follower.
@@ -457,33 +368,11 @@ func TestCommitOnRestart(t *testing.T) {
 	}
 	follower.Stop()
 
-	// Subscribe to acks.
-	acks = "acks2"
-	acked = 0
-	gotAcks = make(chan struct{})
-	_, err = nc.Subscribe(acks, func(m *nats.Msg) {
-		_, err := liftbridge.UnmarshalAck(m.Data)
-		require.NoError(t, err)
-		acked++
-		if acked == num {
-			close(gotAcks)
-		}
-	})
-	require.NoError(t, err)
-	nc.Flush()
-
 	// Publish some more messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.AckInbox(acks)))
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
-	}
-
-	// Wait for acks.
-	select {
-	case <-gotAcks:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected acks")
 	}
 
 	var (
@@ -524,7 +413,7 @@ func TestCommitOnRestart(t *testing.T) {
 			if i == num*2 {
 				close(ch)
 			}
-		}, liftbridge.StartAtEarliestReceived())
+		}, lift.StartAtEarliestReceived())
 	require.NoError(t, err)
 
 	select {

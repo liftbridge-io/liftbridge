@@ -124,6 +124,14 @@ type Client interface {
 	// if the given stream does not exist. Use a cancelable Context to close a
 	// subscription.
 	Subscribe(ctx context.Context, subject, name string, handler Handler, opts ...SubscriptionOption) error
+
+	// Publish publishes a new message to the NATS subject. If the AckPolicy is
+	// not NONE and a deadline is provided, this will synchronously block until
+	// the first ack is received. If the ack is not received in time, a
+	// DeadlineExceeded status code is returned. If an AckPolicy and deadline
+	// are configured, this returns the first Ack on success, otherwise it
+	// returns nil.
+	Publish(ctx context.Context, subject string, value []byte, opts ...MessageOption) (*proto.Ack, error)
 }
 
 // client implements the Client interface. It maintains a pool of connections
@@ -549,6 +557,39 @@ func (c *client) Subscribe(ctx context.Context, subject, name string, handler Ha
 	}()
 
 	return nil
+}
+
+// Publish publishes a new message to the NATS subject. If the AckPolicy is not
+// NONE and a deadline is provided, this will synchronously block until the
+// first ack is received. If the ack is not received in time, a
+// DeadlineExceeded status code is returned. If an AckPolicy and deadline are
+// configured, this returns the first Ack on success, otherwise it returns nil.
+func (c *client) Publish(ctx context.Context, subject string, value []byte,
+	options ...MessageOption) (*proto.Ack, error) {
+
+	opts := &MessageOptions{}
+	for _, opt := range options {
+		opt(opts)
+	}
+	req := &proto.PublishRequest{Message: &proto.Message{
+		Subject:       subject,
+		Key:           opts.Key,
+		Value:         value,
+		AckInbox:      opts.AckInbox,
+		CorrelationId: opts.CorrelationID,
+		AckPolicy:     opts.AckPolicy,
+	}}
+	var (
+		ack *proto.Ack
+		err = c.doResilientRPC(func(client proto.APIClient) error {
+			resp, err := client.Publish(ctx, req)
+			if err == nil {
+				ack = resp.Ack
+			}
+			return err
+		})
+	)
+	return ack, err
 }
 
 // connFactory returns a pool connFactory for the given address. The
