@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/raft v1.0.0
 	github.com/hashicorp/raft-boltdb v0.0.0-20171010151810-6e5ba93211ea
 	github.com/kr/pretty v0.1.0 // indirect
-	github.com/liftbridge-io/go-liftbridge v0.0.0-20190628041033-36ed3eee7846
+	github.com/liftbridge-io/go-liftbridge v0.0.0-20190628050631-26acc07f31ba
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20180718011723-80d0727461af
 	github.com/natefinch/atomic v0.0.0-20150920032501-a62ce929ffcc
 	github.com/nats-io/gnatsd v1.3.0
