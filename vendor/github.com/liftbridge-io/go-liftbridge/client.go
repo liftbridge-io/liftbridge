@@ -47,9 +47,6 @@ var (
 	// ErrNoSuchStream is returned by Subscribe if the specified stream does
 	// not exist in the Liftbridge cluster.
 	ErrNoSuchStream = errors.New("stream does not exist")
-
-	envelopeCookie    = []byte("LIFT")
-	envelopeCookieLen = len(envelopeCookie)
 )
 
 // Handler is the callback invoked by Subscribe when a message is received on
@@ -57,26 +54,55 @@ var (
 // and no more messages will be received.
 type Handler func(msg *proto.Message, err error)
 
-// StreamInfo is used to describe a stream to create.
-type StreamInfo struct {
-	// Subject is the NATS subject the stream is attached to (required).
-	Subject string
-
-	// Name is the stream identifier, unique per subject (required).
-	Name string
-
-	// Group is the name of a load-balance group (optional). When there are
-	// multiple streams in the same group, the messages will be balanced among
-	// them.
+// StreamOptions are used to configure new streams.
+type StreamOptions struct {
+	// Group is the name of a load-balance group. When there are multiple
+	// streams in the same group, messages will be balanced among them.
 	Group string
 
 	// ReplicationFactor controls the number of servers to replicate a stream
-	// to (optional). E.g. a value of 1 would mean only 1 server would have the
-	// data, and a value of 3 would be 3 servers would have it. If this is not
-	// set, it defaults to 1. A value of -1 will signal to the server to set
-	// the replication factor equal to the current number of servers in the
+	// to. E.g. a value of 1 would mean only 1 server would have the data, and
+	// a value of 3 would be 3 servers would have it. If this is not set, it
+	// defaults to 1. A value of -1 will signal to the server to set the
+	// replication factor equal to the current number of servers in the
 	// cluster.
 	ReplicationFactor int32
+}
+
+// StreamOption is a function on the StreamOptions for a stream. These are used
+// to configure particular stream options.
+type StreamOption func(*StreamOptions) error
+
+// Group is a StreamOption to set the load-balance group for a stream. When
+// there are multiple streams in the same group, messages will be balanced
+// among them.
+func Group(group string) StreamOption {
+	return func(o *StreamOptions) error {
+		o.Group = group
+		return nil
+	}
+}
+
+// ReplicationFactor is a StreamOption to set the replication factor for a
+// stream. The replication factor controls the number of servers to replicate a
+// stream to. E.g. a value of 1 would mean only 1 server would have the data,
+// and a value of 3 would be 3 servers would have it. If this is not set, it
+// defaults to 1. A value of -1 will signal to the server to set the
+// replication factor equal to the current number of servers in the cluster.
+func ReplicationFactor(replicationFactor int32) StreamOption {
+	return func(o *StreamOptions) error {
+		o.ReplicationFactor = replicationFactor
+		return nil
+	}
+}
+
+// MaxReplication is a StreamOption to set the stream replication factor equal
+// to the current number of servers in the cluster.
+func MaxReplication() StreamOption {
+	return func(o *StreamOptions) error {
+		o.ReplicationFactor = MaxReplicationFactor
+		return nil
+	}
 }
 
 // Client is the main API used to communicate with a Liftbridge cluster. Call
@@ -85,10 +111,11 @@ type Client interface {
 	// Close the client connection.
 	Close() error
 
-	// CreateStream creates a new stream attached to a NATS subject. It returns
-	// ErrStreamExists if a stream with the given subject and name already
-	// exists.
-	CreateStream(ctx context.Context, stream StreamInfo) error
+	// CreateStream creates a new stream attached to a NATS subject. Subject is
+	// the NATS subject the stream is attached to, and name is the stream
+	// identifier, unique per subject. It returns ErrStreamExists if a stream
+	// with the given subject and name already exists.
+	CreateStream(ctx context.Context, subject, name string, opts ...StreamOption) error
 
 	// Subscribe creates an ephemeral subscription for the given stream. It
 	// begins receiving messages starting at the configured position and waits
@@ -286,14 +313,23 @@ func (c *client) Close() error {
 	return nil
 }
 
-// CreateStream creates a new stream attached to a NATS subject. It returns
-// ErrStreamExists if a stream with the given subject and name already exists.
-func (c *client) CreateStream(ctx context.Context, info StreamInfo) error {
+// CreateStream creates a new stream attached to a NATS subject. Subject is the
+// NATS subject the stream is attached to, and name is the stream identifier,
+// unique per subject. It returns ErrStreamExists if a stream with the given
+// subject and name already exists.
+func (c *client) CreateStream(ctx context.Context, subject, name string, options ...StreamOption) error {
+	opts := &StreamOptions{}
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return err
+		}
+	}
+
 	req := &proto.CreateStreamRequest{
-		Subject:           info.Subject,
-		Name:              info.Name,
-		ReplicationFactor: info.ReplicationFactor,
-		Group:             info.Group,
+		Subject:           subject,
+		Name:              name,
+		ReplicationFactor: opts.ReplicationFactor,
+		Group:             opts.Group,
 	}
 	err := c.doResilientRPC(func(client proto.APIClient) error {
 		_, err := client.CreateStream(ctx, req)
@@ -349,7 +385,7 @@ func StartAtTime(start time.Time) SubscriptionOption {
 	}
 }
 
-// StartAtTime sets the desired timestamp to begin consuming from in the
+// StartAtTimeDelta sets the desired timestamp to begin consuming from in the
 // stream using a time delta in the past.
 func StartAtTimeDelta(ago time.Duration) SubscriptionOption {
 	return func(o *SubscriptionOptions) error {
@@ -613,7 +649,7 @@ func (c *client) dialBroker() (*grpc.ClientConn, error) {
 	defer c.mu.RUnlock()
 	addrs := make([]string, len(c.addrs))
 	i := 0
-	for addr, _ := range c.addrs {
+	for addr := range c.addrs {
 		addrs[i] = addr
 		i++
 	}

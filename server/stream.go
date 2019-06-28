@@ -25,7 +25,8 @@ const recvChannelSize = 64 * 1024
 var (
 	// envelopeCookie is a magic value that indicates if a NATS message is a
 	// structured message protobuf.
-	envelopeCookie = []byte("LIFT")
+	envelopeCookie    = []byte("LIFT")
+	envelopeCookieLen = len(envelopeCookie)
 
 	// timestamp returns the current time in Unix nanoseconds. This function
 	// exists for mocking purposes.

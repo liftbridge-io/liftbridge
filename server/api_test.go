@@ -47,16 +47,11 @@ func TestCreateStream(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
-	}
-	err = client.CreateStream(context.Background(), stream)
+	err = client.CreateStream(context.Background(), "foo", "bar")
 	require.NoError(t, err)
 
 	// Creating the same stream returns ErrStreamExists.
-	err = client.CreateStream(context.Background(), stream)
+	err = client.CreateStream(context.Background(), "foo", "bar")
 	require.Equal(t, liftbridge.ErrStreamExists, err)
 }
 
@@ -86,16 +81,11 @@ func TestCreateStreamPropagate(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
-	}
-	err = client.CreateStream(context.Background(), stream)
+	err = client.CreateStream(context.Background(), "foo", "foo")
 	require.NoError(t, err)
 
 	// Creating the same stream returns ErrStreamExists.
-	err = client.CreateStream(context.Background(), stream)
+	err = client.CreateStream(context.Background(), "foo", "foo")
 	require.Equal(t, liftbridge.ErrStreamExists, err)
 }
 
@@ -119,12 +109,8 @@ func TestCreateStreamInsufficientReplicas(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 2,
-	}
-	err = client.CreateStream(context.Background(), stream)
+	err = client.CreateStream(context.Background(), "foo", "foo",
+		liftbridge.ReplicationFactor(2))
 	require.Error(t, err)
 }
 
@@ -184,21 +170,19 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	info := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 2,
-	}
-	err = client.CreateStream(context.Background(), info)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		liftbridge.ReplicationFactor(2))
 	require.NoError(t, err)
 
 	require.NoError(t, client.Close())
 
 	// Wait for both nodes to create stream.
-	waitForStream(t, 5*time.Second, info.Subject, info.Name, s1, s2)
+	waitForStream(t, 5*time.Second, subject, name, s1, s2)
 
 	// Connect to the server that is the stream follower.
-	leader := getStreamLeader(t, 10*time.Second, info.Subject, info.Name, s1, s2)
+	leader := getStreamLeader(t, 10*time.Second, subject, name, s1, s2)
 	var followerConfig *Config
 	if leader == s1 {
 		followerConfig = s2Config
@@ -212,8 +196,8 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 
 	// Subscribe on the follower.
 	stream, err := apiClient.Subscribe(context.Background(), &proto.SubscribeRequest{
-		Subject: info.Subject,
-		Name:    info.Name,
+		Subject: subject,
+		Name:    name,
 	})
 	require.NoError(t, err)
 	_, err = stream.Recv()
@@ -240,12 +224,9 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	info := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 1,
-	}
-	err = client.CreateStream(context.Background(), info)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	num := 5
@@ -260,7 +241,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	i := 0
 	ch1 := make(chan struct{})
 	ch2 := make(chan struct{})
-	err = client.Subscribe(context.Background(), info.Subject, info.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(context.Background(), subject, name, func(msg *proto.Message, err error) {
 		if i == num+5 && err != nil {
 			return
 		}
@@ -297,8 +278,8 @@ func TestStreamPublishSubscribe(t *testing.T) {
 
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(info.Subject, liftbridge.NewMessage(expected[i].Value,
-			liftbridge.MessageOptions{Key: expected[i].Key, AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage(expected[i].Value,
+			liftbridge.Key(expected[i].Key), liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -318,8 +299,8 @@ func TestStreamPublishSubscribe(t *testing.T) {
 		})
 	}
 	for i := 0; i < 5; i++ {
-		err = nc.Publish(info.Subject, liftbridge.NewMessage(expected[i+num].Value,
-			liftbridge.MessageOptions{Key: expected[i+num].Key, AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage(expected[i+num].Value,
+			liftbridge.Key(expected[i+num].Key), liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -343,7 +324,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	defer client2.Close()
 	i = num
 	ch1 = make(chan struct{})
-	err = client2.Subscribe(context.Background(), info.Subject, info.Name,
+	err = client2.Subscribe(context.Background(), subject, name,
 		func(msg *proto.Message, err error) {
 			if i == num+5 && err != nil {
 				return

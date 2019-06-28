@@ -5,6 +5,8 @@ import (
 	"time"
 
 	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
+	"github.com/nats-io/go-nats"
+	"github.com/nats-io/nuid"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -101,6 +103,88 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 	}
 
 	return resp, nil
+}
+
+// Publish a new message to a subject. If the AckPolicy is not NONE and a
+// deadline is provided, this will synchronously block until the ack is
+// received. If the ack is not received in time, a DeadlineExceeded status code
+// is returned.
+func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
+	*client.PublishResponse, error) {
+	if req.Message == nil {
+		a.logger.Errorf("api: Failed to publish message: message is nil")
+		return nil, status.Error(codes.InvalidArgument, "Message is nil")
+	}
+	a.logger.Debugf("api: Publish [subject=%s]", req.Message.Subject)
+
+	if req.Message.AckInbox == "" {
+		req.Message.AckInbox = nuid.Next()
+	}
+
+	msg, err := req.Message.Marshal()
+	if err != nil {
+		a.logger.Errorf("api: Failed to publish message: %v", err.Error())
+		return nil, err
+	}
+
+	buf := make([]byte, envelopeCookieLen+len(msg))
+	copy(buf[0:], envelopeCookie)
+	copy(buf[envelopeCookieLen:], msg)
+
+	// If AckPolicy is NONE or a timeout isn't specified, then we will fire and
+	// forget.
+	var (
+		resp           = new(client.PublishResponse)
+		_, hasDeadline = ctx.Deadline()
+	)
+	if req.Message.AckPolicy == client.AckPolicy_NONE || !hasDeadline {
+		if err := a.ncPublishes.Publish(req.Message.Subject, buf); err != nil {
+			a.logger.Errorf("api: Failed to publish message: %v", err)
+			return nil, err
+		}
+		return resp, nil
+	}
+
+	// Otherwise we need to publish and wait for the ack.
+	resp.Ack, err = a.publishSync(ctx, req.Message.Subject, req.Message.AckInbox, buf)
+	return resp, err
+}
+
+func (a *apiServer) publishSync(ctx context.Context, subject,
+	ackInbox string, msg []byte) (*client.Ack, error) {
+
+	sub, err := a.ncPublishes.SubscribeSync(ackInbox)
+	if err != nil {
+		a.logger.Errorf("api: Failed to subscribe to ack inbox: %v", err)
+		return nil, err
+	}
+	if err := sub.AutoUnsubscribe(1); err != nil {
+		a.logger.Errorf("api: Failed to auto unsubscribe from ack inbox: %v", err)
+		return nil, err
+	}
+
+	if err := a.ncPublishes.Publish(subject, msg); err != nil {
+		a.logger.Errorf("api: Failed to publish message: %v", err)
+		return nil, err
+	}
+
+	ackMsg, err := sub.NextMsgWithContext(ctx)
+	if err != nil {
+		if err == nats.ErrTimeout {
+			a.logger.Errorf("api: Ack for publish timed out")
+			err = status.Error(codes.DeadlineExceeded, err.Error())
+		} else {
+			a.logger.Errorf("api: Failed to get ack for publish: %v", err)
+		}
+		return nil, err
+	}
+
+	ack := new(client.Ack)
+	if err := ack.Unmarshal(ackMsg.Data); err != nil {
+		a.logger.Errorf("api: Invalid ack for publish: %v", err)
+		return nil, err
+	}
+	return ack, nil
 }
 
 // subscribe sets up a subscription on the given stream and begins sending

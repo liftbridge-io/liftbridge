@@ -453,11 +453,9 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -482,8 +480,8 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -498,7 +496,7 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	// starting at offset 5.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(5), msg.Offset)
 		close(gotMsg)
@@ -507,7 +505,7 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish one more message.
-	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
+	err = nc.Publish(subject, liftbridge.NewMessage([]byte("test")))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -540,11 +538,9 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -555,7 +551,7 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	// starting at offset 0.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(0), msg.Offset)
 		close(gotMsg)
@@ -564,7 +560,7 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish message.
-	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
+	err = nc.Publish(subject, liftbridge.NewMessage([]byte("test")))
 	require.NoError(t, err)
 
 	// Wait to get the message.
@@ -601,11 +597,9 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -630,8 +624,8 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -643,12 +637,12 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	}
 
 	// Force log clean.
-	forceLogClean(t, stream.Subject, stream.Name, s1)
+	forceLogClean(t, subject, name, s1)
 
 	// Subscribe with underflowed offset. This should set the offset to 1.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1), msg.Offset)
 		close(gotMsg)
@@ -689,11 +683,9 @@ func TestStreamRetentionBytes(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -718,8 +710,8 @@ func TestStreamRetentionBytes(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -731,12 +723,12 @@ func TestStreamRetentionBytes(t *testing.T) {
 	}
 
 	// Force log clean.
-	forceLogClean(t, stream.Subject, stream.Name, s1)
+	forceLogClean(t, subject, name, s1)
 
 	// The first message read back should have offset 86.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -777,11 +769,9 @@ func TestStreamRetentionMessages(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -806,8 +796,8 @@ func TestStreamRetentionMessages(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -819,12 +809,12 @@ func TestStreamRetentionMessages(t *testing.T) {
 	}
 
 	// Force log clean.
-	forceLogClean(t, stream.Subject, stream.Name, s1)
+	forceLogClean(t, subject, name, s1)
 
 	// The first message read back should have offset 5.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -865,11 +855,9 @@ func TestStreamRetentionAge(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -894,8 +882,8 @@ func TestStreamRetentionAge(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -907,13 +895,13 @@ func TestStreamRetentionAge(t *testing.T) {
 	}
 
 	// Force log clean.
-	forceLogClean(t, stream.Subject, stream.Name, s1)
+	forceLogClean(t, subject, name, s1)
 
 	// We expect all segments but the last to be truncated due to age, so the
 	// first message read back should have offset 99.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -950,11 +938,9 @@ func TestSubscribeStartPositionInvalid(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -962,7 +948,7 @@ func TestSubscribeStartPositionInvalid(t *testing.T) {
 	defer nc.Close()
 
 	// Subscribe with invalid StartPosition.
-	err = client.Subscribe(context.Background(), stream.Subject, stream.Name, nil, liftbridge.StartAt(9999))
+	err = client.Subscribe(context.Background(), subject, name, nil, liftbridge.StartAt(9999))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Unknown StartPosition")
 }
@@ -993,11 +979,9 @@ func TestSubscribeEarliest(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -1022,8 +1006,8 @@ func TestSubscribeEarliest(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -1035,12 +1019,12 @@ func TestSubscribeEarliest(t *testing.T) {
 	}
 
 	// Force log clean.
-	forceLogClean(t, stream.Subject, stream.Name, s1)
+	forceLogClean(t, subject, name, s1)
 
 	// Subscribe with EARLIEST. This should start reading from offset 1.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1), msg.Offset)
 		close(gotMsg)
@@ -1077,11 +1061,9 @@ func TestSubscribeLatest(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -1106,8 +1088,8 @@ func TestSubscribeLatest(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -1121,7 +1103,7 @@ func TestSubscribeLatest(t *testing.T) {
 	// Subscribe with LATEST. This should start reading from offset 2.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(2), msg.Offset)
 		close(gotMsg)
@@ -1158,11 +1140,9 @@ func TestSubscribeNewOnly(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -1187,8 +1167,8 @@ func TestSubscribeNewOnly(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -1203,7 +1183,7 @@ func TestSubscribeNewOnly(t *testing.T) {
 	// offset 5.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		require.NoError(t, err)
 		require.Equal(t, int64(5), msg.Offset)
 		close(gotMsg)
@@ -1212,7 +1192,7 @@ func TestSubscribeNewOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish one more message.
-	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("test"), liftbridge.MessageOptions{}))
+	err = nc.Publish(subject, liftbridge.NewMessage([]byte("test")))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -1255,11 +1235,9 @@ func TestSubscribeStartTime(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:    "foo",
-		Subject: "foo",
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -1284,8 +1262,8 @@ func TestSubscribeStartTime(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -1299,7 +1277,7 @@ func TestSubscribeStartTime(t *testing.T) {
 	// Subscribe with TIMESTAMP 25. This should start reading from offset 3.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, stream.Subject, stream.Name, func(msg *proto.Message, err error) {
+	client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
 		select {
 		case <-gotMsg:
 			return
