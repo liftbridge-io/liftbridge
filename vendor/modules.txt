@@ -29,7 +29,7 @@ github.com/hashicorp/raft
 github.com/hashicorp/raft-boltdb
 # github.com/konsorten/go-windows-terminal-sequences v1.0.1
 github.com/konsorten/go-windows-terminal-sequences
-# github.com/liftbridge-io/go-liftbridge v0.0.0-20181231191109-b4f9a50124b8
+# github.com/liftbridge-io/go-liftbridge v0.0.0-20190628041033-36ed3eee7846
 github.com/liftbridge-io/go-liftbridge/liftbridge-grpc
 github.com/liftbridge-io/go-liftbridge
 # github.com/liftbridge-io/nats-on-a-log v0.0.0-20180718011723-80d0727461af

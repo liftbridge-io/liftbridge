@@ -44,6 +44,16 @@ message FetchMetadataResponse {
     repeated StreamMetadata metadata = 2; // Information for all streams
 }
 
+// PublishRequest is sent to publish a new message.
+message PublishRequest {
+    Message message = 1; // Message to publish
+}
+
+// PublishResponse is sent by the server after publishing a message.
+message PublishResponse {
+    Ack ack = 1; // The ack for the published message if AckPolicy was not NONE
+}
+
 // Broker contains information for a Liftbridge broker.
 message Broker {
     string id   = 1; // Broker id
@@ -118,4 +128,10 @@ service API {
     // FetchMetadata retrieves the latest cluster metadata, including stream
     // broker information.
     rpc FetchMetadata(FetchMetadataRequest) returns (FetchMetadataResponse) {}
+
+    // Publish a new message to a subject. If the AckPolicy is not NONE and a
+    // deadline is provided, this will synchronously block until the ack is
+    // received. If the ack is not received in time, a DeadlineExceeded status
+    // code is returned.
+    rpc Publish(PublishRequest) returns (PublishResponse) {}
 }
