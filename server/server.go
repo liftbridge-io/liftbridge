@@ -40,6 +40,7 @@ type Server struct {
 	ncRaft             *nats.Conn
 	ncRepl             *nats.Conn
 	ncAcks             *nats.Conn
+	ncPublishes        *nats.Conn
 	logger             logger.Logger
 	api                *grpc.Server
 	metadata           *metadataAPI
@@ -240,7 +241,8 @@ func (s *Server) recoverAndPersistState() error {
 }
 
 // createNATSConns creates various NATS connections used by the server,
-// including connections for stream data, Raft, replication, and acks.
+// including connections for stream data, Raft, replication, acks, and
+// publishes.
 func (s *Server) createNATSConns() error {
 	// NATS connection used for stream data.
 	nc, err := s.createNATSConn("streams")
@@ -269,6 +271,13 @@ func (s *Server) createNATSConns() error {
 		return err
 	}
 	s.ncAcks = ncAcks
+
+	// NATS connection used for publishing messages.
+	ncPublishes, err := s.createNATSConn("publishes")
+	if err != nil {
+		return err
+	}
+	s.ncPublishes = ncPublishes
 	return nil
 }
 
