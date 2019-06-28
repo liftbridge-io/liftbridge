@@ -86,12 +86,10 @@ func TestStreamLeaderFailover(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 3,
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		liftbridge.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	num := 100
@@ -125,8 +123,8 @@ func TestStreamLeaderFailover(t *testing.T) {
 
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage(expected[i].Value,
-			liftbridge.MessageOptions{Key: expected[i].Key, AckInbox: acks, AckPolicy: proto.AckPolicy_ALL}))
+		err = nc.Publish(subject, liftbridge.NewMessage(expected[i].Value,
+			liftbridge.Key(expected[i].Key), liftbridge.AckInbox(acks), liftbridge.AckPolicyAll()))
 		require.NoError(t, err)
 	}
 
@@ -140,7 +138,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	// Make sure we can play back the log.
 	i := 0
 	ch := make(chan struct{})
-	err = client.Subscribe(context.Background(), stream.Subject, stream.Name,
+	err = client.Subscribe(context.Background(), subject, name,
 		func(msg *proto.Message, err error) {
 			if i == num && err != nil {
 				return
@@ -162,10 +160,10 @@ func TestStreamLeaderFailover(t *testing.T) {
 	}
 
 	// Wait for HW to update on followers.
-	waitForHW(t, 5*time.Second, stream.Subject, stream.Name, int64(num-1), servers...)
+	waitForHW(t, 5*time.Second, subject, name, int64(num-1), servers...)
 
 	// Kill the stream leader.
-	leader := getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, servers...)
+	leader := getStreamLeader(t, 10*time.Second, subject, name, servers...)
 	leader.Stop()
 	followers := []*Server{}
 	for _, s := range servers {
@@ -176,12 +174,12 @@ func TestStreamLeaderFailover(t *testing.T) {
 	}
 
 	// Wait for new leader to be elected.
-	getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, followers...)
+	getStreamLeader(t, 10*time.Second, subject, name, followers...)
 
 	// Make sure the new leader's log is consistent.
 	i = 0
 	ch = make(chan struct{})
-	err = client.Subscribe(context.Background(), stream.Subject, stream.Name,
+	err = client.Subscribe(context.Background(), subject, name,
 		func(msg *proto.Message, err error) {
 			if i == num && err != nil {
 				return
@@ -238,12 +236,10 @@ func TestCommitOnISRShrink(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 3,
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		liftbridge.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -264,7 +260,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 	nc.Flush()
 
 	// Kill a stream follower.
-	leader = getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, servers...)
+	leader = getStreamLeader(t, 10*time.Second, subject, name, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -277,8 +273,8 @@ func TestCommitOnISRShrink(t *testing.T) {
 
 	// Publish message to stream. This should not get committed until the ISR
 	// shrinks.
-	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-		liftbridge.MessageOptions{CorrelationID: cid, AckInbox: acks, AckPolicy: proto.AckPolicy_ALL}))
+	err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+		liftbridge.CorrelationID(cid), liftbridge.AckInbox(acks), liftbridge.AckPolicyAll()))
 	require.NoError(t, err)
 	nc.Flush()
 
@@ -329,12 +325,10 @@ func TestAckPolicyLeader(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 3,
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		liftbridge.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -355,7 +349,7 @@ func TestAckPolicyLeader(t *testing.T) {
 	nc.Flush()
 
 	// Kill a stream follower.
-	leader = getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, servers...)
+	leader = getStreamLeader(t, 10*time.Second, subject, name, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -369,8 +363,8 @@ func TestAckPolicyLeader(t *testing.T) {
 	// Publish message to stream. This should not get committed until the ISR
 	// shrinks, but an ack should still be received immediately since
 	// AckPolicy_LEADER is set (default AckPolicy).
-	err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-		liftbridge.MessageOptions{CorrelationID: cid, AckInbox: acks}))
+	err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+		liftbridge.CorrelationID(cid), liftbridge.AckInbox(acks)))
 	require.NoError(t, err)
 	nc.Flush()
 
@@ -411,12 +405,10 @@ func TestCommitOnRestart(t *testing.T) {
 	defer client.Close()
 
 	// Create stream.
-	stream := liftbridge.StreamInfo{
-		Name:              "foo",
-		Subject:           "foo",
-		ReplicationFactor: 2,
-	}
-	err = client.CreateStream(context.Background(), stream)
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		liftbridge.ReplicationFactor(2))
 	require.NoError(t, err)
 
 	nc, err := nats.GetDefaultOptions().Connect()
@@ -441,8 +433,8 @@ func TestCommitOnRestart(t *testing.T) {
 
 	// Publish some messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks, AckPolicy: proto.AckPolicy_ALL}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks), liftbridge.AckPolicyAll()))
 		require.NoError(t, err)
 	}
 
@@ -454,7 +446,7 @@ func TestCommitOnRestart(t *testing.T) {
 	}
 
 	// Kill stream follower.
-	leader = getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, servers...)
+	leader = getStreamLeader(t, 10*time.Second, subject, name, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -482,8 +474,8 @@ func TestCommitOnRestart(t *testing.T) {
 
 	// Publish some more messages.
 	for i := 0; i < num; i++ {
-		err = nc.Publish(stream.Subject, liftbridge.NewMessage([]byte("hello"),
-			liftbridge.MessageOptions{AckInbox: acks}))
+		err = nc.Publish(subject, liftbridge.NewMessage([]byte("hello"),
+			liftbridge.AckInbox(acks)))
 		require.NoError(t, err)
 	}
 
@@ -516,12 +508,12 @@ func TestCommitOnRestart(t *testing.T) {
 	defer follower.Stop()
 
 	// Wait for stream leader to be elected.
-	getStreamLeader(t, 10*time.Second, stream.Subject, stream.Name, leader, follower)
+	getStreamLeader(t, 10*time.Second, subject, name, leader, follower)
 
 	// Ensure all messages have been committed by reading them back.
 	i := 0
 	ch := make(chan struct{})
-	err = client.Subscribe(context.Background(), stream.Subject, stream.Name,
+	err = client.Subscribe(context.Background(), subject, name,
 		func(msg *proto.Message, err error) {
 			if i == num*2 && err != nil {
 				return
