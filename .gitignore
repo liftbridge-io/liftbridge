@@ -1,14 +1,28 @@
-# Binaries for programs and plugins
+# IDE ignore
+.idea/
+*.ipr
+*.iml
+*.iws
+.vscode/
+
+# temp ignore
+*.log
+*.cache
+*.diff
 *.exe
-*.dll
-*.so
-*.dylib
+*.exe~
+*.patch
+*.tmp
+*.swp
 
-# Test binary, build with `go test -c`
-*.test
+# system ignore
+.DS_Store
+Thumbs.db
 
-# Output of the go coverage tool, specifically when used with LiteIDE
-*.out
-
-# Project-local glide cache, RE: https://github.com/Masterminds/glide/issues/736
-.glide/
+# build
+/cmd/comet/comet
+/cmd/logic/logic
+/cmd/job/job
+/target
+/configs
+/dist

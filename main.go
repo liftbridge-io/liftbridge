@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/nats-io/go-nats"
+	nats  "github.com/nats-io/nats.go"
 	"github.com/urfave/cli"
 
 	"github.com/liftbridge-io/liftbridge/server"

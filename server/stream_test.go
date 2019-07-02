@@ -6,8 +6,8 @@ import (
 
 	"github.com/Workiva/go-datastructures/queue"
 	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
-	natsdTest "github.com/nats-io/gnatsd/test"
-	"github.com/nats-io/go-nats"
+	natsdTest "github.com/nats-io/nats-server/v2/test"
+	nats  "github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 
 	"github.com/liftbridge-io/liftbridge/server/proto"
