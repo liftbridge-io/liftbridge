@@ -10,7 +10,7 @@ import (
 
 	"github.com/Workiva/go-datastructures/queue"
 	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
-	nats  "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 

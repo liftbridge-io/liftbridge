@@ -14,7 +14,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
-	nats  "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"

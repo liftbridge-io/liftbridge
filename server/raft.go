@@ -11,8 +11,9 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/raft-boltdb"
-	"github.com/liftbridge-io/third/nats-on-a-log"
-	nats  "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go"
+
+	"github.com/liftbridge-io/liftbridge/third/nats-on-a-log"
 
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )

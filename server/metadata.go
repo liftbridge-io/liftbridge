@@ -8,7 +8,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
-	nats  "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"

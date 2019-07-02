@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	nats  "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go"
 )
 
 const (
