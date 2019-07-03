@@ -82,6 +82,24 @@ func getMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Server) 
 	return leader
 }
 
+func waitForNoMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Server) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var leader string
+		for _, s := range servers {
+			if l := string(s.raft.Leader()); l != "" {
+				leader = l
+				break
+			}
+		}
+		if leader == "" {
+			return
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	stackFatalf(t, "Metadata leader found")
+}
+
 func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, servers ...*Server) *Server {
 	var (
 		leader   *Server

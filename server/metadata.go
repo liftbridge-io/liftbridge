@@ -667,6 +667,11 @@ func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.Repo
 // propagateRequest forwards a metadata request to the metadata leader and
 // returns the response.
 func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.PropagatedRequest) *status.Status {
+	// Fail fast if there is no known metadata leader currently.
+	if m.raft.Leader() == "" {
+		return status.New(codes.Internal, "No known metadata leader")
+	}
+
 	data, err := req.Marshal()
 	if err != nil {
 		panic(err)

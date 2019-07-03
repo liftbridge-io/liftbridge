@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type message struct {
@@ -86,6 +88,42 @@ func TestCreateStreamPropagate(t *testing.T) {
 	// Creating the same stream returns ErrStreamExists.
 	err = client.CreateStream(context.Background(), "foo", "foo")
 	require.Equal(t, lift.ErrStreamExists, err)
+}
+
+// Ensure creating a stream fails when there is no known metadata leader.
+func TestCreateStreamNoMetadataLeader(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 0)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5050)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Wait for a leader to be elected to allow the cluster to form, then stop
+	// a server and wait for the leader to step down.
+	getMetadataLeader(t, 10*time.Second, s1, s2)
+	s1.Stop()
+	waitForNoMetadataLeader(t, 10*time.Second, s1, s2)
+
+	// Connect and send the request to the follower.
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	err = client.CreateStream(context.Background(), "foo", "foo")
+	require.Error(t, err)
+	st := status.Convert(err)
+	require.Equal(t, "No known metadata leader", st.Message())
+	require.Equal(t, codes.Internal, st.Code())
 }
 
 // Ensure creating a stream fails when the replication factor is greater than
