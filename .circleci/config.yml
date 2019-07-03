@@ -2,10 +2,9 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/golang:1.9
+      - image: circleci/golang:1.12
 
     working_directory: /go/src/github.com/liftbridge-io/liftbridge
     steps:
       - checkout
-      - run: go get golang.org/x/net/... # hack to work around duplicate endpoint registration
-      - run: go test -v ./...
+      - run: GO111MODULE=on go test -v ./...
