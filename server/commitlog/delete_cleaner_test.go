@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/liftbridge-io/liftbridge/server/logger"
@@ -13,7 +12,9 @@ import (
 )
 
 func noopLogger() logger.Logger {
-	return &log.Logger{Out: ioutil.Discard}
+	log := logger.NewLogger(0)
+	log.SetWriter(ioutil.Discard)
+	return log
 }
 
 func createSegment(t require.TestingT, dir string, baseOffset, maxBytes int64) *Segment {

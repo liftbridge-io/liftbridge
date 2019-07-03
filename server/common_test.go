@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"runtime"
 	"strings"
 	"sync"
@@ -73,3 +75,9 @@ func (c *captureFatalLogger) Fatalf(format string, args ...interface{}) {
 	}
 	c.Unlock()
 }
+
+func (c *captureFatalLogger) Writer() io.Writer {
+	return bytes.NewBufferString(c.msg)
+}
+
+func (c *captureFatalLogger) SetWriter(writer io.Writer) {}

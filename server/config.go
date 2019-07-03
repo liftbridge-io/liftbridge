@@ -99,7 +99,8 @@ type Config struct {
 	Host                string
 	Port                int
 	LogLevel            uint32
-	NoLog               bool
+	LogRecovery         bool
+	LogSilent           bool
 	DataDir             string
 	BatchMaxMessages    int
 	BatchWaitTime       time.Duration
@@ -189,6 +190,8 @@ func NewConfig(configFile string) (*Config, error) {
 				return nil, err
 			}
 			config.LogLevel = level
+		case "log.recovery":
+			config.LogRecovery = v.(bool)
 		case "data.dir":
 			config.DataDir = v.(string)
 		case "batch.max.messages":
