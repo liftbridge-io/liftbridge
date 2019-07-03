@@ -102,6 +102,7 @@ the setting in the configuration file and the CLI flag if it exists.
 | tls.key | tls-key | The private key file for server certificate. This must be set in combination with `tls.cert` to enable TLS. | string | |
 | tls.cert | tls-cert | The server certificate file. This must be set in combination with `tls.key` to enable TLS. | string | |
 | log.level | level | The logging level. | string | info | [debug, info, warn, error] |
+| log.recovery | | Log messages resulting from the replay of the Raft log on server recovery. | bool | false | |
 | data.dir | data-dir | The directory to store data in. | string | /tmp/liftbridge/namespace | |
 | batch.max.messages | | The maximum number of messages to batch when writing to disk. | int | 1024 |
 | batch.wait.time | | The time to wait to batch more messages when writing to disk. | duration | 0 | |

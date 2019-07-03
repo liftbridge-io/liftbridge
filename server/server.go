@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -16,7 +17,6 @@ import (
 	client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
 	"github.com/nats-io/go-nats"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -42,12 +42,13 @@ type Server struct {
 	ncAcks             *nats.Conn
 	ncPublishes        *nats.Conn
 	logger             logger.Logger
+	loggerOut          io.Writer
 	api                *grpc.Server
 	metadata           *metadataAPI
 	shutdownCh         chan struct{}
 	raft               *raftNode
 	leaderSub          *nats.Subscription
-	startedRecovery    bool
+	recoveryStarted    bool
 	latestRecoveredLog *raft.Log
 	mu                 sync.RWMutex
 	shutdown           bool
@@ -70,15 +71,9 @@ func New(config *Config) *Server {
 	if config.DataDir == "" {
 		config.DataDir = filepath.Join("/tmp", "liftbridge", config.Clustering.Namespace)
 	}
-	logger := log.New()
-	logger.SetLevel(log.Level(config.LogLevel))
-	logFormatter := &log.TextFormatter{
-		FullTimestamp:   true,
-		TimestampFormat: "2006-01-02 15:04:05",
-	}
-	logger.Formatter = logFormatter
-	if config.NoLog {
-		logger.Out = ioutil.Discard
+	logger := logger.NewLogger(config.LogLevel)
+	if config.LogSilent {
+		logger.SetWriter(ioutil.Discard)
 	}
 	s := &Server{
 		config:     config,
@@ -350,23 +345,6 @@ func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 	}
 
 	return opts.Connect()
-}
-
-// finishedRecovery should be called when the FSM has finished replaying any
-// unapplied log entries. This will start any streams recovered during the
-// replay.
-func (s *Server) finishedRecovery() (int, error) {
-	count := 0
-	for _, stream := range s.metadata.GetStreams() {
-		recovered, err := stream.StartRecovered()
-		if err != nil {
-			return 0, err
-		}
-		if recovered {
-			count++
-		}
-	}
-	return count, nil
 }
 
 // startMetadataRaft creates and starts an embedded Raft node to participate in

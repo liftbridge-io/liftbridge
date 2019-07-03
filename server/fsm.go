@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"strconv"
 
 	"github.com/dustin/go-humanize/english"
@@ -53,7 +54,7 @@ func (s *Server) recoverLatestCommittedFSMLog(applyIndex uint64) (*raft.Log, err
 // committed to Raft as part of the recovery process. As such, this should be
 // an idempotent call.
 func (s *Server) Apply(l *raft.Log) interface{} {
-	// If startedRecovery is false, the server was just started. We are going
+	// If recoveryStarted is false, the server was just started. We are going
 	// to recover the last committed Raft FSM log entry, if any, to determine
 	// the recovery high watermark. Once we apply all entries up to that point,
 	// we know we've completed the recovery process and subsequent entries are
@@ -61,17 +62,18 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 	// streams will not be started until recovery is finished to avoid starting
 	// streams in an intermediate state. When recovery completes, we'll call
 	// finishedRecovery() to start the recovered streams.
-	if !s.startedRecovery {
+	if !s.recoveryStarted {
 		lastCommittedLog, err := s.recoverLatestCommittedFSMLog(l.Index)
 		// If this returns an error, something is very wrong.
 		if err != nil {
 			panic(err)
 		}
 		s.latestRecoveredLog = lastCommittedLog
-		s.startedRecovery = true
+		s.recoveryStarted = true
 		if s.latestRecoveredLog != nil {
 			s.logger.Debug("fsm: Replaying Raft log...")
 		}
+		s.startedRecovery()
 	}
 
 	// Check if this is a "recovered" Raft entry, meaning we are still applying
@@ -160,6 +162,39 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		return nil, fmt.Errorf("Unknown Raft operation: %s", log.Op)
 	}
 	return nil, nil
+}
+
+// startedRecovery should be called when the FSM has started replaying any
+// unapplied log entries.
+func (s *Server) startedRecovery() {
+	if s.config.LogRecovery {
+		return
+	}
+	// If LogRecovery is disabled, we need to suppress logs while replaying the
+	// Raft log. Do this by discarding the log output.
+	s.loggerOut = s.logger.Writer()
+	s.logger.SetWriter(ioutil.Discard)
+}
+
+// finishedRecovery should be called when the FSM has finished replaying any
+// unapplied log entries. This will start any streams recovered during the
+// replay.
+func (s *Server) finishedRecovery() (int, error) {
+	// If LogRecovery is disabled, we need to restore the previous log output.
+	if !s.config.LogRecovery {
+		s.logger.SetWriter(s.loggerOut)
+	}
+	count := 0
+	for _, stream := range s.metadata.GetStreams() {
+		recovered, err := stream.StartRecovered()
+		if err != nil {
+			return 0, err
+		}
+		if recovered {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // fsmSnapshot is returned by an FSM in response to a Snapshot. It must be safe

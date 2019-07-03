@@ -16,7 +16,6 @@ import (
 
 	atomic_file "github.com/natefinch/atomic"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/liftbridge-io/liftbridge/server/logger"
 	"github.com/liftbridge-io/liftbridge/server/proto"
@@ -71,7 +70,8 @@ func New(opts Options) (*CommitLog, error) {
 	}
 
 	if opts.Logger == nil {
-		opts.Logger = &log.Logger{Out: ioutil.Discard}
+		opts.Logger = logger.NewLogger(0)
+		opts.Logger.SetWriter(ioutil.Discard)
 	}
 
 	if opts.MaxSegmentBytes == 0 {
