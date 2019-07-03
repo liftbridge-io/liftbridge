@@ -11,7 +11,7 @@ import (
 
 	lift "github.com/liftbridge-io/go-liftbridge"
 	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
-	natsdTest "github.com/nats-io/gnatsd/test"
+	natsdTest "github.com/nats-io/nats-server/v2/test"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"

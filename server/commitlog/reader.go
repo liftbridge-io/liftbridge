@@ -7,8 +7,9 @@ import (
 	"io"
 	"sync"
 
-	"github.com/liftbridge-io/liftbridge/server/proto"
 	pkgErrors "github.com/pkg/errors"
+
+	"github.com/liftbridge-io/liftbridge/server/proto"
 
 	"golang.org/x/net/context"
 )
