@@ -108,9 +108,8 @@ func TestCreateStreamNoMetadataLeader(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
-	// Wait for a leader to be elected to allow the servers to allow the
-	// cluster to form, then stop a server and wait for the leader to step
-	// down.
+	// Wait for a leader to be elected to allow the cluster to form, then stop
+	// a server and wait for the leader to step down.
 	getMetadataLeader(t, 10*time.Second, s1, s2)
 	s1.Stop()
 	waitForNoMetadataLeader(t, 10*time.Second, s1, s2)
