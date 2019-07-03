@@ -5,7 +5,7 @@ go 1.12
 require (
 	github.com/Workiva/go-datastructures v1.0.50
 	github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da // indirect
-	github.com/boltdb/bolt v1.3.1
+	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/dustin/go-humanize v1.0.0
 	github.com/golang/protobuf v1.3.1
 	github.com/hako/durafmt v0.0.0-20180520121703-7b7ae1e72ead
@@ -15,9 +15,8 @@ require (
 	github.com/hashicorp/raft-boltdb v0.0.0-20171010151810-6e5ba93211ea
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/liftbridge-io/go-liftbridge v0.0.0-20190628050631-26acc07f31ba
+	github.com/liftbridge-io/nats-on-a-log
 	github.com/natefinch/atomic v0.0.0-20150920032501-a62ce929ffcc
-	github.com/nats-io/gnatsd v1.3.0 // indirect
-	github.com/nats-io/go-nats v1.7.0 // indirect
 	github.com/nats-io/nats-server/v2 v2.0.0
 	github.com/nats-io/nats.go v1.8.1
 	github.com/nats-io/nuid v1.0.1

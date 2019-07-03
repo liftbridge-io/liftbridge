@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/raft-boltdb"
 	"github.com/nats-io/nats.go"
 
-	"github.com/liftbridge-io/liftbridge/third/nats-on-a-log"
+	"github.com/liftbridge-io/nats-on-a-log"
 
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )

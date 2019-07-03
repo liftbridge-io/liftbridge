@@ -1,28 +1,17 @@
-# IDE ignore
-.idea/
-*.ipr
-*.iml
-*.iws
-.vscode/
-
-# temp ignore
-*.log
-*.cache
-*.diff
+# Binaries for programs and plugins
 *.exe
-*.exe~
-*.patch
-*.tmp
-*.swp
+*.dll
+*.so
+*.dylib
 
-# system ignore
-.DS_Store
-Thumbs.db
+# Test binary, build with `go test -c`
+*.test
 
-# build
-/cmd/comet/comet
-/cmd/logic/logic
-/cmd/job/job
-/target
-/configs
-/dist
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Project-local glide cache, RE: https://github.com/Masterminds/glide/issues/736
+.glide/
+
+# iginore  jetbrains goland/idea setting path
+.idea/
