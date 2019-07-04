@@ -274,7 +274,7 @@ func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor)
 // cluster and the stream leader has started.
 func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStreamRequest) *status.Status {
 	// Forward the request if we're not the leader.
-	if !m.isLeader() {
+	if !m.IsLeader() {
 		return m.propagateCreateStream(ctx, req)
 	}
 
@@ -327,7 +327,7 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStream
 // by Raft.
 func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *status.Status {
 	// Forward the request if we're not the leader.
-	if !m.isLeader() {
+	if !m.IsLeader() {
 		return m.propagateShrinkISR(ctx, req)
 	}
 
@@ -367,7 +367,7 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 // by Raft.
 func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *status.Status {
 	// Forward the request if we're not the leader.
-	if !m.isLeader() {
+	if !m.IsLeader() {
 		return m.propagateExpandISR(ctx, req)
 	}
 
@@ -408,7 +408,7 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 // leader will select a new stream leader.
 func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderOp) *status.Status {
 	// Forward the request if we're not the leader.
-	if !m.isLeader() {
+	if !m.IsLeader() {
 		return m.propagateReportLeader(ctx, req)
 	}
 
