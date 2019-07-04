@@ -61,10 +61,10 @@ func getMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Server) 
 	)
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			if !s.isRunning() || s.raft == nil {
+			if !s.IsRunning() || s.raft == nil {
 				continue
 			}
-			if s.isLeader() {
+			if s.IsLeader() {
 				if leader != nil {
 					stackFatalf(t, "Found more than one metadata leader")
 				}
@@ -107,7 +107,7 @@ func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, 
 	)
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			if !s.isRunning() {
+			if !s.IsRunning() {
 				continue
 			}
 			stream := s.metadata.GetStream(subject, name)

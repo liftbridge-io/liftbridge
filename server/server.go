@@ -212,6 +212,22 @@ func (s *Server) Stop() error {
 	return nil
 }
 
+// IsLeader indicates if the server is currently the metadata leader or not. If
+// consistency is required for an operation, it should be threaded through the
+// Raft cluster since that is the single source of truth. If a server thinks
+// it's leader when it's not, the operation it proposes to the Raft cluster
+// will fail.
+func (s *Server) IsLeader() bool {
+	return atomic.LoadInt64(&s.raft.leader) == 1
+}
+
+// IsRunning indicates if the server is currently running or has been stopped.
+func (s *Server) IsRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.running
+}
+
 // recoverAndPersistState recovers any existing server metadata state from disk
 // to initialize the server then writes the metadata back to disk.
 func (s *Server) recoverAndPersistState() error {
@@ -426,15 +442,6 @@ func (s *Server) leadershipLost() error {
 	return nil
 }
 
-// isLeader indicates if the server is currently the metadata leader or not. If
-// consistency is required for an operation, it should be threaded through the
-// Raft cluster since that is the single source of truth. If a server thinks
-// it's leader when it's not, the operation it proposes to the Raft cluster
-// will fail.
-func (s *Server) isLeader() bool {
-	return atomic.LoadInt64(&s.raft.leader) == 1
-}
-
 // getPropagateInbox returns the NATS subject used for handling propagated Raft
 // operations. The server subscribes to this when it is the metadata leader.
 // Followers can then forward operations for the leader to apply.
@@ -510,12 +517,6 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 	default:
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
 	}
-}
-
-func (s *Server) isRunning() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.running
 }
 
 func (s *Server) isShutdown() bool {
