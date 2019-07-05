@@ -422,3 +422,291 @@ func TestCommitOnRestart(t *testing.T) {
 		t.Fatal("Did not receive all expected messages")
 	}
 }
+
+// Ensure messages aren't lost when a follower restarts (and truncates its log)
+// and then immediately becomes the leader.
+func TestFastLeaderElection(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.MinISR = 1
+	s1Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
+	s1Config.Clustering.ReplicaFetchTimeout = time.Second
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5051)
+	s2Config.Clustering.MinISR = 1
+	s2Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
+	s2Config.Clustering.ReplicaFetchTimeout = time.Second
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Configure third server.
+	s3Config := getTestConfig("c", false, 5052)
+	s3Config.Clustering.MinISR = 1
+	s3Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
+	s3Config.Clustering.ReplicaFetchTimeout = time.Second
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	servers := []*Server{s1, s2, s3}
+	getMetadataLeader(t, 10*time.Second, servers...)
+
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		lift.ReplicationFactor(3))
+	require.NoError(t, err)
+
+	// Publish two messages.
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
+	require.NoError(t, err)
+	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = client.Publish(ctx, subject, []byte("world"), lift.AckPolicyAll())
+	require.NoError(t, err)
+
+	// Find stream followers.
+	leader := getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	var (
+		follower1 *Server
+		follower2 *Server
+	)
+	if leader == s1 {
+		follower1 = s2
+		follower2 = s3
+	} else if leader == s2 {
+		follower1 = s1
+		follower2 = s3
+	} else {
+		follower1 = s1
+		follower2 = s2
+	}
+
+	// At this point, all servers should have an HW of 1. Set the followers'
+	// HW to 0 to simulate a follower updating its HW from the leader (also
+	// disable replication to prevent them from advancing their HW from the
+	// leader).
+
+	// Stop first follower's replication and reset HW.
+	stream1 := follower1.metadata.GetStream(subject, name)
+	require.NotNil(t, stream1)
+	require.NoError(t, stream1.stopFollowing())
+	stream1.log.SetHighWatermark(0)
+
+	// Stop second follower's replication and reset HW.
+	stream2 := follower2.metadata.GetStream(subject, name)
+	require.NotNil(t, stream2)
+	require.NoError(t, stream2.stopFollowing())
+	stream2.log.SetHighWatermark(0)
+
+	var (
+		follower1Config *Config
+		follower2Config *Config
+	)
+	if leader == s1 {
+		follower1Config = s2Config
+		follower2Config = s3Config
+	} else if leader == s2 {
+		follower1Config = s1Config
+		follower2Config = s3Config
+	} else {
+		follower1Config = s1Config
+		follower2Config = s2Config
+	}
+
+	// Restart the first follower (this will truncate uncommitted messages).
+	follower1.Stop()
+	follower1 = runServerWithConfig(t, follower1Config)
+	defer follower1.Stop()
+
+	// Restart the second follower (this will truncate uncommitted messages).
+	follower2.Stop()
+	follower2 = runServerWithConfig(t, follower2Config)
+	defer follower2.Stop()
+
+	// Kill the leader.
+	leader.Stop()
+
+	// Wait for stream leader to be elected.
+	leader = getStreamLeader(t, 10*time.Second, subject, name, follower1, follower2)
+
+	// Ensure messages have not been lost.
+	stream := leader.metadata.GetStream(subject, name)
+	require.NotNil(t, stream)
+	require.Equal(t, int64(0), stream.log.OldestOffset())
+	require.Equal(t, int64(1), stream.log.NewestOffset())
+}
+
+// Ensure log lineages don't diverge in the event of multiple hard failures.
+func TestPreventReplicaDivergence(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.MinISR = 1
+	s1Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
+	s1Config.Clustering.ReplicaFetchTimeout = time.Second
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5051)
+	s2Config.Clustering.MinISR = 1
+	s2Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
+	s2Config.Clustering.ReplicaFetchTimeout = time.Second
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Configure third server.
+	s3Config := getTestConfig("c", false, 5052)
+	s3Config.Clustering.MinISR = 1
+	s3Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
+	s3Config.Clustering.ReplicaFetchTimeout = time.Second
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	servers := []*Server{s1, s2, s3}
+	getMetadataLeader(t, 10*time.Second, servers...)
+
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		lift.ReplicationFactor(3))
+	require.NoError(t, err)
+
+	// Publish two messages.
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
+	require.NoError(t, err)
+	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = client.Publish(ctx, subject, []byte("world"), lift.AckPolicyAll())
+	require.NoError(t, err)
+
+	// Find stream followers.
+	leader := getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	var (
+		follower1 *Server
+		follower2 *Server
+	)
+	if leader == s1 {
+		follower1 = s2
+		follower2 = s3
+	} else if leader == s2 {
+		follower1 = s1
+		follower2 = s3
+	} else {
+		follower1 = s1
+		follower2 = s2
+	}
+
+	// At this point, all servers should have an HW of 1. Set the followers'
+	// HW to 0 to simulate a follower crashing before replicating (also
+	// disable replication to prevent them from advancing their HW from the
+	// leader).
+
+	// Stop first follower's replication and reset HW.
+	stream1 := follower1.metadata.GetStream(subject, name)
+	require.NotNil(t, stream1)
+	require.NoError(t, stream1.stopFollowing())
+	stream1.log.SetHighWatermark(0)
+
+	// Stop second follower's replication and reset HW.
+	stream2 := follower2.metadata.GetStream(subject, name)
+	require.NotNil(t, stream2)
+	require.NoError(t, stream2.stopFollowing())
+	stream2.log.SetHighWatermark(0)
+
+	var (
+		oldLeaderConfig *Config
+		follower1Config *Config
+		follower2Config *Config
+	)
+	if leader == s1 {
+		oldLeaderConfig = s1Config
+		follower1Config = s2Config
+		follower2Config = s3Config
+	} else if leader == s2 {
+		oldLeaderConfig = s2Config
+		follower1Config = s1Config
+		follower2Config = s3Config
+	} else {
+		oldLeaderConfig = s3Config
+		follower1Config = s1Config
+		follower2Config = s2Config
+	}
+
+	// Kill the leader.
+	leader.Stop()
+
+	// Restart the first follower (this will truncate uncommitted messages).
+	follower1.Stop()
+	follower1Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	follower1 = runServerWithConfig(t, follower1Config)
+	defer follower1.Stop()
+
+	// Restart the second follower (this will truncate uncommitted messages).
+	follower2.Stop()
+	follower2Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	follower2 = runServerWithConfig(t, follower2Config)
+	defer follower2.Stop()
+
+	// Wait for stream leader to be elected.
+	leader = getStreamLeader(t, 10*time.Second, subject, name, follower1, follower2)
+
+	// Publish new message.
+	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = client.Publish(ctx, subject, []byte("goodbye"), lift.AckPolicyAll())
+	require.NoError(t, err)
+
+	// Restart old leader.
+	oldLeader := runServerWithConfig(t, oldLeaderConfig)
+	defer oldLeader.Stop()
+
+	// Wait for HW to update on followers.
+	servers = []*Server{follower1, follower2, oldLeader}
+	waitForHW(t, 5*time.Second, subject, name, 1, servers...)
+
+	// Ensure log lineages have not diverged.
+	for _, s := range servers {
+		stream := s.metadata.GetStream(subject, name)
+		require.NotNil(t, stream)
+		require.Equal(t, int64(0), stream.log.OldestOffset())
+		require.Equal(t, int64(1), stream.log.NewestOffset())
+
+		reader, err := stream.log.NewReader(0, false)
+		require.NoError(t, err)
+		headersBuf := make([]byte, 20)
+
+		msg, offset, _, err := reader.ReadMessage(context.Background(), headersBuf)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), offset)
+		require.Equal(t, []byte("hello"), msg.Value())
+
+		msg, offset, _, err = reader.ReadMessage(context.Background(), headersBuf)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), offset)
+		require.Equal(t, []byte("goodbye"), msg.Value())
+	}
+}
