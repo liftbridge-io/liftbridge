@@ -288,7 +288,6 @@ func benchmarkClean(b *testing.B, segmentSize int64) {
 					require.NoError(b, err)
 					l.SetHighWatermark(offsets[len(offsets)-1])
 				}
-				println(segmentSize, len(l.Segments()))
 
 				b.StartTimer()
 				require.NoError(b, l.Clean())
