@@ -321,6 +321,7 @@ func (s *stream) stopLeading() error {
 	s.shutdown.Wait()
 
 	s.commitQueue.Dispose()
+	s.isLeading = false
 
 	return nil
 }
@@ -365,6 +366,7 @@ func (s *stream) stopFollowing() error {
 	// Stop replication request and leader failure detector loop.
 	// TODO: Do graceful shutdown similar to stopLeading().
 	close(s.stopFollower)
+	s.isFollowing = false
 	return nil
 }
 
@@ -405,6 +407,11 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 	leaderEpoch := proto.Encoding.Uint64(msg.Data[:8])
 
 	s.mu.RLock()
+	if !s.isFollowing {
+		s.mu.RUnlock()
+		return 0
+	}
+
 	if s.LeaderEpoch != leaderEpoch {
 		s.mu.RUnlock()
 		return 0
