@@ -72,8 +72,8 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		s.recoveryStarted = true
 		if s.latestRecoveredLog != nil {
 			s.logger.Debug("fsm: Replaying Raft log...")
+			s.startedRecovery()
 		}
-		s.startedRecovery()
 	}
 
 	// Check if this is a "recovered" Raft entry, meaning we are still applying
