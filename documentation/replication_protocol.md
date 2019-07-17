@@ -81,5 +81,5 @@ ISR results in incrementing the stream's `Epoch`.
 
 We truncate uncommitted messages from the log using the `LeaderEpoch` rather
 than the HW because there are certain edge cases that can result in data loss
-or divergent log lineages with the latter. This has been [described in detail](https://cwiki.apache.org/confluence/display/KAFKA/KIP-101+-+Alter+Replication+Protocol+to+use+Leader+Epoch+rather+than+High+Watermark+for+Truncation#KIP-101-AlterReplicationProtocoltouseLeaderEpochratherthanHighWatermarkforTruncation-Solution)
+or divergent log lineages with the latter. This has been [described in detail](https://cwiki.apache.org/confluence/display/KAFKA/KIP-101+-+Alter+Replication+Protocol+to+use+Leader+Epoch+rather+than+High+Watermark+for+Truncation)
 by the maintainers of Kafka.
