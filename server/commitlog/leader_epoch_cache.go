@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/dustin/go-humanize/english"
 	atomic_file "github.com/natefinch/atomic"
 
 	"github.com/liftbridge-io/liftbridge/server/logger"
@@ -115,8 +116,9 @@ func (l *leaderEpochCache) ClearLatest(offset int64) error {
 	l.epochOffsets = filtered
 	err := l.flush()
 	if err == nil {
-		l.log.Infof("Removed latest %d entries from leader epoch cache based on passed offset %d "+
-			"leaving %d in epoch file for stream %s", removed, offset, len(l.epochOffsets), l.stream)
+		l.log.Debugf("Removed latest %s from leader epoch cache based on passed offset %d "+
+			"leaving %d in epoch file for stream %s",
+			english.Plural(removed, "entry", ""), offset, len(l.epochOffsets), l.stream)
 	}
 	return pkgErrors.Wrap(err, "failed to flush epoch offsets")
 }
@@ -155,8 +157,9 @@ func (l *leaderEpochCache) ClearEarliest(offset int64) error {
 	}
 	err := l.flush()
 	if err == nil {
-		l.log.Infof("Removed earliest %d entries from leader epoch cache based on passed offset %d "+
-			"leaving %d in epoch file for stream %s", removed, offset, len(l.epochOffsets), l.stream)
+		l.log.Debugf("Removed earliest %s from leader epoch cache based on passed offset %d "+
+			"leaving %d in epoch file for stream %s",
+			english.Plural(removed, "entry", ""), offset, len(l.epochOffsets), l.stream)
 	}
 	return pkgErrors.Wrap(err, "failed to flush epoch offsets")
 }
@@ -226,7 +229,11 @@ func (l *leaderEpochCache) findEpoch(epoch uint64) *epochOffset {
 }
 
 func (l *leaderEpochCache) assign(epoch uint64, offset int64) error {
-	if epoch > l.latestEpoch() && offset >= l.latestOffset() {
+	var (
+		latestEpoch  = l.latestEpoch()
+		latestOffset = l.latestOffset()
+	)
+	if epoch > latestEpoch && offset >= latestOffset {
 		l.epochOffsets = append(l.epochOffsets, &epochOffset{
 			leaderEpoch: epoch,
 			startOffset: offset,
@@ -234,10 +241,11 @@ func (l *leaderEpochCache) assign(epoch uint64, offset int64) error {
 		if err := l.flush(); err != nil {
 			return pkgErrors.Wrap(err, "failed to flush epoch offsets")
 		}
-		l.log.Infof("Updated stream leader epoch. %s. Cache now contains %d entries.",
-			l.epochChangeMsg(epoch, offset), len(l.epochOffsets))
+		l.log.Debugf("Updated stream leader epoch. %s. Cache now contains %s.",
+			l.epochChangeMsg(epoch, latestEpoch, offset, latestOffset),
+			english.Plural(len(l.epochOffsets), "entry", ""))
 	} else {
-		l.warn(epoch, offset)
+		l.warn(epoch, latestEpoch, offset, latestOffset)
 	}
 	return nil
 }
@@ -269,21 +277,21 @@ func (l *leaderEpochCache) flush() error {
 	return atomic_file.WriteFile(l.checkpointFile, b)
 }
 
-func (l *leaderEpochCache) warn(epoch uint64, offset int64) {
+func (l *leaderEpochCache) warn(epoch, latestEpoch uint64, offset, latestOffset int64) {
 	if epoch < l.latestEpoch() {
 		l.log.Warnf("Received stream leader epoch assignment for an epoch < latest epoch. "+
 			"This implies messages have arrived out of order. %s",
-			l.epochChangeMsg(epoch, offset))
+			l.epochChangeMsg(epoch, latestEpoch, offset, latestOffset))
 	} else if offset < l.latestOffset() {
 		l.log.Warnf("Received stream leader epoch assignment for an offset < latest offset "+
 			"for the most recently stored leader epoch. This implies messages have arrived out of order. %s",
-			l.epochChangeMsg(epoch, offset))
+			l.epochChangeMsg(epoch, latestEpoch, offset, latestOffset))
 	}
 }
 
-func (l *leaderEpochCache) epochChangeMsg(epoch uint64, offset int64) string {
-	return fmt.Sprintf("New: {epoch:%d, offset: %d}, Latest: {epoch:%d, offset: %d} for stream %s",
-		epoch, offset, l.latestEpoch(), l.latestOffset(), l.stream)
+func (l *leaderEpochCache) epochChangeMsg(newEpoch, lastEpoch uint64, newOffset, lastOffset int64) string {
+	return fmt.Sprintf("New: {epoch:%d, offset:%d}, Previous: {epoch:%d, offset:%d} for stream %s",
+		newEpoch, newOffset, lastEpoch, lastOffset, l.stream)
 }
 
 // readLeaderEpochOffsets reads the contents of the leader epoch checkpoint
@@ -346,8 +354,8 @@ func readLeaderEpochOffsets(file io.Reader) ([]*epochOffset, error) {
 	}
 
 	if numEntries != len(epochOffsets) {
-		return nil, fmt.Errorf("expected %d entries, got %d",
-			numEntries, len(epochOffsets))
+		return nil, fmt.Errorf("expected %s, got %d",
+			english.Plural(numEntries, "entry", ""), len(epochOffsets))
 	}
 
 	return epochOffsets, nil
