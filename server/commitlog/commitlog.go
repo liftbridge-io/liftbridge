@@ -249,6 +249,7 @@ func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int
 	lastLeaderEpoch := l.leaderEpochCache.LastLeaderEpoch()
 	offsets := make([]int64, len(entries))
 	for i, entry := range entries {
+		// Check if message is in a new leader epoch.
 		if entry.LeaderEpoch > lastLeaderEpoch {
 			if err := l.leaderEpochCache.Assign(entry.LeaderEpoch, entry.Offset); err != nil {
 				return nil, err
