@@ -38,15 +38,19 @@ func NewCompactCleaner(opts CompactCleanerOptions) *CompactCleaner {
 // Compact performs log compaction by rewriting segments such that they contain
 // only the last message for a given key. Compaction is applied to all segments
 // up to but excluding the active (last) segment or the provided HW, whichever
-// comes first.
-func (c *CompactCleaner) Compact(hw int64, segments []*Segment) ([]*Segment, error) {
+// comes first. This returns the compacted segments and a leaderEpochCache
+// containing the earliest offsets for each leader epoch or nil if nothing was
+// compacted.
+func (c *CompactCleaner) Compact(hw int64, segments []*Segment) ([]*Segment,
+	*leaderEpochCache, error) {
+
 	if len(segments) <= 1 {
-		return segments, nil
+		return segments, nil, nil
 	}
 
 	c.Logger.Debugf("Compacting log %s", c.Name)
 	before := time.Now()
-	compacted, removed, err := c.compact(hw, segments)
+	compacted, epochCache, removed, err := c.compact(hw, segments)
 	if err == nil {
 		c.Logger.Debugf("Finished compacting log %s\n"+
 			"\tMessages Removed: %d\n"+
@@ -55,7 +59,7 @@ func (c *CompactCleaner) Compact(hw int64, segments []*Segment) ([]*Segment, err
 			c.Name, removed, len(segments), len(compacted), time.Since(before))
 	}
 
-	return compacted, errors.Wrap(err, "failed to compact log")
+	return compacted, epochCache, errors.Wrap(err, "failed to compact log")
 
 }
 
@@ -78,12 +82,15 @@ func (k *keyOffset) get() int64 {
 	return k.offset
 }
 
-func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment, int, error) {
+func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment,
+	*leaderEpochCache, int, error) {
+
 	// Compact messages up to the last segment or HW, whichever is first, by
 	// scanning keys and retaining only the latest.
 	// TODO: Implement option for configuring minimum compaction lag.
 	var (
 		compacted  = make([]*Segment, 0, len(segments))
+		epochCache = newLeaderEpochCacheNoFile(c.Name, c.Logger)
 		removed    = 0
 		keyOffsets = c.scanKeys(hw, segments)
 	)
@@ -91,15 +98,16 @@ func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment, int
 	// Write new segments. Skip the last segment since we will not compact it.
 	// TODO: Join segments that are below the bytes limit.
 	for _, seg := range segments[:len(segments)-1] {
-		cs, err := seg.Cleaned()
+		cleaned, err := seg.Cleaned()
 		if err != nil {
-			return nil, 0, err
+			return nil, nil, 0, err
 		}
 		ss := NewSegmentScanner(seg)
 		for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
 			var (
 				offset       = ms.Offset()
 				key          = ms.Message().Key()
+				leaderEpoch  = ms.LeaderEpoch()
 				latest, ok   = keyOffsets.Load(string(key))
 				latestOffset int64
 			)
@@ -110,31 +118,51 @@ func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment, int
 			// Retain all messages with no keys and last message for each key.
 			// Also retain all messages after the HW.
 			if key == nil || offset == latestOffset || offset >= hw {
-				entries := EntriesForMessageSet(cs.Position(), ms)
-				if err := cs.WriteMessageSet(ms, entries); err != nil {
-					return nil, 0, err
+				entries := EntriesForMessageSet(cleaned.Position(), ms)
+				if err := cleaned.WriteMessageSet(ms, entries); err != nil {
+					return nil, nil, 0, err
+				}
+				// Maintain start offset for each new leader epoch.
+				if leaderEpoch > epochCache.LastLeaderEpoch() {
+					if err := epochCache.Assign(leaderEpoch, offset); err != nil {
+						return nil, nil, 0, err
+					}
 				}
 			} else {
 				removed++
 			}
 		}
 
-		if cs.IsEmpty() {
+		if cleaned.IsEmpty() {
 			// If the new segment is empty, remove it along with the old one.
-			if err := cleanupEmptySegment(cs, seg); err != nil {
-				return nil, 0, err
+			if err := cleanupEmptySegment(cleaned, seg); err != nil {
+				return nil, nil, 0, err
 			}
 		} else {
 			// Otherwise replace the old segment with the compacted one.
-			if err = cs.Replace(seg); err != nil {
-				return nil, 0, err
+			if err = cleaned.Replace(seg); err != nil {
+				return nil, nil, 0, err
 			}
-			compacted = append(compacted, cs)
+			compacted = append(compacted, cleaned)
 		}
 	}
+
 	// Add the last segment back in to the compacted list.
-	compacted = append(compacted, segments[len(segments)-1])
-	return compacted, removed, nil
+	last := segments[len(segments)-1]
+	compacted = append(compacted, last)
+
+	// Maintain start offset for each new leader epoch for the last segment.
+	ss := NewSegmentScanner(last)
+	for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
+		leaderEpoch := ms.LeaderEpoch()
+		if leaderEpoch > epochCache.LastLeaderEpoch() {
+			if err := epochCache.Assign(leaderEpoch, ms.Offset()); err != nil {
+				return nil, nil, 0, err
+			}
+		}
+	}
+
+	return compacted, epochCache, removed, nil
 }
 
 func (c *CompactCleaner) scanKeys(hw int64, segments []*Segment) *sync.Map {

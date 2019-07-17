@@ -36,10 +36,11 @@ type Index struct {
 }
 
 type Entry struct {
-	Offset    int64
-	Timestamp int64
-	Position  int64
-	Size      int32
+	Offset      int64
+	Timestamp   int64
+	LeaderEpoch uint64
+	Position    int64
+	Size        int32
 }
 
 // relEntry is an Entry relative to the base fileOffset

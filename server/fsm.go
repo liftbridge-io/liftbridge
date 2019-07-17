@@ -104,6 +104,11 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 	}
 	value, err := s.apply(log, l.Index, recovered)
 	if err != nil {
+		if s.isShutdown() {
+			// Don't panic if the server is shutting down, just return the
+			// error.
+			return err
+		}
 		panic(err)
 	}
 	return value

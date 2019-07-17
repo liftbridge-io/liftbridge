@@ -41,6 +41,7 @@ func getTestConfig(id string, bootstrap bool, port int) *Config {
 	config.DataDir = filepath.Join(storagePath, id)
 	config.Clustering.RaftSnapshots = 1
 	config.Clustering.RaftLogging = true
+	config.Clustering.ServerID = id
 	config.LogLevel = uint32(log.DebugLevel)
 	config.NATS.Servers = []string{"nats://localhost:4222"}
 	config.LogSilent = true
@@ -660,7 +661,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Force log clean.
 	forceLogClean(t, subject, name, s1)
 
-	// The first message read back should have offset 86.
+	// The first message read back should have offset 87.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
@@ -673,7 +674,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(86), msg.Offset)
+		require.Equal(t, int64(87), msg.Offset)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}

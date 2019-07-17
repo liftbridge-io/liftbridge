@@ -38,6 +38,17 @@ type CommitLog interface {
 	// HighWatermark returns the high watermark for the log.
 	HighWatermark() int64
 
+	// NewLeaderEpoch indicates the log is entering a new leader epoch.
+	NewLeaderEpoch(epoch uint64) error
+
+	// LastOffsetForLeaderEpoch returns the start offset of the first leader
+	// epoch larger than the provided one or the log end offset if the current
+	// epoch equals the provided one.
+	LastOffsetForLeaderEpoch(epoch uint64) int64
+
+	// LastLeaderEpoch returns the latest leader epoch for the log.
+	LastLeaderEpoch() uint64
+
 	// Append writes the given batch of messages to the log and returns their
 	// corresponding offsets in the log.
 	Append(msg []*proto.Message) ([]int64, error)

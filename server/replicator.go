@@ -45,7 +45,7 @@ type replicator struct {
 	mu           sync.RWMutex
 	leader       string
 	epoch        uint64
-	headersBuf   [20]byte // scratch buffer for reading message headers
+	headersBuf   [28]byte // scratch buffer for reading message headers
 }
 
 // start a long-running replication loop for the given leader epoch until the
@@ -226,7 +226,7 @@ func (r *replicator) replicate(
 		err          error
 	)
 	for offset < newestOffset && buf.Len() < replicationMaxSize {
-		message, offset, _, err = reader.ReadMessage(ctx, r.headersBuf[:])
+		message, offset, _, _, err = reader.ReadMessage(ctx, r.headersBuf[:])
 		if err != nil {
 			r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
 			return err

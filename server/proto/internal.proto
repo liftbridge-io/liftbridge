@@ -90,6 +90,14 @@ message ReplicationRequest {
     int64  offset    = 2;
 }
 
+message LeaderEpochOffsetRequest {
+    uint64 leaderEpoch = 1;
+}
+
+message LeaderEpochOffsetResponse {
+    int64 endOffset = 1;
+}
+
 message PropagatedRequest {
     Op                  op             = 1;
     CreateStreamRequest createStreamOp = 2;

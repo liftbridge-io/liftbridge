@@ -52,9 +52,7 @@ func (r *raftNode) shutdown() error {
 	r.closed = true
 	r.Unlock()
 	if r.Raft != nil {
-		if err := r.Raft.Shutdown().Error(); err != nil {
-			return err
-		}
+		r.Raft.Shutdown()
 	}
 	if r.transport != nil {
 		if err := r.transport.Close(); err != nil {

@@ -192,16 +192,7 @@ func (s *Server) Stop() error {
 		}
 	}
 
-	if s.nc != nil {
-		s.nc.Close()
-	}
-	if s.ncRaft != nil {
-		s.ncRaft.Close()
-	}
-	if s.ncRepl != nil {
-		s.ncRepl.Close()
-	}
-
+	s.closeNATSConns()
 	s.running = false
 	s.shutdown = true
 	s.mu.Unlock()
@@ -290,6 +281,27 @@ func (s *Server) createNATSConns() error {
 	}
 	s.ncPublishes = ncPublishes
 	return nil
+}
+
+// closeNATSConns closes the various NATS connections used by the server,
+// including connections for stream data, Raft, replication, acks, and
+// publishes.
+func (s *Server) closeNATSConns() {
+	if s.nc != nil {
+		s.nc.Close()
+	}
+	if s.ncRaft != nil {
+		s.ncRaft.Close()
+	}
+	if s.ncRepl != nil {
+		s.ncRepl.Close()
+	}
+	if s.ncAcks != nil {
+		s.ncAcks.Close()
+	}
+	if s.ncPublishes != nil {
+		s.ncPublishes.Close()
+	}
 }
 
 // startAPIServer configures and starts the gRPC API server.

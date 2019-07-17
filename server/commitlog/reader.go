@@ -2,14 +2,10 @@ package commitlog
 
 import (
 	"errors"
-	"fmt"
-	"hash/crc32"
 	"io"
 	"sync"
 
 	pkgErrors "github.com/pkg/errors"
-
-	"github.com/liftbridge-io/liftbridge/server/proto"
 
 	"golang.org/x/net/context"
 )
@@ -49,15 +45,18 @@ func (l *CommitLog) NewReader(offset int64, uncommitted bool) (*Reader, error) {
 }
 
 // ReadMessage reads a single message from the underlying CommitLog or blocks
-// until one is available. It returns the Message in addition to its offset and
-// timestamp. This may return uncommitted messages if the Reader was created
-// with the uncommitted flag set to true.
+// until one is available. It returns the Message in addition to its offset,
+// timestamp, and leader epoch. This may return uncommitted messages if the
+// reader was created with the uncommitted flag set to true.
 //
 // ReadMessage should not be called concurrently, and the headersBuf slice
-// should have a capacity of at least 20.
-func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte) (Message, int64, int64, error) {
+// should have a capacity of at least 28.
+//
+// TODO: Should this just return a MessageSet directly instead of a Message and
+// the MessageSet header values?
+func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte) (Message, int64, int64, uint64, error) {
 RETRY:
-	msg, offset, timestamp, err := r.readMessage(ctx, headersBuf)
+	msg, offset, timestamp, leaderEpoch, err := readMessage(ctx, r.ctxReader, headersBuf)
 	if err != nil {
 		if pkgErrors.Cause(err) == ErrSegmentReplaced {
 			// ErrSegmentReplaced indicates we attempted to read from a log
@@ -69,39 +68,15 @@ RETRY:
 				r.ctxReader, err = r.log.newReaderCommitted(r.offset)
 			}
 			if err != nil {
-				return nil, 0, 0, pkgErrors.Wrap(err, "failed to reinitialize reader")
+				return nil, 0, 0, 0, pkgErrors.Wrap(err, "failed to reinitialize reader")
 			}
 			goto RETRY
 		} else {
-			return nil, 0, 0, err
+			return nil, 0, 0, 0, err
 		}
 	}
 	r.offset = offset + 1
-	return msg, offset, timestamp, err
-}
-
-func (r *Reader) readMessage(ctx context.Context, headersBuf []byte) (Message, int64, int64, error) {
-	if _, err := r.ctxReader.Read(ctx, headersBuf); err != nil {
-		return nil, 0, 0, pkgErrors.Wrap(err, "failed to read message headers")
-	}
-	var (
-		offset    = int64(proto.Encoding.Uint64(headersBuf[0:]))
-		timestamp = int64(proto.Encoding.Uint64(headersBuf[8:]))
-		size      = proto.Encoding.Uint32(headersBuf[16:])
-		buf       = make([]byte, int(size))
-	)
-	if _, err := r.ctxReader.Read(ctx, buf); err != nil {
-		return nil, 0, 0, pkgErrors.Wrap(err, "failed to ready message payload")
-	}
-	m := Message(buf)
-	// Check the CRC on the message.
-	crc := m.Crc()
-	if c := crc32.ChecksumIEEE(m[4:]); crc != c {
-		// If the CRC doesn't match, data on disk is corrupted which means the
-		// server is in an unrecoverable state.
-		panic(fmt.Errorf("Read corrupted data, expected CRC: 0x%08x, got: 0x%08x", crc, c))
-	}
-	return m, offset, timestamp, nil
+	return msg, offset, timestamp, leaderEpoch, err
 }
 
 type uncommittedReader struct {

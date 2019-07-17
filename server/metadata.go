@@ -309,10 +309,14 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *client.CreateStream
 		return status.New(codes.Internal, "Failed to replicate stream")
 	}
 
-	// If there is a response, it's an ErrStreamExists.
+	// If there is a response, it's an error (most likely ErrStreamExists).
 	if resp := future.Response(); resp != nil {
 		err := resp.(error)
-		return status.New(codes.AlreadyExists, err.Error())
+		code := codes.Internal
+		if err == ErrStreamExists {
+			code = codes.AlreadyExists
+		}
+		return status.New(code, err.Error())
 	}
 
 	// Wait for leader to create stream (best effort).

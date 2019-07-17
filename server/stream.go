@@ -69,25 +69,27 @@ func (r *replica) getLatestOffset() int64 {
 // it. All stream access should go through exported methods.
 type stream struct {
 	*proto.Stream
-	mu            sync.RWMutex
-	sub           *nats.Subscription // Subscription to stream NATS subject
-	leaderReplSub *nats.Subscription // Subscription for replication requests from followers
-	recvChan      chan *nats.Msg     // Channel leader places received messages on
-	log           CommitLog
-	srv           *Server
-	subjectHash   string
-	isLeading     bool
-	isFollowing   bool
-	replicas      map[string]struct{}
-	isr           map[string]*replica
-	replicators   map[string]*replicator
-	commitQueue   *queue.Queue
-	commitCheck   chan struct{}
-	recovered     bool
-	stopFollower  chan struct{}
-	stopLeader    chan struct{}
-	belowMinISR   bool
-	shutdown      sync.WaitGroup
+	mu              sync.RWMutex
+	sub             *nats.Subscription // Subscription to stream NATS subject
+	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
+	leaderOffsetSub *nats.Subscription // Subscription for leader epoch offset requests from followers
+	recvChan        chan *nats.Msg     // Channel leader places received messages on
+	log             CommitLog
+	srv             *Server
+	subjectHash     string
+	isLeading       bool
+	isFollowing     bool
+	replicas        map[string]struct{}
+	isr             map[string]*replica
+	replicators     map[string]*replicator
+	commitQueue     *queue.Queue
+	commitCheck     chan struct{}
+	recovered       bool
+	stopFollower    chan struct{}
+	stopLeader      chan struct{}
+	belowMinISR     bool
+	pause           bool // Pause replication on the leader (for unit testing)
+	shutdown        sync.WaitGroup
 }
 
 // newStream creates a new stream. If the stream is recovered, it should not be
@@ -95,19 +97,23 @@ type stream struct {
 // intermediate state. This call will initialize or recover the stream's
 // backing commit log or return an error if it fails to do so.
 func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
-	file := filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name)
-	log, err := commitlog.New(commitlog.Options{
-		Path:                 file,
-		MaxSegmentBytes:      s.config.Log.SegmentMaxBytes,
-		MaxLogBytes:          s.config.Log.RetentionMaxBytes,
-		MaxLogMessages:       s.config.Log.RetentionMaxMessages,
-		MaxLogAge:            s.config.Log.RetentionMaxAge,
-		LogRollTime:          s.config.Log.LogRollTime,
-		CleanerInterval:      s.config.Log.CleanerInterval,
-		Compact:              s.config.Log.Compact,
-		CompactMaxGoroutines: s.config.Log.CompactMaxGoroutines,
-		Logger:               s.logger,
-	})
+	var (
+		file     = filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name)
+		name     = fmt.Sprintf("[subject=%s, name=%s]", protoStream.Subject, protoStream.Name)
+		log, err = commitlog.New(commitlog.Options{
+			Stream:               name,
+			Path:                 file,
+			MaxSegmentBytes:      s.config.Log.SegmentMaxBytes,
+			MaxLogBytes:          s.config.Log.RetentionMaxBytes,
+			MaxLogMessages:       s.config.Log.RetentionMaxMessages,
+			MaxLogAge:            s.config.Log.RetentionMaxAge,
+			LogRollTime:          s.config.Log.LogRollTime,
+			CleanerInterval:      s.config.Log.CleanerInterval,
+			Compact:              s.config.Log.Compact,
+			CompactMaxGoroutines: s.config.Log.CompactMaxGoroutines,
+			Logger:               s.logger,
+		})
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create commit log")
 	}
@@ -212,13 +218,13 @@ func (s *stream) StartRecovered() (bool, error) {
 // applicable.
 func (s *stream) startLeadingOrFollowing() error {
 	if s.Leader == s.srv.config.Clustering.ServerID {
-		s.srv.logger.Debugf("Server becoming leader for stream %s", s)
+		s.srv.logger.Debugf("Server becoming leader for stream %s, epoch: %d", s, s.LeaderEpoch)
 		if err := s.becomeLeader(s.LeaderEpoch); err != nil {
 			s.srv.logger.Errorf("Server failed becoming leader for stream %s: %v", s, err)
 			return err
 		}
 	} else if s.inReplicas(s.srv.config.Clustering.ServerID) {
-		s.srv.logger.Debugf("Server becoming follower for stream %s", s)
+		s.srv.logger.Debugf("Server becoming follower for stream %s, epoch: %d", s, s.LeaderEpoch)
 		if err := s.becomeFollower(); err != nil {
 			s.srv.logger.Errorf("Server failed becoming follower for stream %s: %v", s, err)
 			return err
@@ -257,11 +263,20 @@ func (s *stream) becomeLeader(epoch uint64) error {
 		}
 	}
 
+	if !s.recovered {
+		// Update leader epoch on log if this isn't a recovered stream. A
+		// recovered stream indicates we were the previous leader and are
+		// continuing a leader epoch.
+		if err := s.log.NewLeaderEpoch(epoch); err != nil {
+			return errors.Wrap(err, "failed to update leader epoch on log")
+		}
+	}
+
 	// Start message processing loop.
 	s.recvChan = make(chan *nats.Msg, recvChannelSize)
 	s.stopLeader = make(chan struct{})
 	s.srv.startGoroutine(func() {
-		s.messageProcessingLoop(s.recvChan, s.stopLeader)
+		s.messageProcessingLoop(s.recvChan, s.stopLeader, epoch)
 		s.shutdown.Done()
 	})
 
@@ -280,13 +295,21 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	s.sub = sub
 	s.srv.nc.Flush()
 
-	// Also subscribe to the stream replication subject.
+	// Subscribe to the stream replication subject.
 	sub, err = s.srv.ncRepl.Subscribe(s.getReplicationRequestInbox(), s.handleReplicationRequest)
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to replication inbox")
 	}
 	sub.SetPendingLimits(-1, -1)
 	s.leaderReplSub = sub
+
+	// Also subscribe to leader epoch offset requests subject.
+	sub, err = s.srv.ncRepl.Subscribe(s.getLeaderOffsetRequestInbox(), s.handleLeaderOffsetRequest)
+	if err != nil {
+		return errors.Wrap(err, "failed to subscribe to replication inbox")
+	}
+	sub.SetPendingLimits(-1, -1)
+	s.leaderOffsetSub = sub
 	s.srv.ncRepl.Flush()
 
 	s.isLeading = true
@@ -341,9 +364,8 @@ func (s *stream) becomeFollower() error {
 		}
 	}
 
-	// Truncate the log up to the latest HW. This removes any potentially
-	// uncommitted messages in the log.
-	if err := s.truncateToHW(); err != nil {
+	// Truncate potentially uncommitted messages from the log.
+	if err := s.truncateUncommitted(); err != nil {
 		return errors.Wrap(err, "failed to truncate log")
 	}
 
@@ -370,6 +392,32 @@ func (s *stream) stopFollowing() error {
 	return nil
 }
 
+// handleLeaderOffsetRequest is a NATS handler that's invoked when the leader
+// receives a leader epoch offset request from a follower. The request will
+// contain the latest leader epoch in the follower's leader epoch sequence.
+// This will send the last offset for the requested leader epoch, i.e. the
+// start offset of the first leader epoch larger than the requested leader
+// epoch or the log end offset if the leader's current epoch is equal to the
+// one requested.
+func (s *stream) handleLeaderOffsetRequest(msg *nats.Msg) {
+	if msg.Reply == "" {
+		s.srv.logger.Errorf("Invalid leader epoch offset request for stream %s: no reply subject", s)
+		return
+	}
+	req := &proto.LeaderEpochOffsetRequest{}
+	if err := req.Unmarshal(msg.Data); err != nil {
+		s.srv.logger.Errorf("Invalid leader epoch offset request for stream %s: %v", s, err)
+		return
+	}
+	resp, err := (&proto.LeaderEpochOffsetResponse{
+		EndOffset: s.log.LastOffsetForLeaderEpoch(req.LeaderEpoch),
+	}).Marshal()
+	if err != nil {
+		panic(err)
+	}
+	s.srv.ncRepl.Publish(msg.Reply, resp)
+}
+
 // handleReplicationRequest is a NATS handler that's invoked when the leader
 // receives a replication request from a follower. It will send messages to the
 // NATS subject specified on the request.
@@ -380,6 +428,10 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 		return
 	}
 	s.mu.Lock()
+	if s.pause {
+		s.mu.Unlock()
+		return
+	}
 	if _, ok := s.replicas[req.ReplicaID]; !ok {
 		s.srv.logger.Warnf("Received replication request for stream %s from non-replica %s",
 			s, req.ReplicaID)
@@ -420,12 +472,6 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 
 	// Update HW from leader's HW.
 	hw := int64(proto.Encoding.Uint64(msg.Data[8:]))
-	if replicaHW := s.log.HighWatermark(); replicaHW > hw {
-		// TODO: Force a leader election here?
-		s.srv.logger.Warnf("Replica HW %d is higher than leader HW %d for stream %s",
-			replicaHW, hw, s)
-		return 0
-	}
 	s.log.SetHighWatermark(hw)
 
 	data := msg.Data[16:]
@@ -433,8 +479,8 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 		return 0
 	}
 
-	// We should have at least 20 bytes for headers.
-	if len(data) <= 20 {
+	// We should have at least 28 bytes for headers.
+	if len(data) <= 28 {
 		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
 		return 0
 	}
@@ -456,6 +502,13 @@ func (s *stream) getReplicationRequestInbox() string {
 		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
 }
 
+// getLeaderOffsetRequestInbox returns the NATS subject to send leader epoch
+// offset requests to.
+func (s *stream) getLeaderOffsetRequestInbox() string {
+	return fmt.Sprintf("%s.%s.%s.offset",
+		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
+}
+
 // messageProcessingLoop is a long-running loop that processes messages
 // received on the given channel until the stop channel is closed. This will
 // attempt to batch messages up before writing them to the commit log. Once
@@ -463,7 +516,9 @@ func (s *stream) getReplicationRequestInbox() string {
 // indicate it's pending commit. Once the ISR has replicated the message, the
 // leader commits it by removing it from the queue and sending an
 // acknowledgement to the client.
-func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan struct{}) {
+func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan struct{},
+	leaderEpoch uint64) {
+
 	var (
 		msg       *nats.Msg
 		batchSize = s.srv.config.BatchMaxMessages
@@ -478,7 +533,7 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 		case msg = <-recvChan:
 		}
 
-		m := natsToProtoMessage(msg)
+		m := natsToProtoMessage(msg, leaderEpoch)
 		msgBatch = append(msgBatch, m)
 		remaining := batchSize - 1
 
@@ -504,7 +559,7 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 
 			for i := 0; i < chanLen; i++ {
 				msg = <-recvChan
-				m := natsToProtoMessage(msg)
+				m := natsToProtoMessage(msg, leaderEpoch)
 				msgBatch = append(msgBatch, m)
 			}
 			remaining -= chanLen
@@ -767,11 +822,68 @@ func (s *stream) sendReplicationRequest() (int, error) {
 	return replicated, nil
 }
 
+// truncateUncommitted truncates the log up to the start offset of the first
+// leader epoch larger than the current epoch. This removes any potentially
+// uncommitted messages in the log.
+func (s *stream) truncateUncommitted() error {
+	// Request the last offset for the epoch from the leader.
+	var (
+		lastOffset  int64
+		err         error
+		leaderEpoch = s.log.LastLeaderEpoch()
+	)
+	for i := 0; i < 3; i++ {
+		lastOffset, err = s.sendLeaderOffsetRequest(leaderEpoch)
+		// Retry timeouts.
+		if err == nats.ErrTimeout {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		break
+	}
+	if err != nil {
+		s.srv.logger.Errorf(
+			"Failed to fetch last offset for leader epoch for stream %s: %v",
+			s, err)
+		// Fall back to HW truncation if we fail to fetch last offset for
+		// leader epoch.
+		// TODO: Should this be configurable since there is potential for data
+		// loss or replica divergence?
+		return s.truncateToHW()
+	}
+
+	s.srv.logger.Debugf("Truncating log for stream %s to %d", s, lastOffset)
+	// Add 1 because we don't want to truncate the last offset itself.
+	return s.log.Truncate(lastOffset + 1)
+}
+
+// sendLeaderOffsetRequest sends a request to the leader for the last offset
+// for the current leader epoch.
+func (s *stream) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
+	data, err := (&proto.LeaderEpochOffsetRequest{LeaderEpoch: leaderEpoch}).Marshal()
+	if err != nil {
+		panic(err)
+	}
+	resp, err := s.srv.ncRepl.Request(
+		s.getLeaderOffsetRequestInbox(),
+		data,
+		time.Second,
+	)
+	if err != nil {
+		return 0, err
+	}
+	offsetResp := &proto.LeaderEpochOffsetResponse{}
+	if err := offsetResp.Unmarshal(resp.Data); err != nil {
+		return 0, err
+	}
+	return offsetResp.EndOffset, nil
+}
+
 // truncateToHW truncates the log up to the latest high watermark. This removes
-// any potentially uncommitted messages in the log.
-//
-// TODO: There are a couple edge cases with this method of truncating the log
-// that could result in data loss or replica divergence. See issue #38.
+// any potentially uncommitted messages in the log. However, this should only
+// be used as a fallback in the event that epoch-based truncation fails. There
+// are a couple edge cases with this method of truncating the log that could
+// result in data loss or replica divergence (see issue #38).
 func (s *stream) truncateToHW() error {
 	var (
 		newestOffset = s.log.NewestOffset()
@@ -780,8 +892,8 @@ func (s *stream) truncateToHW() error {
 	if newestOffset == hw {
 		return nil
 	}
+	s.srv.logger.Debugf("Truncating log for stream %s to HW %d", s, hw)
 	// Add 1 because we don't want to truncate the HW itself.
-	s.srv.logger.Debugf("Truncating log for stream %s to HW %d", s, hw+1)
 	return s.log.Truncate(hw + 1)
 }
 
@@ -937,6 +1049,14 @@ func (s *stream) updateISRLatestOffset(replica string, offset int64) {
 	}
 }
 
+// pauseReplication stops replication on the leader. This is for unit testing
+// purposes only.
+func (s *stream) pauseReplication() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pause = true
+}
+
 // getMessage converts the given payload into a client Message if it is one.
 // This is indicated by the presence of the envelope cookie. If it is not, nil
 // is returned.
@@ -955,12 +1075,13 @@ func getMessage(data []byte) *client.Message {
 }
 
 // natsToProtoMessage converts the given NATS message to a proto Message.
-func natsToProtoMessage(msg *nats.Msg) *proto.Message {
+func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *proto.Message {
 	message := getMessage(msg.Data)
 	m := &proto.Message{
-		MagicByte: 1,
-		Timestamp: timestamp(),
-		Headers:   make(map[string][]byte),
+		MagicByte:   1,
+		Timestamp:   timestamp(),
+		LeaderEpoch: leaderEpoch,
+		Headers:     make(map[string][]byte),
 	}
 	if message != nil {
 		m.Key = message.Key
