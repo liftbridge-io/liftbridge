@@ -62,7 +62,7 @@ func getMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Server) 
 	)
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			if !s.IsRunning() || s.raft == nil {
+			if !s.IsRunning() || s.getRaft() == nil {
 				continue
 			}
 			if s.IsLeader() {
@@ -88,7 +88,7 @@ func waitForNoMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Se
 	for time.Now().Before(deadline) {
 		var leader string
 		for _, s := range servers {
-			if l := string(s.raft.Leader()); l != "" {
+			if l := string(s.getRaft().Leader()); l != "" {
 				leader = l
 				break
 			}
@@ -182,7 +182,7 @@ func TestAssignedDurableServerID(t *testing.T) {
 	// Wait to elect self as leader.
 	leader := getMetadataLeader(t, 10*time.Second, s1)
 
-	future := leader.raft.GetConfiguration()
+	future := leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestAssignedDurableServerID(t *testing.T) {
 	// Wait to elect self as leader.
 	leader = getMetadataLeader(t, 10*time.Second, s1)
 
-	future = leader.raft.GetConfiguration()
+	future = leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestDurableServerID(t *testing.T) {
 	// Wait to elect self as leader.
 	leader := getMetadataLeader(t, 10*time.Second, s1)
 
-	future := leader.raft.GetConfiguration()
+	future := leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestDurableServerID(t *testing.T) {
 	// Wait to elect self as leader.
 	leader = getMetadataLeader(t, 10*time.Second, s1)
 
-	future = leader.raft.GetConfiguration()
+	future = leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestBootstrapAutoConfig(t *testing.T) {
 	)
 
 	// Verify configuration.
-	future := leader.raft.GetConfiguration()
+	future := leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestBootstrapManualConfig(t *testing.T) {
 	)
 
 	// Verify configuration.
-	future := leader.raft.GetConfiguration()
+	future := leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestBootstrapManualConfig(t *testing.T) {
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
-	future = leader.raft.GetConfiguration()
+	future = leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}

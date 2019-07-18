@@ -158,8 +158,8 @@ func (s *stream) String() string {
 
 // Close stops the stream if it is running and closes the commit log.
 func (s *stream) Close() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.isFollowing {
 		if err := s.stopFollowing(); err != nil {

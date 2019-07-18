@@ -120,7 +120,7 @@ func (s *Server) setupMetadataRaft() error {
 	if err != nil {
 		return err
 	}
-	node := s.raft
+	node := s.getRaft()
 
 	// Bootstrap if there is no previous state and we are starting this node as
 	// a seed or a cluster configuration is provided.
@@ -349,14 +349,14 @@ func (s *Server) createRaftNode() (bool, error) {
 		return false, err
 	}
 
-	s.raft = &raftNode{
+	s.setRaft(&raftNode{
 		Raft:      node,
 		store:     logStore,
 		transport: tr,
 		logInput:  logWriter,
 		notifyCh:  raftNotifyCh,
 		joinSub:   sub,
-	}
+	})
 
 	return existingState, nil
 }

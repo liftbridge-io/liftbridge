@@ -569,7 +569,7 @@ func (m *metadataAPI) getStreamReplicas(replicationFactor int32) ([]string, *sta
 
 // getClusterServerIDs returns a list of all the broker IDs in the cluster.
 func (m *metadataAPI) getClusterServerIDs() ([]string, error) {
-	future := m.raft.GetConfiguration()
+	future := m.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		return nil, errors.Wrap(err, "failed to get cluster configuration")
 	}
@@ -672,7 +672,7 @@ func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.Repo
 // returns the response.
 func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.PropagatedRequest) *status.Status {
 	// Fail fast if there is no known metadata leader currently.
-	if m.raft.Leader() == "" {
+	if m.getRaft().Leader() == "" {
 		return status.New(codes.Internal, "No known metadata leader")
 	}
 
@@ -710,7 +710,7 @@ func (m *metadataAPI) waitForStreamLeader(ctx context.Context, subject, name, le
 	if leader == m.config.Clustering.ServerID {
 		// If we're the stream leader, there's no need to make a status
 		// request. We can just apply a Raft barrier since the FSM is local.
-		if err := m.raft.Barrier(5 * time.Second).Error(); err != nil {
+		if err := m.getRaft().Barrier(5 * time.Second).Error(); err != nil {
 			m.logger.Warnf("Failed to apply Raft barrier: %v", err)
 		}
 		return
@@ -759,7 +759,7 @@ func (m *metadataAPI) applyRaftOperation(op *proto.RaftLog) raft.ApplyFuture {
 	if err != nil {
 		panic(err)
 	}
-	return m.raft.Apply(data, raftApplyTimeout)
+	return m.getRaft().Apply(data, raftApplyTimeout)
 }
 
 // selectRandomReplica selects a random replica from the list of replicas.
