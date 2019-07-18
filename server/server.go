@@ -425,7 +425,11 @@ func (s *Server) setRaft(r *raftNode) {
 
 // getRaft returns the Raft node for the server.
 func (s *Server) getRaft() *raftNode {
-	return s.raft.Load().(*raftNode)
+	r := s.raft.Load()
+	if r == nil {
+		return nil
+	}
+	return r.(*raftNode)
 }
 
 // leadershipAcquired should be called when this node is elected leader.
