@@ -400,10 +400,6 @@ func (s *stream) stopFollowing() error {
 // epoch or the log end offset if the leader's current epoch is equal to the
 // one requested.
 func (s *stream) handleLeaderOffsetRequest(msg *nats.Msg) {
-	if msg.Reply == "" {
-		s.srv.logger.Errorf("Invalid leader epoch offset request for stream %s: no reply subject", s)
-		return
-	}
 	req := &proto.LeaderEpochOffsetRequest{}
 	if err := req.Unmarshal(msg.Data); err != nil {
 		s.srv.logger.Errorf("Invalid leader epoch offset request for stream %s: %v", s, err)
@@ -415,7 +411,9 @@ func (s *stream) handleLeaderOffsetRequest(msg *nats.Msg) {
 	if err != nil {
 		panic(err)
 	}
-	s.srv.ncRepl.Publish(msg.Reply, resp)
+	if err := msg.Respond(resp); err != nil {
+		s.srv.logger.Errorf("Failed to respond to leader offset request: %v", err)
+	}
 }
 
 // handleReplicationRequest is a NATS handler that's invoked when the leader
@@ -423,7 +421,7 @@ func (s *stream) handleLeaderOffsetRequest(msg *nats.Msg) {
 // NATS subject specified on the request.
 func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 	req := &proto.ReplicationRequest{}
-	if err := req.Unmarshal(msg.Data); err != nil || msg.Reply == "" {
+	if err := req.Unmarshal(msg.Data); err != nil {
 		s.srv.logger.Errorf("Invalid replication request for stream %s: %v", s, err)
 		return
 	}
@@ -443,7 +441,7 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 		panic(fmt.Sprintf("No replicator for stream %s and replica %s", s, req.ReplicaID))
 	}
 	s.mu.Unlock()
-	replicator.request(replicationRequest{req, msg.Reply})
+	replicator.request(replicationRequest{req, msg})
 }
 
 // handleReplicationResponse is a NATS handler that's invoked when a follower
