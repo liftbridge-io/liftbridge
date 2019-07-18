@@ -46,7 +46,7 @@ type Server struct {
 	api                *grpc.Server
 	metadata           *metadataAPI
 	shutdownCh         chan struct{}
-	raft               *raftNode
+	raft               atomic.Value
 	leaderSub          *nats.Subscription
 	recoveryStarted    bool
 	latestRecoveredLog *raft.Log
@@ -185,23 +185,14 @@ func (s *Server) Stop() error {
 		}
 	}
 
-	if s.raft != nil {
-		if err := s.raft.shutdown(); err != nil {
+	if raft := s.getRaft(); raft != nil {
+		if err := raft.shutdown(); err != nil {
 			s.mu.Unlock()
 			return err
 		}
 	}
 
-	if s.nc != nil {
-		s.nc.Close()
-	}
-	if s.ncRaft != nil {
-		s.ncRaft.Close()
-	}
-	if s.ncRepl != nil {
-		s.ncRepl.Close()
-	}
-
+	s.closeNATSConns()
 	s.running = false
 	s.shutdown = true
 	s.mu.Unlock()
@@ -218,7 +209,7 @@ func (s *Server) Stop() error {
 // it's leader when it's not, the operation it proposes to the Raft cluster
 // will fail.
 func (s *Server) IsLeader() bool {
-	return atomic.LoadInt64(&s.raft.leader) == 1
+	return atomic.LoadInt64(&(s.getRaft().leader)) == 1
 }
 
 // IsRunning indicates if the server is currently running or has been stopped.
@@ -290,6 +281,27 @@ func (s *Server) createNATSConns() error {
 	}
 	s.ncPublishes = ncPublishes
 	return nil
+}
+
+// closeNATSConns closes the various NATS connections used by the server,
+// including connections for stream data, Raft, replication, acks, and
+// publishes.
+func (s *Server) closeNATSConns() {
+	if s.nc != nil {
+		s.nc.Close()
+	}
+	if s.ncRaft != nil {
+		s.ncRaft.Close()
+	}
+	if s.ncRepl != nil {
+		s.ncRepl.Close()
+	}
+	if s.ncAcks != nil {
+		s.ncAcks.Close()
+	}
+	if s.ncPublishes != nil {
+		s.ncPublishes.Close()
+	}
 }
 
 // startAPIServer configures and starts the gRPC API server.
@@ -371,7 +383,7 @@ func (s *Server) startMetadataRaft() error {
 	if err := s.setupMetadataRaft(); err != nil {
 		return err
 	}
-	node := s.raft
+	node := s.getRaft()
 
 	s.startGoroutine(func() {
 		for {
@@ -405,12 +417,27 @@ func (s *Server) startMetadataRaft() error {
 	return nil
 }
 
+// setRaft sets the Raft node for the server. This should only be called once
+// on server start.
+func (s *Server) setRaft(r *raftNode) {
+	s.raft.Store(r)
+}
+
+// getRaft returns the Raft node for the server.
+func (s *Server) getRaft() *raftNode {
+	r := s.raft.Load()
+	if r == nil {
+		return nil
+	}
+	return r.(*raftNode)
+}
+
 // leadershipAcquired should be called when this node is elected leader.
 func (s *Server) leadershipAcquired() error {
 	s.logger.Infof("Server became metadata leader, performing leader promotion actions")
 
 	// Use a barrier to ensure all preceding operations are applied to the FSM.
-	if err := s.raft.Barrier(0).Error(); err != nil {
+	if err := s.getRaft().Barrier(0).Error(); err != nil {
 		return err
 	}
 
@@ -421,7 +448,7 @@ func (s *Server) leadershipAcquired() error {
 	}
 	s.leaderSub = sub
 
-	atomic.StoreInt64(&s.raft.leader, 1)
+	atomic.StoreInt64(&(s.getRaft().leader), 1)
 	return nil
 }
 
@@ -438,7 +465,7 @@ func (s *Server) leadershipLost() error {
 	}
 
 	s.metadata.LostLeadership()
-	atomic.StoreInt64(&s.raft.leader, 0)
+	atomic.StoreInt64(&(s.getRaft().leader), 0)
 	return nil
 }
 

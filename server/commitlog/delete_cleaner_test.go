@@ -141,7 +141,7 @@ func TestDeleteCleanerMessagesBelowLimit(t *testing.T) {
 func TestDeleteCleanerBytesMessages(t *testing.T) {
 	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Messages = 15
-	opts.Retention.Bytes = 200
+	opts.Retention.Bytes = 240
 	cleaner := NewDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
@@ -279,8 +279,9 @@ func writeToSegment(t *testing.T, seg *Segment, offset int64, data []byte) {
 	ms, entries, err := NewMessageSetFromProto(int64(offset), seg.Position(),
 		[]*proto.Message{
 			&proto.Message{
-				Timestamp: time.Now().UnixNano(),
-				Value:     data,
+				Timestamp:   time.Now().UnixNano(),
+				LeaderEpoch: 42,
+				Value:       data,
 			},
 		},
 	)

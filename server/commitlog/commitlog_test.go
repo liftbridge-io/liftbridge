@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
@@ -14,10 +15,10 @@ import (
 
 var (
 	msgs = []*proto.Message{
-		&proto.Message{Value: []byte("one"), Timestamp: 1},
-		&proto.Message{Value: []byte("two"), Timestamp: 2},
-		&proto.Message{Value: []byte("three"), Timestamp: 3},
-		&proto.Message{Value: []byte("four"), Timestamp: 4},
+		&proto.Message{Value: []byte("one"), Timestamp: 1, LeaderEpoch: 42},
+		&proto.Message{Value: []byte("two"), Timestamp: 2, LeaderEpoch: 42},
+		&proto.Message{Value: []byte("three"), Timestamp: 3, LeaderEpoch: 42},
+		&proto.Message{Value: []byte("four"), Timestamp: 4, LeaderEpoch: 42},
 	}
 )
 
@@ -34,12 +35,13 @@ func TestNewCommitLog(t *testing.T) {
 	r, err := l.NewReader(0, true)
 	require.NoError(t, err)
 
-	headers := make([]byte, 20)
+	headers := make([]byte, 28)
 	for i, exp := range msgs {
-		msg, offset, timestamp, err := r.ReadMessage(ctx, headers)
+		msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
 		require.Equal(t, msgs[i].Timestamp, timestamp)
+		require.Equal(t, msgs[i].LeaderEpoch, leaderEpoch)
 		compareMessages(t, exp, msg)
 	}
 }
@@ -72,13 +74,14 @@ func TestCommitLogRecover(t *testing.T) {
 			r, err := l.NewReader(0, true)
 			require.NoError(t, err)
 
-			headers := make([]byte, 20)
+			headers := make([]byte, 28)
 			for i, exp := range msgs {
-				msg, offset, timestamp, err := r.ReadMessage(ctx, headers)
+				msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
 				require.Equal(t, msgs[i].Timestamp, timestamp)
+				require.Equal(t, msgs[i].LeaderEpoch, leaderEpoch)
 			}
 
 			// Close the log and reopen, then ensure we read back the same
@@ -93,11 +96,12 @@ func TestCommitLogRecover(t *testing.T) {
 			r, err = l.NewReader(0, true)
 			require.NoError(t, err)
 			for i, exp := range msgs {
-				msg, offset, timestamp, err := r.ReadMessage(ctx, headers)
+				msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
 				require.Equal(t, msgs[i].Timestamp, timestamp)
+				require.Equal(t, msgs[i].LeaderEpoch, leaderEpoch)
 			}
 		})
 	}
@@ -165,15 +169,14 @@ func TestDelete(t *testing.T) {
 }
 
 func TestCleaner(t *testing.T) {
-	var err error
 	l, cleanup := setup(t)
 	defer l.Close()
 	defer cleanup()
 
-	_, err = l.Append(msgs)
+	_, err := l.Append(msgs)
 	require.NoError(t, err)
 	segments := l.Segments()
-	require.Equal(t, 1, len(segments))
+	require.Equal(t, 1, len(l.Segments()))
 
 	_, err = l.Append(msgs)
 	require.NoError(t, err)
@@ -184,6 +187,142 @@ func TestCleaner(t *testing.T) {
 	for i, s := range l.Segments() {
 		require.NotEqual(t, s, segments[i])
 	}
+}
+
+// Ensure Clean deletes leader epoch offsets from the cache when segments are
+// deleted but compaction is not run.
+func TestCleanerDeleteLeaderEpochOffsets(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 6,
+		MaxLogMessages:  5,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	require.Equal(t, uint64(0), l.LastLeaderEpoch())
+	require.Equal(t, int64(-1), l.LastOffsetForLeaderEpoch(0))
+
+	// Add some messages.
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Value:       []byte(strconv.Itoa(i)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 1,
+		}})
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Value:       []byte(strconv.Itoa(i + 5)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 2,
+		}})
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Value:       []byte(strconv.Itoa(i + 10)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 3,
+		}})
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, 15, len(l.Segments()))
+
+	require.Equal(t, 3, len(l.leaderEpochCache.epochOffsets))
+	require.Equal(t, uint64(3), l.LastLeaderEpoch())
+	require.Equal(t, int64(0), l.LastOffsetForLeaderEpoch(0))
+	require.Equal(t, int64(5), l.LastOffsetForLeaderEpoch(1))
+	require.Equal(t, int64(10), l.LastOffsetForLeaderEpoch(2))
+	require.Equal(t, int64(14), l.LastOffsetForLeaderEpoch(3))
+
+	// Force a clean.
+	require.NoError(t, l.Clean())
+
+	require.Equal(t, 5, len(l.Segments()))
+	require.Equal(t, int64(10), l.OldestOffset())
+	require.Equal(t, int64(14), l.NewestOffset())
+	require.Equal(t, 1, len(l.leaderEpochCache.epochOffsets))
+	require.Equal(t, uint64(3), l.LastLeaderEpoch())
+	require.Equal(t, int64(10), l.LastOffsetForLeaderEpoch(0))
+	require.Equal(t, int64(10), l.LastOffsetForLeaderEpoch(1))
+	require.Equal(t, int64(10), l.LastOffsetForLeaderEpoch(2))
+	require.Equal(t, int64(14), l.LastOffsetForLeaderEpoch(3))
+}
+
+// Ensure Clean replaces leader epoch offsets in the cache when segments are
+// compacted.
+func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 6,
+		Compact:         true,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	require.Equal(t, uint64(0), l.LastLeaderEpoch())
+	require.Equal(t, int64(-1), l.LastOffsetForLeaderEpoch(0))
+
+	// Add some messages.
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Key:         []byte("foo"),
+			Value:       []byte(strconv.Itoa(i)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 1,
+		}})
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Key:         []byte("bar"),
+			Value:       []byte(strconv.Itoa(i + 5)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 2,
+		}})
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Key:         []byte("baz"),
+			Value:       []byte(strconv.Itoa(i + 10)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 3,
+		}})
+		require.NoError(t, err)
+	}
+
+	// Set the HW so compaction will run.
+	l.SetHighWatermark(l.NewestOffset())
+
+	require.Equal(t, 15, len(l.Segments()))
+
+	require.Equal(t, 3, len(l.leaderEpochCache.epochOffsets))
+	require.Equal(t, uint64(3), l.LastLeaderEpoch())
+	require.Equal(t, int64(0), l.LastOffsetForLeaderEpoch(0))
+	require.Equal(t, int64(5), l.LastOffsetForLeaderEpoch(1))
+	require.Equal(t, int64(10), l.LastOffsetForLeaderEpoch(2))
+	require.Equal(t, int64(14), l.LastOffsetForLeaderEpoch(3))
+
+	// Force a clean.
+	require.NoError(t, l.Clean())
+
+	require.Equal(t, 3, len(l.Segments()))
+	require.Equal(t, int64(4), l.OldestOffset())
+	require.Equal(t, int64(14), l.NewestOffset())
+	require.Equal(t, 3, len(l.leaderEpochCache.epochOffsets))
+	require.Equal(t, uint64(3), l.LastLeaderEpoch())
+	require.Equal(t, int64(4), l.LastOffsetForLeaderEpoch(0))
+	require.Equal(t, int64(9), l.LastOffsetForLeaderEpoch(1))
+	require.Equal(t, int64(14), l.LastOffsetForLeaderEpoch(2))
+	require.Equal(t, int64(14), l.LastOffsetForLeaderEpoch(3))
 }
 
 // Ensures OffsetForTimestamp returns the earliest offset whose timestamp is
@@ -239,6 +378,61 @@ func TestOffsetForTimestamp(t *testing.T) {
 	require.Equal(t, int64(3), offset)
 }
 
+// Ensure Truncate removes log entries up to the given offset and that the
+// leader epoch cache is also truncated.
+func TestTruncate(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 6,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	// Add some messages.
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Value:       []byte(strconv.Itoa(i)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 1,
+		}})
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Value:       []byte(strconv.Itoa(i + 5)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 2,
+		}})
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Value:       []byte(strconv.Itoa(i + 10)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 3,
+		}})
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, int64(14), l.NewestOffset())
+	require.Equal(t, 3, len(l.leaderEpochCache.epochOffsets))
+	require.Equal(t, uint64(3), l.LastLeaderEpoch())
+	require.Equal(t, int64(0), l.LastOffsetForLeaderEpoch(0))
+	require.Equal(t, int64(5), l.LastOffsetForLeaderEpoch(1))
+	require.Equal(t, int64(10), l.LastOffsetForLeaderEpoch(2))
+	require.Equal(t, int64(14), l.LastOffsetForLeaderEpoch(3))
+
+	require.NoError(t, l.Truncate(7))
+
+	require.Equal(t, int64(6), l.NewestOffset())
+	require.Equal(t, 2, len(l.leaderEpochCache.epochOffsets))
+	require.Equal(t, uint64(2), l.LastLeaderEpoch())
+	require.Equal(t, int64(0), l.LastOffsetForLeaderEpoch(0))
+	require.Equal(t, int64(5), l.LastOffsetForLeaderEpoch(1))
+}
+
 func setup(t require.TestingT) (*CommitLog, func()) {
 	opts := Options{
 		Path:            tempDir(t),
@@ -257,14 +451,11 @@ func setupWithOptions(t require.TestingT, opts Options) (*CommitLog, func()) {
 }
 
 func tempDir(t require.TestingT) string {
-	p, err := ioutil.TempDir("", "est")
-	if err != nil {
-		require.NoError(t, err)
-	}
+	p, err := ioutil.TempDir("", "lift_")
+	require.NoError(t, err)
 	return p
 }
 
 func remove(t require.TestingT, path string) {
-	os.RemoveAll(path)
-	os.MkdirAll(path, 0755)
+	require.NoError(t, os.RemoveAll(path))
 }

@@ -17,11 +17,12 @@ import (
 // recoverLatestCommittedFSMLog returns the last committed Raft FSM log entry.
 // It returns nil if there are no entries in the Raft log.
 func (s *Server) recoverLatestCommittedFSMLog(applyIndex uint64) (*raft.Log, error) {
-	commitIndex, err := strconv.ParseUint(s.raft.Stats()["commit_index"], 10, 64)
+	raftNode := s.getRaft()
+	commitIndex, err := strconv.ParseUint(raftNode.Stats()["commit_index"], 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	firstIndex, err := s.raft.store.FirstIndex()
+	firstIndex, err := raftNode.store.FirstIndex()
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +36,7 @@ func (s *Server) recoverLatestCommittedFSMLog(applyIndex uint64) (*raft.Log, err
 			// We are committing the first FSM log.
 			return nil, nil
 		}
-		if err := s.raft.store.GetLog(i, log); err != nil {
+		if err := raftNode.store.GetLog(i, log); err != nil {
 			return nil, err
 		}
 		if log.Type == raft.LogCommand {
@@ -72,8 +73,8 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		s.recoveryStarted = true
 		if s.latestRecoveredLog != nil {
 			s.logger.Debug("fsm: Replaying Raft log...")
+			s.startedRecovery()
 		}
-		s.startedRecovery()
 	}
 
 	// Check if this is a "recovered" Raft entry, meaning we are still applying
@@ -104,6 +105,11 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 	}
 	value, err := s.apply(log, l.Index, recovered)
 	if err != nil {
+		if s.isShutdown() {
+			// Don't panic if the server is shutting down, just return the
+			// error.
+			return err
+		}
 		panic(err)
 	}
 	return value

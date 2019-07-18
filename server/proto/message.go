@@ -12,6 +12,7 @@ type Message struct {
 
 	// Transient fields
 	Timestamp     int64
+	LeaderEpoch   uint64
 	AckInbox      string
 	CorrelationID string
 	AckPolicy     client.AckPolicy

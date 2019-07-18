@@ -234,10 +234,10 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	}
 
 	a.startGoroutine(func() {
-		headersBuf := make([]byte, 20)
+		headersBuf := make([]byte, 28)
 		for {
 			// TODO: this could be more efficient.
-			m, offset, timestamp, err := reader.ReadMessage(ctx, headersBuf)
+			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf)
 			if err != nil {
 				select {
 				case errCh <- status.Convert(err):

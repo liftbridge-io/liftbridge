@@ -41,6 +41,7 @@ func getTestConfig(id string, bootstrap bool, port int) *Config {
 	config.DataDir = filepath.Join(storagePath, id)
 	config.Clustering.RaftSnapshots = 1
 	config.Clustering.RaftLogging = true
+	config.Clustering.ServerID = id
 	config.LogLevel = uint32(log.DebugLevel)
 	config.NATS.Servers = []string{"nats://localhost:4222"}
 	config.LogSilent = true
@@ -61,7 +62,7 @@ func getMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Server) 
 	)
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			if !s.IsRunning() || s.raft == nil {
+			if !s.IsRunning() || s.getRaft() == nil {
 				continue
 			}
 			if s.IsLeader() {
@@ -87,7 +88,7 @@ func waitForNoMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Se
 	for time.Now().Before(deadline) {
 		var leader string
 		for _, s := range servers {
-			if l := string(s.raft.Leader()); l != "" {
+			if l := string(s.getRaft().Leader()); l != "" {
 				leader = l
 				break
 			}
@@ -181,7 +182,7 @@ func TestAssignedDurableServerID(t *testing.T) {
 	// Wait to elect self as leader.
 	leader := getMetadataLeader(t, 10*time.Second, s1)
 
-	future := leader.raft.GetConfiguration()
+	future := leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -200,7 +201,7 @@ func TestAssignedDurableServerID(t *testing.T) {
 	// Wait to elect self as leader.
 	leader = getMetadataLeader(t, 10*time.Second, s1)
 
-	future = leader.raft.GetConfiguration()
+	future = leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -227,7 +228,7 @@ func TestDurableServerID(t *testing.T) {
 	// Wait to elect self as leader.
 	leader := getMetadataLeader(t, 10*time.Second, s1)
 
-	future := leader.raft.GetConfiguration()
+	future := leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -246,7 +247,7 @@ func TestDurableServerID(t *testing.T) {
 	// Wait to elect self as leader.
 	leader = getMetadataLeader(t, 10*time.Second, s1)
 
-	future = leader.raft.GetConfiguration()
+	future = leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -281,7 +282,7 @@ func TestBootstrapAutoConfig(t *testing.T) {
 	)
 
 	// Verify configuration.
-	future := leader.raft.GetConfiguration()
+	future := leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -320,7 +321,7 @@ func TestBootstrapManualConfig(t *testing.T) {
 	)
 
 	// Verify configuration.
-	future := leader.raft.GetConfiguration()
+	future := leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -334,7 +335,7 @@ func TestBootstrapManualConfig(t *testing.T) {
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
-	future = leader.raft.GetConfiguration()
+	future = leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
@@ -660,7 +661,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Force log clean.
 	forceLogClean(t, subject, name, s1)
 
-	// The first message read back should have offset 86.
+	// The first message read back should have offset 87.
 	msgs := make(chan *proto.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, subject, name, func(msg *proto.Message, err error) {
@@ -673,7 +674,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(86), msg.Offset)
+		require.Equal(t, int64(87), msg.Offset)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}

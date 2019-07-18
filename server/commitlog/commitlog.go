@@ -36,19 +36,21 @@ const (
 // write-ahead log.
 type CommitLog struct {
 	Options
-	deleteCleaner  *DeleteCleaner
-	compactCleaner *CompactCleaner
-	name           string
-	mu             sync.RWMutex
-	hw             int64
-	closed         chan struct{}
-	segments       []*Segment
-	vActiveSegment *Segment
-	hwWaiters      map[contextReader]chan struct{}
+	deleteCleaner    *DeleteCleaner
+	compactCleaner   *CompactCleaner
+	name             string
+	mu               sync.RWMutex
+	hw               int64
+	closed           chan struct{}
+	segments         []*Segment
+	vActiveSegment   *Segment
+	hwWaiters        map[contextReader]chan struct{}
+	leaderEpochCache *leaderEpochCache
 }
 
 // Options contains settings for configuring a CommitLog.
 type Options struct {
+	Stream               string        // Stream name
 	Path                 string        // Path to log directory
 	MaxSegmentBytes      int64         // Max bytes a Segment can contain before creating a new one
 	MaxLogBytes          int64         // Retention by bytes
@@ -94,21 +96,27 @@ func New(opts Options) (*CommitLog, error) {
 	cleaner := NewDeleteCleaner(cleanerOpts)
 
 	compactCleanerOpts := CompactCleanerOptions{
-		Name:          opts.Path,
+		Name:          opts.Stream,
 		Logger:        opts.Logger,
 		MaxGoroutines: opts.CompactMaxGoroutines,
 	}
 	compactCleaner := NewCompactCleaner(compactCleanerOpts)
 
 	path, _ := filepath.Abs(opts.Path)
+	epochCache, err := newLeaderEpochCache(opts.Stream, path, opts.Logger)
+	if err != nil {
+		return nil, err
+	}
+
 	l := &CommitLog{
-		Options:        opts,
-		name:           filepath.Base(path),
-		deleteCleaner:  cleaner,
-		compactCleaner: compactCleaner,
-		hw:             -1,
-		closed:         make(chan struct{}),
-		hwWaiters:      make(map[contextReader]chan struct{}),
+		Options:          opts,
+		name:             filepath.Base(path),
+		deleteCleaner:    cleaner,
+		compactCleaner:   compactCleaner,
+		hw:               -1,
+		closed:           make(chan struct{}),
+		hwWaiters:        make(map[contextReader]chan struct{}),
+		leaderEpochCache: epochCache,
 	}
 
 	if err := l.init(); err != nil {
@@ -116,6 +124,20 @@ func New(opts Options) (*CommitLog, error) {
 	}
 
 	if err := l.open(); err != nil {
+		return nil, err
+	}
+
+	// After an unclean shutdown, the leader epoch checkpoint file could be
+	// ahead of the log (as the log is flushed asynchronously by default). To
+	// account for this, remove all entries from the leader epoch checkpoint
+	// file where the offset is greater than the log end offset.
+	if err := l.leaderEpochCache.ClearLatest(l.activeSegment().NextOffset()); err != nil {
+		return nil, err
+	}
+
+	// The earliest leader epoch may not be flushed during a hard failure.
+	// Recover it here.
+	if err := l.leaderEpochCache.ClearEarliest(l.OldestOffset()); err != nil {
 		return nil, err
 	}
 
@@ -224,8 +246,16 @@ func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int
 	if err := segment.WriteMessageSet(ms, entries); err != nil {
 		return nil, err
 	}
+	lastLeaderEpoch := l.leaderEpochCache.LastLeaderEpoch()
 	offsets := make([]int64, len(entries))
 	for i, entry := range entries {
+		// Check if message is in a new leader epoch.
+		if entry.LeaderEpoch > lastLeaderEpoch {
+			if err := l.leaderEpochCache.Assign(entry.LeaderEpoch, entry.Offset); err != nil {
+				return nil, err
+			}
+			lastLeaderEpoch = entry.LeaderEpoch
+		}
 		offsets[i] = entry.Offset
 	}
 	return offsets, nil
@@ -300,6 +330,16 @@ func (l *CommitLog) SetHighWatermark(hw int64) {
 	// TODO: should we flush the HW to disk here?
 }
 
+// OverrideHighWatermark sets the high watermark on the log using the given
+// value, even if the value is less than the current HW. This is used for unit
+// testing purposes.
+func (l *CommitLog) OverrideHighWatermark(hw int64) {
+	l.mu.Lock()
+	l.hw = hw
+	l.notifyHWWaiters()
+	l.mu.Unlock()
+}
+
 func (l *CommitLog) notifyHWWaiters() {
 	for r, ch := range l.hwWaiters {
 		close(ch)
@@ -331,6 +371,27 @@ func (l *CommitLog) HighWatermark() int64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.hw
+}
+
+// NewLeaderEpoch indicates the log is entering a new leader epoch.
+func (l *CommitLog) NewLeaderEpoch(epoch uint64) error {
+	return l.leaderEpochCache.Assign(epoch, l.NewestOffset())
+}
+
+// LastOffsetForLeaderEpoch returns the start offset of the first leader epoch
+// larger than the provided one or the log end offset if the current epoch
+// equals the provided one.
+func (l *CommitLog) LastOffsetForLeaderEpoch(epoch uint64) int64 {
+	offset := l.leaderEpochCache.LastOffsetForLeaderEpoch(epoch)
+	if offset == -1 {
+		offset = l.activeSegment().NextOffset() - 1
+	}
+	return offset
+}
+
+// LastLeaderEpoch returns the latest leader epoch for the log.
+func (l *CommitLog) LastLeaderEpoch() uint64 {
+	return l.leaderEpochCache.LastLeaderEpoch()
 }
 
 func (l *CommitLog) activeSegment() *Segment {
@@ -432,7 +493,7 @@ func (l *CommitLog) Truncate(offset int64) error {
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
 		unsafe.Pointer(activeSegment))
 	l.segments = segments
-	return nil
+	return l.leaderEpochCache.ClearLatest(offset)
 }
 
 func (l *CommitLog) Segments() []*Segment {
@@ -526,7 +587,7 @@ func (l *CommitLog) Clean() error {
 	l.mu.RLock()
 	oldSegments := l.segments
 	l.mu.RUnlock()
-	cleaned, err := l.clean(oldSegments)
+	cleaned, epochCache, err := l.clean(oldSegments)
 	if err != nil {
 		return err
 	}
@@ -535,27 +596,51 @@ func (l *CommitLog) Clean() error {
 	if len(newSegments) > len(oldSegments) {
 		// New segments were added while cleaning. Rebase the new segments onto
 		// the cleaned ones.
-		for _, seg := range newSegments[len(oldSegments):] {
-			cleaned = append(cleaned, seg)
-		}
+		rebase := newSegments[len(oldSegments):]
+		cleaned = l.rebaseSegments(rebase, cleaned, epochCache)
 	}
 	l.segments = cleaned
+	// Update the leader epoch offset cache to account for deleted segments. If
+	// compaction ran, we need to regenerate the cache using the one returned
+	// from compaction.
+	if epochCache != nil {
+		err = l.leaderEpochCache.Replace(epochCache)
+	} else {
+		err = l.leaderEpochCache.ClearEarliest(l.segments[0].BaseOffset)
+	}
 	l.mu.Unlock()
-	return nil
+	return err
 }
 
-func (l *CommitLog) clean(segments []*Segment) ([]*Segment, error) {
+// rebaseSegments adds the segments in from to the end of the slice of segments
+// in to and adds any leader epoch offsets to the given leaderEpochCache.
+func (l *CommitLog) rebaseSegments(from, to []*Segment, epochCache *leaderEpochCache) []*Segment {
+	for _, seg := range from {
+		to = append(to, seg)
+	}
+	// Rebase any leader epoch offsets also. We don't check the error returned
+	// here because Rebase can't return an error since epochCache is not
+	// file-backed.
+	epochCache.Rebase(l.leaderEpochCache, from[0].BaseOffset)
+	return to
+}
+
+// clean returns the cleaned segments and, if compaction ran, a
+// *leaderEpochCache maintaining the start offset for each new leader epoch. If
+// compaction did not run, the leaderEpochCache will be nil.
+func (l *CommitLog) clean(segments []*Segment) ([]*Segment, *leaderEpochCache, error) {
 	cleaned, err := l.deleteCleaner.Clean(segments)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	var epochCache *leaderEpochCache
 	if l.Compact {
-		cleaned, err = l.compactCleaner.Compact(l.HighWatermark(), cleaned)
+		cleaned, epochCache, err = l.compactCleaner.Compact(l.HighWatermark(), cleaned)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return cleaned, nil
+	return cleaned, epochCache, nil
 }
 
 func (l *CommitLog) checkpointHWLoop() {

@@ -41,7 +41,7 @@ func NewDeleteCleaner(opts DeleteCleanerOptions) *DeleteCleaner {
 // Deletion only occurs at the segment granularity.
 func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	var err error
-	if len(segments) == 0 || (c.Retention.Bytes == 0 && c.Retention.Messages == 0 && c.Retention.Age == 0) {
+	if len(segments) == 0 || c.noRetentionLimits() {
 		return segments, nil
 	}
 
@@ -75,6 +75,10 @@ func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	return segments, nil
 }
 
+func (c DeleteCleaner) noRetentionLimits() bool {
+	return c.Retention.Bytes == 0 && c.Retention.Messages == 0 && c.Retention.Age == 0
+}
+
 func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, error) {
 	if len(segments) <= 1 {
 		return segments, nil
@@ -98,6 +102,10 @@ func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, erro
 	}
 	if i > -1 {
 		for ; i > -1; i-- {
+			// TODO: There is an edge case here where we fail partway through
+			// deletion. We will delete some segments but return an error. This
+			// should probably mark segments for deletion, remove them from the
+			// read path, and then delete them asynchronously.
 			if err := segments[i].Delete(); err != nil {
 				return nil, err
 			}
@@ -128,6 +136,11 @@ func (c *DeleteCleaner) applyBytesLimit(segments []*Segment) ([]*Segment, error)
 		}
 		if i > -1 {
 			for ; i > -1; i-- {
+				// TODO: There is an edge case here where we fail partway
+				// through deletion. We will delete some segments but return an
+				// error. This should probably mark segments for deletion,
+				// remove them from the read path, and then delete them
+				// asynchronously.
 				if err := segments[i].Delete(); err != nil {
 					return nil, err
 				}
@@ -153,6 +166,10 @@ func (c *DeleteCleaner) applyAgeLimit(segments []*Segment) ([]*Segment, error) {
 	// with the exception of the active (last) segment.
 	for i, seg := range segments {
 		if i != len(segments)-1 && seg.lastWriteTime < ttl {
+			// TODO: There is an edge case here where we fail partway through
+			// deletion. We will delete some segments but return an error. This
+			// should probably mark segments for deletion, remove them from the
+			// read path, and then delete them asynchronously.
 			if err := seg.Delete(); err != nil {
 				return nil, err
 			}

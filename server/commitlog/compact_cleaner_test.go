@@ -25,9 +25,10 @@ type expectedMsg struct {
 func TestCompactCleanerNoSegments(t *testing.T) {
 	opts := CompactCleanerOptions{Name: "foo", Logger: noopLogger()}
 	cleaner := NewCompactCleaner(opts)
-	segments, err := cleaner.Compact(0, nil)
+	segments, epochCache, err := cleaner.Compact(0, nil)
 	require.NoError(t, err)
 	require.Nil(t, segments)
+	require.Nil(t, epochCache)
 }
 
 // Ensure Compact is a no-op when there is one segment.
@@ -38,9 +39,10 @@ func TestCompactCleanerOneSegment(t *testing.T) {
 	defer remove(t, dir)
 
 	expected := []*Segment{createSegment(t, dir, 0, 100)}
-	actual, err := cleaner.Compact(0, expected)
+	actual, epochCache, err := cleaner.Compact(0, expected)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
+	require.Nil(t, epochCache)
 }
 
 // Ensure Compact retains only the latest message for each key up to the last
@@ -84,9 +86,9 @@ func TestCompactCleaner(t *testing.T) {
 	defer cancel()
 	r, err := l.NewReader(0, true)
 	require.NoError(t, err)
-	headers := make([]byte, 20)
+	headers := make([]byte, 28)
 	for _, exp := range expected {
-		msg, offset, _, err := r.ReadMessage(ctx, headers)
+		msg, offset, _, _, err := r.ReadMessage(ctx, headers)
 		require.NoError(t, err)
 		require.Equal(t, exp.Offset, offset)
 		compareMessages(t, exp.Msg, msg)
@@ -137,9 +139,9 @@ func TestCompactCleanerHW(t *testing.T) {
 	defer cancel()
 	r, err := l.NewReader(0, true)
 	require.NoError(t, err)
-	headers := make([]byte, 20)
+	headers := make([]byte, 28)
 	for _, exp := range expected {
-		msg, offset, _, err := r.ReadMessage(ctx, headers)
+		msg, offset, _, _, err := r.ReadMessage(ctx, headers)
 		require.NoError(t, err)
 		require.Equal(t, exp.Offset, offset)
 		compareMessages(t, exp.Msg, msg)
@@ -179,9 +181,9 @@ func TestCompactCleanerNoKeys(t *testing.T) {
 	defer cancel()
 	r, err := l.NewReader(0, true)
 	require.NoError(t, err)
-	headers := make([]byte, 20)
+	headers := make([]byte, 28)
 	for _, exp := range expected {
-		msg, offset, _, err := r.ReadMessage(ctx, headers)
+		msg, offset, _, _, err := r.ReadMessage(ctx, headers)
 		require.NoError(t, err)
 		require.Equal(t, exp.Offset, offset)
 		compareMessages(t, exp.Msg, msg)
@@ -288,7 +290,6 @@ func benchmarkClean(b *testing.B, segmentSize int64) {
 					require.NoError(b, err)
 					l.SetHighWatermark(offsets[len(offsets)-1])
 				}
-				println(segmentSize, len(l.Segments()))
 
 				b.StartTimer()
 				require.NoError(b, l.Clean())
