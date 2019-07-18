@@ -482,11 +482,11 @@ func (s *Server) getPropagateInbox() string {
 // a forwarded operation and loses leadership at the same time, the operation
 // will fail when it's proposed to the Raft cluster.
 func (s *Server) handlePropagatedRequest(m *nats.Msg) {
-	if m.Reply == "" {
-		s.logger.Warn("Invalid propagated request: no reply inbox")
-		return
-	}
-	req := &proto.PropagatedRequest{}
+	var (
+		req  = &proto.PropagatedRequest{}
+		data []byte
+		err  error
+	)
 	if err := req.Unmarshal(m.Data); err != nil {
 		s.logger.Warnf("Invalid propagated request: %v", err)
 		return
@@ -500,11 +500,10 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		if err := s.metadata.CreateStream(context.Background(), req.CreateStreamOp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
-		data, err := resp.Marshal()
+		data, err = resp.Marshal()
 		if err != nil {
 			panic(err)
 		}
-		s.nc.Publish(m.Reply, data)
 	case proto.Op_SHRINK_ISR:
 		resp := &proto.PropagatedResponse{
 			Op: req.Op,
@@ -512,11 +511,10 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		if err := s.metadata.ShrinkISR(context.Background(), req.ShrinkISROp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
-		data, err := resp.Marshal()
+		data, err = resp.Marshal()
 		if err != nil {
 			panic(err)
 		}
-		s.nc.Publish(m.Reply, data)
 	case proto.Op_REPORT_LEADER:
 		resp := &proto.PropagatedResponse{
 			Op: req.Op,
@@ -524,11 +522,10 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		if err := s.metadata.ReportLeader(context.Background(), req.ReportLeaderOp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
-		data, err := resp.Marshal()
+		data, err = resp.Marshal()
 		if err != nil {
 			panic(err)
 		}
-		s.nc.Publish(m.Reply, data)
 	case proto.Op_EXPAND_ISR:
 		resp := &proto.PropagatedResponse{
 			Op: req.Op,
@@ -536,13 +533,16 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		if err := s.metadata.ExpandISR(context.Background(), req.ExpandISROp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
-		data, err := resp.Marshal()
+		data, err = resp.Marshal()
 		if err != nil {
 			panic(err)
 		}
-		s.nc.Publish(m.Reply, data)
 	default:
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
+		return
+	}
+	if err := m.Respond(data); err != nil {
+		s.logger.Errorf("Failed to respond to propagated request: %v", err)
 	}
 }
 
@@ -597,13 +597,9 @@ func (s *Server) natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err err
 // handleServerInfoRequest is a NATS handler used to process requests for
 // server information used in the metadata API.
 func (s *Server) handleServerInfoRequest(m *nats.Msg) {
-	if m.Reply == "" {
-		s.logger.Warn("Dropping server info request with no reply inbox")
-		return
-	}
 	req := &proto.ServerInfoRequest{}
 	if err := req.Unmarshal(m.Data); err != nil {
-		s.logger.Warn("Dropping invalid server info request: %v", err)
+		s.logger.Warnf("Dropping invalid server info request: %v", err)
 		return
 	}
 
@@ -621,17 +617,15 @@ func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 		panic(err)
 	}
 
-	s.ncRaft.Publish(m.Reply, data)
+	if err := m.Respond(data); err != nil {
+		s.logger.Errorf("Failed to respond to server info request: %v", err)
+	}
 }
 
 // handleStreamStatusRequest is a NATS handler used to process requests
 // querying the status of a stream. This is used as a readiness check to
 // determine if a created stream has actually started.
 func (s *Server) handleStreamStatusRequest(m *nats.Msg) {
-	if m.Reply == "" {
-		s.logger.Warn("Dropping stream status request with no reply inbox")
-		return
-	}
 	req := &proto.StreamStatusRequest{}
 	if err := req.Unmarshal(m.Data); err != nil {
 		s.logger.Warn("Dropping invalid stream status request: %v", err)
@@ -650,7 +644,9 @@ func (s *Server) handleStreamStatusRequest(m *nats.Msg) {
 		panic(err)
 	}
 
-	s.ncRaft.Publish(m.Reply, data)
+	if err := m.Respond(data); err != nil {
+		s.logger.Errorf("Failed to respond to stream status request: %v", err)
+	}
 }
 
 // serverInfoInbox returns the NATS subject used for handling server

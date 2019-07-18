@@ -212,10 +212,10 @@ func (s *Server) detectBootstrapMisconfig() {
 	srvID := []byte(s.config.Clustering.ServerID)
 	subj := fmt.Sprintf("%s.bootstrap", s.baseMetadataRaftSubject())
 	s.ncRaft.Subscribe(subj, func(m *nats.Msg) {
-		if m.Data != nil && m.Reply != "" {
+		if m.Data != nil {
 			// Ignore message to ourself
 			if string(m.Data) != s.config.Clustering.ServerID {
-				s.ncRaft.Publish(m.Reply, srvID)
+				m.Respond(srvID)
 				s.logger.Fatalf("Server %s was also started with raft.bootstrap.seed", string(m.Data))
 			}
 		}
@@ -340,7 +340,7 @@ func (s *Server) createRaftNode() (bool, error) {
 		if err != nil {
 			panic(err)
 		}
-		s.ncRaft.Publish(msg.Reply, r)
+		msg.Respond(r)
 	})
 	if err != nil {
 		node.Shutdown()

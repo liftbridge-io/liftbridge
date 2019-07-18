@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"golang.org/x/net/context"
 
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
@@ -27,7 +28,7 @@ const (
 // where responses should be sent.
 type replicationRequest struct {
 	*proto.ReplicationRequest
-	replyInbox string
+	request *nats.Msg
 }
 
 // replicator handles replication requests from a particular replica and tracks
@@ -93,7 +94,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 			r.mu.Lock()
 			r.lastCaughtUp = now
 			r.mu.Unlock()
-			r.sendHW(req.replyInbox)
+			r.sendHW(req.request)
 			continue
 		}
 
@@ -108,14 +109,14 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 					"and replica %s (requested offset %d, earliest %d, latest %d): %v",
 				r.stream, r.replica, req.Offset+1, earliest, latest, err)
 			// Send a response to short-circuit request timeout.
-			r.sendHW(req.replyInbox)
+			r.sendHW(req.request)
 			continue
 		}
 
 		// Send a batch of messages to the replica.
-		if err := r.replicate(ctx, reader, req.replyInbox, req.Offset); err != nil {
+		if err := r.replicate(ctx, reader, req.request, req.Offset); err != nil {
 			// Send a response to short-circuit request timeout.
-			r.sendHW(req.replyInbox)
+			r.sendHW(req.request)
 			continue
 		}
 	}
@@ -205,7 +206,7 @@ func (r *replicator) expandISR() {
 // replicate sends a batch of messages to the given NATS inbox along with the
 // leader epoch and HW.
 func (r *replicator) replicate(
-	ctx context.Context, reader *commitlog.Reader, inbox string, offset int64) error {
+	ctx context.Context, reader *commitlog.Reader, request *nats.Msg, offset int64) error {
 
 	buf := new(bytes.Buffer)
 	// Write the leader epoch to the buffer.
@@ -248,8 +249,7 @@ func (r *replicator) replicate(
 	// Set the HW and flush the batch.
 	data := buf.Bytes()
 	proto.Encoding.PutUint64(data[8:], uint64(r.stream.log.HighWatermark()))
-	r.stream.srv.ncRepl.Publish(inbox, data)
-	return nil
+	return request.Respond(data)
 }
 
 // writeMessageToBuffer writes the headers and message byte slices to the bytes
@@ -265,9 +265,9 @@ func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {
 }
 
 // sendHW sends the leader epoch and HW to the given NATS inbox.
-func (r *replicator) sendHW(inbox string) {
+func (r *replicator) sendHW(request *nats.Msg) {
 	buf := make([]byte, replicationOverhead)
 	proto.Encoding.PutUint64(buf[:8], r.epoch)
 	proto.Encoding.PutUint64(buf[8:], uint64(r.stream.log.HighWatermark()))
-	r.stream.srv.ncRepl.Publish(inbox, buf)
+	request.Respond(buf)
 }
