@@ -401,12 +401,10 @@ func setupWithOptions(t require.TestingT, opts Options) (*CommitLog, func()) {
 
 func tempDir(t require.TestingT) string {
 	p, err := ioutil.TempDir("", "lift_")
-	if err != nil {
-		require.NoError(t, err)
-	}
+	require.NoError(t, err)
 	return p
 }
 
 func remove(t require.TestingT, path string) {
-	os.RemoveAll(path)
+	require.NoError(t, os.RemoveAll(path))
 }
