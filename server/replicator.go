@@ -37,7 +37,7 @@ type replicationRequest struct {
 // the leader's log in maxLagTime, it's removed from the ISR until it catches
 // back up.
 type replicator struct {
-	stream       *stream
+	partition    *partition
 	replica      string
 	maxLagTime   time.Duration
 	lastCaughtUp time.Time
@@ -65,7 +65,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 	r.mu.Unlock()
 
 	// Start a goroutine to track the replica's health.
-	r.stream.srv.startGoroutine(func() { r.tick(stop) })
+	r.partition.srv.startGoroutine(func() { r.tick(stop) })
 
 	var req replicationRequest
 	for {
@@ -80,13 +80,13 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		r.lastSeen = now
 		r.mu.Unlock()
 
-		// Update the ISR replica's latest offset for the stream. This is used
-		// by the leader to know when to commit messages.
-		r.stream.updateISRLatestOffset(r.replica, req.Offset)
+		// Update the ISR replica's latest offset for the partition. This is
+		// used by the leader to know when to commit messages.
+		r.partition.updateISRLatestOffset(r.replica, req.Offset)
 
 		var (
-			latest   = r.stream.log.NewestOffset()
-			earliest = r.stream.log.OldestOffset()
+			latest   = r.partition.log.NewestOffset()
+			earliest = r.partition.log.OldestOffset()
 		)
 
 		// Check if we're caught up.
@@ -102,12 +102,12 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		reader, err := r.stream.log.NewReader(req.Offset+1, true)
+		reader, err := r.partition.log.NewReader(req.Offset+1, true)
 		if err != nil {
-			r.stream.srv.logger.Errorf(
-				"Failed to create replication reader for stream %s "+
+			r.partition.srv.logger.Errorf(
+				"Failed to create replication reader for partition %s "+
 					"and replica %s (requested offset %d, earliest %d, latest %d): %v",
-				r.stream, r.replica, req.Offset+1, earliest, latest, err)
+				r.partition, r.replica, req.Offset+1, earliest, latest, err)
 			// Send a response to short-circuit request timeout.
 			r.sendHW(req.request)
 			continue
@@ -126,8 +126,8 @@ func (r *replicator) request(req replicationRequest) {
 	select {
 	case r.requests <- req:
 	default:
-		r.stream.srv.logger.Warnf("Dropped replication request for stream %s from replica %s",
-			r.stream, req.ReplicaID)
+		r.partition.srv.logger.Warnf("Dropped replication request for partition %s from replica %s",
+			r.partition, req.ReplicaID)
 	}
 }
 
@@ -152,18 +152,18 @@ func (r *replicator) tick(stop chan struct{}) {
 		)
 		r.mu.RUnlock()
 		outOfSync := lastSeenElapsed > r.maxLagTime || lastCaughtUpElapsed > r.maxLagTime
-		if outOfSync && r.stream.inISR(r.replica) {
+		if outOfSync && r.partition.inISR(r.replica) {
 			// Follower has not sent a request or has not caught up in
 			// maxLagTime, so remove it from the ISR.
-			r.stream.srv.logger.Errorf("Replica %s for stream %s exceeded max lag time "+
+			r.partition.srv.logger.Errorf("Replica %s for partition %s exceeded max lag time "+
 				"(last seen: %s, last caught up: %s), removing from ISR",
-				r.replica, r.stream, lastSeenElapsed, lastCaughtUpElapsed)
+				r.replica, r.partition, lastSeenElapsed, lastCaughtUpElapsed)
 
 			r.shrinkISR()
-		} else if !outOfSync && !r.stream.inISR(r.replica) {
+		} else if !outOfSync && !r.partition.inISR(r.replica) {
 			// Add replica back into ISR.
-			r.stream.srv.logger.Infof("Replica %s for stream %s caught back up with leader, "+
-				"rejoining ISR", r.replica, r.stream)
+			r.partition.srv.logger.Infof("Replica %s for partition %s caught back up with leader, "+
+				"rejoining ISR", r.replica, r.partition)
 			r.expandISR()
 		}
 	}
@@ -173,16 +173,16 @@ func (r *replicator) tick(stop chan struct{}) {
 // from the ISR.
 func (r *replicator) shrinkISR() {
 	req := &proto.ShrinkISROp{
-		Subject:         r.stream.Subject,
-		Name:            r.stream.Name,
+		Subject:         r.partition.Subject,
+		Name:            r.partition.Name,
 		ReplicaToRemove: r.replica,
 		Leader:          r.leader,
 		LeaderEpoch:     r.epoch,
 	}
-	if err := r.stream.srv.metadata.ShrinkISR(context.Background(), req); err != nil {
-		r.stream.srv.logger.Errorf(
-			"Failed to remove replica %s for stream %s from ISR: %v",
-			r.replica, r.stream, err.Err())
+	if err := r.partition.srv.metadata.ShrinkISR(context.Background(), req); err != nil {
+		r.partition.srv.logger.Errorf(
+			"Failed to remove replica %s for partition %s from ISR: %v",
+			r.replica, r.partition, err.Err())
 	}
 }
 
@@ -190,16 +190,16 @@ func (r *replicator) shrinkISR() {
 // the ISR.
 func (r *replicator) expandISR() {
 	req := &proto.ExpandISROp{
-		Subject:      r.stream.Subject,
-		Name:         r.stream.Name,
+		Subject:      r.partition.Subject,
+		Name:         r.partition.Name,
 		ReplicaToAdd: r.replica,
 		Leader:       r.leader,
 		LeaderEpoch:  r.epoch,
 	}
-	if err := r.stream.srv.metadata.ExpandISR(context.Background(), req); err != nil {
-		r.stream.srv.logger.Errorf(
-			"Failed to add replica %s for stream %s to ISR: %v",
-			r.replica, r.stream, err.Err())
+	if err := r.partition.srv.metadata.ExpandISR(context.Background(), req); err != nil {
+		r.partition.srv.logger.Errorf(
+			"Failed to add replica %s for partition %s to ISR: %v",
+			r.replica, r.partition, err.Err())
 	}
 }
 
@@ -211,25 +211,25 @@ func (r *replicator) replicate(
 	buf := new(bytes.Buffer)
 	// Write the leader epoch to the buffer.
 	if err := binary.Write(buf, proto.Encoding, r.epoch); err != nil {
-		r.stream.srv.logger.Errorf("Failed to write leader epoch to buffer while replicating: %v", err)
+		r.partition.srv.logger.Errorf("Failed to write leader epoch to buffer while replicating: %v", err)
 		return err
 	}
 	// Reserve space for the HW. This will be replaced with the HW at the time
 	// of flush.
 	if err := binary.Write(buf, proto.Encoding, int64(0)); err != nil {
-		r.stream.srv.logger.Errorf("Failed to write HW to buffer while replicating: %v", err)
+		r.partition.srv.logger.Errorf("Failed to write HW to buffer while replicating: %v", err)
 		return err
 	}
 
 	var (
-		newestOffset = r.stream.log.NewestOffset()
+		newestOffset = r.partition.log.NewestOffset()
 		message      commitlog.Message
 		err          error
 	)
 	for offset < newestOffset && buf.Len() < replicationMaxSize {
 		message, offset, _, _, err = reader.ReadMessage(ctx, r.headersBuf[:])
 		if err != nil {
-			r.stream.srv.logger.Errorf("Failed to read message while replicating: %v", err)
+			r.partition.srv.logger.Errorf("Failed to read message while replicating: %v", err)
 			return err
 		}
 
@@ -241,14 +241,14 @@ func (r *replicator) replicate(
 
 		// Write the message to the buffer.
 		if err := writeMessageToBuffer(buf, r.headersBuf[:], message); err != nil {
-			r.stream.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
+			r.partition.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
 			return err
 		}
 	}
 
 	// Set the HW and flush the batch.
 	data := buf.Bytes()
-	proto.Encoding.PutUint64(data[8:], uint64(r.stream.log.HighWatermark()))
+	proto.Encoding.PutUint64(data[8:], uint64(r.partition.log.HighWatermark()))
 	return request.Respond(data)
 }
 
@@ -268,6 +268,6 @@ func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {
 func (r *replicator) sendHW(request *nats.Msg) {
 	buf := make([]byte, replicationOverhead)
 	proto.Encoding.PutUint64(buf[:8], r.epoch)
-	proto.Encoding.PutUint64(buf[8:], uint64(r.stream.log.HighWatermark()))
+	proto.Encoding.PutUint64(buf[8:], uint64(r.partition.log.HighWatermark()))
 	request.Respond(buf)
 }

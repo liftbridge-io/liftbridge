@@ -10,6 +10,8 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 const raftApplyTimeout = 30 * time.Second
@@ -29,44 +31,63 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	if req.ReplicationFactor == 0 {
 		req.ReplicationFactor = 1
 	}
-	a.logger.Debugf("api: CreateStream [subject=%s, name=%s, replicationFactor=%d]",
-		req.Subject, req.Name, req.ReplicationFactor)
+	if req.Partitions == 0 {
+		req.Partitions = 1
+	}
+	a.logger.Debugf("api: CreateStream [subject=%s, name=%s, partitions=%d, replicationFactor=%d]",
+		req.Subject, req.Name, req.Partitions, req.ReplicationFactor)
 
-	if err := a.metadata.CreateStream(ctx, req); err != nil {
-		if err.Code() != codes.AlreadyExists {
-			a.logger.Errorf("api: Failed to create stream: %v", err.Err())
+	var err error
+	for i := int32(0); i < req.Partitions; i++ {
+		if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
+			Partition: &proto.Partition{
+				Subject:           req.Subject,
+				Name:              req.Name,
+				Group:             req.Group,
+				ReplicationFactor: req.ReplicationFactor,
+				Id:                i,
+				TotalPartitions:   req.Partitions,
+			},
+		}); e != nil {
+			// In the case of partial failure, let the caller retry.
+			if e.Code() == codes.AlreadyExists {
+				err = e.Err()
+			} else {
+				a.logger.Errorf("api: Failed to create stream partition %d: %v", i, e.Err())
+				return nil, e.Err()
+			}
 		}
-		return nil, err.Err()
 	}
 
-	return resp, nil
+	return resp, err
 }
 
-// Subscribe creates an ephemeral subscription for the given stream. It begins
-// to receive messages starting at the given offset and waits for new messages
-// when it reaches the end of the stream. Use the request context to close the
-// subscription.
+// Subscribe creates an ephemeral subscription for the given stream partition.
+// It begins to receive messages starting at the given offset and waits for new
+// messages when it reaches the end of the partition. Use the request context
+// to close the subscription.
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
-	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, start=%s, offset=%d, timestamp=%d]",
-		req.Subject, req.Name, req.StartPosition, req.StartOffset, req.StartTimestamp)
-	stream := a.metadata.GetStream(req.Subject, req.Name)
-	if stream == nil {
-		a.logger.Errorf("api: Failed to subscribe to stream [subject=%s, name=%s]: no such stream",
-			req.Subject, req.Name)
-		return status.Error(codes.NotFound, "No such stream")
+	a.logger.Debugf("api: Subscribe [subject=%s, name=%s, partition=%d, start=%s, offset=%d, timestamp=%d]",
+		req.Subject, req.Name, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp)
+	partition := a.metadata.GetPartition(req.Subject, req.Name, req.Partition)
+	if partition == nil {
+		a.logger.Errorf("api: Failed to subscribe to partition "+
+			"[subject=%s, name=%s, partition=%d]: no such partition",
+			req.Subject, req.Name, req.Partition)
+		return status.Error(codes.NotFound, "No such partition")
 	}
 
-	leader, _ := stream.GetLeader()
+	leader, _ := partition.GetLeader()
 	if leader != a.config.Clustering.ServerID {
-		a.logger.Errorf("api: Failed to subscribe to stream %s: server not stream leader", stream)
-		return status.Error(codes.FailedPrecondition, "Server not stream leader")
+		a.logger.Errorf("api: Failed to subscribe to partition %s: server not stream leader", partition)
+		return status.Error(codes.FailedPrecondition, "Server not partition leader")
 	}
 
 	cancel := make(chan struct{})
 	defer close(cancel)
-	ch, errCh, err := a.subscribe(out.Context(), stream, req, cancel)
+	ch, errCh, err := a.subscribe(out.Context(), partition, req, cancel)
 	if err != nil {
-		a.logger.Errorf("api: Failed to subscribe to stream %s: %v", stream, err.Err())
+		a.logger.Errorf("api: Failed to subscribe to partition %s: %v", partition, err.Err())
 		return err.Err()
 	}
 
@@ -187,11 +208,11 @@ func (a *apiServer) publishSync(ctx context.Context, subject,
 	return ack, nil
 }
 
-// subscribe sets up a subscription on the given stream and begins sending
+// subscribe sets up a subscription on the given partition and begins sending
 // messages on the returned channel. The subscription will run until the cancel
 // channel is closed, the context is canceled, or an error is returned
 // asynchronously on the status channel.
-func (a *apiServer) subscribe(ctx context.Context, stream *stream,
+func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 	req *client.SubscribeRequest, cancel chan struct{}) (
 	<-chan *client.Message, <-chan *status.Status, *status.Status) {
 
@@ -200,18 +221,18 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	case client.StartPosition_OFFSET:
 		startOffset = req.StartOffset
 	case client.StartPosition_TIMESTAMP:
-		offset, err := stream.log.OffsetForTimestamp(req.StartTimestamp)
+		offset, err := partition.log.OffsetForTimestamp(req.StartTimestamp)
 		if err != nil {
 			return nil, nil, status.New(
 				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
 		}
 		startOffset = offset
 	case client.StartPosition_EARLIEST:
-		startOffset = stream.log.OldestOffset()
+		startOffset = partition.log.OldestOffset()
 	case client.StartPosition_LATEST:
-		startOffset = stream.log.NewestOffset()
+		startOffset = partition.log.NewestOffset()
 	case client.StartPosition_NEW_ONLY:
-		startOffset = stream.log.NewestOffset() + 1
+		startOffset = partition.log.NewestOffset() + 1
 	default:
 		return nil, nil, status.New(
 			codes.InvalidArgument,
@@ -226,7 +247,7 @@ func (a *apiServer) subscribe(ctx context.Context, stream *stream,
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
-		reader, err = stream.log.NewReader(startOffset, false)
+		reader, err = partition.log.NewReader(startOffset, false)
 	)
 	if err != nil {
 		return nil, nil, status.New(

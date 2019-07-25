@@ -26,9 +26,9 @@ import (
 )
 
 const (
-	stateFile                 = "liftbridge"
-	serverInfoInboxTemplate   = "%s.info"
-	streamStatusInboxTemplate = "%s.status.%s"
+	stateFile                    = "liftbridge"
+	serverInfoInboxTemplate      = "%s.info"
+	partitionStatusInboxTemplate = "%s.status.%s"
 )
 
 // Server is the main Liftbridge object. Create it by calling New or
@@ -150,8 +150,8 @@ func (s *Server) Start() (err error) {
 		return errors.Wrap(err, "failed to subscribe to server info subject")
 	}
 
-	if _, err := s.ncRaft.Subscribe(s.streamStatusInbox(), s.handleStreamStatusRequest); err != nil {
-		return errors.Wrap(err, "failed to subscribe to stream status subject")
+	if _, err := s.ncRaft.Subscribe(s.partitionStatusInbox(), s.handlePartitionStatusRequest); err != nil {
+		return errors.Wrap(err, "failed to subscribe to partition status subject")
 	}
 
 	s.handleSignals()
@@ -492,12 +492,11 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		return
 	}
 	switch req.Op {
-	case proto.Op_CREATE_STREAM:
+	case proto.Op_CREATE_PARTITION:
 		resp := &proto.PropagatedResponse{
-			Op:               req.Op,
-			CreateStreamResp: &client.CreateStreamResponse{},
+			Op: req.Op,
 		}
-		if err := s.metadata.CreateStream(context.Background(), req.CreateStreamOp); err != nil {
+		if err := s.metadata.CreatePartition(context.Background(), req.CreatePartitionOp); err != nil {
 			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 		}
 		data, err = resp.Marshal()
@@ -622,21 +621,21 @@ func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 	}
 }
 
-// handleStreamStatusRequest is a NATS handler used to process requests
-// querying the status of a stream. This is used as a readiness check to
-// determine if a created stream has actually started.
-func (s *Server) handleStreamStatusRequest(m *nats.Msg) {
-	req := &proto.StreamStatusRequest{}
+// handlePartitionStatusRequest is a NATS handler used to process requests
+// querying the status of a partition. This is used as a readiness check to
+// determine if a created partition has actually started.
+func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
+	req := &proto.PartitionStatusRequest{}
 	if err := req.Unmarshal(m.Data); err != nil {
-		s.logger.Warn("Dropping invalid stream status request: %v", err)
+		s.logger.Warn("Dropping invalid partition status request: %v", err)
 		return
 	}
 
-	stream := s.metadata.GetStream(req.Subject, req.Name)
+	partition := s.metadata.GetPartition(req.Subject, req.Name, req.Partition)
 
-	resp := &proto.StreamStatusResponse{Exists: stream != nil}
-	if stream != nil {
-		resp.IsLeader = stream.IsLeader()
+	resp := &proto.PartitionStatusResponse{Exists: partition != nil}
+	if partition != nil {
+		resp.IsLeader = partition.IsLeader()
 	}
 
 	data, err := resp.Marshal()
@@ -645,7 +644,7 @@ func (s *Server) handleStreamStatusRequest(m *nats.Msg) {
 	}
 
 	if err := m.Respond(data); err != nil {
-		s.logger.Errorf("Failed to respond to stream status request: %v", err)
+		s.logger.Errorf("Failed to respond to partition status request: %v", err)
 	}
 }
 
@@ -655,10 +654,10 @@ func (s *Server) serverInfoInbox() string {
 	return fmt.Sprintf(serverInfoInboxTemplate, s.baseMetadataRaftSubject())
 }
 
-// streamStatusInbox returns the NATS subject used for handling stream status
+// partitionStatusInbox returns the NATS subject used for handling stream status
 // requests.
-func (s *Server) streamStatusInbox() string {
-	return fmt.Sprintf(streamStatusInboxTemplate, s.baseMetadataRaftSubject(),
+func (s *Server) partitionStatusInbox() string {
+	return fmt.Sprintf(partitionStatusInboxTemplate, s.baseMetadataRaftSubject(),
 		s.config.Clustering.ServerID)
 }
 

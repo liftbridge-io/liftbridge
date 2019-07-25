@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -33,7 +34,7 @@ var (
 	timestamp = func() int64 { return time.Now().UnixNano() }
 )
 
-// replica tracks the latest log offset for a particular stream replica.
+// replica tracks the latest log offset for a particular partition replica.
 type replica struct {
 	mu     sync.RWMutex
 	offset int64
@@ -59,18 +60,33 @@ func (r *replica) getLatestOffset() int64 {
 	return r.offset
 }
 
-// stream represents a replicated message stream backed by a durable commit
-// log. A stream is attached to a NATS subject and stores messages on that
-// subject in a file-backed log. A stream has a set of replicas assigned to it,
-// which are the brokers responsible for replicating the stream. The ISR, or
-// in-sync replicas set, is the set of replicas which are currently caught up
-// with the stream leader's log. If a replica falls behind, it will be removed
-// from the ISR. Followers replicate the leader's log by fetching messages from
-// it. All stream access should go through exported methods.
 type stream struct {
 	*proto.Stream
+	partitions map[int32]*partition
+}
+
+func (s *stream) Close() error {
+	for _, partition := range s.partitions {
+		if err := partition.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// partition represents a replicated message stream partition backed by a
+// durable commit log. A partition is attached to a NATS subject and stores
+// messages on that subject in a file-backed log. A partition has a set of
+// replicas assigned to it, which are the brokers responsible for replicating
+// the partition. The ISR, or in-sync replicas set, is the set of replicas
+// which are currently caught up with the partition leader's log. If a replica
+// falls behind, it will be removed from the ISR. Followers replicate the
+// leader's log by fetching messages from it. All partition access should go
+// through exported methods.
+type partition struct {
+	*proto.Partition
 	mu              sync.RWMutex
-	sub             *nats.Subscription // Subscription to stream NATS subject
+	sub             *nats.Subscription // Subscription to partition NATS subject
 	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
 	leaderOffsetSub *nats.Subscription // Subscription for leader epoch offset requests from followers
 	recvChan        chan *nats.Msg     // Channel leader places received messages on
@@ -92,14 +108,20 @@ type stream struct {
 	shutdown        sync.WaitGroup
 }
 
-// newStream creates a new stream. If the stream is recovered, it should not be
-// started until the recovery process has completed to avoid starting it in an
-// intermediate state. This call will initialize or recover the stream's
-// backing commit log or return an error if it fails to do so.
-func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+// newPartition creates a new stream partition. If the partition is recovered,
+// it should not be started until the recovery process has completed to avoid
+// starting it in an intermediate state. This call will initialize or recover
+// the partition's backing commit log or return an error if it fails to do so.
+//
+// A partitioned stream maps to separate NATS subjects: subject.0, subject.1,
+// subject.2, etc. However, a single-partition stream maps to the subject
+// literal in order to match the behavior of an "un-partitioned" stream.
+func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
 	var (
-		file     = filepath.Join(s.config.DataDir, "streams", protoStream.Subject, protoStream.Name)
-		name     = fmt.Sprintf("[subject=%s, name=%s]", protoStream.Subject, protoStream.Name)
+		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Subject,
+			protoPartition.Name, strconv.FormatInt(int64(protoPartition.Id), 10))
+		name = fmt.Sprintf("[subject=%s, name=%s, partition=%d]",
+			protoPartition.Subject, protoPartition.Name, protoPartition.Id)
 		log, err = commitlog.New(commitlog.Options{
 			Stream:               name,
 			Path:                 file,
@@ -119,16 +141,16 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 	}
 
 	h := sha1.New()
-	h.Write([]byte(protoStream.Subject))
+	h.Write([]byte(protoPartition.Subject))
 	subjectHash := fmt.Sprintf("%x", h.Sum(nil))
 
-	replicas := make(map[string]struct{}, len(protoStream.Replicas))
-	for _, replica := range protoStream.Replicas {
+	replicas := make(map[string]struct{}, len(protoPartition.Replicas))
+	for _, replica := range protoPartition.Replicas {
 		replicas[replica] = struct{}{}
 	}
 
-	isr := make(map[string]*replica, len(protoStream.Isr))
-	for _, rep := range protoStream.Isr {
+	isr := make(map[string]*replica, len(protoPartition.Isr))
+	for _, rep := range protoPartition.Isr {
 		offset := int64(-1)
 		// For this server, initialize the replica offset to the newest offset.
 		if rep == s.config.Clustering.ServerID {
@@ -137,27 +159,27 @@ func (s *Server) newStream(protoStream *proto.Stream, recovered bool) (*stream, 
 		isr[rep] = &replica{offset: offset}
 	}
 
-	st := &stream{
-		Stream:      protoStream,
+	st := &partition{
+		Partition:   protoPartition,
 		log:         log,
 		srv:         s,
 		subjectHash: subjectHash,
 		replicas:    replicas,
 		isr:         isr,
-		commitCheck: make(chan struct{}, len(protoStream.Replicas)),
+		commitCheck: make(chan struct{}, len(protoPartition.Replicas)),
 		recovered:   recovered,
 	}
 
 	return st, nil
 }
 
-// String returns a human-readable string representation of the stream.
-func (s *stream) String() string {
-	return fmt.Sprintf("[subject=%s, name=%s]", s.Subject, s.Name)
+// String returns a human-readable string representation of the partition.
+func (s *partition) String() string {
+	return fmt.Sprintf("[subject=%s, name=%s, partition=%d]", s.Subject, s.Name, s.Id)
 }
 
-// Close stops the stream if it is running and closes the commit log.
-func (s *stream) Close() error {
+// Close stops the partition if it is running and closes the commit log.
+func (s *partition) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -174,11 +196,11 @@ func (s *stream) Close() error {
 	return s.log.Close()
 }
 
-// SetLeader sets the leader for the stream to the given replica and leader
-// epoch. If the stream's current leader epoch is greater than the given epoch,
-// this returns an error. This will also start the stream as a leader or
-// follower, if applicable, unless the stream is in recovery mode.
-func (s *stream) SetLeader(leader string, epoch uint64) error {
+// SetLeader sets the leader for the partition to the given replica and leader
+// epoch. If the partition's current leader epoch is greater than the given
+// epoch, this returns an error. This will also start the partition as a leader
+// or follower, if applicable, unless the partition is in recovery mode.
+func (s *partition) SetLeader(leader string, epoch uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -190,18 +212,18 @@ func (s *stream) SetLeader(leader string, epoch uint64) error {
 	s.LeaderEpoch = epoch
 
 	if s.recovered {
-		// If this stream is being recovered, we will start the leader/follower
-		// loop later.
+		// If this partition is being recovered, we will start the
+		// leader/follower loop later.
 		return nil
 	}
 
 	return s.startLeadingOrFollowing()
 }
 
-// StartRecovered starts the stream as a leader or follower, if applicable, if
-// it's in recovery mode. This should be called for each stream after the
+// StartRecovered starts the partition as a leader or follower, if applicable,
+// if it's in recovery mode. This should be called for each partition after the
 // recovery process completes.
-func (s *stream) StartRecovered() (bool, error) {
+func (s *partition) StartRecovered() (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.recovered {
@@ -214,43 +236,43 @@ func (s *stream) StartRecovered() (bool, error) {
 	return true, nil
 }
 
-// startLeadingOrFollowing starts the stream as a leader or follower, if
+// startLeadingOrFollowing starts the partition as a leader or follower, if
 // applicable.
-func (s *stream) startLeadingOrFollowing() error {
+func (s *partition) startLeadingOrFollowing() error {
 	if s.Leader == s.srv.config.Clustering.ServerID {
-		s.srv.logger.Debugf("Server becoming leader for stream %s, epoch: %d", s, s.LeaderEpoch)
+		s.srv.logger.Debugf("Server becoming leader for partition %s, epoch: %d", s, s.LeaderEpoch)
 		if err := s.becomeLeader(s.LeaderEpoch); err != nil {
-			s.srv.logger.Errorf("Server failed becoming leader for stream %s: %v", s, err)
+			s.srv.logger.Errorf("Server failed becoming leader for partition %s: %v", s, err)
 			return err
 		}
 	} else if s.inReplicas(s.srv.config.Clustering.ServerID) {
-		s.srv.logger.Debugf("Server becoming follower for stream %s, epoch: %d", s, s.LeaderEpoch)
+		s.srv.logger.Debugf("Server becoming follower for partition %s, epoch: %d", s, s.LeaderEpoch)
 		if err := s.becomeFollower(); err != nil {
-			s.srv.logger.Errorf("Server failed becoming follower for stream %s: %v", s, err)
+			s.srv.logger.Errorf("Server failed becoming follower for partition %s: %v", s, err)
 			return err
 		}
 	}
 	return nil
 }
 
-// GetLeader returns the replica that is the stream leader and the leader
+// GetLeader returns the replica that is the partition leader and the leader
 // epoch.
-func (s *stream) GetLeader() (string, uint64) {
+func (s *partition) GetLeader() (string, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Leader, s.LeaderEpoch
 }
 
-// IsLeader indicates if this server is the stream leader.
-func (s *stream) IsLeader() bool {
+// IsLeader indicates if this server is the partition leader.
+func (s *partition) IsLeader() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.isLeading
 }
 
 // becomeLeader is called when the server has become the leader for this
-// stream.
-func (s *stream) becomeLeader(epoch uint64) error {
+// partition.
+func (s *partition) becomeLeader(epoch uint64) error {
 	if s.isFollowing {
 		// Stop following if previously a follower.
 		if err := s.stopFollowing(); err != nil {
@@ -264,8 +286,8 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	}
 
 	if !s.recovered {
-		// Update leader epoch on log if this isn't a recovered stream. A
-		// recovered stream indicates we were the previous leader and are
+		// Update leader epoch on log if this isn't a recovered partition. A
+		// recovered partition indicates we were the previous leader and are
 		// continuing a leader epoch.
 		if err := s.log.NewLeaderEpoch(epoch); err != nil {
 			return errors.Wrap(err, "failed to update leader epoch on log")
@@ -285,7 +307,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 
 	// Subscribe to the NATS subject and begin sequencing messages.
 	// TODO: This should be drained on shutdown.
-	sub, err := s.srv.nc.QueueSubscribe(s.Subject, s.Group, func(m *nats.Msg) {
+	sub, err := s.srv.nc.QueueSubscribe(s.getSubject(), s.Group, func(m *nats.Msg) {
 		s.recvChan <- m
 	})
 	if err != nil {
@@ -295,7 +317,7 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	s.sub = sub
 	s.srv.nc.Flush()
 
-	// Subscribe to the stream replication subject.
+	// Subscribe to the partition replication subject.
 	sub, err = s.srv.ncRepl.Subscribe(s.getReplicationRequestInbox(), s.handleReplicationRequest)
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to replication inbox")
@@ -318,10 +340,10 @@ func (s *stream) becomeLeader(epoch uint64) error {
 	return nil
 }
 
-// stopLeading causes the stream to step down as leader by unsubscribing from
-// the NATS subject and replication subject, stopping message processing and
-// replication, and disposing the commit queue.
-func (s *stream) stopLeading() error {
+// stopLeading causes the partition to step down as leader by unsubscribing
+// from the NATS subject and replication subject, stopping message processing
+// and replication, and disposing the commit queue.
+func (s *partition) stopLeading() error {
 	// Unsubscribe from NATS subject.
 	if err := s.sub.Unsubscribe(); err != nil {
 		return err
@@ -350,8 +372,8 @@ func (s *stream) stopLeading() error {
 }
 
 // becomeFollower is called when the server has become a follower for this
-// stream.
-func (s *stream) becomeFollower() error {
+// partition.
+func (s *partition) becomeFollower() error {
 	if s.isLeading {
 		// Stop leading if previously a leader.
 		if err := s.stopLeading(); err != nil {
@@ -371,7 +393,7 @@ func (s *stream) becomeFollower() error {
 
 	// Start fetching messages from the leader's log starting at the HW.
 	s.stopFollower = make(chan struct{})
-	s.srv.logger.Debugf("Replicating stream %s from leader %s", s, s.Leader)
+	s.srv.logger.Debugf("Replicating partition %s from leader %s", s, s.Leader)
 	s.srv.startGoroutine(func() {
 		s.replicationRequestLoop(s.Leader, s.LeaderEpoch, s.stopFollower)
 	})
@@ -382,9 +404,9 @@ func (s *stream) becomeFollower() error {
 	return nil
 }
 
-// stopFollowing causes the stream to step down as a follower by stopping
+// stopFollowing causes the partition to step down as a follower by stopping
 // replication requests and the leader failure detector.
-func (s *stream) stopFollowing() error {
+func (s *partition) stopFollowing() error {
 	// Stop replication request and leader failure detector loop.
 	// TODO: Do graceful shutdown similar to stopLeading().
 	close(s.stopFollower)
@@ -399,10 +421,10 @@ func (s *stream) stopFollowing() error {
 // start offset of the first leader epoch larger than the requested leader
 // epoch or the log end offset if the leader's current epoch is equal to the
 // one requested.
-func (s *stream) handleLeaderOffsetRequest(msg *nats.Msg) {
+func (s *partition) handleLeaderOffsetRequest(msg *nats.Msg) {
 	req := &proto.LeaderEpochOffsetRequest{}
 	if err := req.Unmarshal(msg.Data); err != nil {
-		s.srv.logger.Errorf("Invalid leader epoch offset request for stream %s: %v", s, err)
+		s.srv.logger.Errorf("Invalid leader epoch offset request for partition %s: %v", s, err)
 		return
 	}
 	resp, err := (&proto.LeaderEpochOffsetResponse{
@@ -419,10 +441,10 @@ func (s *stream) handleLeaderOffsetRequest(msg *nats.Msg) {
 // handleReplicationRequest is a NATS handler that's invoked when the leader
 // receives a replication request from a follower. It will send messages to the
 // NATS subject specified on the request.
-func (s *stream) handleReplicationRequest(msg *nats.Msg) {
+func (s *partition) handleReplicationRequest(msg *nats.Msg) {
 	req := &proto.ReplicationRequest{}
 	if err := req.Unmarshal(msg.Data); err != nil {
-		s.srv.logger.Errorf("Invalid replication request for stream %s: %v", s, err)
+		s.srv.logger.Errorf("Invalid replication request for partition %s: %v", s, err)
 		return
 	}
 	s.mu.Lock()
@@ -431,14 +453,14 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 		return
 	}
 	if _, ok := s.replicas[req.ReplicaID]; !ok {
-		s.srv.logger.Warnf("Received replication request for stream %s from non-replica %s",
+		s.srv.logger.Warnf("Received replication request for partition %s from non-replica %s",
 			s, req.ReplicaID)
 		s.mu.Unlock()
 		return
 	}
 	replicator, ok := s.replicators[req.ReplicaID]
 	if !ok {
-		panic(fmt.Sprintf("No replicator for stream %s and replica %s", s, req.ReplicaID))
+		panic(fmt.Sprintf("No replicator for partition %s and replica %s", s, req.ReplicaID))
 	}
 	s.mu.Unlock()
 	replicator.request(replicationRequest{req, msg})
@@ -447,10 +469,10 @@ func (s *stream) handleReplicationRequest(msg *nats.Msg) {
 // handleReplicationResponse is a NATS handler that's invoked when a follower
 // receives a replication response from the leader. This response will contain
 // the leader epoch, leader HW, and (optionally) messages to replicate.
-func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
+func (s *partition) handleReplicationResponse(msg *nats.Msg) int {
 	// We should have at least 16 bytes, 8 for leader epoch and 8 for HW.
 	if len(msg.Data) < 16 {
-		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
+		s.srv.logger.Warnf("Invalid replication response for partition %s", s)
 		return 0
 	}
 
@@ -479,7 +501,7 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 
 	// We should have at least 28 bytes for headers.
 	if len(data) <= 28 {
-		s.srv.logger.Warnf("Invalid replication response for stream %s", s)
+		s.srv.logger.Warnf("Invalid replication response for partition %s", s)
 		return 0
 	}
 	offset := int64(proto.Encoding.Uint64(data[:8]))
@@ -495,14 +517,14 @@ func (s *stream) handleReplicationResponse(msg *nats.Msg) int {
 
 // getReplicationRequestInbox returns the NATS subject to send replication
 // requests to.
-func (s *stream) getReplicationRequestInbox() string {
+func (s *partition) getReplicationRequestInbox() string {
 	return fmt.Sprintf("%s.%s.%s.replicate",
 		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
 }
 
 // getLeaderOffsetRequestInbox returns the NATS subject to send leader epoch
 // offset requests to.
-func (s *stream) getLeaderOffsetRequestInbox() string {
+func (s *partition) getLeaderOffsetRequestInbox() string {
 	return fmt.Sprintf("%s.%s.%s.offset",
 		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
 }
@@ -514,7 +536,7 @@ func (s *stream) getLeaderOffsetRequestInbox() string {
 // indicate it's pending commit. Once the ISR has replicated the message, the
 // leader commits it by removing it from the queue and sending an
 // acknowledgement to the client.
-func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan struct{},
+func (s *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan struct{},
 	leaderEpoch uint64) {
 
 	var (
@@ -585,7 +607,7 @@ func (s *stream) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan st
 // processPendingMessage sends an ack if the message's AckPolicy is LEADER and
 // adds the pending message to the commit queue. Messages are removed from the
 // queue and committed when the entire ISR has replicated them.
-func (s *stream) processPendingMessage(offset int64, msg *proto.Message) {
+func (s *partition) processPendingMessage(offset int64, msg *proto.Message) {
 	ack := &client.Ack{
 		StreamSubject: s.Subject,
 		StreamName:    s.Name,
@@ -608,9 +630,9 @@ func (s *stream) processPendingMessage(offset int64, msg *proto.Message) {
 
 // startReplicating starts a long-running goroutine which handles committing
 // messages in the commit queue and a replication goroutine for each replica.
-func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
+func (s *partition) startReplicating(epoch uint64, stop chan struct{}) {
 	if s.ReplicationFactor > 1 {
-		s.srv.logger.Debugf("Replicating stream %s to followers", s)
+		s.srv.logger.Debugf("Replicating partition %s to followers", s)
 	}
 	s.commitQueue = queue.New(100)
 	s.srv.startGoroutine(func() {
@@ -626,7 +648,7 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 		}
 		r := &replicator{
 			replica:    replica,
-			stream:     s,
+			partition:  s,
 			requests:   make(chan replicationRequest, 1),
 			maxLagTime: s.srv.config.Clustering.ReplicaMaxLagTime,
 			leader:     s.srv.config.Clustering.ServerID,
@@ -642,7 +664,7 @@ func (s *stream) startReplicating(epoch uint64, stop chan struct{}) {
 // commitLoop is a long-running loop which checks to see if messages in the
 // commit queue can be committed and, if so, removes them from the queue and
 // sends client acks. It runs until the stop channel is closed.
-func (s *stream) commitLoop(stop chan struct{}) {
+func (s *partition) commitLoop(stop chan struct{}) {
 	for {
 		select {
 		case <-stop:
@@ -661,7 +683,7 @@ func (s *stream) commitLoop(stop chan struct{}) {
 		if isrSize < minISR {
 			s.mu.RUnlock()
 			s.srv.logger.Errorf(
-				"Unable to commit messages for stream %s, ISR size (%d) below minimum (%d)",
+				"Unable to commit messages for partition %s, ISR size (%d) below minimum (%d)",
 				s, isrSize, minISR)
 			continue
 		}
@@ -710,7 +732,7 @@ func (s *stream) commitLoop(stop chan struct{}) {
 
 // sendAck publishes an ack to the specified AckInbox. If no AckInbox is set,
 // this does nothing.
-func (s *stream) sendAck(ack *client.Ack) {
+func (s *partition) sendAck(ack *client.Ack) {
 	if ack.AckInbox == "" {
 		return
 	}
@@ -722,9 +744,9 @@ func (s *stream) sendAck(ack *client.Ack) {
 }
 
 // replicationRequestLoop is a long-running loop which sends replication
-// requests to the stream leader, handles replicating messages, and checks the
-// health of the leader.
-func (s *stream) replicationRequestLoop(leader string, epoch uint64, stop chan struct{}) {
+// requests to the partition leader, handles replicating messages, and checks
+// the health of the leader.
+func (s *partition) replicationRequestLoop(leader string, epoch uint64, stop chan struct{}) {
 	var (
 		emptyResponseCount int
 		leaderLastSeen     = time.Now()
@@ -739,7 +761,7 @@ func (s *stream) replicationRequestLoop(leader string, epoch uint64, stop chan s
 		replicated, err := s.sendReplicationRequest()
 		if err != nil {
 			s.srv.logger.Errorf(
-				"Error sending replication request for stream %s: %v", s, err)
+				"Error sending replication request for partition %s: %v", s, err)
 		} else {
 			leaderLastSeen = time.Now()
 		}
@@ -766,12 +788,12 @@ func (s *stream) replicationRequestLoop(leader string, epoch uint64, stop chan s
 
 // checkLeaderHealth checks if the leader has responded within
 // ReplicaMaxLeaderTimeout and, if not, reports the leader to the controller.
-func (s *stream) checkLeaderHealth(leader string, epoch uint64, leaderLastSeen time.Time) {
+func (s *partition) checkLeaderHealth(leader string, epoch uint64, leaderLastSeen time.Time) {
 	lastSeenElapsed := time.Since(leaderLastSeen)
 	if lastSeenElapsed > s.srv.config.Clustering.ReplicaMaxLeaderTimeout {
 		// Leader has not sent a response in ReplicaMaxLeaderTimeout, so report
 		// it to controller.
-		s.srv.logger.Errorf("Leader %s for stream %s exceeded max leader timeout "+
+		s.srv.logger.Errorf("Leader %s for partition %s exceeded max leader timeout "+
 			"(last seen: %s), reporting leader to controller",
 			leader, s, lastSeenElapsed)
 		req := &proto.ReportLeaderOp{
@@ -782,7 +804,7 @@ func (s *stream) checkLeaderHealth(leader string, epoch uint64, leaderLastSeen t
 			LeaderEpoch: epoch,
 		}
 		if err := s.srv.metadata.ReportLeader(context.Background(), req); err != nil {
-			s.srv.logger.Errorf("Failed to report leader %s for stream %s: %s",
+			s.srv.logger.Errorf("Failed to report leader %s for partition %s: %s",
 				leader, s, err.Err())
 		}
 	}
@@ -798,9 +820,9 @@ func computeReplicaFetchSleep(emptyResponseCount int) time.Duration {
 	return sleep
 }
 
-// sendReplicationRequest sends a replication request to the stream leader and
-// processes the response.
-func (s *stream) sendReplicationRequest() (int, error) {
+// sendReplicationRequest sends a replication request to the partition leader
+// and processes the response.
+func (s *partition) sendReplicationRequest() (int, error) {
 	data, err := (&proto.ReplicationRequest{
 		ReplicaID: s.srv.config.Clustering.ServerID,
 		Offset:    s.log.NewestOffset(),
@@ -823,7 +845,7 @@ func (s *stream) sendReplicationRequest() (int, error) {
 // truncateUncommitted truncates the log up to the start offset of the first
 // leader epoch larger than the current epoch. This removes any potentially
 // uncommitted messages in the log.
-func (s *stream) truncateUncommitted() error {
+func (s *partition) truncateUncommitted() error {
 	// Request the last offset for the epoch from the leader.
 	var (
 		lastOffset  int64
@@ -841,7 +863,7 @@ func (s *stream) truncateUncommitted() error {
 	}
 	if err != nil {
 		s.srv.logger.Errorf(
-			"Failed to fetch last offset for leader epoch for stream %s: %v",
+			"Failed to fetch last offset for leader epoch for partition %s: %v",
 			s, err)
 		// Fall back to HW truncation if we fail to fetch last offset for
 		// leader epoch.
@@ -850,14 +872,14 @@ func (s *stream) truncateUncommitted() error {
 		return s.truncateToHW()
 	}
 
-	s.srv.logger.Debugf("Truncating log for stream %s to %d", s, lastOffset)
+	s.srv.logger.Debugf("Truncating log for partition %s to %d", s, lastOffset)
 	// Add 1 because we don't want to truncate the last offset itself.
 	return s.log.Truncate(lastOffset + 1)
 }
 
 // sendLeaderOffsetRequest sends a request to the leader for the last offset
 // for the current leader epoch.
-func (s *stream) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
+func (s *partition) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
 	data, err := (&proto.LeaderEpochOffsetRequest{LeaderEpoch: leaderEpoch}).Marshal()
 	if err != nil {
 		panic(err)
@@ -882,7 +904,7 @@ func (s *stream) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
 // be used as a fallback in the event that epoch-based truncation fails. There
 // are a couple edge cases with this method of truncating the log that could
 // result in data loss or replica divergence (see issue #38).
-func (s *stream) truncateToHW() error {
+func (s *partition) truncateToHW() error {
 	var (
 		newestOffset = s.log.NewestOffset()
 		hw           = s.log.HighWatermark()
@@ -890,30 +912,30 @@ func (s *stream) truncateToHW() error {
 	if newestOffset == hw {
 		return nil
 	}
-	s.srv.logger.Debugf("Truncating log for stream %s to HW %d", s, hw)
+	s.srv.logger.Debugf("Truncating log for partition %s to HW %d", s, hw)
 	// Add 1 because we don't want to truncate the HW itself.
 	return s.log.Truncate(hw + 1)
 }
 
 // inISR indicates if the given replica is in the current in-sync replicas set.
-func (s *stream) inISR(replica string) bool {
+func (s *partition) inISR(replica string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	_, ok := s.isr[replica]
 	return ok
 }
 
-// inReplicas indicates if the given broker is a replica for the stream.
-func (s *stream) inReplicas(id string) bool {
+// inReplicas indicates if the given broker is a replica for the partition.
+func (s *partition) inReplicas(id string) bool {
 	_, ok := s.replicas[id]
 	return ok
 }
 
 // RemoveFromISR removes the given replica from the in-sync replicas set. It
-// returns an error if the broker is not a stream replica. This will also
+// returns an error if the broker is not a partition replica. This will also
 // insert a check to see if pending messages need to be committed since the ISR
 // shrank.
-func (s *stream) RemoveFromISR(replica string) error {
+func (s *partition) RemoveFromISR(replica string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.inReplicas(replica) {
@@ -928,7 +950,7 @@ func (s *stream) RemoveFromISR(replica string) error {
 		isrSize = len(s.isr)
 	)
 	if !s.belowMinISR && isrSize < minISR {
-		s.srv.logger.Errorf("ISR for stream %s has shrunk below minimum size %d, currently %d",
+		s.srv.logger.Errorf("ISR for partition %s has shrunk below minimum size %d, currently %d",
 			s, minISR, isrSize)
 		s.belowMinISR = true
 	}
@@ -945,8 +967,8 @@ func (s *stream) RemoveFromISR(replica string) error {
 }
 
 // AddToISR adds the given replica to the in-sync replicas set. It returns an
-// error if the broker is not a stream replica.
-func (s *stream) AddToISR(rep string) error {
+// error if the broker is not a partition replica.
+func (s *partition) AddToISR(rep string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.inReplicas(rep) {
@@ -960,7 +982,7 @@ func (s *stream) AddToISR(rep string) error {
 		isrSize = len(s.isr)
 	)
 	if s.belowMinISR && isrSize >= minISR {
-		s.srv.logger.Infof("ISR for stream %s has recovered from being below minimum size %d, currently %d",
+		s.srv.logger.Infof("ISR for partition %s has recovered from being below minimum size %d, currently %d",
 			s, minISR, isrSize)
 		s.belowMinISR = false
 	}
@@ -968,28 +990,28 @@ func (s *stream) AddToISR(rep string) error {
 	return nil
 }
 
-// GetEpoch returns the current stream epoch. The epoch is a monotonically
-// increasing number which increases when a change is made to the stream. This
+// GetEpoch returns the current partition epoch. The epoch is a monotonically
+// increasing number which increases when a change is made to the partition. This
 // is used to determine if an operation is outdated.
-func (s *stream) GetEpoch() uint64 {
+func (s *partition) GetEpoch() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Epoch
 }
 
-// SetEpoch sets the current stream epoch. See GetEpoch for information on the
+// SetEpoch sets the current partition epoch. See GetEpoch for information on the
 // epoch's purpose.
-func (s *stream) SetEpoch(epoch uint64) {
+func (s *partition) SetEpoch(epoch uint64) {
 	s.mu.Lock()
 	s.Epoch = epoch
 	s.mu.Unlock()
 }
 
-// Marshal serializes the stream into a byte slice.
-func (s *stream) Marshal() []byte {
+// Marshal serializes the partition into a byte slice.
+func (s *partition) Marshal() []byte {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	data, err := s.Stream.Marshal()
+	data, err := s.Partition.Marshal()
 	if err != nil {
 		panic(err)
 	}
@@ -997,7 +1019,7 @@ func (s *stream) Marshal() []byte {
 }
 
 // ISRSize returns the current number of replicas in the in-sync replicas set.
-func (s *stream) ISRSize() int {
+func (s *partition) ISRSize() int {
 	s.mu.RLock()
 	size := len(s.isr)
 	s.mu.RUnlock()
@@ -1005,7 +1027,7 @@ func (s *stream) ISRSize() int {
 }
 
 // GetISR returns the in-sync replicas set.
-func (s *stream) GetISR() []string {
+func (s *partition) GetISR() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	isr := make([]string, 0, len(s.isr))
@@ -1016,8 +1038,8 @@ func (s *stream) GetISR() []string {
 }
 
 // GetReplicas returns the list of all brokers which are replicas for the
-// stream.
-func (s *stream) GetReplicas() []string {
+// partition.
+func (s *partition) GetReplicas() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	replicas := make([]string, 0, len(s.replicas))
@@ -1030,7 +1052,7 @@ func (s *stream) GetReplicas() []string {
 // updateISRLatestOffset updates the given replica's latest log offset. When a
 // replica's latest log offset increases, we check to see if anything in the
 // commit queue can be committed.
-func (s *stream) updateISRLatestOffset(replica string, offset int64) {
+func (s *partition) updateISRLatestOffset(replica string, offset int64) {
 	s.mu.RLock()
 	rep, ok := s.isr[replica]
 	s.mu.RUnlock()
@@ -1049,10 +1071,22 @@ func (s *stream) updateISRLatestOffset(replica string, offset int64) {
 
 // pauseReplication stops replication on the leader. This is for unit testing
 // purposes only.
-func (s *stream) pauseReplication() {
+func (s *partition) pauseReplication() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pause = true
+}
+
+// getSubject returns the derived NATS subject the partition should subscribe
+// to. A partitioned stream maps to separate NATS subjects: subject.0,
+// subject.1, subject.2, etc. However, a single-partition stream maps to the
+// subject literal in order to match the behavior of an "un-partitioned"
+// stream.
+func (p *partition) getSubject() string {
+	if p.TotalPartitions <= 1 {
+		return p.Subject
+	}
+	return fmt.Sprintf("%s.%d", p.Subject, p.Id)
 }
 
 // getMessage converts the given payload into a client Message if it is one.
