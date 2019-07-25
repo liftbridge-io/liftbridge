@@ -7,5 +7,5 @@ jobs:
     working_directory: /go/src/github.com/liftbridge-io/liftbridge
     steps:
       - checkout
-      - run: apt-get update -yqq && apt-get install -yqq bzr
+      - run: sudo apt-get update -yqq && sudo apt-get install -yqq bzr
       - run: GO111MODULE=on go test -v ./...
