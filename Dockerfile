@@ -1,9 +1,10 @@
-FROM golang:1.9-alpine as build-base
+FROM golang:1.12-alpine as build-base
 RUN apk update && apk upgrade && \
-    apk add --no-cache bash git openssh make
+    apk add --no-cache bash git openssh make bzr
 ADD . /go/src/github.com/liftbridge-io/liftbridge
 WORKDIR /go/src/github.com/liftbridge-io/liftbridge
-RUN go get golang.org/x/net/...
+ENV GO111MODULE on
+RUN go get
 RUN GOOS=linux GOARCH=amd64 go build
 
 FROM alpine:latest
