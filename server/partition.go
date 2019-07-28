@@ -113,9 +113,8 @@ type partition struct {
 // starting it in an intermediate state. This call will initialize or recover
 // the partition's backing commit log or return an error if it fails to do so.
 //
-// A partitioned stream maps to separate NATS subjects: subject.0, subject.1,
-// subject.2, etc. However, a single-partition stream maps to the subject
-// literal in order to match the behavior of an "un-partitioned" stream.
+// A partitioned stream maps to separate NATS subjects: subject, subject.1,
+// subject.2, etc.
 func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
 	var (
 		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Subject,
@@ -1078,12 +1077,10 @@ func (s *partition) pauseReplication() {
 }
 
 // getSubject returns the derived NATS subject the partition should subscribe
-// to. A partitioned stream maps to separate NATS subjects: subject.0,
-// subject.1, subject.2, etc. However, a single-partition stream maps to the
-// subject literal in order to match the behavior of an "un-partitioned"
-// stream.
+// to. A partitioned stream maps to separate NATS subjects: subject, subject.1,
+// subject.2, etc.
 func (p *partition) getSubject() string {
-	if p.TotalPartitions <= 1 {
+	if p.Id == 0 {
 		return p.Subject
 	}
 	return fmt.Sprintf("%s.%d", p.Subject, p.Id)
