@@ -116,6 +116,8 @@ No, this project is early and still evolving.
 ```
 $ go get github.com/liftbridge-io/liftbridge
 ```
+*Liftbridge uses [Go modules](https://github.com/golang/go/wiki/Modules), so ensure
+this is enabled, e.g. `export GO111MODULE=on`.*
 
 ## Quick Start
 
