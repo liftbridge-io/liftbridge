@@ -178,7 +178,7 @@ func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	require.NoError(t, err)
 	_, err = stream.Recv()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "No such stream")
+	require.Contains(t, err.Error(), "No such partition")
 }
 
 // Ensure sending a subscribe request to a server that is not the stream leader
@@ -216,10 +216,10 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	require.NoError(t, client.Close())
 
 	// Wait for both nodes to create stream.
-	waitForStream(t, 5*time.Second, subject, name, s1, s2)
+	waitForPartition(t, 5*time.Second, name, 0, s1, s2)
 
 	// Connect to the server that is the stream follower.
-	leader := getStreamLeader(t, 10*time.Second, subject, name, s1, s2)
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, s1, s2)
 	var followerConfig *Config
 	if leader == s1 {
 		followerConfig = s2Config
@@ -239,7 +239,7 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	require.NoError(t, err)
 	_, err = stream.Recv()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Server not stream leader")
+	require.Contains(t, err.Error(), "Server not partition leader")
 }
 
 // Ensure publishing and receiving messages on a stream works.

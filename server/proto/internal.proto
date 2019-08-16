@@ -27,37 +27,33 @@ message CreatePartitionOp {
 }
 
 message ShrinkISROp {
-    string subject         = 1;
-    string name            = 2;
-    int32  partition       = 3;
-    string replicaToRemove = 4;
-    string leader          = 5;
-    uint64 leaderEpoch     = 6;
+    string name            = 1;
+    int32  partition       = 2;
+    string replicaToRemove = 3;
+    string leader          = 4;
+    uint64 leaderEpoch     = 5;
 }
 
 message ExpandISROp {
-    string subject      = 1;
-    string name         = 2;
-    int32  partition    = 3;
-    string replicaToAdd = 4;
-    string leader       = 5;
-    uint64 leaderEpoch  = 6;
+    string name         = 1;
+    int32  partition    = 2;
+    string replicaToAdd = 3;
+    string leader       = 4;
+    uint64 leaderEpoch  = 5;
 }
 
 message ReportLeaderOp {
-    string subject     = 1;
-    string name        = 2;
-    int32  partition   = 3;
-    string replica     = 4;
-    string leader      = 5;
-    uint64 leaderEpoch = 6;
+    string name        = 1;
+    int32  partition   = 2;
+    string replica     = 3;
+    string leader      = 4;
+    uint64 leaderEpoch = 5;
 }
 
 message ChangeLeaderOp {
-    string subject   = 1;
-    string name      = 2;
-    int32  partition = 3;
-    string leader    = 4;
+    string name      = 1;
+    int32  partition = 2;
+    string leader    = 3;
 }
 
 message Partition {
@@ -141,9 +137,8 @@ message ServerInfoResponse {
 }
 
 message PartitionStatusRequest {
-    string subject   = 1;
-    string name      = 2;
-    int32  partition = 3;
+    string name      = 1;
+    int32  partition = 2;
 }
 
 message PartitionStatusResponse {

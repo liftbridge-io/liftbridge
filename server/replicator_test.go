@@ -14,60 +14,60 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 )
 
-func waitForHW(t *testing.T, timeout time.Duration, subject, name string, hw int64, servers ...*Server) {
+func waitForHW(t *testing.T, timeout time.Duration, name string, partitionID int32, hw int64, servers ...*Server) {
 	deadline := time.Now().Add(timeout)
 LOOP:
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			stream := s.metadata.GetStream(subject, name)
-			if stream == nil {
+			partition := s.metadata.GetPartition(name, partitionID)
+			if partition == nil {
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP
 			}
-			if stream.log.HighWatermark() < hw {
+			if partition.log.HighWatermark() < hw {
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP
 			}
 		}
 		return
 	}
-	stackFatalf(t, "Cluster did not reach HW %d for [subject=%s, name=%s]", hw, subject, name)
+	stackFatalf(t, "Cluster did not reach HW %d for [name=%s, partition=%d]", hw, name, partitionID)
 }
 
-func waitForStream(t *testing.T, timeout time.Duration, subject, name string, servers ...*Server) {
+func waitForPartition(t *testing.T, timeout time.Duration, name string, partitionID int32, servers ...*Server) {
 	deadline := time.Now().Add(timeout)
 LOOP:
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			stream := s.metadata.GetStream(subject, name)
-			if stream == nil {
+			partition := s.metadata.GetPartition(name, partitionID)
+			if partition == nil {
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP
 			}
 		}
 		return
 	}
-	stackFatalf(t, "Cluster did not create stream [subject=%s, name=%s]", subject, name)
+	stackFatalf(t, "Cluster did not create partition [name=%s, partition=%d]", name, partitionID)
 }
 
-func waitForISR(t *testing.T, timeout time.Duration, subject, name string, isrSize int, servers ...*Server) {
+func waitForISR(t *testing.T, timeout time.Duration, name string, partitionID int32, isrSize int, servers ...*Server) {
 	deadline := time.Now().Add(timeout)
 LOOP:
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
-			stream := s.metadata.GetStream(subject, name)
-			if stream == nil {
+			partition := s.metadata.GetPartition(name, partitionID)
+			if partition == nil {
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP
 			}
-			if stream.ISRSize() != isrSize {
+			if partition.ISRSize() != isrSize {
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP
 			}
 		}
 		return
 	}
-	stackFatalf(t, "Cluster did not reach ISR size %d for [subject=%s, name=%s]", isrSize, subject, name)
+	stackFatalf(t, "Cluster did not reach ISR size %d for [name=%s, partition=%d]", isrSize, name, partitionID)
 }
 
 // Ensure messages are replicated and the stream leader fails over when the
@@ -155,10 +155,10 @@ func TestStreamLeaderFailover(t *testing.T) {
 	}
 
 	// Wait for HW to update on followers.
-	waitForHW(t, 5*time.Second, subject, name, int64(num-1), servers...)
+	waitForHW(t, 5*time.Second, name, 0, int64(num-1), servers...)
 
 	// Kill the stream leader.
-	leader := getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	leader.Stop()
 	followers := []*Server{}
 	for _, s := range servers {
@@ -169,7 +169,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	}
 
 	// Wait for new leader to be elected.
-	getStreamLeader(t, 10*time.Second, subject, name, followers...)
+	getPartitionLeader(t, 10*time.Second, name, 0, followers...)
 
 	// Make sure the new leader's log is consistent.
 	i = 0
@@ -241,7 +241,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 	require.NoError(t, err)
 
 	// Kill a stream follower.
-	leader = getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	leader = getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -315,7 +315,7 @@ func TestAckPolicyLeader(t *testing.T) {
 	require.NoError(t, err)
 
 	// Kill a stream follower.
-	leader = getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	leader = getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -382,7 +382,7 @@ func TestCommitOnRestart(t *testing.T) {
 	}
 
 	// Kill stream follower.
-	leader = getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	leader = getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -422,7 +422,7 @@ func TestCommitOnRestart(t *testing.T) {
 	defer follower.Stop()
 
 	// Wait for stream leader to be elected.
-	getStreamLeader(t, 10*time.Second, subject, name, leader, follower)
+	getPartitionLeader(t, 10*time.Second, name, 0, leader, follower)
 
 	// Ensure all messages have been committed by reading them back.
 	i := 0
@@ -504,7 +504,7 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	require.NoError(t, err)
 
 	// Find stream followers.
-	leader := getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var (
 		follower1 *Server
 		follower2 *Server
@@ -524,19 +524,19 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	// HW to 0 to simulate a follower updating its HW from the leader (also
 	// disable replication to prevent them from advancing their HW from the
 	// leader).
-	waitForHW(t, 5*time.Second, subject, name, 1, servers...)
+	waitForHW(t, 5*time.Second, name, 0, 1, servers...)
 
 	// Stop first follower's replication and reset HW.
-	stream1 := follower1.metadata.GetStream(subject, name)
-	require.NotNil(t, stream1)
-	require.NoError(t, stream1.stopFollowing())
-	stream1.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition1 := follower1.metadata.GetPartition(name, 0)
+	require.NotNil(t, partition1)
+	require.NoError(t, partition1.stopFollowing())
+	partition1.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
 
 	// Stop second follower's replication and reset HW.
-	stream2 := follower2.metadata.GetStream(subject, name)
-	require.NotNil(t, stream2)
-	require.NoError(t, stream2.stopFollowing())
-	stream2.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition2 := follower2.metadata.GetPartition(name, 0)
+	require.NotNil(t, partition2)
+	require.NoError(t, partition2.stopFollowing())
+	partition2.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
 
 	var (
 		follower1Config *Config
@@ -564,18 +564,18 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	defer follower2.Stop()
 
 	// Stop replication on the leader to force a leader election.
-	stream := leader.metadata.GetStream(subject, name)
-	require.NotNil(t, stream)
-	stream.pauseReplication()
+	partition := leader.metadata.GetPartition(name, 0)
+	require.NotNil(t, partition)
+	partition.pauseReplication()
 
 	// Wait for stream leader to be elected.
-	leader = getStreamLeader(t, 10*time.Second, subject, name, follower1, follower2)
+	leader = getPartitionLeader(t, 10*time.Second, name, 0, follower1, follower2)
 
 	// Ensure messages have not been lost.
-	stream = leader.metadata.GetStream(subject, name)
-	require.NotNil(t, stream)
-	require.Equal(t, int64(0), stream.log.OldestOffset())
-	require.Equal(t, int64(1), stream.log.NewestOffset())
+	partition = leader.metadata.GetPartition(name, 0)
+	require.NotNil(t, partition)
+	require.Equal(t, int64(0), partition.log.OldestOffset())
+	require.Equal(t, int64(1), partition.log.NewestOffset())
 }
 
 // Ensure log lineages don't diverge in the event of multiple hard failures.
@@ -633,7 +633,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Find stream followers.
-	leader := getStreamLeader(t, 10*time.Second, subject, name, servers...)
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var (
 		follower1 *Server
 		follower2 *Server
@@ -653,25 +653,25 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	// HW to 0 to simulate a follower crashing before replicating (also
 	// disable replication to prevent them from advancing their HW from the
 	// leader).
-	waitForHW(t, 5*time.Second, subject, name, 1, servers...)
+	waitForHW(t, 5*time.Second, name, 0, 1, servers...)
 
 	// Stop first follower's replication and reset HW.
-	stream1 := follower1.metadata.GetStream(subject, name)
-	require.NotNil(t, stream1)
-	stream1.mu.Lock()
-	require.NoError(t, stream1.stopFollowing())
-	stream1.mu.Unlock()
-	stream1.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
-	stream1.truncateToHW()
+	partition1 := follower1.metadata.GetPartition(name, 0)
+	require.NotNil(t, partition1)
+	partition1.mu.Lock()
+	require.NoError(t, partition1.stopFollowing())
+	partition1.mu.Unlock()
+	partition1.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition1.truncateToHW()
 
 	// Stop second follower's replication and reset HW.
-	stream2 := follower2.metadata.GetStream(subject, name)
-	require.NotNil(t, stream2)
-	stream2.mu.Lock()
-	require.NoError(t, stream2.stopFollowing())
-	stream2.mu.Unlock()
-	stream2.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
-	stream2.truncateToHW()
+	partition2 := follower2.metadata.GetPartition(name, 0)
+	require.NotNil(t, partition2)
+	partition2.mu.Lock()
+	require.NoError(t, partition2.stopFollowing())
+	partition2.mu.Unlock()
+	partition2.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition2.truncateToHW()
 
 	var (
 		oldLeaderConfig *Config
@@ -693,9 +693,9 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	}
 
 	// Stop replication on the leader to force a leader election.
-	stream := leader.metadata.GetStream(subject, name)
-	require.NotNil(t, stream)
-	stream.pauseReplication()
+	partition := leader.metadata.GetPartition(name, 0)
+	require.NotNil(t, partition)
+	partition.pauseReplication()
 
 	// Restart the first follower (this will truncate uncommitted messages).
 	follower1.Stop()
@@ -710,13 +710,13 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	defer follower2.Stop()
 
 	// Wait for stream leader to be elected.
-	getStreamLeader(t, 10*time.Second, subject, name, follower1, follower2)
+	getPartitionLeader(t, 10*time.Second, name, 0, follower1, follower2)
 
 	// Stop the old leader.
 	leader.Stop()
 
 	// Wait for ISR to shrink.
-	waitForISR(t, 10*time.Second, subject, name, 2, follower1, follower2)
+	waitForISR(t, 10*time.Second, name, 0, 2, follower1, follower2)
 
 	// Publish new messages.
 	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
@@ -733,16 +733,16 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 
 	// Wait for HW to update.
 	servers = []*Server{follower1, follower2, oldLeader}
-	waitForHW(t, 5*time.Second, subject, name, 2, servers...)
+	waitForHW(t, 5*time.Second, name, 0, 2, servers...)
 
 	// Ensure log lineages have not diverged.
 	for _, s := range servers {
-		stream := s.metadata.GetStream(subject, name)
-		require.NotNil(t, stream)
-		require.Equal(t, int64(0), stream.log.OldestOffset())
-		require.Equal(t, int64(2), stream.log.NewestOffset())
+		partition := s.metadata.GetPartition(name, 0)
+		require.NotNil(t, partition)
+		require.Equal(t, int64(0), partition.log.OldestOffset())
+		require.Equal(t, int64(2), partition.log.NewestOffset())
 
-		reader, err := stream.log.NewReader(0, false)
+		reader, err := partition.log.NewReader(0, false)
 		require.NoError(t, err)
 		headersBuf := make([]byte, 28)
 

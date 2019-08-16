@@ -19,10 +19,10 @@ func createServer(leader bool) *Server {
 	return New(config)
 }
 
-func waitForCommitQueue(t *testing.T, timeout time.Duration, size int64, stream *stream) {
+func waitForCommitQueue(t *testing.T, timeout time.Duration, size int64, partition *partition) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if stream.commitQueue.Len() == size {
+		if partition.commitQueue.Len() == size {
 			return
 		}
 		time.Sleep(15 * time.Millisecond)
@@ -34,7 +34,7 @@ func waitForCommitQueue(t *testing.T, timeout time.Duration, size int64, stream 
 // replicated by all replicas in the ISR. This is done by removing committed
 // messages and updating the HW. Ensure acks are not sent when the AckPolicy is
 // not AckPolicy_ALL.
-func TestStreamCommitLoopCommitNoAck(t *testing.T) {
+func TestPartitionCommitLoopCommitNoAck(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Start NATS server.
@@ -51,7 +51,7 @@ func TestStreamCommitLoopCommitNoAck(t *testing.T) {
 	require.NoError(t, server.Start())
 	defer server.Stop()
 
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
@@ -59,8 +59,8 @@ func TestStreamCommitLoopCommitNoAck(t *testing.T) {
 		Isr:      []string{"a", "b"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	s.commitQueue = queue.New(5)
+	defer p.Close()
+	p.commitQueue = queue.New(5)
 
 	// Subscribe to ack inbox.
 	ackInbox := "ack"
@@ -69,29 +69,29 @@ func TestStreamCommitLoopCommitNoAck(t *testing.T) {
 	nc.Flush()
 
 	// Put some messages in the queue.
-	s.commitQueue.Put(&client.Ack{Offset: 0, AckInbox: ackInbox})
-	s.commitQueue.Put(&client.Ack{Offset: 1, AckInbox: ackInbox})
-	s.commitQueue.Put(&client.Ack{Offset: 2, AckInbox: ackInbox})
+	p.commitQueue.Put(&client.Ack{Offset: 0, AckInbox: ackInbox})
+	p.commitQueue.Put(&client.Ack{Offset: 1, AckInbox: ackInbox})
+	p.commitQueue.Put(&client.Ack{Offset: 2, AckInbox: ackInbox})
 
 	// Mark 0 and 1 as fully replicated.
-	s.isr["a"].offset = 1
-	s.isr["b"].offset = 2
+	p.isr["a"].offset = 1
+	p.isr["b"].offset = 2
 
 	// Start commit loop.
 	stop := make(chan struct{})
-	go s.commitLoop(stop)
+	go p.commitLoop(stop)
 
 	// Trigger a commit.
-	s.commitCheck <- struct{}{}
+	p.commitCheck <- struct{}{}
 
 	// Wait for messages to be committed.
-	waitForCommitQueue(t, 5*time.Second, 1, s)
+	waitForCommitQueue(t, 5*time.Second, 1, p)
 
 	// Stop the loop.
 	close(stop)
 
 	// Verify HW.
-	require.Equal(t, int64(1), s.log.HighWatermark())
+	require.Equal(t, int64(1), p.log.HighWatermark())
 
 	// Ensure no acks were published.
 	_, err = sub.NextMsg(500 * time.Millisecond)
@@ -102,7 +102,7 @@ func TestStreamCommitLoopCommitNoAck(t *testing.T) {
 // replicated by all replicas in the ISR. This is done by removing committed
 // messages and updating the HW. Ensure acks are sent when the AckPolicy is
 // AckPolicy_ALL.
-func TestStreamCommitLoopCommitAck(t *testing.T) {
+func TestPartitionCommitLoopCommitAck(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Start NATS server.
@@ -119,7 +119,7 @@ func TestStreamCommitLoopCommitAck(t *testing.T) {
 	require.NoError(t, server.Start())
 	defer server.Stop()
 
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
@@ -127,8 +127,8 @@ func TestStreamCommitLoopCommitAck(t *testing.T) {
 		Isr:      []string{"a", "b"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	s.commitQueue = queue.New(5)
+	defer p.Close()
+	p.commitQueue = queue.New(5)
 
 	// Subscribe to ack inbox.
 	ackInbox := "ack"
@@ -137,29 +137,29 @@ func TestStreamCommitLoopCommitAck(t *testing.T) {
 	nc.Flush()
 
 	// Put some messages in the queue.
-	s.commitQueue.Put(&client.Ack{Offset: 0, AckInbox: ackInbox, AckPolicy: client.AckPolicy_ALL})
-	s.commitQueue.Put(&client.Ack{Offset: 1, AckInbox: ackInbox})
-	s.commitQueue.Put(&client.Ack{Offset: 2, AckInbox: ackInbox, AckPolicy: client.AckPolicy_ALL})
+	p.commitQueue.Put(&client.Ack{Offset: 0, AckInbox: ackInbox, AckPolicy: client.AckPolicy_ALL})
+	p.commitQueue.Put(&client.Ack{Offset: 1, AckInbox: ackInbox})
+	p.commitQueue.Put(&client.Ack{Offset: 2, AckInbox: ackInbox, AckPolicy: client.AckPolicy_ALL})
 
 	// Mark messages as fully replicated.
-	s.isr["a"].offset = 2
-	s.isr["b"].offset = 2
+	p.isr["a"].offset = 2
+	p.isr["b"].offset = 2
 
 	// Start commit loop.
 	stop := make(chan struct{})
-	go s.commitLoop(stop)
+	go p.commitLoop(stop)
 
 	// Trigger a commit.
-	s.commitCheck <- struct{}{}
+	p.commitCheck <- struct{}{}
 
 	// Wait for messages to be committed.
-	waitForCommitQueue(t, 5*time.Second, 0, s)
+	waitForCommitQueue(t, 5*time.Second, 0, p)
 
 	// Stop the loop.
 	close(stop)
 
 	// Verify HW.
-	require.Equal(t, int64(2), s.log.HighWatermark())
+	require.Equal(t, int64(2), p.log.HighWatermark())
 
 	// Ensure acks were published.
 	_, err = sub.NextMsg(5 * time.Second)
@@ -169,7 +169,7 @@ func TestStreamCommitLoopCommitAck(t *testing.T) {
 }
 
 // Ensure commitLoop is a no-op when the commitQueue is empty.
-func TestStreamCommitLoopEmptyQueue(t *testing.T) {
+func TestPartitionCommitLoopEmptyQueue(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Start NATS server.
@@ -186,7 +186,7 @@ func TestStreamCommitLoopEmptyQueue(t *testing.T) {
 	require.NoError(t, server.Start())
 	defer server.Stop()
 
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
@@ -194,8 +194,8 @@ func TestStreamCommitLoopEmptyQueue(t *testing.T) {
 		Isr:      []string{"a", "b"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	s.commitQueue = queue.New(5)
+	defer p.Close()
+	p.commitQueue = queue.New(5)
 
 	// Subscribe to ack inbox.
 	ackInbox := "ack"
@@ -207,12 +207,12 @@ func TestStreamCommitLoopEmptyQueue(t *testing.T) {
 	stop := make(chan struct{})
 	exited := make(chan struct{})
 	go func() {
-		s.commitLoop(stop)
+		p.commitLoop(stop)
 		close(exited)
 	}()
 
 	// Trigger a commit.
-	s.commitCheck <- struct{}{}
+	p.commitCheck <- struct{}{}
 
 	// Stop the loop.
 	close(stop)
@@ -224,7 +224,7 @@ func TestStreamCommitLoopEmptyQueue(t *testing.T) {
 	}
 
 	// Verify HW.
-	require.Equal(t, int64(-1), s.log.HighWatermark())
+	require.Equal(t, int64(-1), p.log.HighWatermark())
 
 	// Ensure no acks were published.
 	_, err = sub.NextMsg(500 * time.Millisecond)
@@ -232,7 +232,7 @@ func TestStreamCommitLoopEmptyQueue(t *testing.T) {
 }
 
 // Ensure commitLoop exits when the queue is disposed.
-func TestStreamCommitLoopDisposedQueue(t *testing.T) {
+func TestPartitionCommitLoopDisposedQueue(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Start NATS server.
@@ -249,7 +249,7 @@ func TestStreamCommitLoopDisposedQueue(t *testing.T) {
 	require.NoError(t, server.Start())
 	defer server.Stop()
 
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
@@ -257,8 +257,8 @@ func TestStreamCommitLoopDisposedQueue(t *testing.T) {
 		Isr:      []string{"a", "b"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	s.commitQueue = queue.New(5)
+	defer p.Close()
+	p.commitQueue = queue.New(5)
 
 	// Subscribe to ack inbox.
 	ackInbox := "ack"
@@ -267,29 +267,29 @@ func TestStreamCommitLoopDisposedQueue(t *testing.T) {
 	nc.Flush()
 
 	// Put some messages in the queue.
-	s.commitQueue.Put(&client.Ack{Offset: 0, AckInbox: ackInbox})
-	s.commitQueue.Put(&client.Ack{Offset: 1, AckInbox: ackInbox})
-	s.commitQueue.Put(&client.Ack{Offset: 2, AckInbox: ackInbox})
+	p.commitQueue.Put(&client.Ack{Offset: 0, AckInbox: ackInbox})
+	p.commitQueue.Put(&client.Ack{Offset: 1, AckInbox: ackInbox})
+	p.commitQueue.Put(&client.Ack{Offset: 2, AckInbox: ackInbox})
 
 	// Mark 0 and 1 as fully replicated.
-	s.isr["a"].offset = 1
-	s.isr["b"].offset = 2
+	p.isr["a"].offset = 1
+	p.isr["b"].offset = 2
 
 	// Start commit loop.
 	exited := make(chan struct{})
 	go func() {
-		s.commitLoop(make(chan struct{}))
+		p.commitLoop(make(chan struct{}))
 		close(exited)
 	}()
 
 	// Dispose commit queue.
-	s.commitQueue.Dispose()
+	p.commitQueue.Dispose()
 
 	// Trigger a commit.
-	s.commitCheck <- struct{}{}
+	p.commitCheck <- struct{}{}
 
 	// Verify HW.
-	require.Equal(t, int64(-1), s.log.HighWatermark())
+	require.Equal(t, int64(-1), p.log.HighWatermark())
 
 	// Ensure no acks were published.
 	_, err = sub.NextMsg(500 * time.Millisecond)
@@ -305,12 +305,12 @@ func TestStreamCommitLoopDisposedQueue(t *testing.T) {
 
 // Ensure commitLoop does not commit messages in the queue if the ISR is below
 // the minimum ISR size.
-func TestStreamCommitLoopNoCommitBelowMinISR(t *testing.T) {
+func TestPartitionCommitLoopNoCommitBelowMinISR(t *testing.T) {
 	defer cleanupStorage(t)
 
 	server := createServer(false)
 	server.config.Clustering.MinISR = 2
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b"},
@@ -318,28 +318,28 @@ func TestStreamCommitLoopNoCommitBelowMinISR(t *testing.T) {
 		Isr:      []string{"a", "b"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	s.commitQueue = queue.New(5)
-	require.NoError(t, s.RemoveFromISR("b"))
+	defer p.Close()
+	p.commitQueue = queue.New(5)
+	require.NoError(t, p.RemoveFromISR("b"))
 
 	// Put some messages in the queue.
-	s.commitQueue.Put(&client.Ack{Offset: 0})
-	s.commitQueue.Put(&client.Ack{Offset: 1})
-	s.commitQueue.Put(&client.Ack{Offset: 2})
+	p.commitQueue.Put(&client.Ack{Offset: 0})
+	p.commitQueue.Put(&client.Ack{Offset: 1})
+	p.commitQueue.Put(&client.Ack{Offset: 2})
 
 	// Mark 0 and 1 as fully replicated.
-	s.isr["a"].offset = 1
+	p.isr["a"].offset = 1
 
 	// Start commit loop.
 	stop := make(chan struct{})
 	exited := make(chan struct{})
 	go func() {
-		s.commitLoop(stop)
+		p.commitLoop(stop)
 		close(exited)
 	}()
 
 	// Trigger a commit.
-	s.commitCheck <- struct{}{}
+	p.commitCheck <- struct{}{}
 
 	// Stop the loop.
 	close(stop)
@@ -352,30 +352,30 @@ func TestStreamCommitLoopNoCommitBelowMinISR(t *testing.T) {
 	}
 
 	// Verify nothing was committed.
-	require.Equal(t, int64(3), s.commitQueue.Len())
-	require.Equal(t, int64(-1), s.log.HighWatermark())
+	require.Equal(t, int64(3), p.commitQueue.Len())
+	require.Equal(t, int64(-1), p.log.HighWatermark())
 }
 
 // Ensure RemoveFromISR returns an error if the replica is not a stream
 // replica.
-func TestStreamRemoveFromISRNotReplica(t *testing.T) {
+func TestPartitionRemoveFromISRNotReplica(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject: "foo",
 		Name:    "foo",
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	require.Error(t, s.RemoveFromISR("foo"))
+	defer p.Close()
+	require.Error(t, p.RemoveFromISR("foo"))
 }
 
 // Ensure RemoveFromISR removes the replica from the ISR and does not trigger a
 // commit check on the follower.
-func TestStreamRemoveFromISRFollower(t *testing.T) {
+func TestPartitionRemoveFromISRFollower(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
@@ -383,26 +383,26 @@ func TestStreamRemoveFromISRFollower(t *testing.T) {
 		Isr:      []string{"a", "b", "c"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	require.NoError(t, s.RemoveFromISR("b"))
+	defer p.Close()
+	require.NoError(t, p.RemoveFromISR("b"))
 
 	// Verify there is no commit check.
 	select {
-	case <-s.commitCheck:
+	case <-p.commitCheck:
 		t.Fatal("Unexpected commit check")
 	default:
 	}
 
-	require.ElementsMatch(t, []string{"a", "c"}, s.GetISR())
-	require.False(t, s.belowMinISR)
+	require.ElementsMatch(t, []string{"a", "c"}, p.GetISR())
+	require.False(t, p.belowMinISR)
 }
 
-// Ensure RemoveFromISR removes the replica from the ISR and triggeris a commit
+// Ensure RemoveFromISR removes the replica from the ISR and triggers a commit
 // check on the leader.
-func TestStreamRemoveFromISRLeader(t *testing.T) {
+func TestPartitionRemoveFromISRLeader(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
@@ -410,28 +410,30 @@ func TestStreamRemoveFromISRLeader(t *testing.T) {
 		Isr:      []string{"a", "b", "c"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	s.isLeading = true
-	require.NoError(t, s.RemoveFromISR("b"))
+	defer p.Close()
+	p.isLeading = true
+	require.NoError(t, p.RemoveFromISR("b"))
 
 	// Verify there is a commit check.
 	select {
-	case <-s.commitCheck:
+	case <-p.commitCheck:
 	default:
 		t.Fatal("Did not get expected commit check")
 	}
 
-	require.ElementsMatch(t, []string{"a", "c"}, s.GetISR())
-	require.False(t, s.belowMinISR)
+	require.ElementsMatch(t, []string{"a", "c"}, p.GetISR())
+	require.False(t, p.belowMinISR)
+
+	p.isLeading = false
 }
 
 // Ensure RemoveFromISR removes the replica from the ISR and marks the stream
 // as below the minimum ISR when the ISR shrinks below the minimum.
-func TestStreamRemoveFromISRBelowMin(t *testing.T) {
+func TestPartitionRemoveFromISRBelowMin(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
 	server.config.Clustering.MinISR = 3
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
@@ -439,31 +441,31 @@ func TestStreamRemoveFromISRBelowMin(t *testing.T) {
 		Isr:      []string{"a", "b", "c"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	require.NoError(t, s.RemoveFromISR("b"))
+	defer p.Close()
+	require.NoError(t, p.RemoveFromISR("b"))
 
-	require.ElementsMatch(t, []string{"a", "c"}, s.GetISR())
-	require.True(t, s.belowMinISR)
+	require.ElementsMatch(t, []string{"a", "c"}, p.GetISR())
+	require.True(t, p.belowMinISR)
 }
 
 // Ensure AddToISR returns an error if the replica is not a stream replica.
-func TestStreamAddToISRNotReplica(t *testing.T) {
+func TestPartitionAddToISRNotReplica(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject: "foo",
 		Name:    "foo",
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	require.Error(t, s.AddToISR("foo"))
+	defer p.Close()
+	require.Error(t, p.AddToISR("foo"))
 }
 
 // Ensure AddToISR adds the replica to the ISR.
-func TestStreamAddToISR(t *testing.T) {
+func TestPartitionAddToISR(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
@@ -471,22 +473,22 @@ func TestStreamAddToISR(t *testing.T) {
 		Isr:      []string{"a", "b"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
+	defer p.Close()
 
-	require.ElementsMatch(t, []string{"a", "b"}, s.GetISR())
+	require.ElementsMatch(t, []string{"a", "b"}, p.GetISR())
 
-	require.NoError(t, s.AddToISR("c"))
+	require.NoError(t, p.AddToISR("c"))
 
-	require.ElementsMatch(t, []string{"a", "b", "c"}, s.GetISR())
+	require.ElementsMatch(t, []string{"a", "b", "c"}, p.GetISR())
 }
 
 // Ensure AddToISR adds the replica to the ISR and, if the stream was below the
 // minimum ISR and has recovered, marks the stream ISR as recovered.
-func TestStreamAddToISRRecoverMin(t *testing.T) {
+func TestPartitionAddToISRRecoverMin(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
 	server.config.Clustering.MinISR = 3
-	s, err := server.newStream(&proto.Stream{
+	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Name:     "foo",
 		Replicas: []string{"a", "b", "c"},
@@ -494,13 +496,13 @@ func TestStreamAddToISRRecoverMin(t *testing.T) {
 		Isr:      []string{"a", "b"},
 	}, false)
 	require.NoError(t, err)
-	defer s.Close()
-	s.belowMinISR = true
+	defer p.Close()
+	p.belowMinISR = true
 
-	require.ElementsMatch(t, []string{"a", "b"}, s.GetISR())
+	require.ElementsMatch(t, []string{"a", "b"}, p.GetISR())
 
-	require.NoError(t, s.AddToISR("c"))
+	require.NoError(t, p.AddToISR("c"))
 
-	require.ElementsMatch(t, []string{"a", "b", "c"}, s.GetISR())
-	require.False(t, s.belowMinISR)
+	require.ElementsMatch(t, []string{"a", "b", "c"}, p.GetISR())
+	require.False(t, p.belowMinISR)
 }

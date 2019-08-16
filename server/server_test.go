@@ -101,7 +101,7 @@ func waitForNoMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Se
 	stackFatalf(t, "Metadata leader found")
 }
 
-func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, servers ...*Server) *Server {
+func getPartitionLeader(t *testing.T, timeout time.Duration, name string, partitionID int32, servers ...*Server) *Server {
 	var (
 		leader   *Server
 		deadline = time.Now().Add(timeout)
@@ -111,11 +111,11 @@ func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, 
 			if !s.IsRunning() {
 				continue
 			}
-			stream := s.metadata.GetStream(subject, name)
-			if stream == nil {
+			partition := s.metadata.GetPartition(name, partitionID)
+			if partition == nil {
 				continue
 			}
-			streamLeader, _ := stream.GetLeader()
+			streamLeader, _ := partition.GetLeader()
 			if streamLeader == s.config.Clustering.ServerID {
 				if leader != nil {
 					stackFatalf(t, "Found more than one stream leader")
@@ -135,11 +135,11 @@ func getStreamLeader(t *testing.T, timeout time.Duration, subject, name string, 
 }
 
 func forceLogClean(t *testing.T, subject, name string, s *Server) {
-	stream := s.metadata.GetStream(subject, name)
-	if stream == nil {
+	partition := s.metadata.GetPartition(name, 0)
+	if partition == nil {
 		stackFatalf(t, "Stream not found")
 	}
-	if err := stream.log.Clean(); err != nil {
+	if err := partition.log.Clean(); err != nil {
 		stackFatalf(t, "Log clean failed: %s", err)
 	}
 }

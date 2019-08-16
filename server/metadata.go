@@ -83,39 +83,37 @@ func (l *leaderReport) cancel() {
 	}
 }
 
-// streams maps a stream name to a stream.
-type streams map[string]*stream
-
-// streamIndex maps a subject to the streams for that subject.
-type streamIndex map[string]streams
-
-func (s streamIndex) getStream(subject, streamName string) *stream {
-	streams, ok := s[subject]
-	if !ok {
-		return nil
-	}
-	return streams[streamName]
+type streamIndex struct {
+	streamsBySubjectName map[string]map[string]*stream
+	streamsByName        map[string]*stream
 }
 
-func (s streamIndex) getPartition(subject, streamName string, id int32) *partition {
-	streams, ok := s[subject]
-	if !ok {
-		return nil
+func newStreamIndex() *streamIndex {
+	return &streamIndex{
+		streamsBySubjectName: make(map[string]map[string]*stream),
+		streamsByName:        make(map[string]*stream),
 	}
-	stream, ok := streams[streamName]
+}
+
+func (s *streamIndex) getStream(name string) *stream {
+	return s.streamsByName[name]
+}
+
+func (s *streamIndex) getPartition(name string, id int32) *partition {
+	stream, ok := s.streamsByName[name]
 	if !ok {
 		return nil
 	}
 	return stream.partitions[id]
 }
 
-func (s streamIndex) addPartition(protoPartition *proto.Partition, recovered bool,
+func (s *streamIndex) addPartition(protoPartition *proto.Partition, recovered bool,
 	newPartition func(*proto.Partition, bool) (*partition, error)) (*partition, error) {
 
-	subjectStreams, ok := s[protoPartition.Subject]
+	subjectStreams, ok := s.streamsBySubjectName[protoPartition.Subject]
 	if !ok {
-		subjectStreams = make(streams)
-		s[protoPartition.Subject] = subjectStreams
+		subjectStreams = make(map[string]*stream)
+		s.streamsBySubjectName[protoPartition.Subject] = subjectStreams
 	}
 	st, ok := subjectStreams[protoPartition.Name]
 	if !ok {
@@ -128,6 +126,8 @@ func (s streamIndex) addPartition(protoPartition *proto.Partition, recovered boo
 			partitions: make(map[int32]*partition),
 		}
 		subjectStreams[protoPartition.Name] = st
+		// Make sure the stream is also indexed by name.
+		s.streamsByName[protoPartition.Name] = st
 	}
 	if _, ok := st.partitions[protoPartition.Id]; ok {
 		// Partition already exists for stream.
@@ -147,7 +147,7 @@ func (s streamIndex) addPartition(protoPartition *proto.Partition, recovered boo
 // stream access should go through the exported methods of the metadataAPI.
 type metadataAPI struct {
 	*Server
-	streams         streamIndex
+	streams         *streamIndex
 	mu              sync.RWMutex
 	leaderReports   map[*partition]*leaderReport
 	cachedBrokers   []*client.Broker
@@ -158,7 +158,7 @@ type metadataAPI struct {
 func newMetadataAPI(s *Server) *metadataAPI {
 	return &metadataAPI{
 		Server:        s,
-		streams:       make(streamIndex),
+		streams:       newStreamIndex(),
 		leaderReports: make(map[*partition]*leaderReport),
 	}
 }
@@ -302,7 +302,7 @@ func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor)
 	metadata := make([]*client.StreamMetadata, len(streams))
 
 	for i, descriptor := range streams {
-		stream := m.GetStream(descriptor.Subject, descriptor.Name)
+		stream := m.GetStream(descriptor.Name)
 		if stream == nil {
 			// Stream does not exist.
 			metadata[i] = &client.StreamMetadata{
@@ -378,7 +378,7 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 	}
 
 	// Wait for leader to create partition (best effort).
-	m.waitForPartitionLeader(ctx, req.Partition.Subject, req.Partition.Name, leader, req.Partition.Id)
+	m.waitForPartitionLeader(ctx, req.Partition.Name, leader, req.Partition.Id)
 
 	return nil
 }
@@ -394,10 +394,10 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 	}
 
 	// Verify the partition exists.
-	partition := m.GetPartition(req.Subject, req.Name, req.Partition)
+	partition := m.GetPartition(req.Name, req.Partition)
 	if partition == nil {
-		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such partition [subject=%s, name=%s, partition=%d]",
-			req.Subject, req.Name, req.Partition))
+		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such partition [name=%s, partition=%d]",
+			req.Name, req.Partition))
 	}
 
 	// Check the leader epoch.
@@ -434,10 +434,10 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 	}
 
 	// Verify the partition exists.
-	partition := m.GetPartition(req.Subject, req.Name, req.Partition)
+	partition := m.GetPartition(req.Name, req.Partition)
 	if partition == nil {
-		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such partition [subject=%s, name=%s, partition=%d]",
-			req.Subject, req.Name, req.Partition))
+		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such partition [name=%s, partition=%d]",
+			req.Name, req.Partition))
 	}
 
 	// Check the leader epoch.
@@ -475,10 +475,10 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	}
 
 	// Verify the partition exists.
-	partition := m.GetPartition(req.Subject, req.Name, req.Partition)
+	partition := m.GetPartition(req.Name, req.Partition)
 	if partition == nil {
-		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such partition [subject=%s, name=%s, partition=%d]",
-			req.Subject, req.Name, req.Partition))
+		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such partition [name=%s, partition=%d]",
+			req.Name, req.Partition))
 	}
 
 	// Check the leader epoch.
@@ -530,20 +530,20 @@ func (m *metadataAPI) GetStreams() []*stream {
 	return m.getStreams()
 }
 
-// GetStream returns the stream for the given subject and stream name or nil if
-// no such stream exists.
-func (m *metadataAPI) GetStream(subject, name string) *stream {
+// GetStream returns the stream with the given name or nil if no such stream
+// exists.
+func (m *metadataAPI) GetStream(name string) *stream {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.streams.getStream(subject, name)
+	return m.streams.getStream(name)
 }
 
 // GetPartition returns the stream partition for the given stream and partition
 // ID. It returns nil if no such partition exists.
-func (m *metadataAPI) GetPartition(subject, name string, id int32) *partition {
+func (m *metadataAPI) GetPartition(name string, id int32) *partition {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.streams.getPartition(subject, name, id)
+	return m.streams.getPartition(name, id)
 }
 
 // Reset closes all streams and clears all existing state in the metadata
@@ -556,7 +556,7 @@ func (m *metadataAPI) Reset() error {
 			return err
 		}
 	}
-	m.streams = make(streamIndex)
+	m.streams = newStreamIndex()
 	for _, report := range m.leaderReports {
 		report.cancel()
 	}
@@ -575,11 +575,9 @@ func (m *metadataAPI) LostLeadership() {
 }
 
 func (m *metadataAPI) getStreams() []*stream {
-	streams := make([]*stream, 0, len(m.streams))
-	for _, subjectStreams := range m.streams {
-		for _, stream := range subjectStreams {
-			streams = append(streams, stream)
-		}
+	streams := make([]*stream, 0, len(m.streams.streamsByName))
+	for _, stream := range m.streams.streamsByName {
+		streams = append(streams, stream)
 	}
 	return streams
 }
@@ -660,9 +658,8 @@ func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Stat
 	op := &proto.RaftLog{
 		Op: proto.Op_CHANGE_LEADER,
 		ChangeLeaderOp: &proto.ChangeLeaderOp{
-			Subject: partition.Subject,
-			Name:    partition.Name,
-			Leader:  leader,
+			Name:   partition.Name,
+			Leader: leader,
 		},
 	}
 
@@ -752,7 +749,7 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 
 // waitForPartitionLeader does a best-effort wait for the leader of the given
 // partition to create and start the partition.
-func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, subject, name, leader string, partition int32) {
+func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, name, leader string, partition int32) {
 	if leader == m.config.Clustering.ServerID {
 		// If we're the partition leader, there's no need to make a status
 		// request. We can just apply a Raft barrier since the FSM is local.
@@ -763,7 +760,6 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, subject, name,
 	}
 
 	req, err := (&proto.PartitionStatusRequest{
-		Subject:   subject,
 		Name:      name,
 		Partition: partition,
 	}).Marshal()
@@ -775,16 +771,16 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, subject, name,
 		resp, err := m.ncRaft.RequestWithContext(ctx, inbox, req)
 		if err != nil {
 			m.logger.Warnf(
-				"Failed to get status for partition [subject=%s, name=%s, partition=%d] from leader %s: %v",
-				subject, name, partition, leader, err)
+				"Failed to get status for partition [name=%s, partition=%d] from leader %s: %v",
+				name, partition, leader, err)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		statusResp := &proto.PartitionStatusResponse{}
 		if err := statusResp.Unmarshal(resp.Data); err != nil {
 			m.logger.Warnf(
-				"Invalid status response for partition [subject=%s, name=%s, partition=%d] from leader %s: %v",
-				subject, name, partition, leader, err)
+				"Invalid status response for partition [name=%s, partition=%d] from leader %s: %v",
+				name, partition, leader, err)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}

@@ -117,8 +117,8 @@ type partition struct {
 // subject.2, etc.
 func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
 	var (
-		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Subject,
-			protoPartition.Name, strconv.FormatInt(int64(protoPartition.Id), 10))
+		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Name,
+			strconv.FormatInt(int64(protoPartition.Id), 10))
 		name = fmt.Sprintf("[subject=%s, name=%s, partition=%d]",
 			protoPartition.Subject, protoPartition.Name, protoPartition.Id)
 		log, err = commitlog.New(commitlog.Options{
@@ -182,6 +182,10 @@ func (s *partition) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.log.Close(); err != nil {
+		return err
+	}
+
 	if s.isFollowing {
 		if err := s.stopFollowing(); err != nil {
 			return err
@@ -192,7 +196,7 @@ func (s *partition) Close() error {
 		}
 	}
 
-	return s.log.Close()
+	return nil
 }
 
 // SetLeader sets the leader for the partition to the given replica and leader
@@ -796,7 +800,6 @@ func (s *partition) checkLeaderHealth(leader string, epoch uint64, leaderLastSee
 			"(last seen: %s), reporting leader to controller",
 			leader, s, lastSeenElapsed)
 		req := &proto.ReportLeaderOp{
-			Subject:     s.Subject,
 			Name:        s.Name,
 			Replica:     s.srv.config.Clustering.ServerID,
 			Leader:      leader,

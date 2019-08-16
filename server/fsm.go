@@ -139,32 +139,29 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		}
 	case proto.Op_SHRINK_ISR:
 		var (
-			subject   = log.ShrinkISROp.Subject
 			name      = log.ShrinkISROp.Name
 			replica   = log.ShrinkISROp.ReplicaToRemove
 			partition = log.ShrinkISROp.Partition
 		)
-		if err := s.applyShrinkISR(subject, name, replica, partition, index); err != nil {
+		if err := s.applyShrinkISR(name, replica, partition, index); err != nil {
 			return nil, err
 		}
 	case proto.Op_CHANGE_LEADER:
 		var (
-			subject   = log.ChangeLeaderOp.Subject
 			name      = log.ChangeLeaderOp.Name
 			leader    = log.ChangeLeaderOp.Leader
 			partition = log.ChangeLeaderOp.Partition
 		)
-		if err := s.applyChangeStreamLeader(subject, name, leader, partition, index); err != nil {
+		if err := s.applyChangeStreamLeader(name, leader, partition, index); err != nil {
 			return nil, err
 		}
 	case proto.Op_EXPAND_ISR:
 		var (
-			subject   = log.ExpandISROp.Subject
 			name      = log.ExpandISROp.Name
 			replica   = log.ExpandISROp.ReplicaToAdd
 			partition = log.ExpandISROp.Partition
 		)
-		if err := s.applyExpandISR(subject, name, replica, partition, index); err != nil {
+		if err := s.applyExpandISR(name, replica, partition, index); err != nil {
 			return nil, err
 		}
 	default:
@@ -330,11 +327,10 @@ func (s *Server) applyCreatePartition(protoPartition *proto.Partition, recovered
 // applyShrinkISR removes the given replica from the partition and updates the
 // partition epoch. If the partition epoch is greater than or equal to the
 // specified epoch, this does nothing.
-func (s *Server) applyShrinkISR(subject, name, replica string, partitionID int32, epoch uint64) error {
-	partition := s.metadata.GetPartition(subject, name, partitionID)
+func (s *Server) applyShrinkISR(name, replica string, partitionID int32, epoch uint64) error {
+	partition := s.metadata.GetPartition(name, partitionID)
 	if partition == nil {
-		return fmt.Errorf("No such partition [subject=%s, name=%s, partition=%d]",
-			subject, name, partition)
+		return fmt.Errorf("No such partition [name=%s, partition=%d]", name, partitionID)
 	}
 
 	// Idempotency check.
@@ -356,11 +352,10 @@ func (s *Server) applyShrinkISR(subject, name, replica string, partitionID int32
 // applyExpandISR adds the given replica to the partition and updates the
 // partition epoch. If the partition epoch is greater than or equal to the
 // specified epoch, this does nothing.
-func (s *Server) applyExpandISR(subject, name, replica string, partitionID int32, epoch uint64) error {
-	partition := s.metadata.GetPartition(subject, name, partitionID)
+func (s *Server) applyExpandISR(name, replica string, partitionID int32, epoch uint64) error {
+	partition := s.metadata.GetPartition(name, partitionID)
 	if partition == nil {
-		return fmt.Errorf("No such partition [subject=%s, name=%s, partition=%d]",
-			subject, name, partitionID)
+		return fmt.Errorf("No such partition [name=%s, partition=%d]", name, partitionID)
 	}
 
 	// Idempotency check.
@@ -382,11 +377,10 @@ func (s *Server) applyExpandISR(subject, name, replica string, partitionID int32
 // applyChangeStreamLeader sets the partition's leader to the given replica and
 // updates the partition epoch. If the partition epoch is greater than or equal
 // to the specified epoch, this does nothing.
-func (s *Server) applyChangeStreamLeader(subject, name, leader string, partitionID int32, epoch uint64) error {
-	partition := s.metadata.GetPartition(subject, name, partitionID)
+func (s *Server) applyChangeStreamLeader(name, leader string, partitionID int32, epoch uint64) error {
+	partition := s.metadata.GetPartition(name, partitionID)
 	if partition == nil {
-		return fmt.Errorf("No such partition [subject=%s, name=%s, partition=%d]",
-			subject, name, partitionID)
+		return fmt.Errorf("No such partition [name=%s, partition=%d]", name, partitionID)
 	}
 
 	// Idempotency check.
