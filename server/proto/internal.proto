@@ -67,7 +67,6 @@ message Partition {
     repeated string isr               = 8;
     uint64          leaderEpoch       = 9;
     uint64          epoch             = 10;
-    int32           totalPartitions   = 11;
 }
 
 // RaftJoinRequest is a request to join a Raft group.

@@ -46,7 +46,6 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 				Group:             req.Group,
 				ReplicationFactor: req.ReplicationFactor,
 				Id:                i,
-				TotalPartitions:   req.Partitions,
 			},
 		}); e != nil {
 			// In the case of partial failure, let the caller retry.
