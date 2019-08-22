@@ -67,8 +67,8 @@ type stream struct {
 }
 
 // Close the stream by closing each of its partitions.
-func (s *stream) Close() error {
-	for _, partition := range s.partitions {
+func (p *stream) Close() error {
+	for _, partition := range p.partitions {
 		if err := partition.Close(); err != nil {
 			return err
 		}
@@ -169,25 +169,25 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 }
 
 // String returns a human-readable string representation of the partition.
-func (s *partition) String() string {
-	return fmt.Sprintf("[subject=%s, stream=%s, partition=%d]", s.Subject, s.Stream, s.Id)
+func (p *partition) String() string {
+	return fmt.Sprintf("[subject=%s, stream=%s, partition=%d]", p.Subject, p.Stream, p.Id)
 }
 
 // Close stops the partition if it is running and closes the commit log.
-func (s *partition) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (p *partition) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	if err := s.log.Close(); err != nil {
+	if err := p.log.Close(); err != nil {
 		return err
 	}
 
-	if s.isFollowing {
-		if err := s.stopFollowing(); err != nil {
+	if p.isFollowing {
+		if err := p.stopFollowing(); err != nil {
 			return err
 		}
-	} else if s.isLeading {
-		if err := s.stopLeading(); err != nil {
+	} else if p.isLeading {
+		if err := p.stopLeading(); err != nil {
 			return err
 		}
 	}
@@ -199,55 +199,55 @@ func (s *partition) Close() error {
 // epoch. If the partition's current leader epoch is greater than the given
 // epoch, this returns an error. This will also start the partition as a leader
 // or follower, if applicable, unless the partition is in recovery mode.
-func (s *partition) SetLeader(leader string, epoch uint64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (p *partition) SetLeader(leader string, epoch uint64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	if epoch < s.LeaderEpoch {
+	if epoch < p.LeaderEpoch {
 		return fmt.Errorf("proposed leader epoch %d is less than current epoch %d",
-			epoch, s.LeaderEpoch)
+			epoch, p.LeaderEpoch)
 	}
-	s.Leader = leader
-	s.LeaderEpoch = epoch
+	p.Leader = leader
+	p.LeaderEpoch = epoch
 
-	if s.recovered {
+	if p.recovered {
 		// If this partition is being recovered, we will start the
 		// leader/follower loop later.
 		return nil
 	}
 
-	return s.startLeadingOrFollowing()
+	return p.startLeadingOrFollowing()
 }
 
 // StartRecovered starts the partition as a leader or follower, if applicable,
 // if it's in recovery mode. This should be called for each partition after the
 // recovery process completes.
-func (s *partition) StartRecovered() (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.recovered {
+func (p *partition) StartRecovered() (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.recovered {
 		return false, nil
 	}
-	if err := s.startLeadingOrFollowing(); err != nil {
+	if err := p.startLeadingOrFollowing(); err != nil {
 		return false, err
 	}
-	s.recovered = false
+	p.recovered = false
 	return true, nil
 }
 
 // startLeadingOrFollowing starts the partition as a leader or follower, if
 // applicable.
-func (s *partition) startLeadingOrFollowing() error {
-	if s.Leader == s.srv.config.Clustering.ServerID {
-		s.srv.logger.Debugf("Server becoming leader for partition %s, epoch: %d", s, s.LeaderEpoch)
-		if err := s.becomeLeader(s.LeaderEpoch); err != nil {
-			s.srv.logger.Errorf("Server failed becoming leader for partition %s: %v", s, err)
+func (p *partition) startLeadingOrFollowing() error {
+	if p.Leader == p.srv.config.Clustering.ServerID {
+		p.srv.logger.Debugf("Server becoming leader for partition %s, epoch: %d", p, p.LeaderEpoch)
+		if err := p.becomeLeader(p.LeaderEpoch); err != nil {
+			p.srv.logger.Errorf("Server failed becoming leader for partition %s: %v", p, err)
 			return err
 		}
-	} else if s.inReplicas(s.srv.config.Clustering.ServerID) {
-		s.srv.logger.Debugf("Server becoming follower for partition %s, epoch: %d", s, s.LeaderEpoch)
-		if err := s.becomeFollower(); err != nil {
-			s.srv.logger.Errorf("Server failed becoming follower for partition %s: %v", s, err)
+	} else if p.inReplicas(p.srv.config.Clustering.ServerID) {
+		p.srv.logger.Debugf("Server becoming follower for partition %s, epoch: %d", p, p.LeaderEpoch)
+		if err := p.becomeFollower(); err != nil {
+			p.srv.logger.Errorf("Server failed becoming follower for partition %s: %v", p, err)
 			return err
 		}
 	}
@@ -256,85 +256,85 @@ func (s *partition) startLeadingOrFollowing() error {
 
 // GetLeader returns the replica that is the partition leader and the leader
 // epoch.
-func (s *partition) GetLeader() (string, uint64) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Leader, s.LeaderEpoch
+func (p *partition) GetLeader() (string, uint64) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Leader, p.LeaderEpoch
 }
 
 // IsLeader indicates if this server is the partition leader.
-func (s *partition) IsLeader() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.isLeading
+func (p *partition) IsLeader() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.isLeading
 }
 
 // becomeLeader is called when the server has become the leader for this
 // partition.
-func (s *partition) becomeLeader(epoch uint64) error {
-	if s.isFollowing {
+func (p *partition) becomeLeader(epoch uint64) error {
+	if p.isFollowing {
 		// Stop following if previously a follower.
-		if err := s.stopFollowing(); err != nil {
+		if err := p.stopFollowing(); err != nil {
 			return err
 		}
-	} else if s.isLeading {
+	} else if p.isLeading {
 		// If previously a leader, we need to reset.
-		if err := s.stopLeading(); err != nil {
+		if err := p.stopLeading(); err != nil {
 			return err
 		}
 	}
 
-	if !s.recovered {
+	if !p.recovered {
 		// Update leader epoch on log if this isn't a recovered partition. A
 		// recovered partition indicates we were the previous leader and are
 		// continuing a leader epoch.
-		if err := s.log.NewLeaderEpoch(epoch); err != nil {
+		if err := p.log.NewLeaderEpoch(epoch); err != nil {
 			return errors.Wrap(err, "failed to update leader epoch on log")
 		}
 	}
 
 	// Start message processing loop.
-	s.recvChan = make(chan *nats.Msg, recvChannelSize)
-	s.stopLeader = make(chan struct{})
-	s.srv.startGoroutine(func() {
-		s.messageProcessingLoop(s.recvChan, s.stopLeader, epoch)
-		s.shutdown.Done()
+	p.recvChan = make(chan *nats.Msg, recvChannelSize)
+	p.stopLeader = make(chan struct{})
+	p.srv.startGoroutine(func() {
+		p.messageProcessingLoop(p.recvChan, p.stopLeader, epoch)
+		p.shutdown.Done()
 	})
 
 	// Start replicating to followers.
-	s.startReplicating(epoch, s.stopLeader)
+	p.startReplicating(epoch, p.stopLeader)
 
 	// Subscribe to the NATS subject and begin sequencing messages.
 	// TODO: This should be drained on shutdown.
-	sub, err := s.srv.nc.QueueSubscribe(s.getSubject(), s.Group, func(m *nats.Msg) {
-		s.recvChan <- m
+	sub, err := p.srv.nc.QueueSubscribe(p.getSubject(), p.Group, func(m *nats.Msg) {
+		p.recvChan <- m
 	})
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to NATS")
 	}
 	sub.SetPendingLimits(-1, -1)
-	s.sub = sub
-	s.srv.nc.Flush()
+	p.sub = sub
+	p.srv.nc.Flush()
 
 	// Subscribe to the partition replication subject.
-	sub, err = s.srv.ncRepl.Subscribe(s.getReplicationRequestInbox(), s.handleReplicationRequest)
+	sub, err = p.srv.ncRepl.Subscribe(p.getReplicationRequestInbox(), p.handleReplicationRequest)
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to replication inbox")
 	}
 	sub.SetPendingLimits(-1, -1)
-	s.leaderReplSub = sub
+	p.leaderReplSub = sub
 
 	// Also subscribe to leader epoch offset requests subject.
-	sub, err = s.srv.ncRepl.Subscribe(s.getLeaderOffsetRequestInbox(), s.handleLeaderOffsetRequest)
+	sub, err = p.srv.ncRepl.Subscribe(p.getLeaderOffsetRequestInbox(), p.handleLeaderOffsetRequest)
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to replication inbox")
 	}
 	sub.SetPendingLimits(-1, -1)
-	s.leaderOffsetSub = sub
-	s.srv.ncRepl.Flush()
+	p.leaderOffsetSub = sub
+	p.srv.ncRepl.Flush()
 
-	s.isLeading = true
-	s.isFollowing = false
+	p.isLeading = true
+	p.isFollowing = false
 
 	return nil
 }
@@ -342,74 +342,74 @@ func (s *partition) becomeLeader(epoch uint64) error {
 // stopLeading causes the partition to step down as leader by unsubscribing
 // from the NATS subject and replication subject, stopping message processing
 // and replication, and disposing the commit queue.
-func (s *partition) stopLeading() error {
+func (p *partition) stopLeading() error {
 	// Unsubscribe from NATS subject.
-	if err := s.sub.Unsubscribe(); err != nil {
+	if err := p.sub.Unsubscribe(); err != nil {
 		return err
 	}
 
 	// Unsubscribe from replication subject.
-	if err := s.leaderReplSub.Unsubscribe(); err != nil {
+	if err := p.leaderReplSub.Unsubscribe(); err != nil {
 		return err
 	}
 
 	// Stop processing messages and replicating.
-	s.shutdown.Add(1) // Message processing loop
-	s.shutdown.Add(1) // Commit loop
-	if replicas := len(s.replicas); replicas > 1 {
-		s.shutdown.Add(replicas - 1) // Replicator loops (minus one to exclude self)
+	p.shutdown.Add(1) // Message processing loop
+	p.shutdown.Add(1) // Commit loop
+	if replicas := len(p.replicas); replicas > 1 {
+		p.shutdown.Add(replicas - 1) // Replicator loops (minus one to exclude self)
 	}
-	close(s.stopLeader)
+	close(p.stopLeader)
 
 	// Wait for loops to shutdown.
-	s.shutdown.Wait()
+	p.shutdown.Wait()
 
-	s.commitQueue.Dispose()
-	s.isLeading = false
+	p.commitQueue.Dispose()
+	p.isLeading = false
 
 	return nil
 }
 
 // becomeFollower is called when the server has become a follower for this
 // partition.
-func (s *partition) becomeFollower() error {
-	if s.isLeading {
+func (p *partition) becomeFollower() error {
+	if p.isLeading {
 		// Stop leading if previously a leader.
-		if err := s.stopLeading(); err != nil {
+		if err := p.stopLeading(); err != nil {
 			return err
 		}
-	} else if s.isFollowing {
+	} else if p.isFollowing {
 		// If previously a follower, we need to reset.
-		if err := s.stopFollowing(); err != nil {
+		if err := p.stopFollowing(); err != nil {
 			return err
 		}
 	}
 
 	// Truncate potentially uncommitted messages from the log.
-	if err := s.truncateUncommitted(); err != nil {
+	if err := p.truncateUncommitted(); err != nil {
 		return errors.Wrap(err, "failed to truncate log")
 	}
 
 	// Start fetching messages from the leader's log starting at the HW.
-	s.stopFollower = make(chan struct{})
-	s.srv.logger.Debugf("Replicating partition %s from leader %s", s, s.Leader)
-	s.srv.startGoroutine(func() {
-		s.replicationRequestLoop(s.Leader, s.LeaderEpoch, s.stopFollower)
+	p.stopFollower = make(chan struct{})
+	p.srv.logger.Debugf("Replicating partition %s from leader %s", p, p.Leader)
+	p.srv.startGoroutine(func() {
+		p.replicationRequestLoop(p.Leader, p.LeaderEpoch, p.stopFollower)
 	})
 
-	s.isFollowing = true
-	s.isLeading = false
+	p.isFollowing = true
+	p.isLeading = false
 
 	return nil
 }
 
 // stopFollowing causes the partition to step down as a follower by stopping
 // replication requests and the leader failure detector.
-func (s *partition) stopFollowing() error {
+func (p *partition) stopFollowing() error {
 	// Stop replication request and leader failure detector loop.
 	// TODO: Do graceful shutdown similar to stopLeading().
-	close(s.stopFollower)
-	s.isFollowing = false
+	close(p.stopFollower)
+	p.isFollowing = false
 	return nil
 }
 
@@ -420,78 +420,78 @@ func (s *partition) stopFollowing() error {
 // start offset of the first leader epoch larger than the requested leader
 // epoch or the log end offset if the leader's current epoch is equal to the
 // one requested.
-func (s *partition) handleLeaderOffsetRequest(msg *nats.Msg) {
+func (p *partition) handleLeaderOffsetRequest(msg *nats.Msg) {
 	req := &proto.LeaderEpochOffsetRequest{}
 	if err := req.Unmarshal(msg.Data); err != nil {
-		s.srv.logger.Errorf("Invalid leader epoch offset request for partition %s: %v", s, err)
+		p.srv.logger.Errorf("Invalid leader epoch offset request for partition %s: %v", p, err)
 		return
 	}
 	resp, err := (&proto.LeaderEpochOffsetResponse{
-		EndOffset: s.log.LastOffsetForLeaderEpoch(req.LeaderEpoch),
+		EndOffset: p.log.LastOffsetForLeaderEpoch(req.LeaderEpoch),
 	}).Marshal()
 	if err != nil {
 		panic(err)
 	}
 	if err := msg.Respond(resp); err != nil {
-		s.srv.logger.Errorf("Failed to respond to leader offset request: %v", err)
+		p.srv.logger.Errorf("Failed to respond to leader offset request: %v", err)
 	}
 }
 
 // handleReplicationRequest is a NATS handler that's invoked when the leader
 // receives a replication request from a follower. It will send messages to the
 // NATS subject specified on the request.
-func (s *partition) handleReplicationRequest(msg *nats.Msg) {
+func (p *partition) handleReplicationRequest(msg *nats.Msg) {
 	req := &proto.ReplicationRequest{}
 	if err := req.Unmarshal(msg.Data); err != nil {
-		s.srv.logger.Errorf("Invalid replication request for partition %s: %v", s, err)
+		p.srv.logger.Errorf("Invalid replication request for partition %s: %v", p, err)
 		return
 	}
-	s.mu.Lock()
-	if s.pause {
-		s.mu.Unlock()
+	p.mu.Lock()
+	if p.pause {
+		p.mu.Unlock()
 		return
 	}
-	if _, ok := s.replicas[req.ReplicaID]; !ok {
-		s.srv.logger.Warnf("Received replication request for partition %s from non-replica %s",
-			s, req.ReplicaID)
-		s.mu.Unlock()
+	if _, ok := p.replicas[req.ReplicaID]; !ok {
+		p.srv.logger.Warnf("Received replication request for partition %s from non-replica %s",
+			p, req.ReplicaID)
+		p.mu.Unlock()
 		return
 	}
-	replicator, ok := s.replicators[req.ReplicaID]
+	replicator, ok := p.replicators[req.ReplicaID]
 	if !ok {
-		panic(fmt.Sprintf("No replicator for partition %s and replica %s", s, req.ReplicaID))
+		panic(fmt.Sprintf("No replicator for partition %s and replica %s", p, req.ReplicaID))
 	}
-	s.mu.Unlock()
+	p.mu.Unlock()
 	replicator.request(replicationRequest{req, msg})
 }
 
 // handleReplicationResponse is a NATS handler that's invoked when a follower
 // receives a replication response from the leader. This response will contain
 // the leader epoch, leader HW, and (optionally) messages to replicate.
-func (s *partition) handleReplicationResponse(msg *nats.Msg) int {
+func (p *partition) handleReplicationResponse(msg *nats.Msg) int {
 	// We should have at least 16 bytes, 8 for leader epoch and 8 for HW.
 	if len(msg.Data) < 16 {
-		s.srv.logger.Warnf("Invalid replication response for partition %s", s)
+		p.srv.logger.Warnf("Invalid replication response for partition %s", p)
 		return 0
 	}
 
 	leaderEpoch := proto.Encoding.Uint64(msg.Data[:8])
 
-	s.mu.RLock()
-	if !s.isFollowing {
-		s.mu.RUnlock()
+	p.mu.RLock()
+	if !p.isFollowing {
+		p.mu.RUnlock()
 		return 0
 	}
 
-	if s.LeaderEpoch != leaderEpoch {
-		s.mu.RUnlock()
+	if p.LeaderEpoch != leaderEpoch {
+		p.mu.RUnlock()
 		return 0
 	}
-	s.mu.RUnlock()
+	p.mu.RUnlock()
 
 	// Update HW from leader's HW.
 	hw := int64(proto.Encoding.Uint64(msg.Data[8:]))
-	s.log.SetHighWatermark(hw)
+	p.log.SetHighWatermark(hw)
 
 	data := msg.Data[16:]
 	if len(data) == 0 {
@@ -500,32 +500,32 @@ func (s *partition) handleReplicationResponse(msg *nats.Msg) int {
 
 	// We should have at least 28 bytes for headers.
 	if len(data) <= 28 {
-		s.srv.logger.Warnf("Invalid replication response for partition %s", s)
+		p.srv.logger.Warnf("Invalid replication response for partition %s", p)
 		return 0
 	}
 	offset := int64(proto.Encoding.Uint64(data[:8]))
-	if offset < s.log.NewestOffset()+1 {
+	if offset < p.log.NewestOffset()+1 {
 		return 0
 	}
-	offsets, err := s.log.AppendMessageSet(data)
+	offsets, err := p.log.AppendMessageSet(data)
 	if err != nil {
-		panic(fmt.Errorf("Failed to replicate data to log %s: %v", s, err))
+		panic(fmt.Errorf("Failed to replicate data to log %s: %v", p, err))
 	}
 	return len(offsets)
 }
 
 // getReplicationRequestInbox returns the NATS subject to send replication
 // requests to.
-func (s *partition) getReplicationRequestInbox() string {
+func (p *partition) getReplicationRequestInbox() string {
 	return fmt.Sprintf("%s.%s.%d.replicate",
-		s.srv.config.Clustering.Namespace, s.Stream, s.Id)
+		p.srv.config.Clustering.Namespace, p.Stream, p.Id)
 }
 
 // getLeaderOffsetRequestInbox returns the NATS subject to send leader epoch
 // offset requests to.
-func (s *partition) getLeaderOffsetRequestInbox() string {
+func (p *partition) getLeaderOffsetRequestInbox() string {
 	return fmt.Sprintf("%s.%s.%d.offset",
-		s.srv.config.Clustering.Namespace, s.Stream, s.Id)
+		p.srv.config.Clustering.Namespace, p.Stream, p.Id)
 }
 
 // messageProcessingLoop is a long-running loop that processes messages
@@ -535,13 +535,13 @@ func (s *partition) getLeaderOffsetRequestInbox() string {
 // indicate it's pending commit. Once the ISR has replicated the message, the
 // leader commits it by removing it from the queue and sending an
 // acknowledgement to the client.
-func (s *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan struct{},
+func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan struct{},
 	leaderEpoch uint64) {
 
 	var (
 		msg       *nats.Msg
-		batchSize = s.srv.config.BatchMaxMessages
-		batchWait = s.srv.config.BatchWaitTime
+		batchSize = p.srv.config.BatchMaxMessages
+		batchWait = p.srv.config.BatchWaitTime
 		msgBatch  = make([]*proto.Message, 0, batchSize)
 	)
 	for {
@@ -585,19 +585,19 @@ func (s *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		}
 
 		// Write uncommitted messages to log.
-		offsets, err := s.log.Append(msgBatch)
+		offsets, err := p.log.Append(msgBatch)
 		if err != nil {
-			s.srv.logger.Errorf("Failed to append to log %s: %v", s, err)
+			p.srv.logger.Errorf("Failed to append to log %s: %v", p, err)
 			return
 		}
 
 		for i, msg := range msgBatch {
-			s.processPendingMessage(offsets[i], msg)
+			p.processPendingMessage(offsets[i], msg)
 		}
 
 		// Update this replica's latest offset.
-		s.updateISRLatestOffset(
-			s.srv.config.Clustering.ServerID,
+		p.updateISRLatestOffset(
+			p.srv.config.Clustering.ServerID,
 			offsets[len(offsets)-1],
 		)
 	}
@@ -606,10 +606,10 @@ func (s *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 // processPendingMessage sends an ack if the message's AckPolicy is LEADER and
 // adds the pending message to the commit queue. Messages are removed from the
 // queue and committed when the entire ISR has replicated them.
-func (s *partition) processPendingMessage(offset int64, msg *proto.Message) {
+func (p *partition) processPendingMessage(offset int64, msg *proto.Message) {
 	ack := &client.Ack{
-		Stream:           s.Stream,
-		PartitionSubject: s.Subject,
+		Stream:           p.Stream,
+		PartitionSubject: p.Subject,
 		MsgSubject:       string(msg.Headers["subject"]),
 		Offset:           offset,
 		AckInbox:         msg.AckInbox,
@@ -619,9 +619,9 @@ func (s *partition) processPendingMessage(offset int64, msg *proto.Message) {
 	if msg.AckPolicy == client.AckPolicy_LEADER {
 		// Send the ack now since AckPolicy_LEADER means we ack as soon as the
 		// leader has written the message to its WAL.
-		s.sendAck(ack)
+		p.sendAck(ack)
 	}
-	if err := s.commitQueue.Put(ack); err != nil {
+	if err := p.commitQueue.Put(ack); err != nil {
 		// This is very bad and should not happen.
 		panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
 	}
@@ -629,33 +629,33 @@ func (s *partition) processPendingMessage(offset int64, msg *proto.Message) {
 
 // startReplicating starts a long-running goroutine which handles committing
 // messages in the commit queue and a replication goroutine for each replica.
-func (s *partition) startReplicating(epoch uint64, stop chan struct{}) {
-	if s.ReplicationFactor > 1 {
-		s.srv.logger.Debugf("Replicating partition %s to followers", s)
+func (p *partition) startReplicating(epoch uint64, stop chan struct{}) {
+	if p.ReplicationFactor > 1 {
+		p.srv.logger.Debugf("Replicating partition %s to followers", p)
 	}
-	s.commitQueue = queue.New(100)
-	s.srv.startGoroutine(func() {
-		s.commitLoop(stop)
-		s.shutdown.Done()
+	p.commitQueue = queue.New(100)
+	p.srv.startGoroutine(func() {
+		p.commitLoop(stop)
+		p.shutdown.Done()
 	})
 
-	s.replicators = make(map[string]*replicator, len(s.replicas)-1)
-	for replica := range s.replicas {
-		if replica == s.srv.config.Clustering.ServerID {
+	p.replicators = make(map[string]*replicator, len(p.replicas)-1)
+	for replica := range p.replicas {
+		if replica == p.srv.config.Clustering.ServerID {
 			// Don't replicate to ourselves.
 			continue
 		}
 		r := &replicator{
 			replica:    replica,
-			partition:  s,
+			partition:  p,
 			requests:   make(chan replicationRequest, 1),
-			maxLagTime: s.srv.config.Clustering.ReplicaMaxLagTime,
-			leader:     s.srv.config.Clustering.ServerID,
+			maxLagTime: p.srv.config.Clustering.ReplicaMaxLagTime,
+			leader:     p.srv.config.Clustering.ServerID,
 		}
-		s.replicators[replica] = r
-		s.srv.startGoroutine(func() {
+		p.replicators[replica] = r
+		p.srv.startGoroutine(func() {
 			r.start(epoch, stop)
-			s.shutdown.Done()
+			p.shutdown.Done()
 		})
 	}
 }
@@ -663,27 +663,27 @@ func (s *partition) startReplicating(epoch uint64, stop chan struct{}) {
 // commitLoop is a long-running loop which checks to see if messages in the
 // commit queue can be committed and, if so, removes them from the queue and
 // sends client acks. It runs until the stop channel is closed.
-func (s *partition) commitLoop(stop chan struct{}) {
+func (p *partition) commitLoop(stop chan struct{}) {
 	for {
 		select {
 		case <-stop:
 			return
-		case <-s.commitCheck:
+		case <-p.commitCheck:
 		}
 
-		s.mu.RLock()
+		p.mu.RLock()
 
 		// Check if the ISR size is below the minimum ISR size. If it is, we
 		// cannot commit any messages.
 		var (
-			minISR  = s.srv.config.Clustering.MinISR
-			isrSize = len(s.isr)
+			minISR  = p.srv.config.Clustering.MinISR
+			isrSize = len(p.isr)
 		)
 		if isrSize < minISR {
-			s.mu.RUnlock()
-			s.srv.logger.Errorf(
+			p.mu.RUnlock()
+			p.srv.logger.Errorf(
 				"Unable to commit messages for partition %s, ISR size (%d) below minimum (%d)",
-				s, isrSize, minISR)
+				p, isrSize, minISR)
 			continue
 		}
 
@@ -694,19 +694,19 @@ func (s *partition) commitLoop(stop chan struct{}) {
 			latestOffsets = make([]int64, isrSize)
 			i             = 0
 		)
-		for _, replica := range s.isr {
+		for _, replica := range p.isr {
 			latestOffsets[i] = replica.getLatestOffset()
 			i++
 		}
-		s.mu.RUnlock()
+		p.mu.RUnlock()
 		var (
 			minLatest      = min(latestOffsets)
-			committed, err = s.commitQueue.TakeUntil(func(pending interface{}) bool {
+			committed, err = p.commitQueue.TakeUntil(func(pending interface{}) bool {
 				return pending.(*client.Ack).Offset <= minLatest
 			})
 		)
 
-		s.log.SetHighWatermark(minLatest)
+		p.log.SetHighWatermark(minLatest)
 
 		// An error here indicates the queue was disposed as a result of the
 		// leader stepping down.
@@ -723,7 +723,7 @@ func (s *partition) commitLoop(stop chan struct{}) {
 			ack := ackIface.(*client.Ack)
 			// Only send an ack if the AckPolicy is ALL.
 			if ack.AckPolicy == client.AckPolicy_ALL {
-				s.sendAck(ack)
+				p.sendAck(ack)
 			}
 		}
 	}
@@ -731,7 +731,7 @@ func (s *partition) commitLoop(stop chan struct{}) {
 
 // sendAck publishes an ack to the specified AckInbox. If no AckInbox is set,
 // this does nothing.
-func (s *partition) sendAck(ack *client.Ack) {
+func (p *partition) sendAck(ack *client.Ack) {
 	if ack.AckInbox == "" {
 		return
 	}
@@ -739,13 +739,13 @@ func (s *partition) sendAck(ack *client.Ack) {
 	if err != nil {
 		panic(err)
 	}
-	s.srv.ncAcks.Publish(ack.AckInbox, data)
+	p.srv.ncAcks.Publish(ack.AckInbox, data)
 }
 
 // replicationRequestLoop is a long-running loop which sends replication
 // requests to the partition leader, handles replicating messages, and checks
 // the health of the leader.
-func (s *partition) replicationRequestLoop(leader string, epoch uint64, stop chan struct{}) {
+func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop chan struct{}) {
 	var (
 		emptyResponseCount int
 		leaderLastSeen     = time.Now()
@@ -757,10 +757,10 @@ func (s *partition) replicationRequestLoop(leader string, epoch uint64, stop cha
 		default:
 		}
 
-		replicated, err := s.sendReplicationRequest()
+		replicated, err := p.sendReplicationRequest()
 		if err != nil {
-			s.srv.logger.Errorf(
-				"Error sending replication request for partition %s: %v", s, err)
+			p.srv.logger.Errorf(
+				"Error sending replication request for partition %s: %v", p, err)
 		} else {
 			leaderLastSeen = time.Now()
 		}
@@ -772,7 +772,7 @@ func (s *partition) replicationRequestLoop(leader string, epoch uint64, stop cha
 		}
 
 		// Check if leader has exceeded max leader timeout.
-		s.checkLeaderHealth(leader, epoch, leaderLastSeen)
+		p.checkLeaderHealth(leader, epoch, leaderLastSeen)
 
 		// TODO: Make this smarter. Probably have the request wait for data on
 		// the server side. Need to handle timeouts better too.
@@ -787,23 +787,23 @@ func (s *partition) replicationRequestLoop(leader string, epoch uint64, stop cha
 
 // checkLeaderHealth checks if the leader has responded within
 // ReplicaMaxLeaderTimeout and, if not, reports the leader to the controller.
-func (s *partition) checkLeaderHealth(leader string, epoch uint64, leaderLastSeen time.Time) {
+func (p *partition) checkLeaderHealth(leader string, epoch uint64, leaderLastSeen time.Time) {
 	lastSeenElapsed := time.Since(leaderLastSeen)
-	if lastSeenElapsed > s.srv.config.Clustering.ReplicaMaxLeaderTimeout {
+	if lastSeenElapsed > p.srv.config.Clustering.ReplicaMaxLeaderTimeout {
 		// Leader has not sent a response in ReplicaMaxLeaderTimeout, so report
 		// it to controller.
-		s.srv.logger.Errorf("Leader %s for partition %s exceeded max leader timeout "+
+		p.srv.logger.Errorf("Leader %s for partition %s exceeded max leader timeout "+
 			"(last seen: %s), reporting leader to controller",
-			leader, s, lastSeenElapsed)
+			leader, p, lastSeenElapsed)
 		req := &proto.ReportLeaderOp{
-			Stream:      s.Stream,
-			Replica:     s.srv.config.Clustering.ServerID,
+			Stream:      p.Stream,
+			Replica:     p.srv.config.Clustering.ServerID,
 			Leader:      leader,
 			LeaderEpoch: epoch,
 		}
-		if err := s.srv.metadata.ReportLeader(context.Background(), req); err != nil {
-			s.srv.logger.Errorf("Failed to report leader %s for partition %s: %s",
-				leader, s, err.Err())
+		if err := p.srv.metadata.ReportLeader(context.Background(), req); err != nil {
+			p.srv.logger.Errorf("Failed to report leader %s for partition %s: %s",
+				leader, p, err.Err())
 		}
 	}
 }
@@ -820,38 +820,38 @@ func computeReplicaFetchSleep(emptyResponseCount int) time.Duration {
 
 // sendReplicationRequest sends a replication request to the partition leader
 // and processes the response.
-func (s *partition) sendReplicationRequest() (int, error) {
+func (p *partition) sendReplicationRequest() (int, error) {
 	data, err := (&proto.ReplicationRequest{
-		ReplicaID: s.srv.config.Clustering.ServerID,
-		Offset:    s.log.NewestOffset(),
+		ReplicaID: p.srv.config.Clustering.ServerID,
+		Offset:    p.log.NewestOffset(),
 	}).Marshal()
 	if err != nil {
 		panic(err)
 	}
-	resp, err := s.srv.ncRepl.Request(
-		s.getReplicationRequestInbox(),
+	resp, err := p.srv.ncRepl.Request(
+		p.getReplicationRequestInbox(),
 		data,
-		s.srv.config.Clustering.ReplicaFetchTimeout,
+		p.srv.config.Clustering.ReplicaFetchTimeout,
 	)
 	if err != nil {
 		return 0, err
 	}
-	replicated := s.handleReplicationResponse(resp)
+	replicated := p.handleReplicationResponse(resp)
 	return replicated, nil
 }
 
 // truncateUncommitted truncates the log up to the start offset of the first
 // leader epoch larger than the current epoch. This removes any potentially
 // uncommitted messages in the log.
-func (s *partition) truncateUncommitted() error {
+func (p *partition) truncateUncommitted() error {
 	// Request the last offset for the epoch from the leader.
 	var (
 		lastOffset  int64
 		err         error
-		leaderEpoch = s.log.LastLeaderEpoch()
+		leaderEpoch = p.log.LastLeaderEpoch()
 	)
 	for i := 0; i < 3; i++ {
-		lastOffset, err = s.sendLeaderOffsetRequest(leaderEpoch)
+		lastOffset, err = p.sendLeaderOffsetRequest(leaderEpoch)
 		// Retry timeouts.
 		if err == nats.ErrTimeout {
 			time.Sleep(50 * time.Millisecond)
@@ -860,30 +860,30 @@ func (s *partition) truncateUncommitted() error {
 		break
 	}
 	if err != nil {
-		s.srv.logger.Errorf(
+		p.srv.logger.Errorf(
 			"Failed to fetch last offset for leader epoch for partition %s: %v",
-			s, err)
+			p, err)
 		// Fall back to HW truncation if we fail to fetch last offset for
 		// leader epoch.
 		// TODO: Should this be configurable since there is potential for data
 		// loss or replica divergence?
-		return s.truncateToHW()
+		return p.truncateToHW()
 	}
 
-	s.srv.logger.Debugf("Truncating log for partition %s to %d", s, lastOffset)
+	p.srv.logger.Debugf("Truncating log for partition %s to %d", p, lastOffset)
 	// Add 1 because we don't want to truncate the last offset itself.
-	return s.log.Truncate(lastOffset + 1)
+	return p.log.Truncate(lastOffset + 1)
 }
 
 // sendLeaderOffsetRequest sends a request to the leader for the last offset
 // for the current leader epoch.
-func (s *partition) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
+func (p *partition) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
 	data, err := (&proto.LeaderEpochOffsetRequest{LeaderEpoch: leaderEpoch}).Marshal()
 	if err != nil {
 		panic(err)
 	}
-	resp, err := s.srv.ncRepl.Request(
-		s.getLeaderOffsetRequestInbox(),
+	resp, err := p.srv.ncRepl.Request(
+		p.getLeaderOffsetRequestInbox(),
 		data,
 		time.Second,
 	)
@@ -902,30 +902,30 @@ func (s *partition) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
 // be used as a fallback in the event that epoch-based truncation fails. There
 // are a couple edge cases with this method of truncating the log that could
 // result in data loss or replica divergence (see issue #38).
-func (s *partition) truncateToHW() error {
+func (p *partition) truncateToHW() error {
 	var (
-		newestOffset = s.log.NewestOffset()
-		hw           = s.log.HighWatermark()
+		newestOffset = p.log.NewestOffset()
+		hw           = p.log.HighWatermark()
 	)
 	if newestOffset == hw {
 		return nil
 	}
-	s.srv.logger.Debugf("Truncating log for partition %s to HW %d", s, hw)
+	p.srv.logger.Debugf("Truncating log for partition %s to HW %d", p, hw)
 	// Add 1 because we don't want to truncate the HW itself.
-	return s.log.Truncate(hw + 1)
+	return p.log.Truncate(hw + 1)
 }
 
 // inISR indicates if the given replica is in the current in-sync replicas set.
-func (s *partition) inISR(replica string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, ok := s.isr[replica]
+func (p *partition) inISR(replica string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	_, ok := p.isr[replica]
 	return ok
 }
 
 // inReplicas indicates if the given broker is a replica for the partition.
-func (s *partition) inReplicas(id string) bool {
-	_, ok := s.replicas[id]
+func (p *partition) inReplicas(id string) bool {
+	_, ok := p.replicas[id]
 	return ok
 }
 
@@ -933,30 +933,30 @@ func (s *partition) inReplicas(id string) bool {
 // returns an error if the broker is not a partition replica. This will also
 // insert a check to see if pending messages need to be committed since the ISR
 // shrank.
-func (s *partition) RemoveFromISR(replica string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.inReplicas(replica) {
+func (p *partition) RemoveFromISR(replica string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.inReplicas(replica) {
 		return fmt.Errorf("%s not a replica", replica)
 	}
-	delete(s.isr, replica)
+	delete(p.isr, replica)
 
 	// Check if ISR went below minimum ISR size. This is important for
 	// operators to be aware of.
 	var (
-		minISR  = s.srv.config.Clustering.MinISR
-		isrSize = len(s.isr)
+		minISR  = p.srv.config.Clustering.MinISR
+		isrSize = len(p.isr)
 	)
-	if !s.belowMinISR && isrSize < minISR {
-		s.srv.logger.Errorf("ISR for partition %s has shrunk below minimum size %d, currently %d",
-			s, minISR, isrSize)
-		s.belowMinISR = true
+	if !p.belowMinISR && isrSize < minISR {
+		p.srv.logger.Errorf("ISR for partition %s has shrunk below minimum size %d, currently %d",
+			p, minISR, isrSize)
+		p.belowMinISR = true
 	}
 
 	// We may need to commit messages since the ISR shrank.
-	if s.isLeading {
+	if p.isLeading {
 		select {
-		case s.commitCheck <- struct{}{}:
+		case p.commitCheck <- struct{}{}:
 		default:
 		}
 	}
@@ -966,23 +966,23 @@ func (s *partition) RemoveFromISR(replica string) error {
 
 // AddToISR adds the given replica to the in-sync replicas set. It returns an
 // error if the broker is not a partition replica.
-func (s *partition) AddToISR(rep string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.inReplicas(rep) {
+func (p *partition) AddToISR(rep string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.inReplicas(rep) {
 		return fmt.Errorf("%s not a replica", rep)
 	}
-	s.isr[rep] = &replica{offset: -1}
+	p.isr[rep] = &replica{offset: -1}
 
 	// Check if ISR recovered from being below the minimum ISR size.
 	var (
-		minISR  = s.srv.config.Clustering.MinISR
-		isrSize = len(s.isr)
+		minISR  = p.srv.config.Clustering.MinISR
+		isrSize = len(p.isr)
 	)
-	if s.belowMinISR && isrSize >= minISR {
-		s.srv.logger.Infof("ISR for partition %s has recovered from being below minimum size %d, currently %d",
-			s, minISR, isrSize)
-		s.belowMinISR = false
+	if p.belowMinISR && isrSize >= minISR {
+		p.srv.logger.Infof("ISR for partition %s has recovered from being below minimum size %d, currently %d",
+			p, minISR, isrSize)
+		p.belowMinISR = false
 	}
 
 	return nil
@@ -991,25 +991,25 @@ func (s *partition) AddToISR(rep string) error {
 // GetEpoch returns the current partition epoch. The epoch is a monotonically
 // increasing number which increases when a change is made to the partition. This
 // is used to determine if an operation is outdated.
-func (s *partition) GetEpoch() uint64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.Epoch
+func (p *partition) GetEpoch() uint64 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Epoch
 }
 
 // SetEpoch sets the current partition epoch. See GetEpoch for information on the
 // epoch's purpose.
-func (s *partition) SetEpoch(epoch uint64) {
-	s.mu.Lock()
-	s.Epoch = epoch
-	s.mu.Unlock()
+func (p *partition) SetEpoch(epoch uint64) {
+	p.mu.Lock()
+	p.Epoch = epoch
+	p.mu.Unlock()
 }
 
 // Marshal serializes the partition into a byte slice.
-func (s *partition) Marshal() []byte {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	data, err := s.Partition.Marshal()
+func (p *partition) Marshal() []byte {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	data, err := p.Partition.Marshal()
 	if err != nil {
 		panic(err)
 	}
@@ -1017,19 +1017,19 @@ func (s *partition) Marshal() []byte {
 }
 
 // ISRSize returns the current number of replicas in the in-sync replicas set.
-func (s *partition) ISRSize() int {
-	s.mu.RLock()
-	size := len(s.isr)
-	s.mu.RUnlock()
+func (p *partition) ISRSize() int {
+	p.mu.RLock()
+	size := len(p.isr)
+	p.mu.RUnlock()
 	return size
 }
 
 // GetISR returns the in-sync replicas set.
-func (s *partition) GetISR() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	isr := make([]string, 0, len(s.isr))
-	for replica := range s.isr {
+func (p *partition) GetISR() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	isr := make([]string, 0, len(p.isr))
+	for replica := range p.isr {
 		isr = append(isr, replica)
 	}
 	return isr
@@ -1037,11 +1037,11 @@ func (s *partition) GetISR() []string {
 
 // GetReplicas returns the list of all brokers which are replicas for the
 // partition.
-func (s *partition) GetReplicas() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	replicas := make([]string, 0, len(s.replicas))
-	for replica := range s.replicas {
+func (p *partition) GetReplicas() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	replicas := make([]string, 0, len(p.replicas))
+	for replica := range p.replicas {
 		replicas = append(replicas, replica)
 	}
 	return replicas
@@ -1050,10 +1050,10 @@ func (s *partition) GetReplicas() []string {
 // updateISRLatestOffset updates the given replica's latest log offset. When a
 // replica's latest log offset increases, we check to see if anything in the
 // commit queue can be committed.
-func (s *partition) updateISRLatestOffset(replica string, offset int64) {
-	s.mu.RLock()
-	rep, ok := s.isr[replica]
-	s.mu.RUnlock()
+func (p *partition) updateISRLatestOffset(replica string, offset int64) {
+	p.mu.RLock()
+	rep, ok := p.isr[replica]
+	p.mu.RUnlock()
 	if !ok {
 		// Replica is not currently in ISR.
 		return
@@ -1061,7 +1061,7 @@ func (s *partition) updateISRLatestOffset(replica string, offset int64) {
 	if rep.updateLatestOffset(offset) {
 		// If offset updated, we may need to commit messages.
 		select {
-		case s.commitCheck <- struct{}{}:
+		case p.commitCheck <- struct{}{}:
 		default:
 		}
 	}
@@ -1069,10 +1069,10 @@ func (s *partition) updateISRLatestOffset(replica string, offset int64) {
 
 // pauseReplication stops replication on the leader. This is for unit testing
 // purposes only.
-func (s *partition) pauseReplication() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.pause = true
+func (p *partition) pauseReplication() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.pause = true
 }
 
 // getSubject returns the derived NATS subject the partition should subscribe
