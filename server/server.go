@@ -631,7 +631,7 @@ func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
 		return
 	}
 
-	partition := s.metadata.GetPartition(req.Name, req.Partition)
+	partition := s.metadata.GetPartition(req.Stream, req.Partition)
 
 	resp := &proto.PartitionStatusResponse{Exists: partition != nil}
 	if partition != nil {

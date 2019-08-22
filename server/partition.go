@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"crypto/sha1"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -60,11 +59,14 @@ func (r *replica) getLatestOffset() int64 {
 	return r.offset
 }
 
+// stream is a message stream consisting of one or more partitions. Each
+// partition maps to a NATS subject and is the unit of replication.
 type stream struct {
 	*proto.Stream
 	partitions map[int32]*partition
 }
 
+// Close the stream by closing each of its partitions.
 func (s *stream) Close() error {
 	for _, partition := range s.partitions {
 		if err := partition.Close(); err != nil {
@@ -92,7 +94,6 @@ type partition struct {
 	recvChan        chan *nats.Msg     // Channel leader places received messages on
 	log             CommitLog
 	srv             *Server
-	subjectHash     string
 	isLeading       bool
 	isFollowing     bool
 	replicas        map[string]struct{}
@@ -117,10 +118,10 @@ type partition struct {
 // subject.2, etc.
 func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
 	var (
-		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Name,
+		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Stream,
 			strconv.FormatInt(int64(protoPartition.Id), 10))
-		name = fmt.Sprintf("[subject=%s, name=%s, partition=%d]",
-			protoPartition.Subject, protoPartition.Name, protoPartition.Id)
+		name = fmt.Sprintf("[subject=%s, stream=%s, partition=%d]",
+			protoPartition.Subject, protoPartition.Stream, protoPartition.Id)
 		log, err = commitlog.New(commitlog.Options{
 			Stream:               name,
 			Path:                 file,
@@ -138,10 +139,6 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create commit log")
 	}
-
-	h := sha1.New()
-	h.Write([]byte(protoPartition.Subject))
-	subjectHash := fmt.Sprintf("%x", h.Sum(nil))
 
 	replicas := make(map[string]struct{}, len(protoPartition.Replicas))
 	for _, replica := range protoPartition.Replicas {
@@ -162,7 +159,6 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 		Partition:   protoPartition,
 		log:         log,
 		srv:         s,
-		subjectHash: subjectHash,
 		replicas:    replicas,
 		isr:         isr,
 		commitCheck: make(chan struct{}, len(protoPartition.Replicas)),
@@ -174,7 +170,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 
 // String returns a human-readable string representation of the partition.
 func (s *partition) String() string {
-	return fmt.Sprintf("[subject=%s, name=%s, partition=%d]", s.Subject, s.Name, s.Id)
+	return fmt.Sprintf("[subject=%s, stream=%s, partition=%d]", s.Subject, s.Stream, s.Id)
 }
 
 // Close stops the partition if it is running and closes the commit log.
@@ -521,15 +517,15 @@ func (s *partition) handleReplicationResponse(msg *nats.Msg) int {
 // getReplicationRequestInbox returns the NATS subject to send replication
 // requests to.
 func (s *partition) getReplicationRequestInbox() string {
-	return fmt.Sprintf("%s.%s.%s.replicate",
-		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
+	return fmt.Sprintf("%s.%s.%d.replicate",
+		s.srv.config.Clustering.Namespace, s.Stream, s.Id)
 }
 
 // getLeaderOffsetRequestInbox returns the NATS subject to send leader epoch
 // offset requests to.
 func (s *partition) getLeaderOffsetRequestInbox() string {
-	return fmt.Sprintf("%s.%s.%s.offset",
-		s.srv.config.Clustering.Namespace, s.subjectHash, s.Name)
+	return fmt.Sprintf("%s.%s.%d.offset",
+		s.srv.config.Clustering.Namespace, s.Stream, s.Id)
 }
 
 // messageProcessingLoop is a long-running loop that processes messages
@@ -612,13 +608,13 @@ func (s *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 // queue and committed when the entire ISR has replicated them.
 func (s *partition) processPendingMessage(offset int64, msg *proto.Message) {
 	ack := &client.Ack{
-		StreamSubject: s.Subject,
-		StreamName:    s.Name,
-		MsgSubject:    string(msg.Headers["subject"]),
-		Offset:        offset,
-		AckInbox:      msg.AckInbox,
-		CorrelationId: msg.CorrelationID,
-		AckPolicy:     msg.AckPolicy,
+		Stream:           s.Stream,
+		PartitionSubject: s.Subject,
+		MsgSubject:       string(msg.Headers["subject"]),
+		Offset:           offset,
+		AckInbox:         msg.AckInbox,
+		CorrelationId:    msg.CorrelationID,
+		AckPolicy:        msg.AckPolicy,
 	}
 	if msg.AckPolicy == client.AckPolicy_LEADER {
 		// Send the ack now since AckPolicy_LEADER means we ack as soon as the
@@ -800,7 +796,7 @@ func (s *partition) checkLeaderHealth(leader string, epoch uint64, leaderLastSee
 			"(last seen: %s), reporting leader to controller",
 			leader, s, lastSeenElapsed)
 		req := &proto.ReportLeaderOp{
-			Name:        s.Name,
+			Stream:      s.Stream,
 			Replica:     s.srv.config.Clustering.ServerID,
 			Leader:      leader,
 			LeaderEpoch: epoch,

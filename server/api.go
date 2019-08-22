@@ -42,7 +42,7 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
 			Partition: &proto.Partition{
 				Subject:           req.Subject,
-				Name:              req.Name,
+				Stream:            req.Name,
 				Group:             req.Group,
 				ReplicationFactor: req.ReplicationFactor,
 				Id:                i,

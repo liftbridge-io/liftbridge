@@ -27,7 +27,7 @@ message CreatePartitionOp {
 }
 
 message ShrinkISROp {
-    string name            = 1;
+    string stream          = 1;
     int32  partition       = 2;
     string replicaToRemove = 3;
     string leader          = 4;
@@ -35,7 +35,7 @@ message ShrinkISROp {
 }
 
 message ExpandISROp {
-    string name         = 1;
+    string stream       = 1;
     int32  partition    = 2;
     string replicaToAdd = 3;
     string leader       = 4;
@@ -43,7 +43,7 @@ message ExpandISROp {
 }
 
 message ReportLeaderOp {
-    string name        = 1;
+    string stream      = 1;
     int32  partition   = 2;
     string replica     = 3;
     string leader      = 4;
@@ -51,14 +51,14 @@ message ReportLeaderOp {
 }
 
 message ChangeLeaderOp {
-    string name      = 1;
+    string stream    = 1;
     int32  partition = 2;
     string leader    = 3;
 }
 
 message Partition {
     string          subject           = 1;
-    string          name              = 2;
+    string          stream            = 2;
     int32           id                = 3;
     string          group             = 4;
     int32           replicationFactor = 5;
@@ -137,7 +137,7 @@ message ServerInfoResponse {
 }
 
 message PartitionStatusRequest {
-    string name      = 1;
+    string stream    = 1;
     int32  partition = 2;
 }
 

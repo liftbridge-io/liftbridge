@@ -53,7 +53,7 @@ func TestPartitionCommitLoopCommitNoAck(t *testing.T) {
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
@@ -121,7 +121,7 @@ func TestPartitionCommitLoopCommitAck(t *testing.T) {
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
@@ -188,7 +188,7 @@ func TestPartitionCommitLoopEmptyQueue(t *testing.T) {
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
@@ -251,7 +251,7 @@ func TestPartitionCommitLoopDisposedQueue(t *testing.T) {
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
@@ -312,7 +312,7 @@ func TestPartitionCommitLoopNoCommitBelowMinISR(t *testing.T) {
 	server.config.Clustering.MinISR = 2
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
@@ -363,7 +363,7 @@ func TestPartitionRemoveFromISRNotReplica(t *testing.T) {
 	server := createServer(false)
 	p, err := server.newPartition(&proto.Partition{
 		Subject: "foo",
-		Name:    "foo",
+		Stream:  "foo",
 	}, false)
 	require.NoError(t, err)
 	defer p.Close()
@@ -377,7 +377,7 @@ func TestPartitionRemoveFromISRFollower(t *testing.T) {
 	server := createServer(false)
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b", "c"},
@@ -404,7 +404,7 @@ func TestPartitionRemoveFromISRLeader(t *testing.T) {
 	server := createServer(false)
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "a",
 		Isr:      []string{"a", "b", "c"},
@@ -435,7 +435,7 @@ func TestPartitionRemoveFromISRBelowMin(t *testing.T) {
 	server.config.Clustering.MinISR = 3
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b", "c"},
@@ -454,7 +454,7 @@ func TestPartitionAddToISRNotReplica(t *testing.T) {
 	server := createServer(false)
 	p, err := server.newPartition(&proto.Partition{
 		Subject: "foo",
-		Name:    "foo",
+		Stream:  "foo",
 	}, false)
 	require.NoError(t, err)
 	defer p.Close()
@@ -467,7 +467,7 @@ func TestPartitionAddToISR(t *testing.T) {
 	server := createServer(false)
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b"},
@@ -490,7 +490,7 @@ func TestPartitionAddToISRRecoverMin(t *testing.T) {
 	server.config.Clustering.MinISR = 3
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
-		Name:     "foo",
+		Stream:   "foo",
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b"},
