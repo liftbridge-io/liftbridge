@@ -51,7 +51,7 @@ func (l *leaderReport) addWitness(replica string) *status.Status {
 	var (
 		// Subtract 1 to exclude leader.
 		isrSize      = l.partition.ISRSize() - 1
-		leaderFailed = len(l.witnessReplicas) >= isrSize/2+1
+		leaderFailed = len(l.witnessReplicas) > isrSize/2
 	)
 
 	if leaderFailed {
