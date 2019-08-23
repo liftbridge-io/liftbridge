@@ -133,7 +133,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	// Make sure we can play back the log.
 	i := 0
 	ch := make(chan struct{})
-	err = client.Subscribe(context.Background(), subject, name,
+	err = client.Subscribe(context.Background(), name,
 		func(msg *proto.Message, err error) {
 			if i == num && err != nil {
 				return
@@ -174,7 +174,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	// Make sure the new leader's log is consistent.
 	i = 0
 	ch = make(chan struct{})
-	err = client.Subscribe(context.Background(), subject, name,
+	err = client.Subscribe(context.Background(), name,
 		func(msg *proto.Message, err error) {
 			if i == num && err != nil {
 				return
@@ -427,7 +427,7 @@ func TestCommitOnRestart(t *testing.T) {
 	// Ensure all messages have been committed by reading them back.
 	i := 0
 	ch := make(chan struct{})
-	err = client.Subscribe(context.Background(), subject, name,
+	err = client.Subscribe(context.Background(), name,
 		func(msg *proto.Message, err error) {
 			if i == num*2 && err != nil {
 				return

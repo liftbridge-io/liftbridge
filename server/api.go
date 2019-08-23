@@ -66,16 +66,16 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 // messages when it reaches the end of the partition. Use the request context
 // to close the subscription.
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
-	partition := a.metadata.GetPartition(req.Name, req.Partition)
+	partition := a.metadata.GetPartition(req.Stream, req.Partition)
 	if partition == nil {
 		a.logger.Errorf("api: Failed to subscribe to partition "+
-			"[subject=%s, name=%s, partition=%d]: no such partition",
-			req.Subject, req.Name, req.Partition)
+			"[stream=%s, partition=%d]: no such partition",
+			req.Stream, req.Partition)
 		return status.Error(codes.NotFound, "No such partition")
 	}
 
-	a.logger.Debugf("api: Subscribe [name=%s, subject=%s, partition=%d, start=%s, offset=%d, timestamp=%d]",
-		req.Name, partition.Subject, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp)
+	a.logger.Debugf("api: Subscribe [stream=%s, partition=%d, start=%s, offset=%d, timestamp=%d]",
+		req.Stream, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp)
 
 	leader, _ := partition.GetLeader()
 	if leader != a.config.Clustering.ServerID {

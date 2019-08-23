@@ -171,10 +171,8 @@ func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	defer conn.Close()
 	apiClient := proto.NewAPIClient(conn)
 
-	stream, err := apiClient.Subscribe(context.Background(), &proto.SubscribeRequest{
-		Subject: "foo",
-		Name:    "foo",
-	})
+	stream, err := apiClient.Subscribe(context.Background(),
+		&proto.SubscribeRequest{Stream: "foo"})
 	require.NoError(t, err)
 	_, err = stream.Recv()
 	require.Error(t, err)
@@ -232,10 +230,7 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	apiClient := proto.NewAPIClient(conn)
 
 	// Subscribe on the follower.
-	stream, err := apiClient.Subscribe(context.Background(), &proto.SubscribeRequest{
-		Subject: subject,
-		Name:    name,
-	})
+	stream, err := apiClient.Subscribe(context.Background(), &proto.SubscribeRequest{Stream: name})
 	require.NoError(t, err)
 	_, err = stream.Recv()
 	require.Error(t, err)
@@ -278,7 +273,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	i := 0
 	ch1 := make(chan struct{})
 	ch2 := make(chan struct{})
-	err = client.Subscribe(context.Background(), subject, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(context.Background(), name, func(msg *proto.Message, err error) {
 		if i == num+5 && err != nil {
 			return
 		}
@@ -336,7 +331,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	defer client2.Close()
 	i = num
 	ch1 = make(chan struct{})
-	err = client2.Subscribe(context.Background(), subject, name,
+	err = client2.Subscribe(context.Background(), name,
 		func(msg *proto.Message, err error) {
 			if i == num+5 && err != nil {
 				return
