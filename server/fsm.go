@@ -183,14 +183,15 @@ func (s *Server) startedRecovery() {
 }
 
 // finishedRecovery should be called when the FSM has finished replaying any
-// unapplied log entries. This will start any streams recovered during the
-// replay.
+// unapplied log entries. This will start any stream partitions recovered
+// during the replay. It returns the number of streams which had partitions
+// that were recovered.
 func (s *Server) finishedRecovery() (int, error) {
 	// If LogRecovery is disabled, we need to restore the previous log output.
 	if !s.config.LogRecovery {
 		s.logger.SetWriter(s.loggerOut)
 	}
-	count := 0
+	recoveredStreams := make(map[string]struct{})
 	for _, stream := range s.metadata.GetStreams() {
 		for _, partition := range stream.partitions {
 			recovered, err := partition.StartRecovered()
@@ -198,11 +199,11 @@ func (s *Server) finishedRecovery() (int, error) {
 				return 0, err
 			}
 			if recovered {
-				count++
+				recoveredStreams[stream.Name] = struct{}{}
 			}
 		}
 	}
-	return count, nil
+	return len(recoveredStreams), nil
 }
 
 // fsmSnapshot is returned by an FSM in response to a Snapshot. It must be safe
