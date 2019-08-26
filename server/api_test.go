@@ -151,6 +151,34 @@ func TestCreateStreamInsufficientReplicas(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Ensure when a partitioned stream is created the correct number of partitions
+// are made.
+func TestCreateStreamPartitioned(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
+	require.NoError(t, err)
+
+	stream := s1.metadata.GetStream("foo")
+	require.NotNil(t, stream)
+	require.Len(t, stream.partitions, 3)
+}
+
 // Ensure subscribing to a non-existent stream returns an error.
 func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
