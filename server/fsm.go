@@ -290,17 +290,17 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 	if err := s.metadata.Reset(); err != nil {
 		return err
 	}
-	count := 0
+	recoveredStreams := make(map[string]struct{})
 	for _, stream := range snap.Streams {
 		for _, partition := range stream.Partitions {
 			if err := s.applyCreatePartition(partition, false); err != nil {
 				return err
 			}
-			count++
+			recoveredStreams[stream.Name] = struct{}{}
 		}
 	}
 	s.logger.Debugf("fsm: Finished restoring Raft state from snapshot, recovered %s",
-		english.Plural(count, "partition", ""))
+		english.Plural(len(recoveredStreams), "stream", ""))
 	return nil
 }
 
