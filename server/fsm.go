@@ -199,7 +199,7 @@ func (s *Server) finishedRecovery() (int, error) {
 				return 0, err
 			}
 			if recovered {
-				recoveredStreams[stream.Name] = struct{}{}
+				recoveredStreams[stream.name] = struct{}{}
 			}
 		}
 	}
@@ -254,13 +254,15 @@ func (f *fsmSnapshot) Release() {}
 // happening.
 func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 	var (
-		streams = s.metadata.GetStreams()
-		protos  = make([]*proto.Stream, len(streams))
+		streams    = s.metadata.GetStreams()
+		partitions = make([]*proto.Partition, 0, len(streams))
 	)
-	for i, stream := range streams {
-		protos[i] = stream.Stream
+	for _, stream := range streams {
+		for _, partition := range stream.partitions {
+			partitions = append(partitions, partition.Partition)
+		}
 	}
-	return &fsmSnapshot{&proto.MetadataSnapshot{Streams: protos}}, nil
+	return &fsmSnapshot{&proto.MetadataSnapshot{Partitions: partitions}}, nil
 }
 
 // Restore is used to restore an FSM from a snapshot. It is not called
@@ -291,13 +293,11 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 		return err
 	}
 	recoveredStreams := make(map[string]struct{})
-	for _, stream := range snap.Streams {
-		for _, partition := range stream.Partitions {
-			if err := s.applyCreatePartition(partition, false); err != nil {
-				return err
-			}
-			recoveredStreams[stream.Name] = struct{}{}
+	for _, partition := range snap.Partitions {
+		if err := s.applyCreatePartition(partition, false); err != nil {
+			return err
 		}
+		recoveredStreams[partition.Stream] = struct{}{}
 	}
 	s.logger.Debugf("fsm: Finished restoring Raft state from snapshot, recovered %s",
 		english.Plural(len(recoveredStreams), "stream", ""))

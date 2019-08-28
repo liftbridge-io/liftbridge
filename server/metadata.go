@@ -83,71 +83,11 @@ func (l *leaderReport) cancel() {
 	}
 }
 
-type streamIndex struct {
-	streamsBySubjectName map[string]map[string]*stream
-	streamsByName        map[string]*stream
-}
-
-func newStreamIndex() *streamIndex {
-	return &streamIndex{
-		streamsBySubjectName: make(map[string]map[string]*stream),
-		streamsByName:        make(map[string]*stream),
-	}
-}
-
-func (s *streamIndex) getStream(name string) *stream {
-	return s.streamsByName[name]
-}
-
-func (s *streamIndex) getPartition(stream string, id int32) *partition {
-	st, ok := s.streamsByName[stream]
-	if !ok {
-		return nil
-	}
-	return st.partitions[id]
-}
-
-func (s *streamIndex) addPartition(protoPartition *proto.Partition, recovered bool,
-	newPartition func(*proto.Partition, bool) (*partition, error)) (*partition, error) {
-
-	subjectStreams, ok := s.streamsBySubjectName[protoPartition.Subject]
-	if !ok {
-		subjectStreams = make(map[string]*stream)
-		s.streamsBySubjectName[protoPartition.Subject] = subjectStreams
-	}
-	st, ok := subjectStreams[protoPartition.Stream]
-	if !ok {
-		st = &stream{
-			Stream: &proto.Stream{
-				Name:       protoPartition.Stream,
-				Subject:    protoPartition.Subject,
-				Partitions: make(map[int32]*proto.Partition),
-			},
-			partitions: make(map[int32]*partition),
-		}
-		subjectStreams[protoPartition.Stream] = st
-		// Make sure the stream is also indexed by name.
-		s.streamsByName[protoPartition.Stream] = st
-	}
-	if _, ok := st.partitions[protoPartition.Id]; ok {
-		// Partition already exists for stream.
-		return nil, ErrPartitionExists
-	}
-
-	// This will initialize/recover the durable commit log.
-	partition, err := newPartition(protoPartition, recovered)
-	if err != nil {
-		return nil, err
-	}
-	st.partitions[protoPartition.Id] = partition
-	return partition, nil
-}
-
 // metadataAPI is the internal API for interacting with cluster data. All
 // stream access should go through the exported methods of the metadataAPI.
 type metadataAPI struct {
 	*Server
-	streams         *streamIndex
+	streams         map[string]*stream
 	mu              sync.RWMutex
 	leaderReports   map[*partition]*leaderReport
 	cachedBrokers   []*client.Broker
@@ -158,7 +98,7 @@ type metadataAPI struct {
 func newMetadataAPI(s *Server) *metadataAPI {
 	return &metadataAPI{
 		Server:        s,
-		streams:       newStreamIndex(),
+		streams:       make(map[string]*stream),
 		leaderReports: make(map[*partition]*leaderReport),
 	}
 }
@@ -293,8 +233,8 @@ func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor)
 	if len(streams) == 0 {
 		for _, stream := range m.GetStreams() {
 			streams = append(streams, &client.StreamDescriptor{
-				Subject: stream.Subject,
-				Name:    stream.Name,
+				Subject: stream.subject,
+				Name:    stream.name,
 			})
 		}
 	}
@@ -512,7 +452,7 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 func (m *metadataAPI) AddPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	partition, err := m.streams.addPartition(protoPartition, recovered, m.newPartition)
+	partition, err := m.addPartition(protoPartition, recovered, m.newPartition)
 	if err != nil {
 		return nil, err
 	}
@@ -521,6 +461,32 @@ func (m *metadataAPI) AddPartition(protoPartition *proto.Partition, recovered bo
 	leader, epoch := partition.GetLeader()
 	err = partition.SetLeader(leader, epoch)
 	return partition, err
+}
+
+func (m *metadataAPI) addPartition(protoPartition *proto.Partition, recovered bool,
+	newPartition func(*proto.Partition, bool) (*partition, error)) (*partition, error) {
+
+	st, ok := m.streams[protoPartition.Stream]
+	if !ok {
+		st = &stream{
+			name:       protoPartition.Stream,
+			subject:    protoPartition.Subject,
+			partitions: make(map[int32]*partition),
+		}
+		m.streams[protoPartition.Stream] = st
+	}
+	if _, ok := st.partitions[protoPartition.Id]; ok {
+		// Partition already exists for stream.
+		return nil, ErrPartitionExists
+	}
+
+	// This will initialize/recover the durable commit log.
+	partition, err := newPartition(protoPartition, recovered)
+	if err != nil {
+		return nil, err
+	}
+	st.partitions[protoPartition.Id] = partition
+	return partition, nil
 }
 
 // GetStreams returns all streams from the metadata store.
@@ -535,15 +501,19 @@ func (m *metadataAPI) GetStreams() []*stream {
 func (m *metadataAPI) GetStream(name string) *stream {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.streams.getStream(name)
+	return m.streams[name]
 }
 
 // GetPartition returns the stream partition for the given stream and partition
 // ID. It returns nil if no such partition exists.
-func (m *metadataAPI) GetPartition(stream string, id int32) *partition {
+func (m *metadataAPI) GetPartition(streamName string, id int32) *partition {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.streams.getPartition(stream, id)
+	stream, ok := m.streams[streamName]
+	if !ok {
+		return nil
+	}
+	return stream.partitions[id]
 }
 
 // Reset closes all streams and clears all existing state in the metadata
@@ -556,7 +526,7 @@ func (m *metadataAPI) Reset() error {
 			return err
 		}
 	}
-	m.streams = newStreamIndex()
+	m.streams = make(map[string]*stream)
 	for _, report := range m.leaderReports {
 		report.cancel()
 	}
@@ -575,8 +545,8 @@ func (m *metadataAPI) LostLeadership() {
 }
 
 func (m *metadataAPI) getStreams() []*stream {
-	streams := make([]*stream, 0, len(m.streams.streamsByName))
-	for _, stream := range m.streams.streamsByName {
+	streams := make([]*stream, 0, len(m.streams))
+	for _, stream := range m.streams {
 		streams = append(streams, stream)
 	}
 	return streams

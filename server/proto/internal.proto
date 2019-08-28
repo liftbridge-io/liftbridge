@@ -80,14 +80,8 @@ message RaftJoinResponse {
     string error = 1; // Error string, omitted if no error. 
 }
 
-message Stream {
-    string                name       = 1;
-    string                subject    = 2;
-    map<int32, Partition> partitions = 3;
-}
-
 message MetadataSnapshot {
-    repeated Stream streams = 1;
+    repeated Partition partitions = 1;
 }
 
 message ReplicationRequest {

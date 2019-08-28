@@ -62,7 +62,8 @@ func (r *replica) getLatestOffset() int64 {
 // stream is a message stream consisting of one or more partitions. Each
 // partition maps to a NATS subject and is the unit of replication.
 type stream struct {
-	*proto.Stream
+	name       string
+	subject    string
 	partitions map[int32]*partition
 }
 
