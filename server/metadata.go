@@ -228,26 +228,23 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 // stream metadata. If the provided list of StreamDescriptors is empty, it will
 // populate metadata for all streams. Otherwise, it populates only the
 // specified streams.
-func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor) *client.FetchMetadataResponse {
-	// If no descriptors were provided, fetch metadata for all streams.
+func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMetadataResponse {
+	// If no stream names were provided, fetch metadata for all streams.
 	if len(streams) == 0 {
 		for _, stream := range m.GetStreams() {
-			streams = append(streams, &client.StreamDescriptor{
-				Subject: stream.subject,
-				Name:    stream.name,
-			})
+			streams = append(streams, stream.name)
 		}
 	}
 
 	metadata := make([]*client.StreamMetadata, len(streams))
 
-	for i, descriptor := range streams {
-		stream := m.GetStream(descriptor.Name)
+	for i, name := range streams {
+		stream := m.GetStream(name)
 		if stream == nil {
 			// Stream does not exist.
 			metadata[i] = &client.StreamMetadata{
-				Stream: descriptor,
-				Error:  client.StreamMetadata_UNKNOWN_STREAM,
+				Name:  name,
+				Error: client.StreamMetadata_UNKNOWN_STREAM,
 			}
 		} else {
 			partitions := make(map[int32]*client.PartitionMetadata)
@@ -261,7 +258,8 @@ func (m *metadataAPI) createMetadataResponse(streams []*client.StreamDescriptor)
 				}
 			}
 			metadata[i] = &client.StreamMetadata{
-				Stream:     descriptor,
+				Name:       name,
+				Subject:    stream.subject,
 				Partitions: partitions,
 			}
 		}
