@@ -7,6 +7,11 @@ write-ahead log. Multiple consumers can read back from the same stream, and
 multiple streams can be attached to the same subject. Liftbridge provides a
 Kafka-like API in front of NATS.
 
+Liftbridge streams are partitioned for horizontal scalability. By default,
+streams have a single partition. Each partition maps to a separate NATS
+subject derived from the stream subject. Each has a leader and is replicated
+to some set of followers for fault-tolerance.
+
 NATS is a lightweight, high-performance pub/sub messaging system. It differs
 from traditional messaging middleware in that it does not provide queuing or
 message durability. Instead, NATS is a fire-and-forget system with at-most-once
