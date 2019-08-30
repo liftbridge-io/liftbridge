@@ -34,19 +34,19 @@ type leaderEpochCache struct {
 	epochOffsets   []*epochOffset
 	mu             sync.RWMutex
 	checkpointFile string
-	stream         string
+	name           string
 	log            logger.Logger
 }
 
-func newLeaderEpochCacheNoFile(stream string, log logger.Logger) *leaderEpochCache {
+func newLeaderEpochCacheNoFile(name string, log logger.Logger) *leaderEpochCache {
 	return &leaderEpochCache{
 		epochOffsets: []*epochOffset{},
 		log:          log,
-		stream:       stream,
+		name:         name,
 	}
 }
 
-func newLeaderEpochCache(stream, path string, log logger.Logger) (*leaderEpochCache, error) {
+func newLeaderEpochCache(name, path string, log logger.Logger) (*leaderEpochCache, error) {
 	var (
 		file   = filepath.Join(path, leaderEpochFileName)
 		epochs = []*epochOffset{}
@@ -66,7 +66,7 @@ func newLeaderEpochCache(stream, path string, log logger.Logger) (*leaderEpochCa
 		epochOffsets:   epochs,
 		checkpointFile: file,
 		log:            log,
-		stream:         stream,
+		name:           name,
 	}, nil
 }
 
@@ -117,8 +117,8 @@ func (l *leaderEpochCache) ClearLatest(offset int64) error {
 	err := l.flush()
 	if err == nil {
 		l.log.Debugf("Removed latest %s from leader epoch cache based on passed offset %d "+
-			"leaving %d in epoch file for stream %s",
-			english.Plural(removed, "entry", ""), offset, len(l.epochOffsets), l.stream)
+			"leaving %d in epoch file for log %s",
+			english.Plural(removed, "entry", ""), offset, len(l.epochOffsets), l.name)
 	}
 	return pkgErrors.Wrap(err, "failed to flush epoch offsets")
 }
@@ -158,8 +158,8 @@ func (l *leaderEpochCache) ClearEarliest(offset int64) error {
 	err := l.flush()
 	if err == nil {
 		l.log.Debugf("Removed earliest %s from leader epoch cache based on passed offset %d "+
-			"leaving %d in epoch file for stream %s",
-			english.Plural(removed, "entry", ""), offset, len(l.epochOffsets), l.stream)
+			"leaving %d in epoch file for log %s",
+			english.Plural(removed, "entry", ""), offset, len(l.epochOffsets), l.name)
 	}
 	return pkgErrors.Wrap(err, "failed to flush epoch offsets")
 }
@@ -241,7 +241,7 @@ func (l *leaderEpochCache) assign(epoch uint64, offset int64) error {
 		if err := l.flush(); err != nil {
 			return pkgErrors.Wrap(err, "failed to flush epoch offsets")
 		}
-		l.log.Debugf("Updated stream leader epoch. %s. Cache now contains %s.",
+		l.log.Debugf("Updated log leader epoch. %s. Cache now contains %s.",
 			l.epochChangeMsg(epoch, latestEpoch, offset, latestOffset),
 			english.Plural(len(l.epochOffsets), "entry", ""))
 	} else {
@@ -279,19 +279,19 @@ func (l *leaderEpochCache) flush() error {
 
 func (l *leaderEpochCache) warn(epoch, latestEpoch uint64, offset, latestOffset int64) {
 	if epoch < l.latestEpoch() {
-		l.log.Warnf("Received stream leader epoch assignment for an epoch < latest epoch. "+
+		l.log.Warnf("Received log leader epoch assignment for an epoch < latest epoch. "+
 			"This implies messages have arrived out of order. %s",
 			l.epochChangeMsg(epoch, latestEpoch, offset, latestOffset))
 	} else if offset < l.latestOffset() {
-		l.log.Warnf("Received stream leader epoch assignment for an offset < latest offset "+
+		l.log.Warnf("Received log leader epoch assignment for an offset < latest offset "+
 			"for the most recently stored leader epoch. This implies messages have arrived out of order. %s",
 			l.epochChangeMsg(epoch, latestEpoch, offset, latestOffset))
 	}
 }
 
 func (l *leaderEpochCache) epochChangeMsg(newEpoch, lastEpoch uint64, newOffset, lastOffset int64) string {
-	return fmt.Sprintf("New: {epoch:%d, offset:%d}, Previous: {epoch:%d, offset:%d} for stream %s",
-		newEpoch, newOffset, lastEpoch, lastOffset, l.stream)
+	return fmt.Sprintf("New: {epoch:%d, offset:%d}, Previous: {epoch:%d, offset:%d} for log %s",
+		newEpoch, newOffset, lastEpoch, lastOffset, l.name)
 }
 
 // readLeaderEpochOffsets reads the contents of the leader epoch checkpoint

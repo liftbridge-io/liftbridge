@@ -106,7 +106,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 		name = fmt.Sprintf("[subject=%s, stream=%s, partition=%d]",
 			protoPartition.Subject, protoPartition.Stream, protoPartition.Id)
 		log, err = commitlog.New(commitlog.Options{
-			Stream:               name,
+			Name:                 name,
 			Path:                 file,
 			MaxSegmentBytes:      s.config.Log.SegmentMaxBytes,
 			MaxLogBytes:          s.config.Log.RetentionMaxBytes,
