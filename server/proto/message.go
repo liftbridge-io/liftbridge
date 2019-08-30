@@ -1,6 +1,6 @@
 package proto
 
-import client "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
+import client "github.com/liftbridge-io/liftbridge-grpc/go"
 
 type Message struct {
 	Crc        int32
