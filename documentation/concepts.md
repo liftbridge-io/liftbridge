@@ -93,7 +93,7 @@ act as read replicas for further scale out.
 The diagram below shows a cluster of three servers with a set of streams.
 Partitions in yellow indicate the server is the leader for the partition.
 
-![streams](./images/streams.png)
+![cluster](./images/cluster.png)
 
 ### In-Sync Replica Set (ISR)
 
