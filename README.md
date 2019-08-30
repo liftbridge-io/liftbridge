@@ -46,7 +46,8 @@ Liftbridge is a server that implements a durable, replicated message log for
 which is attached to a NATS subject. The stream then records messages on that
 subject to a replicated write-ahead log. Multiple consumers can read back
 from the same stream, and multiple streams can be attached to the same
-subject. Liftbridge provides a Kafka-like API in front of NATS.
+subject. Liftbridge provides a Kafka-like API in front of NATS. See the
+Liftbridge [overview](overview.md) for more information.
 
 ### Why was it created?
 
