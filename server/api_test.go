@@ -7,7 +7,7 @@ import (
 	"time"
 
 	lift "github.com/liftbridge-io/go-liftbridge"
-	"github.com/liftbridge-io/go-liftbridge/liftbridge-grpc"
+	"github.com/liftbridge-io/liftbridge-grpc/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
@@ -151,6 +151,34 @@ func TestCreateStreamInsufficientReplicas(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Ensure when a partitioned stream is created the correct number of partitions
+// are made.
+func TestCreateStreamPartitioned(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
+	require.NoError(t, err)
+
+	stream := s1.metadata.GetStream("foo")
+	require.NotNil(t, stream)
+	require.Len(t, stream.partitions, 3)
+}
+
 // Ensure subscribing to a non-existent stream returns an error.
 func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
@@ -171,14 +199,12 @@ func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	defer conn.Close()
 	apiClient := proto.NewAPIClient(conn)
 
-	stream, err := apiClient.Subscribe(context.Background(), &proto.SubscribeRequest{
-		Subject: "foo",
-		Name:    "foo",
-	})
+	stream, err := apiClient.Subscribe(context.Background(),
+		&proto.SubscribeRequest{Stream: "foo"})
 	require.NoError(t, err)
 	_, err = stream.Recv()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "No such stream")
+	require.Contains(t, err.Error(), "No such partition")
 }
 
 // Ensure sending a subscribe request to a server that is not the stream leader
@@ -216,10 +242,10 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	require.NoError(t, client.Close())
 
 	// Wait for both nodes to create stream.
-	waitForStream(t, 5*time.Second, subject, name, s1, s2)
+	waitForPartition(t, 5*time.Second, name, 0, s1, s2)
 
 	// Connect to the server that is the stream follower.
-	leader := getStreamLeader(t, 10*time.Second, subject, name, s1, s2)
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, s1, s2)
 	var followerConfig *Config
 	if leader == s1 {
 		followerConfig = s2Config
@@ -232,14 +258,11 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	apiClient := proto.NewAPIClient(conn)
 
 	// Subscribe on the follower.
-	stream, err := apiClient.Subscribe(context.Background(), &proto.SubscribeRequest{
-		Subject: subject,
-		Name:    name,
-	})
+	stream, err := apiClient.Subscribe(context.Background(), &proto.SubscribeRequest{Stream: name})
 	require.NoError(t, err)
 	_, err = stream.Recv()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "Server not stream leader")
+	require.Contains(t, err.Error(), "Server not partition leader")
 }
 
 // Ensure publishing and receiving messages on a stream works.
@@ -278,7 +301,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	i := 0
 	ch1 := make(chan struct{})
 	ch2 := make(chan struct{})
-	err = client.Subscribe(context.Background(), subject, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(context.Background(), name, func(msg *proto.Message, err error) {
 		if i == num+5 && err != nil {
 			return
 		}
@@ -336,7 +359,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	defer client2.Close()
 	i = num
 	ch1 = make(chan struct{})
-	err = client2.Subscribe(context.Background(), subject, name,
+	err = client2.Subscribe(context.Background(), name,
 		func(msg *proto.Message, err error) {
 			if i == num+5 && err != nil {
 				return

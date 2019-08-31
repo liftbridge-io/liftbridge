@@ -6,22 +6,17 @@ out that these characteristics are often at odds with each other.
 
 ## Replication Factor
 
-The replication factor of a stream controls the number of nodes the stream
-should be replicated to for redundancy. This value is set by the client when
-creating a stream. The default replication factor is 1.
+The replication factor of a stream controls the number of nodes the stream's
+partitions should be replicated to for redundancy. This value is set by the
+client when creating a stream. The default replication factor is 1.
 
 For high availability and durability of data, it is recommended to use a
 replication factor of at least 3.
 
 ```go
 // Create a stream with a replication factor of 3.
-stream := liftbridge.StreamInfo{
-    Subject:           "foo",
-    Name:              "foo-stream",
-    ReplicationFactor: 3,
-}
-if err := client.CreateStream(context.Background(), stream); err != nil {
-    if err != liftbridge.ErrStreamExists {
+if err := client.CreateStream(context.Background(), "foo", "foo-stream", lift.ReplicationFactor(3)); err != nil {
+    if err != lift.ErrStreamExists {
         panic(err)
     }
 }

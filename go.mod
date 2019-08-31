@@ -9,7 +9,8 @@ require (
 	github.com/hako/durafmt v0.0.0-20190612201238-650ed9f29a84
 	github.com/hashicorp/raft v1.1.0
 	github.com/hashicorp/raft-boltdb v0.0.0-20190605210249-ef2e128ed477
-	github.com/liftbridge-io/go-liftbridge v0.0.0-20190703015712-9f8cb1ad3118
+	github.com/liftbridge-io/go-liftbridge v0.0.0-20190829224842-741ea51bbb75
+	github.com/liftbridge-io/liftbridge-grpc v0.0.0-20190829220806-66e3ee4b7943
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20190703144237-760cefbfc85e
 	github.com/natefinch/atomic v0.0.0-20150920032501-a62ce929ffcc
 	github.com/nats-io/nats-server/v2 v2.0.0
@@ -22,4 +23,5 @@ require (
 	github.com/urfave/cli v1.20.0
 	golang.org/x/net v0.0.0-20190628185345-da137c7871d7
 	google.golang.org/grpc v1.22.0
+	launchpad.net/gocheck v0.0.0-20140225173054-000000000087 // indirect
 )

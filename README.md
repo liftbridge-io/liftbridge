@@ -46,7 +46,8 @@ Liftbridge is a server that implements a durable, replicated message log for
 which is attached to a NATS subject. The stream then records messages on that
 subject to a replicated write-ahead log. Multiple consumers can read back
 from the same stream, and multiple streams can be attached to the same
-subject. Liftbridge provides a Kafka-like API in front of NATS.
+subject. Liftbridge provides a Kafka-like API in front of NATS. See the
+Liftbridge [overview](./documentation/overview.md) for more information.
 
 ### Why was it created?
 
@@ -79,29 +80,37 @@ The key features that differentiate Liftbridge are the shared message namespace,
 wildcards, log compaction, and horizontal scalability. NATS Streaming replicates
 channels to the entire cluster through a single Raft group. Liftbridge allows
 replicating to a subset of the cluster, and each stream is replicated
-independently. This allows the cluster to scale horizontally.
+independently. This allows the cluster to scale horizontally. NATS Streaming
+also does not support channel partitioning, requiring it to be implemented at
+the application layer. Liftbridge has built-in support for stream partitioning.
 
 ### How does it scale?
 
-Liftbridge scales horizontally by adding more brokers to the cluster and
-creating more streams which are distributed among the cluster. In effect, this
-splits out message routing from storage and consumption, which allows
-Liftbridge to scale independently and eschew subject partitioning.
-Alternatively, streams can join a load-balance group, which effectively load
-balances a NATS subject among the streams in the group without affecting
-delivery to other streams.
+Liftbridge has several mechanisms for horizontal scaling of message consumption.
+Brokers can be added to the cluster and additional streams can be created which
+are then distributed among the cluster. In effect, this splits out message
+routing from storage and consumption, which allows Liftbridge to scale
+independently and eschew subject partitioning.
+
+Streams can also join a load-balance group, which effectively load balances a
+NATS subject among the streams in the group without affecting delivery to
+other streams.
+
+Finally, streams can be partitioned, allowing messages to be divided up among
+the brokers in a cluster. In fact, all streams are partitioned with the default
+case being a single partition.
 
 ### What about HA?
 
 High availability is achieved by replicating the streams. When a stream is
 created, the client specifies a `replicationFactor`, which determines the
-number of brokers to replicate the stream. Each stream has a leader who is
-responsible for handling reads and writes. Followers then replicate the log
-from the leader. If the leader fails, one of the followers can set up to
-replace it. The replication protocol closely resembles that of Kafka, so there
-is much more nuance to avoid data consistency problems. See the
-[replication protocol documentation](./documentation/replication_protocol.md) for
-more details.
+number of brokers to replicate the stream's partitions. Each stream partition
+has a leader who is responsible for handling reads and writes. Followers then
+replicate the log from the leader. If the leader fails, one of the followers
+will step up to replace it. The replication protocol closely resembles that of
+Kafka, so there is much more nuance to avoid data consistency problems. See the
+[replication protocol documentation](./documentation/replication_protocol.md)
+for more details.
 
 ### What about performance?
 
@@ -227,7 +236,7 @@ be generated quite easily using the
 - [x] Log retention by message age
 - [x] Log retention by number of messages
 - [x] Log compaction by key
-- [ ] Consumer-offset checkpointing in the log
+- [ ] Consumer groups
 - [x] Minimum ISR support
 - [x] Additional subscribe semantics
   - [x] Oldest
@@ -236,6 +245,7 @@ be generated quite easily using the
   - [x] By timestamp
   - [x] By time delta
 - [ ] Single-stream fanout
+  - [x] Stream partitioning
   - [ ] Opt-in ISR replica reads
   - [ ] Read-replica support
 - [ ] Authentication and authorization

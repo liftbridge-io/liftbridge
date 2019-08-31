@@ -1,73 +1,72 @@
 syntax = "proto3";
 package proto;
 
-import "github.com/liftbridge-io/go-liftbridge/liftbridge-grpc/api.proto";
-
     
 message ServerState {
     string serverID = 1;
 }
 
 enum Op {
-    CREATE_STREAM = 0;
-    SHRINK_ISR    = 1;
-    REPORT_LEADER = 2;
-    CHANGE_LEADER = 3;
-    EXPAND_ISR    = 4;
+    CREATE_PARTITION = 0;
+    SHRINK_ISR       = 1;
+    REPORT_LEADER    = 2;
+    CHANGE_LEADER    = 3;
+    EXPAND_ISR       = 4;
 }
 
 message RaftLog {
-    Op             op             = 1;
-    CreateStreamOp createStreamOp = 2;
-    ShrinkISROp    shrinkISROp    = 3;
-    ChangeLeaderOp changeLeaderOp = 4;
-    ExpandISROp    expandISROp    = 5;
+    Op                op                = 1;
+    CreatePartitionOp createPartitionOp = 2;
+    ShrinkISROp       shrinkISROp       = 3;
+    ChangeLeaderOp    changeLeaderOp    = 4;
+    ExpandISROp       expandISROp       = 5;
 }
 
-message CreateStreamOp {
-    Stream stream = 1;
+message CreatePartitionOp {
+    Partition partition = 1;
 }
 
 message ShrinkISROp {
-    string subject         = 1;
-    string name            = 2;
+    string stream          = 1;
+    int32  partition       = 2;
     string replicaToRemove = 3;
     string leader          = 4;
     uint64 leaderEpoch     = 5;
 }
 
 message ExpandISROp {
-    string subject      = 1;
-    string name         = 2;
+    string stream       = 1;
+    int32  partition    = 2;
     string replicaToAdd = 3;
     string leader       = 4;
     uint64 leaderEpoch  = 5;
 }
 
 message ReportLeaderOp {
-    string subject     = 1;
-    string name        = 2;
+    string stream      = 1;
+    int32  partition   = 2;
     string replica     = 3;
     string leader      = 4;
     uint64 leaderEpoch = 5;
 }
 
 message ChangeLeaderOp {
-    string subject = 1;
-    string name    = 2;
-    string leader  = 3;
+    string stream    = 1;
+    int32  partition = 2;
+    string leader    = 3;
 }
 
-message Stream {
+message Partition {
     string          subject           = 1;
-    string          name              = 2;
-    string          group             = 3;
-    int32           replicationFactor = 4;
-    repeated string replicas          = 5;
-    string          leader            = 6;
-    repeated string isr               = 7;
-    uint64          leaderEpoch       = 8;
-    uint64          epoch             = 9;
+    string          stream            = 2;
+    int32           id                = 3;
+    string          group             = 4;
+    int32           replicationFactor = 5;
+    repeated string replicas          = 6;
+    string          leader            = 7;
+    repeated string isr               = 8;
+    uint64          leaderEpoch       = 9;
+    uint64          epoch             = 10;
 }
 
 // RaftJoinRequest is a request to join a Raft group.
@@ -82,7 +81,7 @@ message RaftJoinResponse {
 }
 
 message MetadataSnapshot {
-    repeated Stream streams = 1;
+    repeated Partition partitions = 1;
 }
 
 message ReplicationRequest {
@@ -99,11 +98,11 @@ message LeaderEpochOffsetResponse {
 }
 
 message PropagatedRequest {
-    Op                  op             = 1;
-    CreateStreamRequest createStreamOp = 2;
-    ShrinkISROp         shrinkISROp    = 3;
-    ReportLeaderOp      reportLeaderOp = 4;
-    ExpandISROp         expandISROp    = 5;
+    Op                op                = 1;
+    CreatePartitionOp createPartitionOp = 2;
+    ShrinkISROp       shrinkISROp       = 3;
+    ReportLeaderOp    reportLeaderOp    = 4;
+    ExpandISROp       expandISROp       = 5;
 }
 
 message Error {
@@ -114,7 +113,7 @@ message Error {
 message PropagatedResponse {
     Op                   op               = 1;
     Error                error            = 2;
-    CreateStreamResponse createStreamResp = 3;
+    // Reserving = 3 for createPartitionResp if needed.
     // Reserving = 4 for shrinkISRResp if needed.
     // Reserving = 5 for reportLeaderResp if needed.
     // Reserving = 6 for expandISRResp if needed.
@@ -130,12 +129,12 @@ message ServerInfoResponse {
     int32  port = 3;
 }
 
-message StreamStatusRequest {
-    string subject = 1;
-    string name    = 2;
+message PartitionStatusRequest {
+    string stream    = 1;
+    int32  partition = 2;
 }
 
-message StreamStatusResponse {
+message PartitionStatusResponse {
     bool exists   = 1;
     bool isLeader = 2;
 }

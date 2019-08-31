@@ -50,7 +50,7 @@ type CommitLog struct {
 
 // Options contains settings for configuring a CommitLog.
 type Options struct {
-	Stream               string        // Stream name
+	Name                 string        // CommitLog name
 	Path                 string        // Path to log directory
 	MaxSegmentBytes      int64         // Max bytes a Segment can contain before creating a new one
 	MaxLogBytes          int64         // Retention by bytes
@@ -96,14 +96,14 @@ func New(opts Options) (*CommitLog, error) {
 	cleaner := NewDeleteCleaner(cleanerOpts)
 
 	compactCleanerOpts := CompactCleanerOptions{
-		Name:          opts.Stream,
+		Name:          opts.Name,
 		Logger:        opts.Logger,
 		MaxGoroutines: opts.CompactMaxGoroutines,
 	}
 	compactCleaner := NewCompactCleaner(compactCleanerOpts)
 
 	path, _ := filepath.Abs(opts.Path)
-	epochCache, err := newLeaderEpochCache(opts.Stream, path, opts.Logger)
+	epochCache, err := newLeaderEpochCache(opts.Name, path, opts.Logger)
 	if err != nil {
 		return nil, err
 	}
