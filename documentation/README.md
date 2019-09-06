@@ -10,3 +10,5 @@
   - [Configuring for High Availability and Consistency](./ha_and_consistency_configuration.md)
 - Technical Deep Dive
   - [Replication Protocol](./replication_protocol.md)
+- Client Libraries
+  - [Client Implementation Guidance](./client.md)
