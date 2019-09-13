@@ -25,16 +25,15 @@ to implementing a high-level client.
 
 ## Client Interface
 
-A high-level client currently has only three operations:
+A high-level client has several operations:
 
 - [`CreateStream`](#createstream): creates a new stream attached to a NATS subject (or group of
   related NATS subjects if partitioned)
 - [`Subscribe`](#subscribe): creates an ephemeral subscription for a given stream that
   messages are received on
 - [`Publish`](#publish): publishes a new message to a NATS subject
-
-Optionally, there is a fourth operation, `Close`, which closes any client
-connections to Liftbridge.
+- [`FetchMetadata`](#fetchmetadata): retrieves metadata from the cluster
+- [`Close`](#close): closes any client connections to Liftbridge
 
 Below is the interface definition of the Go Liftbridge client. We'll walk
 through each of these operations in more detail below.
@@ -69,21 +68,6 @@ type Client interface {
 	Publish(ctx context.Context, subject string, value []byte, opts ...MessageOption) (*proto.Ack, error)
 }
 ```
-
-### Close
-
-```go
-// Close the client connection.
-Close() error
-```
-
-`Close` simply releases all resources associated with the client, namely all
-gRPC connections to the server. There might be multiple connections since a
-client might have connections to multiple servers in a cluster and/or
-connection pooling. `Close` takes no arguments and returns/throws an error if
-the operation fails.
-
-[Implementation Guidance](#close-implementation)
 
 ### CreateStream
 
@@ -350,3 +334,45 @@ nc.Publish("foo.bar", lift.NewMessage(
     lift.CorrelationID("123"),
 ))
 ```
+
+### FetchMetadata
+
+TODO
+
+### Close
+
+```go
+// Close the client connection.
+Close() error
+```
+
+`Close` simply releases all resources associated with the client, namely all
+gRPC connections to the server. There might be multiple connections since a
+client might have connections to multiple servers in a cluster and/or
+connection pooling. `Close` takes no arguments and returns/throws an error if
+the operation fails.
+
+[Implementation Guidance](#close-implementation)
+
+## Client Implementation
+
+Below is implementation guidance for the client interface described above. Like
+the interface, specific implementation details may differ depending on the
+programming language.
+
+### Metadata Implementation
+
+Liftbridge provides a metadata API which clients can use to retrieve cluster
+metadata including broker and stream information. There are a few key use cases
+for this metadata:
+
+- The client can connect to a single seed broker, fetch the cluster metadata,
+  and then populate a local cache of known brokers in order to allow for
+  failover of subsequent RPCs. 
+- Subscribe requests must be sent to the leader of the requested stream
+  partition, so the client can fetch metadata from the cluster to determine
+  which broker to send particular requests to.
+- Stream partitioning requires knowing how many partitions exist for a stream,
+  so the client can fetch metadata from the cluster to determine partitions.
+
+TODO
