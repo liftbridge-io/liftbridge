@@ -238,10 +238,10 @@ using a [NATS client](https://nats.io/download/). Liftbridge works fine with
 plain, opaque NATS messages, but it also extends NATS with a [protobuf-based
 envelope protocol](https://github.com/liftbridge-io/liftbridge-grpc). This
 allows publishers to add metadata to messages like a key, headers, and acking
-information. Liftbridge client libraries may provide APIs to make it easy to
-create envelopes and deal with acks yourself using a NATS client directly
-([described below](#publishing-directly-with-nats)). However, the `Publish` API is intended to abstract this work
-away from you.
+information. Liftbridge client libraries may provide helper methods to make it
+easy to create envelopes and deal with acks yourself using a NATS client
+directly ([described below](#low-level-publish-helpers)). However, the
+`Publish` API is intended to abstract this work away from you.
 
 `Publish` is a synchronous operation, meaning when it returns, the message has
 been successfully published. `Publish` can also be configured to block until a
@@ -348,6 +348,94 @@ type Partitioner interface {
 }
 ```
 
-#### Publishing Directly with NATS
+#### Low-Level Publish Helpers
 
-TODO
+Because Liftbridge is simply a consumer of NATS, it's also possible to publish
+messages directly to NATS rather than using Liftbridge's `Publish` API. This
+can be useful for extending the capabilities of NATS in existing systems. This
+means we can publish NATS messages as normal, as shown in the example Go code
+below, and Liftbridge streams will be able to receive them.
+
+```go
+package main
+
+import "github.com/nats-io/nats.go"
+
+func main() {
+	// Connect to NATS.
+	nc, _ := nats.Connect(nats.DefaultURL)
+
+	// Publish a message.
+	nc.Publish("foo.bar", []byte("Hello, world!")) 
+	nc.Flush()
+}
+```
+
+However, these low-level publishes lose out on some of the additional
+capabilities of Liftbridge provided by message envelopes, such as message
+headers, keys, etc. As a result, client libraries may provide helper methods to
+facilitate publishing message envelopes directly to NATS as well as handling
+acks. These include `NewMessage`, `UnmarshalAck`, and `UnmarshalMessage`
+described below.
+
+##### NewMessage
+
+```go
+// NewMessage returns a serialized message for the given payload and options.
+func NewMessage(value []byte, options ...MessageOption) []byte
+```
+
+`NewMessage` creates a Liftbridge message envelope serialized to bytes ready
+for publishing to NATS. This consists of a four bytes ("LIFT"), which is
+referred to as the envelope cookie, followed by the serialized message
+protobuf. It takes the same arguments as `Publish` (see above) with the
+exception of the context and subject.
+
+##### UnmarshalMessage
+
+```go
+// UnmarshalMessage deserializes a message from the given byte slice. It
+// returns a bool indicating if the given data was actually a Message or not.
+func UnmarshalMessage(data []byte) (*proto.Message, bool)
+```
+
+`UnmarshalMessage` is a helper method which effectively does the reverse of
+`NewMessage`, taking a serialized message and returning a deserialized message
+object or indication the data is not actually a message.
+
+##### UnmarshalAck
+
+```go
+// UnmarshalAck deserializes an Ack from the given byte slice. It returns an
+// error if the given data is not actually an Ack.
+func UnmarshalAck(data []byte) (*proto.Ack, error)
+```
+
+`UnmarshalAck` is used to deserialize a message ack received on a NATS
+subscription. It takes a single argument consisting of the ack bytes as
+received from NATS and throws an error/exception if the bytes are not actually
+a serialized ack protobuf.
+
+This is useful for handling acks for messages published with a set ack inbox
+(i.e. the NATS subject Liftbridge will publish message acks to). For example:
+
+```go
+// Connect to NATS.
+nc, _ := nats.Connect(nats.DefaultURL)
+
+// Subscribe to ack inbox.
+nc.Subscribe("my.ack.inbox", func(msg *nats.Msg) {
+    ack, _ := lift.UnmarshalAck(msg.Data)
+    // CorrelationId can be used to correlate an ack with a particular message.
+    if ack.CorrelationId == "123" {
+        println("message acked!")
+    }
+})
+
+// Publish a message envelope.
+nc.Publish("foo.bar", lift.NewMessage(
+    []byte("hello"),
+    lift.AckInbox("my.ack.inbox"),
+    lift.CorrelationID("123"),
+))
+```
