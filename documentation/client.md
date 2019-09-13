@@ -111,42 +111,22 @@ fail to maximize availability.
 
 In the Go client example above, `CreateStream` takes four arguments:
 
-- A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for
-  passing things like a timeout, cancellation signal, and other values across
-  API boundaries. For Liftbridge, this is primarily used for two things:
-  request timeouts and cancellation. In other languages, this might be replaced
-  by explicit arguments, optional named arguments, or other language-specific
-  idioms. Depending on the language, this might be an optional argument.
-- A subject string which is the NATS subject to attach the stream to. If the
-  stream has more than one partition, this is used as the base subject for each
-  partition. This is a required argument.
-- A name string which uniquely identifies the stream in the Liftbridge cluster.
-  Attempting to create another stream with the same name will result in an
-  error. This is a required argument.
-- Zero or more stream options. These are used to pass in optional settings for
-  the stream. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis)
-  for implementing extensible APIs. In other languages, this might be replaced
-  with a builder pattern or optional named arguments. These `CreateStream`
-  options are described below.
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
+| subject | string | A subject string which is the NATS subject to attach the stream to. If the stream has more than one partition, this is used as the base subject for each partition. | yes |
+| name | string | A name string which uniquely identifies the stream in the Liftbridge cluster. Attempting to create another stream with the same name will result in an error. | yes |
+| options | stream options | Zero or more stream options. These are used to pass in optional settings for the stream. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis) for implementing extensible APIs. In other languages, this might be replaced with a builder pattern or optional named arguments. These `CreateStream` options are described below. | language-dependent |
 
 The stream options are the equivalent of optional named arguments used to
 configure a stream. Supported options are:
 
-- `Group`: string which is the name of a load-balance group for the stream to
-  join. When there are multiple streams in the same group, messages on the
-  subject will be distributed randomly among them.
-- `MaxReplication`: flag which sets the stream replication factor equal to the
-  current number of servers in the cluster. This means all partitions for the
-  stream will be fully replicated within the cluster.
-- `ReplicationFactor`: int which sets the replication factor for the stream.
-  The replication factor controls the number of servers a stream's partitions
-  should be replicated to. For example, a value of 1 would mean only 1 server
-  would have the data, and a value of 3 would mean 3 servers would have it. If
-  this is not set, it defaults to 1. A value of -1 will signal to the server to
-  set the replication factor equal to the current number of servers in the
-  cluster (i.e. MaxReplication).
-- `Partitions`: int which sets the number of partitions for the stream. If this
-  is not set, it defaults to 1.
+| Option | Type | Description | Default |
+|:----|:----|:----|:----|
+| Group | string | The name of a load-balance group for the stream to join. When there are multiple streams in the same group, messages on the subject will be distributed randomly among them. | |
+| MaxReplication | bool | Sets the stream replication factor equal to the current number of servers in the cluster. This means all partitions for the stream will be fully replicated within the cluster. | false |
+| ReplicationFactor | int | Sets the replication factor for the stream. The replication factor controls the number of servers a stream's partitions should be replicated to. For example, a value of 1 would mean only 1 server would have the data, and a value of 3 would mean 3 servers would have it. A value of -1 will signal to the server to set the replication factor equal to the current number of servers in the cluster (i.e. MaxReplication). | 1 |
+| Partitions | int | Sets the number of partitions for the stream. | 1 |
 
 `CreateStream` returns/throws an error if the operation fails, specifically
 `ErrStreamExists` if a stream with the given name already exists.
@@ -170,23 +150,12 @@ from the end of the stream and blocks for new messages.
 
 In the Go client example above, `Subscribe` takes four arguments:
 
-- A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for
-  passing things like a timeout, cancellation signal, and other values across
-  API boundaries. For Liftbridge, this is primarily used for two things:
-  request timeouts and cancellation. Cancellation is particularly important for
-  `Subscribe` because it's how subscriptions are closed. Messages will continue
-  to received on a subscription until it is closed. In Go, this is done using a
-  cancellable context. In other languages, this might be replaced by an
-  explicit argument or other language-specific idiom (e.g.  returning an object
-  with a `Cancel` API). Timeouts might be implemented using an explicit
-  argument, an optional named argument, or some other idiom.
-- A stream name string which is the stream to read messages from.
-- A handler callback used to receive messages from the stream, described below.
-- Zero or more subscription options. These are used to pass in optional
-  settings for the subscription. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis)
-  for implementing extensible APIs. In other languages, this might be replaced
-  with a builder pattern or optional named arguments. These `Subscribe` options
-  are described below.
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. Cancellation is particularly important for `Subscribe` because it's how subscriptions are closed. Messages will continue to received on a subscription until it is closed. In Go, this is done using a cancellable context. In other languages, this might be replaced by an explicit argument or other language-specific idiom (e.g.  returning an object with a `Cancel` API). Timeouts might be implemented using an explicit argument, an optional named argument, or some other idiom. | language-dependent |
+| stream | string | A stream name string which is the stream to read messages from. | yes |
+| handler | callback | A handler callback used to receive messages from the stream, described below. | yes |
+| options | subscription options | Zero or more subscription options. These are used to pass in optional settings for the subscription. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis) for implementing extensible APIs. In other languages, this might be replaced with a builder pattern or optional named arguments. These `Subscribe` options are described below. | language-dependent |
 
 The subscribe handler is a callback function that takes a message and an error.
 If the error is not null, the subscription will be terminated and no more
@@ -201,18 +170,14 @@ type Handler func(msg *proto.Message, err error)
 The subscription options are the equivalent of optional named arguments used to
 configure a subscription. Supported options are:
 
-- `Partition`: int which specifies the stream partition to consume. If this is
-  not set, it defaults to 1.
-- `StartAtEarliestReceived`: flag which sets the subscription start position to
-  the earliest message received in the stream.
-- `StartAtLatestReceived`: flag which sets the subscription start position to
-  the last message received in the stream.
-- `StartAtOffset`: int which sets the subscription start position to the first
-  message with an offset greater than or equal to the given offset.
-- `StartAtTime`: timestamp which sets the subscription start position to the
-  first message with a timestamp greater than or equal to the given time.
-- `StartAtTimeDelta`: time duration which sets the subscription start position
-  to the first message with a timestamp greater than or equal to `now - delta`.
+| Option | Type | Description | Default |
+|:----|:----|:----|:----|
+| Partition | int | Specifies the stream partition to consume. | 1 |
+| StartAtEarliestReceived | bool | Sets the subscription start position to the earliest message received in the stream. | false |
+| StartAtLatestReceived | bool | Sets the subscription start position to the last message received in the stream. | false |
+| StartAtOffset | int | Sets the subscription start position to the first message with an offset greater than or equal to the given offset. | |
+| StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
+| StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
 
 `Subscribe` returns/throws an error if the operation fails, specifically
 `ErrNoSuchPartition` if the specified stream or partition does not exist.
@@ -257,84 +222,30 @@ etc. By default, it publishes to the base subject.
 
 In the Go client example above, `Publish` takes four arguments:
 
-- A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for
-  passing things like a timeout, cancellation signal, and other values across
-  API boundaries. For Liftbridge, this is primarily used for two things:
-  request timeouts and cancellation. In other languages, this might be replaced
-  by explicit arguments, optional named arguments, or other language-specific
-  idioms. With `Publish`, the timeout is particularly important as it relates
-  to acking. If an ack policy is set (see below) and a timeout is provided,
-  `Publish` will block until the first ack is received. If the ack is not
-  received in time, a timeout error is returned. If the ack policy is `NONE` or
-  a timeout is not set, `Publish` returns as soon as the message has been
-  published.
-- A subject string which is the NATS subject to publish to. This is a required
-  argument.
-- A message value consisting of opaque bytes. This is a required argument.
-- Zero or more message options. These are used to pass in optional settings for
-  the message. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis)
-  for implementing extensible APIs. In other languages, this might be replaced
-  with a builder pattern or optional named arguments. These `Publish` options
-  are described below.
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. With `Publish`, the timeout is particularly important as it relates to acking. If an ack policy is set (see below) and a timeout is provided, `Publish` will block until the first ack is received. If the ack is not received in time, a timeout error is returned. If the ack policy is `NONE` or a timeout is not set, `Publish` returns as soon as the message has been published. | language-dependent |
+| subject | string | The NATS subject to publish to. | yes |
+| value | bytes | The message value to publish consisting of opaque bytes. | yes |
+| options | message options | Zero or more message options. These are used to pass in optional settings for the message. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis) for implementing extensible APIs. In other languages, this might be replaced with a builder pattern or optional named arguments. These `Publish` options are described below. | language-dependent |
 
 The publish message options are the equivalent of optional named arguments used
 to configure a message. Supported options are:
 
-- `AckInbox`: string which sets the NATS subject Liftbridge should publish the
-  message ack to. If this is not set, the server will generate a random inbox.
-  This generally does not need to be configured when using the `Publish` API
-  since the server will handle acks for you. Instead, it's used if, for some
-  reason, you wish to handle the ack yourself.
-- `CorrelationID`: string which sets the identifier used to correlate an ack
-  with the published message. If it's not set, the ack will not have a
-  correlation ID. This generally does not need to be configured when using the
-  `Publish` API since the server will handle acks for you. Instead, it's used
-  if, for some reason, you wish to handle the ack yourself.
-- `AckPolicyAll`: flag which sets the ack policy of the message to `ALL`. This
-  means the ack will be sent when the message has been stored by all partition
-  replicas.
-- `AckPolicyLeader`: flag which sets the ack policy of the message to `LEADER`.
-  This means the ack will be sent when the partition leader has stored the
-  message. This is the default ack policy if not otherwise set.
-- `AckPolicyNone`: flag which sets the ack policy of the message to `NONE`.
-  This means no ack will be sent.
-- `Header`: string and opaque bytes representing a key-value pair to set as a
-  header on the message. This may overwrite previously set headers. Client
-  libraries may choose to forgo this option in favor of the bulk `Headers`
-  option below. This is a convenience for setting a single header.
-- `Headers`: map of strings to opaque bytes representing key-value pairs to set
-  as headers on the message. This may overwrite previously set headers.
-- `Key`: opaque bytes used for the message key. If Liftbridge has stream
-  compaction enabled, the stream will retain only the last message for each
-  key (if not set, the message is always retained).
-- `PartitionByKey`: flag which maps the message to a stream partition based on
-  a hash of the message key. This computes the partition number for the message
-  by hashing the key and modding by the number of partitions for the first
-  stream found with the subject of the published message. This does not work
-  with streams containing wildcards in their subjects, e.g. `foo.*`, since this
-  matches on the subject literal of the published message. This also has
-  undefined behavior if there are multiple streams for the given subject. This
-  is used to derive the actual NATS subject the message is published to, e.g.
-  `foo`, `foo.1`, `foo.2`, etc. By default, it's published to the subject
-  provided.
-- `PartitionByRoundRobin`: flag which maps the message to stream partitions in
-  a round-robin fashion. This computes the partition number for the message
-  by atomically incrementing a counter for the message subject and modding it
-  by the number of partitions for the first stream found with the subject. This
-  does not work with streams containing wildcards in their subjects, e.g.
-  `foo.*`, since this matches on the subject literal of the published message.
-  This also has undefined behavior if there are multiple streams for the given
-  subject. This is used to derive the actual NATS subject the message is
-  published to, e.g. `foo`, `foo.1`, `foo.2`, etc. By default, it's published
-  to the subject provided.
-- `PartitionBy`: `Partitioner` (detailed below) which sets the strategy used to
-  map the message to a stream partition. This is used to derive the actual NATS
-  subject the message is published to, e.g. `foo`, `foo.1`, `foo.2`, etc. By
-  default, it's published to the subject provided.
-- `ToPartition`: int which sets the partition to publish the message to. If
-  this is set, any specified `Partitioner` will not be used. This is used to
-  derive the actual NATS subject the message is published to, e.g. `foo`,
-  `foo.1`, `foo.2`, etc. By default, it's published to the subject provided.
+| Option | Type | Description | Default |
+|:----|:----|:----|:----|
+| AckInbox | string | Sets the NATS subject Liftbridge should publish the message ack to. If this is not set, the server will generate a random inbox. This generally does not need to be configured when using the `Publish` API since the server will handle acks for you. Instead, it's used if, for some reason, you wish to handle the ack yourself. | |
+| CorrelationID | string | Sets the identifier used to correlate an ack with the published message. If it's not set, the ack will not have a correlation ID. This generally does not need to be configured when using the `Publish` API since the server will handle acks for you. Instead, it's used if, for some reason, you wish to handle the ack yourself. | |
+| AckPolicyAll | bool | Sets the ack policy of the message to `ALL`. This means the ack will be sent when the message has been stored by all partition replicas. | false |
+| AckPolicyLeader | bool | Sets the ack policy of the message to `LEADER`. This means the ack will be sent when the partition leader has stored the message. This is the default ack policy if not otherwise set. | true |
+| AckPolicyNone | bool | Sets the ack policy of the message to `NONE`. This means no ack will be sent. | false |
+| Header | string and bytes | String and opaque bytes representing a key-value pair to set as a header on the message. This may overwrite previously set headers. Client libraries may choose to forgo this option in favor of the bulk `Headers` option below. This is a convenience for setting a single header. | |
+| Headers | map of strings to bytes | Map of strings to opaque bytes representing key-value pairs to set as headers on the message. This may overwrite previously set headers. | |
+| Key | bytes | Opaque bytes used for the message key. If Liftbridge has stream compaction enabled, the stream will retain only the last message for each key (if not set, the message is always retained). | |
+| PartitionByKey | bool | Flag which maps the message to a stream partition based on a hash of the message key. This computes the partition number for the message by hashing the key and modding by the number of partitions for the first stream found with the subject of the published message. This does not work with streams containing wildcards in their subjects, e.g. `foo.*`, since this matches on the subject literal of the published message. This also has undefined behavior if there are multiple streams for the given subject. This is used to derive the actual NATS subject the message is published to, e.g. `foo`, `foo.1`, `foo.2`, etc. By default, it's published to the subject provided. | false |
+| PartitionByRoundRobin | bool | Flag which maps the message to stream partitions in a round-robin fashion. This computes the partition number for the message by atomically incrementing a counter for the message subject and modding it by the number of partitions for the first stream found with the subject. This does not work with streams containing wildcards in their subjects, e.g. `foo.*`, since this matches on the subject literal of the published message. This also has undefined behavior if there are multiple streams for the given subject. This is used to derive the actual NATS subject the message is published to, e.g. `foo`, `foo.1`, `foo.2`, etc. By default, it's published to the subject provided. | false |
+| PartitionBy | partitioner | `Partitioner` (detailed below) which sets the strategy used to map the message to a stream partition. This is used to derive the actual NATS subject the message is published to, e.g. `foo`, `foo.1`, `foo.2`, etc. By default, it's published to the subject provided. | |
+| ToPartition | int | Sets the partition to publish the message to. If this is set, any specified `Partitioner` will not be used. This is used to derive the actual NATS subject the message is published to, e.g. `foo`, `foo.1`, `foo.2`, etc. By default, it's published to the subject provided. | |
 
 `Partitioner` is an interface which implements logic for mapping a message to a
 stream partition. It passes a `Metadata` object into `Partition`, which is
