@@ -27,11 +27,11 @@ to implementing a high-level client.
 
 A high-level client currently has only three operations:
 
-- `CreateStream`: creates a new stream attached to a NATS subject (or group of
+- [`CreateStream`](#createstream): creates a new stream attached to a NATS subject (or group of
   related NATS subjects if partitioned)
-- `Subscribe`: creates an ephemeral subscription for a given stream that
+- [`Subscribe`](#subscribe): creates an ephemeral subscription for a given stream that
   messages are received on
-- `Publish`: publishes a new message to a NATS subject
+- [`Publish`](#publish): publishes a new message to a NATS subject
 
 Optionally, there is a fourth operation, `Close`, which closes any client
 connections to Liftbridge.
