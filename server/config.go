@@ -26,6 +26,8 @@ const (
 )
 
 const (
+	defaultListenAddress           = "0.0.0.0"
+	defaultConnectionAddress       = "localhost"
 	defaultReplicaMaxLagTime       = 10 * time.Second
 	defaultReplicaMaxLeaderTimeout = 10 * time.Second
 	defaultRaftSnapshots           = 2
@@ -96,6 +98,7 @@ type ClusteringConfig struct {
 
 // Config contains all settings for a Liftbridge Server.
 type Config struct {
+	Listen              HostPort
 	Host                string
 	Port                int
 	LogLevel            uint32
@@ -134,6 +137,44 @@ func NewDefaultConfig() *Config {
 	config.Log.LogRollTime = defaultLogRollTime
 	config.Log.CleanerInterval = defaultCleanerInterval
 	return config
+}
+
+// GetListenAddress returns the address and port to listen to.
+func (c Config) GetListenAddress() HostPort {
+	if len(c.Listen.Host) > 0 {
+		return c.Listen
+	}
+
+	if len(c.Host) > 0 {
+		return HostPort{
+			Host: c.Host,
+			Port: c.Port,
+		}
+	}
+
+	return HostPort{
+		Host: defaultListenAddress,
+		Port: DefaultPort,
+	}
+}
+
+// GetConnectionAddress returns the host if specified and listen otherwise.
+func (c Config) GetConnectionAddress() HostPort {
+	if len(c.Host) > 0 {
+		return HostPort{
+			Host: c.Host,
+			Port: c.Port,
+		}
+	}
+
+	if len(c.Listen.Host) > 0 {
+		return c.Listen
+	}
+
+	return HostPort{
+		Host: defaultConnectionAddress,
+		Port: DefaultPort,
+	}
 }
 
 // GetLogLevel converts the level string to its corresponding int value. It
@@ -178,8 +219,8 @@ func NewConfig(configFile string) (*Config, error) {
 			if err != nil {
 				return nil, err
 			}
-			config.Host = hp.host
-			config.Port = hp.port
+
+			config.Listen = *hp
 		case "port":
 			config.Port = int(v.(int64))
 		case "host":
@@ -347,29 +388,29 @@ func parseClusteringConfig(config *Config, m map[string]interface{}) error {
 	return nil
 }
 
-// hostPort is simple struct to hold parsed listen/addr strings.
-type hostPort struct {
-	host string
-	port int
+// HostPort is simple struct to hold parsed listen/addr strings.
+type HostPort struct {
+	Host string
+	Port int
 }
 
 // parseListen will parse the `listen` option containing the host and port.
-func parseListen(v interface{}) (*hostPort, error) {
-	hp := &hostPort{}
+func parseListen(v interface{}) (*HostPort, error) {
+	hp := &HostPort{}
 	switch v.(type) {
 	// Only a port
 	case int64:
-		hp.port = int(v.(int64))
+		hp.Port = int(v.(int64))
 	case string:
 		host, port, err := net.SplitHostPort(v.(string))
 		if err != nil {
 			return nil, fmt.Errorf("Could not parse address string %q", v)
 		}
-		hp.port, err = strconv.Atoi(port)
+		hp.Port, err = strconv.Atoi(port)
 		if err != nil {
 			return nil, fmt.Errorf("Could not parse port %q", port)
 		}
-		hp.host = host
+		hp.Host = host
 	}
 	return hp, nil
 }

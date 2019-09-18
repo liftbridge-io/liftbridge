@@ -1100,3 +1100,100 @@ func TestTLS(t *testing.T) {
 	_, err = lift.Connect([]string{"localhost:5050"})
 	require.Error(t, err)
 }
+
+// Ensure that the host address is the same as the listen address when
+// specifying only the latter
+func TestListen(t *testing.T) {
+	config, err := NewConfig("./configs/listen.conf")
+	require.NoError(t, err)
+
+	ex := HostPort{
+		Host: "192.168.0.1",
+		Port: 4222,
+	}
+
+	r := config.GetListenAddress()
+	if r != ex {
+		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
+	}
+
+	r = config.GetConnectionAddress()
+	if r != ex {
+		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
+	}
+}
+
+// Ensure that the listen address is the same as the host address when
+// specifying only the latter
+func TestHost(t *testing.T) {
+	config, err := NewConfig("./configs/host.conf")
+	require.NoError(t, err)
+
+	ex := HostPort{
+		Host: "192.168.0.1",
+		Port: 4222,
+	}
+
+	r := config.GetListenAddress()
+	if r != ex {
+		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
+	}
+
+	r = config.GetConnectionAddress()
+	if r != ex {
+		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
+	}
+}
+
+// Ensure that the listen and connection addresses have the expected values
+// when specifying both
+func TestListenHost(t *testing.T) {
+	config, err := NewConfig("./configs/listen-host.conf")
+	require.NoError(t, err)
+
+	ex := HostPort{
+		Host: "192.168.0.1",
+		Port: 4222,
+	}
+
+	r := config.GetListenAddress()
+	if r != ex {
+		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
+	}
+
+	ex = HostPort{
+		Host: "my-host",
+		Port: 4333,
+	}
+
+	r = config.GetConnectionAddress()
+	if r != ex {
+		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
+	}
+}
+
+// Ensure that the listen and connection addresses have the expected default
+// values
+func TestDefaultListenHost(t *testing.T) {
+	config := NewDefaultConfig()
+
+	ex := HostPort{
+		Host: defaultListenAddress,
+		Port: DefaultPort,
+	}
+
+	r := config.GetListenAddress()
+	if r != ex {
+		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
+	}
+
+	ex = HostPort{
+		Host: defaultConnectionAddress,
+		Port: DefaultPort,
+	}
+
+	r = config.GetConnectionAddress()
+	if r != ex {
+		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
+	}
+}

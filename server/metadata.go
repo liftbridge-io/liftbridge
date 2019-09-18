@@ -173,10 +173,11 @@ func (m *metadataAPI) brokerCache(serverIDs map[string]struct{}) ([]*client.Brok
 // argument is the expected number of peers to get a response from.
 func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*client.Broker, *status.Status) {
 	// Add ourselves.
+	connectionAddress := m.config.GetConnectionAddress()
 	brokers := []*client.Broker{&client.Broker{
 		Id:   m.config.Clustering.ServerID,
-		Host: m.config.Host,
-		Port: int32(m.config.Port),
+		Host: connectionAddress.Host,
+		Port: int32(connectionAddress.Port),
 	}}
 
 	// Make sure there is a deadline on the request.
