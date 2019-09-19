@@ -154,7 +154,7 @@ func (c Config) GetListenAddress() HostPort {
 
 	return HostPort{
 		Host: defaultListenAddress,
-		Port: DefaultPort,
+		Port: c.Port,
 	}
 }
 
@@ -173,7 +173,7 @@ func (c Config) GetConnectionAddress() HostPort {
 
 	return HostPort{
 		Host: defaultConnectionAddress,
-		Port: DefaultPort,
+		Port: c.Port,
 	}
 }
 
