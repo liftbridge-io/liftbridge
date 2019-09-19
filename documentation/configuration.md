@@ -96,7 +96,7 @@ the setting in the configuration file and the CLI flag if it exists.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
-| listen | | The server host/port. | string | localhost:9292 | |
+| listen | | The server listen host/port. | string | 0:0:0:0:9292  | |
 | host | | The server host. | string | localhost | |
 | port | port | The server port. | int | 9292 | |
 | tls.key | tls-key | The private key file for server certificate. This must be set in combination with `tls.cert` to enable TLS. | string | |
