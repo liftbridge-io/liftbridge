@@ -337,7 +337,42 @@ nc.Publish("foo.bar", lift.NewMessage(
 
 ### FetchMetadata
 
-TODO
+```go
+// FetchMetadata returns cluster metadata including broker and stream
+// information.
+func FetchMetadata(ctx context.Context) (*Metadata, error)
+```
+
+Liftbridge provides a metadata API which clients can use to retrieve cluster
+metadata including server (broker) and stream information. There are a few key
+use cases for this metadata:
+
+- The client can connect to a single seed server, fetch the cluster metadata,
+  and then populate a local cache of known servers in order to allow for
+  failover of subsequent RPCs. This should be handled internally by client
+  libraries.
+- Subscribe requests must be sent to the leader of the requested stream
+  partition, so the client can fetch metadata from the cluster to determine
+  which server to send particular requests to. This should be handled
+  internally by client libraries.
+- Stream partitioning requires knowing how many partitions exist for a stream,
+  so the client can fetch metadata from the cluster to determine partitions.
+  This should be handled internally by client libraries for things such as
+  `PartitionByKey` and `PartitionByRoundRobin` but may be handled by users for
+  more advanced use cases.
+
+`FetchMetadata` retrieves an immutable object containing this cluster metadata.
+As noted in the above use cases, most uses of this metadata is handled
+internally by client libraries. Generally, `FetchMetadata` is only needed by
+users in cases where the number of stream partitions is required.
+
+In the Go client example above, `FetchMetadata` takes one argument:
+
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
+
+[Implementation Guidance](#fetchmetadata-implementation)
 
 ### Close
 
@@ -360,19 +395,126 @@ Below is implementation guidance for the client interface described above. Like
 the interface, specific implementation details may differ depending on the
 programming language.
 
-### Metadata Implementation
+### RPC Guidance
 
-Liftbridge provides a metadata API which clients can use to retrieve cluster
-metadata including broker and stream information. There are a few key use cases
-for this metadata:
+While Liftbridge has a concept of a metadata leader, or controller, which is
+responsible for handling updates to cluster metadata, most RPCs can be made to
+any server in the cluster. The only exception to this is `Subscribe`, which
+requires the RPC to be made to the leader of the partition being subscribed to.
+Metadata RPCs will be automatically forwarded to the metadata leader in the
+cluster.
 
-- The client can connect to a single seed broker, fetch the cluster metadata,
-  and then populate a local cache of known brokers in order to allow for
-  failover of subsequent RPCs. 
-- Subscribe requests must be sent to the leader of the requested stream
-  partition, so the client can fetch metadata from the cluster to determine
-  which broker to send particular requests to.
-- Stream partitioning requires knowing how many partitions exist for a stream,
-  so the client can fetch metadata from the cluster to determine partitions.
+With this in mind, we recommend implementing a reusable method for making
+resilient RPCs by retrying requests on certain failures and cycling through
+known servers. It's important to be mindful of which errors are retried for
+idempotency reasons. This resilient RPC method can be used for RPCs such as:
+
+- `CreateStream`
+- `Publish`
+- `FetchMetadata`
+
+The Go implementation of this, called `doResilientRPC`, is shown below along
+with the `dialBroker` helper. It takes an RPC closure and retries on gRPC
+`Unavailable` errors while trying different servers in the cluster.
+`dialBroker` relies on the internally managed metadata object to track server
+addresses in the cluster.
+
+```go
+// doResilientRPC executes the given RPC and performs retries if it fails due
+// to the broker being unavailable, cycling through the known broker list.
+func (c *client) doResilientRPC(rpc func(client proto.APIClient) error) (err error) {
+	c.mu.RLock()
+	client := c.apiClient
+	c.mu.RUnlock()
+
+	for i := 0; i < 10; i++ {
+		err = rpc(client)
+		if status.Code(err) == codes.Unavailable {
+			conn, err := c.dialBroker()
+			if err != nil {
+				return err
+			}
+			client = proto.NewAPIClient(conn)
+			c.mu.Lock()
+			c.apiClient = client
+			c.conn.Close()
+			c.conn = conn
+			c.mu.Unlock()
+		} else {
+			break
+		}
+	}
+	return
+}
+
+// dialBroker dials each broker in the cluster, in random order, returning a
+// gRPC ClientConn to the first one that is successful.
+func (c *client) dialBroker() (*grpc.ClientConn, error) {
+	var (
+		conn  *grpc.ClientConn
+		err   error
+		addrs = c.metadata.getAddrs()
+		perm  = rand.Perm(len(addrs))
+	)
+	for _, i := range perm {
+		conn, err = grpc.Dial(addrs[i], c.dialOpts...)
+		if err == nil {
+			break
+		}
+	}
+	if conn == nil {
+		return nil, err
+	}
+	return conn, nil
+}
+```
+
+### CreateStream Implementation
+
+The `CreateStream` implementation simply constructs a gRPC request and executes
+it using the [resilient RPC method](#rpc-guidance) described above. If the
+`AlreadyExists` gRPC error is returned, an `ErrStreamExists` error/exception is
+thrown. Otherwise, any other error/exception is thrown if the operation failed.
+
+```go
+// CreateStream creates a new stream attached to a NATS subject. Subject is the
+// NATS subject the stream is attached to, and name is the stream identifier,
+// unique per subject. It returns ErrStreamExists if a stream with the given
+// subject and name already exists.
+func (c *client) CreateStream(ctx context.Context, subject, name string, options ...StreamOption) error {
+	opts := &StreamOptions{}
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return err
+		}
+	}
+
+	req := &proto.CreateStreamRequest{
+		Subject:           subject,
+		Name:              name,
+		ReplicationFactor: opts.ReplicationFactor,
+		Group:             opts.Group,
+		Partitions:        opts.Partitions,
+	}
+	err := c.doResilientRPC(func(client proto.APIClient) error {
+		_, err := client.CreateStream(ctx, req)
+		return err
+	})
+	if status.Code(err) == codes.AlreadyExists {
+		return ErrStreamExists
+	}
+	return err
+}
+```
+
+### Subscribe Implementation
+
+TODO
+
+### FetchMetadata Implementation
+
+TODO
+
+### Close Implementation
 
 TODO
