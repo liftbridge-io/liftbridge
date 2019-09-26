@@ -156,12 +156,15 @@ configure a subscription. Supported options are:
 
 | Option | Type | Description | Default |
 |:----|:----|:----|:----|
-| Partition | int | Specifies the stream partition to consume. | 1 |
+| Partition | int | Specifies the stream partition to consume. | 0 |
 | StartAtEarliestReceived | bool | Sets the subscription start position to the earliest message received in the stream. | false |
 | StartAtLatestReceived | bool | Sets the subscription start position to the last message received in the stream. | false |
 | StartAtOffset | int | Sets the subscription start position to the first message with an offset greater than or equal to the given offset. | |
 | StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
 | StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
+
+Currently, `Subscribe` can only subscribe to a single partition. In the future,
+there will be functionality for consuming all partitions.
 
 `Subscribe` returns/throws an error if the operation fails, specifically
 `ErrNoSuchPartition` if the specified stream or partition does not exist.
@@ -242,6 +245,8 @@ type Partitioner interface {
 	Partition(msg *proto.Message, metadata *Metadata) int32
 }
 ```
+
+[Implementation Guidance](#publish-implementation)
 
 #### Low-Level Publish Helpers
 
@@ -395,7 +400,7 @@ Below is implementation guidance for the client interface described above. Like
 the interface, specific implementation details may differ depending on the
 programming language.
 
-### RPC Guidance
+### RPCs
 
 While Liftbridge has a concept of a metadata leader, or controller, which is
 responsible for handling updates to cluster metadata, most RPCs can be made to
@@ -416,8 +421,9 @@ idempotency reasons. This resilient RPC method can be used for RPCs such as:
 The Go implementation of this, called `doResilientRPC`, is shown below along
 with the `dialBroker` helper. It takes an RPC closure and retries on gRPC
 `Unavailable` errors while trying different servers in the cluster.
-`dialBroker` relies on the internally managed metadata object to track server
-addresses in the cluster.
+`dialBroker` relies on the internally managed [metadata
+object](#fetchmetadata-implementation) to track server addresses in the
+cluster.
 
 ```go
 // doResilientRPC executes the given RPC and performs retries if it fails due
@@ -469,10 +475,41 @@ func (c *client) dialBroker() (*grpc.ClientConn, error) {
 }
 ```
 
+### Connection Pooling
+
+A single client might have multiple connections to different servers in a
+Liftbridge cluster or even multiple connections to the same server. For
+efficiency purposes, it's recommended client libraries implement connection
+pooling to reuse and limit gRPC connections. For simplicity, we recommend
+having a dedicated connection for [all RPCs with the exception of
+`Subscribe`](#rpcs) and using connection pooling for `Subscribe` RPCs which are
+long-lived and asynchronous.
+
+There are two important client options that control pooling behavior:
+`KeepAliveTime` and `MaxConnsPerBroker`.  `KeepAliveTime` is the amount of time
+a pooled connection can be idle (unused) before it is closed and removed from
+the pool. A suggested default for this is 30 seconds. `MaxConnsPerBroker` is
+the maximum number of connections to pool for a given server in the cluster. A
+suggested default for this is 2.
+
+Since a connection pool is generally scoped to a server, a client will
+typically have a map of server addresses to connection pools.
+
+A connection pool generally has three key operations:
+
+- `get`: return a gRPC connection from the pool, if available, or create one
+  using a provided connection factory. If the connection was taken from a pool,
+  an expiration timer should be canceled on it to prevent it from being closed.
+- `put`: return a gRPC connection to the pool if there is capacity or close it
+  if not. If the connection is added to the pool, a timer should be set to
+  close the connection if it's unused for `KeepAliveTime`.
+- `close`: clean up the connection pool by closing all active gRPC connections
+  and stopping all timers.
+
 ### CreateStream Implementation
 
 The `CreateStream` implementation simply constructs a gRPC request and executes
-it using the [resilient RPC method](#rpc-guidance) described above. If the
+it using the [resilient RPC method](#rpcs) described above. If the
 `AlreadyExists` gRPC error is returned, an `ErrStreamExists` error/exception is
 thrown. Otherwise, any other error/exception is thrown if the operation failed.
 
@@ -509,12 +546,359 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 
 ### Subscribe Implementation
 
-TODO
+`Subscribe` works by making a gRPC request which returns a stream that sends
+back messages on a partition. As such, there are essentially two main
+implementation components: making the subscribe request and starting a
+dispatcher which asynchronously sends messages received on the gRPC stream to
+the user, either using a callback or some other message-passing mechanism. The
+Go implementation of this is shown below:
+
+```go
+// Subscribe creates an ephemeral subscription for the given stream. It begins
+// receiving messages starting at the configured position and waits for new
+// messages when it reaches the end of the stream. The default start position
+// is the end of the stream. It returns an ErrNoSuchPartition if the given
+// stream or partition does not exist. Use a cancelable Context to close a
+// subscription.
+func (c *client) Subscribe(ctx context.Context, streamName string, handler Handler,
+	options ...SubscriptionOption) (err error) {
+
+	opts := &SubscriptionOptions{}
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return err
+		}
+	}
+
+	stream, releaseConn, err := c.subscribe(ctx, streamName, opts)
+	if err != nil {
+		return err
+	}
+
+	go c.dispatchStream(ctx, streamName, stream, releaseConn, handler)
+	return nil
+}
+```
+
+The `Subscribe` RPC must be sent to the leader of the stream partition being
+subscribed to. This should be determined by [fetching the
+metadata](#fetchmetadata) from the cluster. This metadata can (and should) be
+cached in the client. It's recommended `Subscribe` use [connection
+pooling](#connection-pooling) since each `Subscribe` call will involve a
+long-lived gRPC connection to a different server.
+
+When the subscription stream is created, the server sends an empty message to
+indicate the subscription was successfully created. Otherwise, an error is sent
+on the stream if the subscribe failed. A gRPC `FailedPrecondition` error
+indicates the server is not the partition leader, perhaps because the leader
+has since changed. In this case, the client should refresh the metadata and
+retry. It's recommended retries also wait a bit, e.g. between 10 and 500 ms,
+ideally with some jitter. A gRPC `NotFound` error is returned if the requested
+partition does not exist.
+
+After the subscription is created and the server has returned a gRPC stream for
+the client to receive messages on, `Subscribe` should start an asynchronous
+thread, coroutine, or equivalent to send messages to the user. For example,
+this might invoke a callback or place messages in a buffer. Alternatively,
+`Subscribe` may be blocking, in which case it simply yields a stream of
+messages to the user in a synchronous manner. There are a few important pieces
+of behavior to point out with the dispatching component:
+
+- If an error is received on the gRPC stream, it should be propagated to the
+  user. This should signal that the subscription is terminated and no more
+  messages are to be received.
+- If an error indicating a transient network issue occurs, e.g. a gRPC
+  `Unavailable` error, the client may opt to resubscribe to the partition
+  starting at the last received offset. It's recommended to provide a
+  configuration, `ResubscribeWaitTime`, which is the amount of time to attempt
+  to re-establish a subscription after being disconnected. A suggested default
+  for this is 30 seconds. It's recommended to have some wait time with jitter
+  between resubscribe attempts. This resubscribe logic implies `Subscribe` is
+  tracking the last received offset from the partition in order to know where
+  to start a resubscribe from. Note that the internal resubscribe logic is
+  purely best effort and, at the moment, it's up to users to track their
+  position in the stream if needed.
+- When a subscription is closed, either explicitly or due to an error, its
+  connection should be returned to the connection pool.
+
+### Publish Implementation
+
+`Publish` involves constructing a `Message` protobuf, determining the partition
+to publish to, and then making the publish request to the server using the
+[resilient RPC method](#rpcs) described above. The Go implementation of this is
+shown below, including a helper function `partition` which determines the
+partition ID to publish the message to.
+
+```go
+// Publish publishes a new message to the NATS subject. If the AckPolicy is not
+// NONE and a deadline is provided, this will synchronously block until the
+// first ack is received. If the ack is not received in time, a
+// DeadlineExceeded status code is returned. If an AckPolicy and deadline are
+// configured, this returns the first Ack on success, otherwise it returns nil.
+func (c *client) Publish(ctx context.Context, subject string, value []byte,
+	options ...MessageOption) (*proto.Ack, error) {
+
+	opts := &MessageOptions{Headers: make(map[string][]byte)}
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	msg := &proto.Message{
+		Subject:       subject,
+		Key:           opts.Key,
+		Value:         value,
+		AckInbox:      opts.AckInbox,
+		CorrelationId: opts.CorrelationID,
+		AckPolicy:     opts.AckPolicy,
+	}
+
+	// Determine which partition to publish to.
+	partition, err := c.partition(ctx, msg, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Publish to the appropriate partition subject.
+	if partition > 0 {
+		msg.Subject = fmt.Sprintf("%s.%d", msg.Subject, partition)
+	}
+
+	var (
+		req = &proto.PublishRequest{Message: msg}
+		ack *proto.Ack
+	)
+	err = c.doResilientRPC(func(client proto.APIClient) error {
+		resp, err := client.Publish(ctx, req)
+		if err == nil {
+			ack = resp.Ack
+		}
+		return err
+	})
+	return ack, err
+}
+
+// partition determines the partition ID to publish the message to. If a
+// partition was explicitly provided, it will be returned. If a Partitioner was
+// provided, it will be used to compute the partition. Otherwise, 0 will be
+// returned.
+func (c *client) partition(ctx context.Context, msg *proto.Message, opts *MessageOptions) (int32, error) {
+	var partition int32
+	// If a partition is explicitly provided, use it.
+	if opts.Partition != nil {
+		partition = *opts.Partition
+	} else if opts.Partitioner != nil {
+		// Make sure we have metadata for the stream and, if not, update it.
+		metadata, err := c.waitForSubjectMetadata(ctx, msg.Subject)
+		if err != nil {
+			return 0, err
+		}
+		partition = opts.Partitioner.Partition(msg, metadata)
+	}
+	return partition, nil
+}
+```
+
+The partition to publish to is determined in the following way:
+
+1. If a partition is explicitly provided using the `ToPartition` message
+   option, use it.
+2. If a `Partitioner` is provided, use it to compute the partition.
+3. If neither of the above apply, use partition 0 (the default partition).
+
+The partition is used to derive the actual NATS subject the message is
+published to. The table below shows an example of this partition-subject
+mapping logic.
+
+| Base Subject | Partition | Derived Subject |
+|:----|:----|:----|
+| foo | 0 | foo |
+| foo | 1 | foo.1 |
+| foo | 2 | foo.2 |
+| foo | 3 | foo.3 |
+
+Note that `Publish` is a synchronous operation. After the RPC returns, the
+message has been published. The server handles message acks, if applicable. If
+a publish is expecting an ack, the RPC will block until the ack is received or
+a timeout occurs. Implementations may choose to also offer an asynchronous
+publish API for performance reasons. The Go client does not currently implement
+this.
+
+#### Partitioner Implementation
+
+Clients should provide at least two `Partitioner` implementations as described
+above: `PartitionByKey` and `PartitionByRoundRobin`. `PartitionByKey` should
+partition messages based on a hash of the message key. `PartitionByRoundRobin`
+should partition messages in a round-robin fashion, i.e. cycling through the
+partitions. The Go implementations of these are shown below:
+
+```go
+var hasher = crc32.ChecksumIEEE
+
+// keyPartitioner is an implementation of Partitioner which partitions messages
+// based on a hash of the key.
+type keyPartitioner struct{}
+
+// Partition computes the partition number for a given message by hashing the
+// key and modding by the number of partitions for the first stream found with
+// the subject of the message. This does not work with streams containing
+// wildcards in their subjects, e.g. "foo.*", since this matches on the subject
+// literal of the published message. This also has undefined behavior if there
+// are multiple streams for the given subject.
+func (k *keyPartitioner) Partition(msg *proto.Message, metadata *Metadata) int32 {
+	key := msg.Key
+	if key == nil {
+		key = []byte("")
+	}
+
+	partitions := getPartitionCount(msg.Subject, metadata)
+	if partitions == 0 {
+		return 0
+	}
+
+	return int32(hasher(key)) % partitions
+}
+
+type subjectCounter struct {
+	sync.Mutex
+	count int32
+}
+
+// roundRobinPartitioner is an implementation of Partitioner which partitions
+// messages in a round-robin fashion.
+type roundRobinPartitioner struct {
+	sync.Mutex
+	subjectCounterMap map[string]*subjectCounter
+}
+
+// Partition computes the partition number for a given message in a round-robin
+// fashion by atomically incrementing a counter for the message subject and
+// modding by the number of partitions for the first stream found with the
+// subject. This does not work with streams containing wildcards in their
+// subjects, e.g. "foo.*", since this matches on the subject literal of the
+// published message. This also has undefined behavior if there are multiple
+// streams for the given subject.
+func (r *roundRobinPartitioner) Partition(msg *proto.Message, metadata *Metadata) int32 {
+	partitions := getPartitionCount(msg.Subject, metadata)
+	if partitions == 0 {
+		return 0
+	}
+	r.Lock()
+	counter, ok := r.subjectCounterMap[msg.Subject]
+	if !ok {
+		counter = new(subjectCounter)
+		r.subjectCounterMap[msg.Subject] = counter
+	}
+	r.Unlock()
+	counter.Lock()
+	count := counter.count
+	counter.count++
+	counter.Unlock()
+	return count % partitions
+}
+
+func getPartitionCount(subject string, metadata *Metadata) int32 {
+	counts := metadata.PartitionCountsForSubject(subject)
+
+	// Get the first matching stream's count.
+	for _, count := range counts {
+		return count
+	}
+
+	return 0
+}
+```
 
 ### FetchMetadata Implementation
 
-TODO
+`FetchMetadata` should return an immutable object which exposes cluster
+metadata. This object is passed in to `Partitioner` implementations, but users
+can also use it to retrieve stream and server information. Below are the
+function signatures for the Go implementation of this object. This may vary
+between language implementations.
+
+```go
+// LastUpdated returns the time when this metadata was last updated from the
+// server.
+func (m *Metadata) LastUpdated() time.Time
+
+// Brokers returns a list of the cluster nodes.
+func (m *Metadata) Brokers() []*BrokerInfo
+
+// Addrs returns the list of known broker addresses.
+func (m *Metadata) Addrs() []string
+
+// GetStream returns the given stream or nil if unknown.
+func (m *Metadata) GetStream(name string) *StreamInfo
+
+// GetStreams returns a map containing all streams with the given subject. This
+// does not match on wildcard subjects, e.g.  "foo.*".
+func (m *Metadata) GetStreams(subject string) []*StreamInfo
+
+// PartitionCountsForSubject returns a map containing stream names and the
+// number of partitions for the stream. This does not match on wildcard
+// subjects, e.g. "foo.*".
+func (m *Metadata) PartitionCountsForSubject(subject string) map[string]int32
+```
+
+`BrokerInfo` is an immutable object containing server information like ID,
+host, and port. `StreamInfo` is an immutable object containing stream
+information like subject, name, and partitions.
+
+To simplify client logic, we recommend building an internal abstraction for
+dealing with metadata. This internal API should include logic for fetching
+metadata from the cluster using the [resilient RPC method](#rpcs) described
+above, converting it into the immutable metadata object, and caching it. It
+should also provide helper methods for retrieving server addresses (all
+addresses, which helps simplify logic for resilient RPCs, and the address for
+the leader of a given stream partition, which helps simplify logic for
+`Subscribe`).
+
+With this internal metadata abstraction, the implementation of `FetchMetadata`
+is should be trivial, as shown in the Go implementation below. In this case,
+the logic of making the metadata RPC, converting it into an immutable metadata
+object, and caching it is handled by the `update` function.
+
+```go
+// FetchMetadata returns cluster metadata including broker and stream
+// information.
+func (c *client) FetchMetadata(ctx context.Context) (*Metadata, error) {
+	return c.metadata.update(ctx)
+}
+```
+
+While metadata should be cached internally to minimize RPCs, the public
+`FetchMetadata` should always force a refresh by going to the server.
+Implementations may choose to provide an option for using the cached metadata.
+Internally, calls such as `Subscribe` should attempt to use the cached metadata
+and refresh it if it appears to be stale, e.g. because the server is no longer
+the partition leader. It may also be prudent for clients to periodically
+refresh metadata irrespective of these types of errors, perhaps with a
+configurable interval. However, the Go client does not currently implement
+this.
 
 ### Close Implementation
 
-TODO
+`Close` should be an idempotent operation which closes any gRPC connections and
+connection pools associated with the client. The Go implementation of this is
+shown below:
+
+```go
+// Close the client connection.
+func (c *client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil
+	}
+	for _, pool := range c.pools {
+		if err := pool.close(); err != nil {
+			return err
+		}
+	}
+	if err := c.conn.Close(); err != nil {
+		return err
+	}
+	c.closed = true
+	return nil
+}
+```
