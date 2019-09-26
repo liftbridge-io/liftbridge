@@ -291,6 +291,9 @@ referred to as the envelope cookie, followed by the serialized message
 protobuf. It takes the same arguments as `Publish` (see above) with the
 exception of the context and subject.
 
+Note that the envelope-cookie protocol does not need to be implemented in the
+`Publish` API since the envelope serialization is handled by the server.
+
 ##### UnmarshalMessage
 
 ```go
