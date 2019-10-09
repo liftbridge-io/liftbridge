@@ -110,6 +110,8 @@ type Config struct {
 	MetadataCacheMaxAge time.Duration
 	TLSKey              string
 	TLSCert             string
+	TLSClientAuth       bool
+	TLSClientAuthCA     string
 	NATS                nats.Options
 	Log                 LogConfig
 	Clustering          ClusteringConfig
@@ -253,6 +255,10 @@ func NewConfig(configFile string) (*Config, error) {
 			config.TLSKey = v.(string)
 		case "tls.cert":
 			config.TLSCert = v.(string)
+		case "tls.client.auth":
+			config.TLSClientAuth = v.(bool)
+		case "tls.client.auth.ca":
+			config.TLSClientAuthCA = v.(string)
 		case "nats":
 			if err := parseNATSConfig(v.(map[string]interface{}), &config.NATS); err != nil {
 				return nil, err
