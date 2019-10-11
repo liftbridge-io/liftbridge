@@ -38,6 +38,8 @@ GLOBAL OPTIONS:
    --port value, -p value                      port to bind to (default: 9292)
    --tls-cert value                            server certificate file
    --tls-key value                             private key for server certificate
+   --tls-client-auth value                     enforce client authentication
+   --tls-client-auth-ca value                  CA certificate to use when authenticating clients
    --level value, -l value                     logging level [debug|info|warn|error] (default: "info")
    --raft-bootstrap-seed                       bootstrap the Raft cluster by electing self as leader if there is no existing state
    --raft-bootstrap-peers value                bootstrap the Raft cluster with the provided list of peer IDs if there is no existing state
@@ -104,6 +106,8 @@ the setting in the configuration file and the CLI flag if it exists.
 | port | port | The server port. | int | 9292 | |
 | tls.key | tls-key | The private key file for server certificate. This must be set in combination with `tls.cert` to enable TLS. | string | |
 | tls.cert | tls-cert | The server certificate file. This must be set in combination with `tls.key` to enable TLS. | string | |
+| tls.client.auth | tls-client-auth | Enforce client-side authentication via certificate. | bool | false |
+| tls.client.auth.ca | tls-client-auth-ca | The CA certificate file to use when authenticating clients. | string | |
 | log.level | level | The logging level. | string | info | [debug, info, warn, error] |
 | log.recovery | | Log messages resulting from the replay of the Raft log on server recovery. | bool | false | |
 | data.dir | data-dir | The directory to store data in. | string | /tmp/liftbridge/namespace | |

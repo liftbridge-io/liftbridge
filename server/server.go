@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -311,10 +313,36 @@ func (s *Server) startAPIServer() error {
 
 	// Setup TLS if key/cert is set.
 	if s.config.TLSKey != "" && s.config.TLSCert != "" {
-		creds, err := credentials.NewServerTLSFromFile(s.config.TLSCert, s.config.TLSKey)
+		var (
+			config tls.Config
+		)
+
+		certificate, err := tls.LoadX509KeyPair(s.config.TLSCert, s.config.TLSKey)
 		if err != nil {
-			return errors.Wrap(err, "failed to setup TLS credentials")
+			return errors.Wrap(err, "failed to load TLS key pair")
 		}
+
+		config.Certificates = []tls.Certificate{certificate}
+
+		if s.config.TLSClientAuth {
+			config.ClientAuth = tls.RequireAndVerifyClientCert
+
+			if s.config.TLSClientAuthCA != "" {
+				certPool := x509.NewCertPool()
+				ca, err := ioutil.ReadFile(s.config.TLSClientAuthCA)
+				if err != nil {
+					return errors.Wrap(err, "failed to load TLS client ca certificate")
+				}
+
+				if ok := certPool.AppendCertsFromPEM(ca); !ok {
+					return errors.Wrap(err, "failed to append TLS client certificate")
+				}
+
+				config.ClientCAs = certPool
+			}
+		}
+
+		creds := credentials.NewTLS(&config)
 		opts = append(opts, grpc.Creds(creds))
 	}
 
