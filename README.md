@@ -1,4 +1,4 @@
-![Liftbridge Logo](./documentation/images/logo.png)
+![Liftbridge Logo](./website/static/img/liftbridge_full.png)
 ---
 [![CircleCI](https://circleci.com/gh/liftbridge-io/liftbridge.svg?style=svg)](https://circleci.com/gh/liftbridge-io/liftbridge)
 
