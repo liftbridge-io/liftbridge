@@ -1,0 +1,20 @@
+{
+  "docs": {
+    "Overview": [
+        "overview",
+        "faq",
+        "concepts",
+        "quick-start"
+    ],
+    "Configuration": [
+        "configuration",
+        "ha-and-consistency-configuration"
+    ],
+    "Technical Deep Dive": [
+        "replication-protocol"
+    ],
+    "Client Libraries": [
+        "client-implementation"
+    ]
+  }
+}

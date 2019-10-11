@@ -1,4 +1,7 @@
-# Quick Start
+---
+id: quick-start
+title: Quick Start
+---
 
 Liftbridge currently relies on an externally running
 [NATS server](https://github.com/nats-io/gnatsd). By default, it will connect
@@ -14,7 +17,7 @@ indicate to the server to elect itself as leader. This will start a single
 server that can begin handling requests. **Use this flag with caution as it should
 only be set on one server when bootstrapping a cluster.**
 
-```
+```shell
 $ liftbridge --raft-bootstrap-seed
 INFO[2018-07-05 16:29:44] Server ID: kn3MGwCL3TKRNyGS9bZLgH
 INFO[2018-07-05 16:29:44] Namespace: liftbridge-default
@@ -25,7 +28,7 @@ INFO[2018-07-05 16:29:46] Server became metadata leader, performing leader promo
 Once a leader has been elected, other servers will automatically join the cluster.
 We set the `--data-dir` and `--port` flags to avoid clobbering the first server.
 
-```
+```shell
 $ liftbridge --data-dir /tmp/liftbridge/server-2 --port=9293
 INFO[2018-07-05 16:39:21] Server ID: 32CpplyaA031EFEW1DQzx6
 INFO[2018-07-05 16:39:21] Namespace: liftbridge-default
@@ -36,6 +39,6 @@ We can also bootstrap a cluster by providing the explicit cluster configuration.
 To do this, we provide the IDs of the participating peers in the cluster using the
 `--raft-bootstrap-peers` flag. Raft will then handle electing a leader.
 
-```
+```shell
 $ liftbridge --raft-bootstrap-peers server-2,server-3
 ```

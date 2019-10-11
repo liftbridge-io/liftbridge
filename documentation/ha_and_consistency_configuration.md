@@ -1,4 +1,7 @@
-# Configuring Liftbridge for High Availability and Consistency
+---
+id: ha-and-consistency-configuration
+title: Configuring for High Availability and Consistency
+---
 
 Liftbridge provides several parameters, outlined below, for controlling high
 availability and data consistency (guaranteed delivery). It should be pointed
@@ -51,7 +54,7 @@ example, for a stream with a replication factor of 3, `AckPolicy_ALL` and a
 `min.insync.replicas` value of 2 will guarantee the message is written to at
 least 2 replicas.
 
-```
+```plaintext
 clustering {
     min.insync.replicas: 2
 }
