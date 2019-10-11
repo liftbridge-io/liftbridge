@@ -3,6 +3,17 @@ id: quick-start
 title: Quick Start
 ---
 
+Liftbridge currently requires building and installing from source using
+[Go](https://golang.org/doc/install). This will not be required once a release
+is made which will provide binaries and container images, but in the meantime
+follow the below step to install.
+
+```shell
+$ go get github.com/liftbridge-io/liftbridge
+```
+*Liftbridge uses [Go modules](https://github.com/golang/go/wiki/Modules), so
+ensure this is enabled, e.g. `export GO111MODULE=on`.*
+
 Liftbridge currently relies on an externally running
 [NATS server](https://github.com/nats-io/gnatsd). By default, it will connect
 to a NATS server running on localhost. The `--nats-servers` flag allows

@@ -3,9 +3,9 @@ id: client-implementation
 title: Client Implementation Guidance
 ---
 
-This documentation provides guidance on implementing a client library for the
-Liftbridge server. If information is missing or inaccurate, feel free to make a
-PR fixing it.
+This documentation provides guidance on implementing a [client
+library](clients.md) for the Liftbridge server. If information is missing or
+inaccurate, feel free to make a PR fixing it.
 
 ## Generating gRPC API
 

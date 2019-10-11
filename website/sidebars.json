@@ -14,6 +14,7 @@
         "replication-protocol"
     ],
     "Client Libraries": [
+        "clients",
         "client-implementation"
     ]
   }

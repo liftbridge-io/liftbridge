@@ -8,6 +8,9 @@
       "client-implementation": {
         "title": "Client Implementation Guidance"
       },
+      "clients": {
+        "title": "Clients"
+      },
       "concepts": {
         "title": "Concepts"
       },

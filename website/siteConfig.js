@@ -1,10 +1,3 @@
-/**
- * Copyright (c) 2017-present, Facebook, Inc.
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 // See https://docusaurus.io/docs/site-config for all the possible
 // site configuration options.
 
@@ -24,7 +17,7 @@ const siteConfig = {
   title: 'LIFTBRIDGE', // Title for your website.
   tagline: 'Lightweight, fault-tolerant message streams',
   url: 'https://liftbridge-io.github.io', // Your website URL
-  baseUrl: '/liftbridge/', // Base URL for your project */
+  baseUrl: '/', // Base URL for your project */
   // For github.io type URLs, you would set the url and baseUrl like:
   //   url: 'https://facebook.github.io',
   //   baseUrl: '/test-site/',

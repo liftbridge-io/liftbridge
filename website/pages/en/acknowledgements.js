@@ -5,7 +5,7 @@ const CompLibrary = require('../../core/CompLibrary.js');
 const Container = CompLibrary.Container;
 const GridBlock = CompLibrary.GridBlock;
 
-function Help(props) {
+function Acknowledgements(props) {
   const {config: siteConfig, language = ''} = props;
   const {baseUrl, docsUrl} = siteConfig;
   const docsPart = `${docsUrl ? `${docsUrl}/` : ''}`;
@@ -34,14 +34,25 @@ function Help(props) {
       <Container className="mainContainer documentContainer postContainer">
         <div className="post">
           <header className="postHeader">
-            <h1>Need help?</h1>
+            <h1>Acknowledgements</h1>
           </header>
-          <p>If you need help with Liftbridge, try one of the support channels below.</p>
-          <GridBlock contents={supportLinks} layout="threeColumn" />
+          <ul>
+            <li>
+              <a href="https://twitter.com/derekcollison">Derek Collison</a> and NATS team for building NATS and NATS Streaming and providing lots of inspiration.
+            </li>
+            <li>
+              <a href="https://twitter.com/travisjeffery">Travis Jeffery</a> for building <a href="https://github.com/travisjeffery/jocko">Jocko</a>, a Go implementation
+              of Kafka. The Liftbridge log implementation builds heavily upon the commit log
+              from Jocko.
+            </li>
+            <li>
+              <a href="http://kafka.apache.org">Apache Kafka</a> for inspiring large parts of the design, particularly around replication.
+            </li>
+          </ul>
         </div>
       </Container>
     </div>
   );
 }
 
-module.exports = Help;
+module.exports = Acknowledgements;
