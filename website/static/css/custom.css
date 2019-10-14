@@ -21,6 +21,7 @@
   font-size: 24px;
   font-weight: bold;
   margin-right: 24px;
+  margin-bottom: 24px;
   padding: 18px 36px;
 }
 
@@ -40,4 +41,9 @@ a {
 
 #logo {
   max-width: 80%;
+}
+
+.use-case {
+  margin-bottom: 20px !important;
+  font-size: 20px;
 }

@@ -86,16 +86,16 @@ class Index extends React.Component {
       </Container>
     );
 
-    const Description = () => (
+    const UseCases = () => (
       <Block className="navy-background" align="left">
         {[
           {
             content:
-              '<h3>Pub/sub messaging</h3>' +
-              '<h3>Event sourcing and CQRS</h3>' +
-              '<h3>Stream processing (e.g. processing clickstream events)</h3>' +
-              '<h3>Real-time data pipelines (e.g. log or metric aggregation to feed disparate backends)</h3>' +
-              '<h3>Replicated transaction commit logs (e.g. materialize views, populate caches, update indexes, or synchronize data)</h3>',
+              '<p class="use-case">Pub/sub messaging</p>' +
+              '<p class="use-case">Event sourcing and CQRS</p>' +
+              '<p class="use-case">Stream processing (e.g. processing clickstream events)</p>' +
+              '<p class="use-case">Real-time data pipelines (e.g. log or metric aggregation to feed disparate backends)</p>' +
+              '<p class="use-case">Replicated transaction commit logs (e.g. materialize views, populate caches, update indexes, or synchronize data)</p>',
             image: `${baseUrl}img/use_cases.svg`,
             imageAlign: 'right',
             title: 'Use Cases',
@@ -111,7 +111,7 @@ class Index extends React.Component {
             content: 'Extend <a href="https://nats.io/">NATS</a> with a Kafka-like durable pub/sub log API. ' +
                      'Use Liftbridge as a simpler and lighter alternative to ' +
                      'systems like Kafka and Pulsar or to add streaming semantics ' +
-                     'to an existing NATS deployment.',
+                     'to an existing NATS deployment.<br><br>',
             image: `${baseUrl}img/nats.png`,
             imageAlign: 'top',
             title: 'Pub/Sub Log API for NATS',
@@ -119,7 +119,7 @@ class Index extends React.Component {
           {
             content: 'Stream replication provides high availability and durability ' +
                      'of messages. Clustering and partitioning provides ' +
-                     'horizontal scalability for streams and their consumers.' ,
+                     'horizontal scalability for streams and their consumers.<br><br>' ,
             image: `${baseUrl}img/scalability.png`,
             imageAlign: 'top',
             title: 'Fault-Tolerant and Scalable',
@@ -128,7 +128,7 @@ class Index extends React.Component {
             content: 'No heavy or unwieldy dependencies like ZooKeeper or the JVM. ' +
                      'Liftbridge is a single static binary roughly 16MB in size. ' +
                      'It has a simple gRPC-based API which makes it quick to implement ' +
-                     'client libraries.',
+                     'client libraries.<br><br>',
             image: `${baseUrl}img/zen.png`,
             imageAlign: 'top',
             title: 'Supremely Simple',
@@ -136,7 +136,7 @@ class Index extends React.Component {
           {
             content: 'Create streams that match wildcard topics, such as ' +
                      'stock.nyse.* or stock.nasdaq.* in addition to topic literals ' +
-                     'like stock.nasdaq.msft.',
+                     'like stock.nasdaq.msft.<br><br>',
             image: `${baseUrl}img/asterisk.png`,
             imageAlign: 'top',
             title: 'Wildcard Subscriptions',
@@ -144,7 +144,7 @@ class Index extends React.Component {
           {
             content: 'Messages can have a key set on them for key-value semantics ' +
                      'and other arbitrary headers, making Liftbridge a great choice ' +
-                     'for transaction write-ahead logs.',
+                     'for transaction write-ahead logs.<br><br>',
             image: `${baseUrl}img/key_value.png`,
             imageAlign: 'top',
             title: 'Key-Value and Header Support',
@@ -152,7 +152,7 @@ class Index extends React.Component {
           {
             content: 'In addition to retention policies based on time and data ' +
                      'volume, Liftbridge supports log compaction by key. This ' +
-                     'means the server retains only the latest value for a given key.',
+                     'means the server retains only the latest value for a given key.<br><br>',
             image: `${baseUrl}img/log_retention.png`,
             imageAlign: 'top',
             title: 'Log Retention and Compaction',
@@ -167,7 +167,7 @@ class Index extends React.Component {
         <div className="mainContainer">
           <Features />
         </div>
-        <Description />
+        <UseCases />
       </div>
     );
   }

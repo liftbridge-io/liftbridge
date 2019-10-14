@@ -16,5 +16,7 @@
 # Ignore jetbrains goland/idea setting path
 .idea/
 
-# Ignore website node modules
+# Ignore website node modules and build
 website/node_modules/
+website/build/
+website/deploy/build/

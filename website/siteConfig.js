@@ -42,7 +42,7 @@ const siteConfig = {
   /* path to images for header/footer */
   headerIcon: 'img/liftbridge_icon.png',
   footerIcon: 'img/liftbridge_icon.png',
-  favicon: 'img/liftbridge_icon.png',
+  favicon: 'img/favicon.png',
 
   /* Colors for website */
   colors: {
@@ -78,14 +78,14 @@ const siteConfig = {
   // On page navigation for the current documentation page.
   onPageNav: 'separate',
   // No .html extensions for paths.
-  cleanUrl: true,
+  cleanUrl: false,
 
   // Open Graph and Twitter card images.
   ogImage: 'img/liftbridge.png',
   twitterImage: 'img/liftbridge.png',
   twitterUsername: 'liftbridge_io',
 
-  editUrl: 'https://github.com/liftbridge-io/liftbridge/edit/master/docs/',
+  editUrl: 'https://github.com/liftbridge-io/liftbridge/edit/master/documentation/',
 
   // For sites with a sizable amount of content, set collapsible to true.
   // Expand/collapse the links and subcategories under categories.
