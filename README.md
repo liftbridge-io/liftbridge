@@ -12,3 +12,10 @@ semantics to an existing NATS deployment.
 See the [introduction](https://bravenewgeek.com/introducing-liftbridge-lightweight-fault-tolerant-message-streams/)
 post on Liftbridge and [this post](https://bravenewgeek.com/building-a-distributed-log-from-scratch-part-5-sketching-a-new-system/)
 for more context and some of the inspiration behind it.
+
+## Documentation
+
+- [Official documentation](https://liftbridge.io/docs/overview.html)
+- [Getting started](https://liftbridge.io/docs/quick-start.html)
+- [FAQ](https://liftbridge.io/docs/faq.html)
+- [Website](https://liftbridge.io)
