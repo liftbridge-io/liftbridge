@@ -1,4 +1,7 @@
-# Frequently Asked Questions
+---
+id: faq
+title: Frequently Asked Questions
+---
 
 ## What is Liftbridge?
 
@@ -70,7 +73,7 @@ has a leader who is responsible for handling reads and writes. Followers then
 replicate the log from the leader. If the leader fails, one of the followers
 will step up to replace it. The replication protocol closely resembles that of
 Kafka, so there is much more nuance to avoid data consistency problems. See the
-[replication protocol documentation](./documentation/replication_protocol.md)
+[replication protocol documentation](replication_protocol.md)
 for more details.
 
 ## What about performance?

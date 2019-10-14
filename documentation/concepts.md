@@ -1,8 +1,11 @@
-# Concepts
+---
+id: concepts
+title: Concepts
+---
 
 Liftbridge is a durable stream augmentation for NATS, so it's important to
 have a good grasp of the [key concepts in
-NATS](https://nats.io/documentation/concepts/nats-messaging/). NATS is a
+NATS](https://nats-io.github.io/docs/developer/concepts/intro.html). NATS is a
 pub/sub messaging system that centers around the concept of *subjects*. Clients
 publish messages to subjects and receive messages from *subscriptions* to
 subjects.
@@ -93,7 +96,7 @@ act as read replicas for further scale out.
 The diagram below shows a cluster of three servers with a set of streams.
 Partitions in yellow indicate the server is the leader for the partition.
 
-![cluster](./images/cluster.png)
+![cluster](assets/cluster.png)
 
 ### In-Sync Replica Set (ISR)
 

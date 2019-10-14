@@ -1,4 +1,7 @@
-# Replication Protocol
+---
+id: replication-protocol
+title: Replication Protocol
+---
 
 Liftbridge relies on Raft for metadata replication and leadership election.
 However, for replication of streams, rather than using Raft or other

@@ -1,4 +1,7 @@
-# Configuration
+---
+id: configuration
+title: Configuration
+---
 
 Liftbridge provides limited configuration through command-line flags and full
 configuration using a configuration file. Flags will always take precedent
@@ -6,13 +9,13 @@ over settings in the configuration file.
 
 The configuration file is passed in using the `--config` flag:
 
-```
+```shell
 $ liftbridge --config liftbridge.conf
 ```
 
 To get a full list of the CLI flags, use the `--help` flag:
 
-```
+```shell
 $ liftbridge --help
 NAME:
    liftbridge - Lightweight, fault-tolerant message streams
@@ -67,7 +70,7 @@ The config file format supports the following syntax:
 
 An example configuration file is shown below.
 
-```
+```plaintext
 listen: localhost:9293
 data.dir: /tmp/liftbridge/server-2
 log.level: debug

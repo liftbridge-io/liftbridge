@@ -1,8 +1,11 @@
-# Client Implementation Guidance
+---
+id: client-implementation
+title: Client Implementation Guidance
+---
 
-This documentation provides guidance on implementing a client library for the
-Liftbridge server. If information is missing or inaccurate, feel free to make a
-PR fixing it.
+This documentation provides guidance on implementing a [client
+library](clients.md) for the Liftbridge server. If information is missing or
+inaccurate, feel free to make a PR fixing it.
 
 ## Generating gRPC API
 
@@ -822,25 +825,25 @@ between language implementations.
 ```go
 // LastUpdated returns the time when this metadata was last updated from the
 // server.
-func (m *Metadata) LastUpdated() time.Time
+func (m *Metadata) LastUpdated() time.Time {}
 
 // Brokers returns a list of the cluster nodes.
-func (m *Metadata) Brokers() []*BrokerInfo
+func (m *Metadata) Brokers() []*BrokerInfo {}
 
 // Addrs returns the list of known broker addresses.
-func (m *Metadata) Addrs() []string
+func (m *Metadata) Addrs() []string {}
 
 // GetStream returns the given stream or nil if unknown.
-func (m *Metadata) GetStream(name string) *StreamInfo
+func (m *Metadata) GetStream(name string) *StreamInfo {}
 
 // GetStreams returns a map containing all streams with the given subject. This
 // does not match on wildcard subjects, e.g.  "foo.*".
-func (m *Metadata) GetStreams(subject string) []*StreamInfo
+func (m *Metadata) GetStreams(subject string) []*StreamInfo {}
 
 // PartitionCountsForSubject returns a map containing stream names and the
 // number of partitions for the stream. This does not match on wildcard
 // subjects, e.g. "foo.*".
-func (m *Metadata) PartitionCountsForSubject(subject string) map[string]int32
+func (m *Metadata) PartitionCountsForSubject(subject string) map[string]int32 {}
 ```
 
 `BrokerInfo` is an immutable object containing server information like ID,

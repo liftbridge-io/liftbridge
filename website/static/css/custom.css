@@ -1,0 +1,49 @@
+/* your custom css */
+
+@media only screen and (min-device-width: 360px) and (max-device-width: 736px) {
+}
+
+@media only screen and (min-width: 1024px) {
+}
+
+@media only screen and (max-width: 1023px) {
+}
+
+@media only screen and (min-width: 1400px) {
+}
+
+@media only screen and (min-width: 1500px) {
+}
+
+.index-cta-button {
+  border-radius: 8px;
+  border-width: 2px;
+  font-size: 24px;
+  font-weight: bold;
+  margin-right: 24px;
+  margin-bottom: 24px;
+  padding: 18px 36px;
+}
+
+.index-tagline {
+  margin-top: 0;
+  color: #303459;
+}
+
+a {
+  color: #0037b4;
+}
+
+.navy-background {
+  background: #3b4763;
+  color: #ffffff;
+}
+
+#logo {
+  max-width: 80%;
+}
+
+.use-case {
+  margin-bottom: 20px !important;
+  font-size: 20px;
+}

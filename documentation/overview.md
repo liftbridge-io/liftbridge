@@ -1,4 +1,7 @@
-# Liftbridge Overview
+---
+id: overview
+title: Liftbridge Overview
+---
 
 Liftbridge is a server that implements a durable, replicated message log for
 [NATS](https://nats.io). Clients create a named stream which is attached to a
@@ -37,4 +40,4 @@ existing NATS deployment to provide message durability with no code changes.
 
 The high-level data flow in Liftbridge is shown in the diagram below.
 
-![high-level data flow](./images/high-level.png)
+![high-level data flow](assets/high-level.png)
