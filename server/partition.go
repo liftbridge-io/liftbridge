@@ -812,7 +812,7 @@ func (p *partition) checkLeaderHealth(leader string, epoch uint64, leaderLastSee
 // computeReplicaFetchSleep calculates the time to backoff before sending
 // another replication request.
 func (p *partition) computeReplicaFetchSleep() time.Duration {
-	sleep := p.srv.config.Clustering.ReplicaMaxIdleFetchWait
+	sleep := p.srv.config.Clustering.ReplicaMaxIdleWait
 	// Subtract some random jitter from the max wait time.
 	return sleep - time.Duration(rand.Intn(2000))*time.Millisecond
 }

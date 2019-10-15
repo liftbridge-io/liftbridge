@@ -82,7 +82,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s1Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s1Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s1Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -90,7 +90,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	// Configure second server.
 	s2Config := getTestConfig("b", false, 5051)
 	s2Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s2Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s2Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s2Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
@@ -98,7 +98,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	// Configure second server.
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s3Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s3Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s3Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
@@ -464,7 +464,7 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Clustering.MinISR = 1
 	s1Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s1Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s1Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s1Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -473,7 +473,7 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	s2Config := getTestConfig("b", false, 5051)
 	s2Config.Clustering.MinISR = 1
 	s2Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s2Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s2Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s2Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
@@ -482,7 +482,7 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.Clustering.MinISR = 1
 	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s3Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s3Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s3Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
@@ -596,7 +596,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Clustering.MinISR = 1
 	s1Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s1Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s1Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s1Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -605,7 +605,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	s2Config := getTestConfig("b", false, 5051)
 	s2Config.Clustering.MinISR = 1
 	s2Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s2Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s2Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s2Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
@@ -614,7 +614,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.Clustering.MinISR = 1
 	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
-	s3Config.Clustering.ReplicaMaxIdleFetchWait = 500 * time.Millisecond
+	s3Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s3Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
