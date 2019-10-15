@@ -28,7 +28,8 @@ const (
 // where responses should be sent.
 type replicationRequest struct {
 	*proto.ReplicationRequest
-	request *nats.Msg
+	request  *nats.Msg
+	received time.Time
 }
 
 // replicator handles replication requests from a particular replica and tracks
@@ -47,6 +48,18 @@ type replicator struct {
 	leader       string
 	epoch        uint64
 	headersBuf   [28]byte // scratch buffer for reading message headers
+	writer       replicationProtocolWriter
+}
+
+func newReplicator(epoch uint64, replica string, p *partition) *replicator {
+	return &replicator{
+		epoch:      epoch,
+		replica:    replica,
+		partition:  p,
+		requests:   make(chan replicationRequest, 1),
+		maxLagTime: p.srv.config.Clustering.ReplicaMaxLagTime,
+		leader:     p.srv.config.Clustering.ServerID,
+	}
 }
 
 // start a long-running replication loop for the given leader epoch until the
@@ -56,12 +69,12 @@ type replicator struct {
 // available. The response will also include the leader epoch and HW. If the
 // replica doesn't send a request or catch up to the leader's log in
 // maxLagTime, it will be removed from the ISR until it catches back up.
-func (r *replicator) start(epoch uint64, stop chan struct{}) {
+func (r *replicator) start(stop <-chan struct{}) {
 	r.mu.Lock()
-	r.epoch = epoch
 	now := time.Now()
 	r.lastSeen = now
 	r.lastCaughtUp = now
+	r.writer = newReplicationProtocolWriter(r, stop)
 	r.mu.Unlock()
 
 	// Start a goroutine to track the replica's health.
@@ -75,9 +88,8 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 		case req = <-r.requests:
 		}
 
-		now := time.Now()
 		r.mu.Lock()
-		r.lastSeen = now
+		r.lastSeen = req.received
 		r.mu.Unlock()
 
 		// Update the ISR replica's latest offset for the partition. This is
@@ -91,10 +103,7 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 
 		// Check if we're caught up.
 		if req.Offset >= latest {
-			r.mu.Lock()
-			r.lastCaughtUp = now
-			r.mu.Unlock()
-			r.sendHW(req.request)
+			r.caughtUp(stop, latest, req)
 			continue
 		}
 
@@ -109,14 +118,20 @@ func (r *replicator) start(epoch uint64, stop chan struct{}) {
 					"and replica %s (requested offset %d, earliest %d, latest %d): %v",
 				r.partition, r.replica, req.Offset+1, earliest, latest, err)
 			// Send a response to short-circuit request timeout.
-			r.sendHW(req.request)
+			if err := r.sendHW(req.request); err != nil {
+				r.partition.srv.logger.Errorf("Failed to send HW for partition %s to replica %s: %v",
+					r.partition, req.ReplicaID, err)
+			}
 			continue
 		}
 
 		// Send a batch of messages to the replica.
 		if err := r.replicate(ctx, reader, req.request, req.Offset); err != nil {
 			// Send a response to short-circuit request timeout.
-			r.sendHW(req.request)
+			if err := r.sendHW(req.request); err != nil {
+				r.partition.srv.logger.Errorf("Failed to send HW for partition %s to replica %s: %v",
+					r.partition, req.ReplicaID, err)
+			}
 			continue
 		}
 	}
@@ -135,7 +150,7 @@ func (r *replicator) request(req replicationRequest) {
 // any replication requests or hasn't consumed up to the leader's log end
 // offset for the lag-time duration. If this is the case, the follower is
 // removed from the ISR until it catches back up.
-func (r *replicator) tick(stop chan struct{}) {
+func (r *replicator) tick(stop <-chan struct{}) {
 	ticker := time.NewTicker(r.maxLagTime)
 	defer ticker.Stop()
 	var now time.Time
@@ -208,25 +223,12 @@ func (r *replicator) expandISR() {
 func (r *replicator) replicate(
 	ctx context.Context, reader *commitlog.Reader, request *nats.Msg, offset int64) error {
 
-	buf := new(bytes.Buffer)
-	// Write the leader epoch to the buffer.
-	if err := binary.Write(buf, proto.Encoding, r.epoch); err != nil {
-		r.partition.srv.logger.Errorf("Failed to write leader epoch to buffer while replicating: %v", err)
-		return err
-	}
-	// Reserve space for the HW. This will be replaced with the HW at the time
-	// of flush.
-	if err := binary.Write(buf, proto.Encoding, int64(0)); err != nil {
-		r.partition.srv.logger.Errorf("Failed to write HW to buffer while replicating: %v", err)
-		return err
-	}
-
 	var (
 		newestOffset = r.partition.log.NewestOffset()
 		message      commitlog.Message
 		err          error
 	)
-	for offset < newestOffset && buf.Len() < replicationMaxSize {
+	for offset < newestOffset && r.writer.Len() < replicationMaxSize {
 		message, offset, _, _, err = reader.ReadMessage(ctx, r.headersBuf[:])
 		if err != nil {
 			r.partition.srv.logger.Errorf("Failed to read message while replicating: %v", err)
@@ -235,39 +237,118 @@ func (r *replicator) replicate(
 
 		// Check if this message will put us over the batch size limit. If it
 		// does, flush the batch now.
-		if uint32(len(message))+uint32(len(r.headersBuf))+uint32(buf.Len()) > replicationMaxSize {
+		if uint32(len(message))+uint32(len(r.headersBuf))+uint32(r.writer.Len()) > replicationMaxSize {
 			break
 		}
 
 		// Write the message to the buffer.
-		if err := writeMessageToBuffer(buf, r.headersBuf[:], message); err != nil {
+		if err := r.writer.Write(offset, r.headersBuf[:], message); err != nil {
 			r.partition.srv.logger.Errorf("Failed to write message to buffer while replicating: %v", err)
 			return err
 		}
 	}
 
-	// Set the HW and flush the batch.
-	data := buf.Bytes()
-	proto.Encoding.PutUint64(data[8:], uint64(r.partition.log.HighWatermark()))
-	return request.Respond(data)
-}
-
-// writeMessageToBuffer writes the headers and message byte slices to the bytes
-// buffer.
-func writeMessageToBuffer(buf *bytes.Buffer, headers, message []byte) error {
-	if _, err := buf.Write(headers); err != nil {
-		return err
-	}
-	if _, err := buf.Write(message); err != nil {
+	// Flush the batch.
+	if err := r.writer.Flush(request.Respond); err != nil {
+		r.partition.srv.logger.Errorf("Failed to flush buffer while replicating: %v", err)
 		return err
 	}
 	return nil
 }
 
+// caughtUp is called when the follower has caught up with the leader's log.
+// This will register a data waiter on the log so that the leader can notify
+// the follower when new data is available to replicate.
+func (r *replicator) caughtUp(stop <-chan struct{}, leo int64, req replicationRequest) {
+	r.mu.Lock()
+	r.lastCaughtUp = req.received
+	r.mu.Unlock()
+
+	// Register a waiter to be notified when new messages are written after the
+	// current log end offset.
+	ch := r.partition.log.NotifyLEO(r, leo)
+	r.partition.srv.startGoroutine(func() {
+		select {
+		case <-ch:
+			r.partition.sendPartitionNotify(req.ReplicaID)
+		case <-stop:
+		}
+	})
+
+	if err := r.sendHW(req.request); err != nil {
+		r.partition.srv.logger.Errorf("Failed to send HW for partition %s to replica %s: %v",
+			r.partition, req.ReplicaID, err)
+	}
+}
+
 // sendHW sends the leader epoch and HW to the given NATS inbox.
-func (r *replicator) sendHW(request *nats.Msg) {
-	buf := make([]byte, replicationOverhead)
-	proto.Encoding.PutUint64(buf[:8], r.epoch)
-	proto.Encoding.PutUint64(buf[8:], uint64(r.partition.log.HighWatermark()))
-	request.Respond(buf)
+func (r *replicator) sendHW(request *nats.Msg) error {
+	r.writer.Reset()
+	return r.writer.Flush(request.Respond)
+}
+
+type replicationProtocolWriter interface {
+	Write(offset int64, headers, message []byte) error
+	Flush(func(data []byte) error) error
+	Len() int
+	Reset()
+}
+
+type protocolWriter struct {
+	*replicator
+	buf        *bytes.Buffer
+	log        CommitLog
+	lastOffset int64
+	stop       <-chan struct{}
+}
+
+func newReplicationProtocolWriter(r *replicator, stop <-chan struct{}) replicationProtocolWriter {
+	w := &protocolWriter{
+		replicator: r,
+		buf:        new(bytes.Buffer),
+		log:        r.partition.log,
+		stop:       stop,
+	}
+	w.Reset()
+	return w
+}
+
+func (w *protocolWriter) Write(offset int64, headers, message []byte) error {
+	if _, err := w.buf.Write(headers); err != nil {
+		return err
+	}
+	if _, err := w.buf.Write(message); err != nil {
+		return err
+	}
+	w.lastOffset = offset
+	return nil
+}
+
+func (w *protocolWriter) Flush(write func([]byte) error) error {
+	data := w.buf.Bytes()
+	// Replace the HW.
+	proto.Encoding.PutUint64(data[8:], uint64(w.log.HighWatermark()))
+
+	if err := write(data); err != nil {
+		w.Reset()
+		return err
+	}
+
+	w.Reset()
+	return nil
+}
+
+func (w *protocolWriter) Len() int {
+	return w.buf.Len()
+}
+
+func (w *protocolWriter) Reset() {
+	w.buf.Reset()
+	w.lastOffset = -1
+
+	// Write the leader epoch.
+	binary.Write(w.buf, proto.Encoding, w.replicator.epoch)
+	// Reserve space for the HW. This will be replaced with the HW at the time
+	// of flush.
+	binary.Write(w.buf, proto.Encoding, int64(0))
 }

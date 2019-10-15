@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -87,6 +88,7 @@ type partition struct {
 	recovered       bool
 	stopFollower    chan struct{}
 	stopLeader      chan struct{}
+	notify          chan struct{}
 	belowMinISR     bool
 	pause           bool // Pause replication on the leader (for unit testing)
 	shutdown        sync.WaitGroup
@@ -145,6 +147,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 		replicas:    replicas,
 		isr:         isr,
 		commitCheck: make(chan struct{}, len(protoPartition.Replicas)),
+		notify:      make(chan struct{}),
 		recovered:   recovered,
 	}
 
@@ -176,6 +179,25 @@ func (p *partition) Close() error {
 	}
 
 	return nil
+}
+
+// Notify is used to short circuit the sleep backoff a partition uses when it
+// has replicated to the end of the leader's log (i.e. the log end offset).
+// When a follower reaches the end of the log, it starts to sleep in between
+// replication requests to avoid overloading the leader. However, this causes
+// added commit latency when new messages are published to the log since the
+// follower is idle. As a result, the leader will note when a follower is
+// caught up and send a notification in order to wake an idle follower back up
+// when new data is written to the log.
+func (p *partition) Notify() {
+	if p.IsLeader() {
+		// If we are now the leader, do nothing.
+		return
+	}
+	select {
+	case p.notify <- struct{}{}:
+	default:
+	}
 }
 
 // SetLeader sets the leader for the partition to the given replica and leader
@@ -424,6 +446,7 @@ func (p *partition) handleLeaderOffsetRequest(msg *nats.Msg) {
 // receives a replication request from a follower. It will send messages to the
 // NATS subject specified on the request.
 func (p *partition) handleReplicationRequest(msg *nats.Msg) {
+	received := time.Now()
 	req := &proto.ReplicationRequest{}
 	if err := req.Unmarshal(msg.Data); err != nil {
 		p.srv.logger.Errorf("Invalid replication request for partition %s: %v", p, err)
@@ -445,15 +468,16 @@ func (p *partition) handleReplicationRequest(msg *nats.Msg) {
 		panic(fmt.Sprintf("No replicator for partition %s and replica %s", p, req.ReplicaID))
 	}
 	p.mu.Unlock()
-	replicator.request(replicationRequest{req, msg})
+	replicator.request(replicationRequest{req, msg, received})
 }
 
 // handleReplicationResponse is a NATS handler that's invoked when a follower
 // receives a replication response from the leader. This response will contain
 // the leader epoch, leader HW, and (optionally) messages to replicate.
 func (p *partition) handleReplicationResponse(msg *nats.Msg) int {
-	// We should have at least 16 bytes, 8 for leader epoch and 8 for HW.
-	if len(msg.Data) < 16 {
+	// We should have at least 16 bytes, 8 for leader epoch and 8 for HW, i.e.
+	// replicationOverhead.
+	if len(msg.Data) < replicationOverhead {
 		p.srv.logger.Warnf("Invalid replication response for partition %s", p)
 		return 0
 	}
@@ -476,7 +500,7 @@ func (p *partition) handleReplicationResponse(msg *nats.Msg) int {
 	hw := int64(proto.Encoding.Uint64(msg.Data[8:]))
 	p.log.SetHighWatermark(hw)
 
-	data := msg.Data[16:]
+	data := msg.Data[replicationOverhead:]
 	if len(data) == 0 {
 		return 0
 	}
@@ -628,16 +652,10 @@ func (p *partition) startReplicating(epoch uint64, stop chan struct{}) {
 			// Don't replicate to ourselves.
 			continue
 		}
-		r := &replicator{
-			replica:    replica,
-			partition:  p,
-			requests:   make(chan replicationRequest, 1),
-			maxLagTime: p.srv.config.Clustering.ReplicaMaxLagTime,
-			leader:     p.srv.config.Clustering.ServerID,
-		}
+		r := newReplicator(epoch, replica, p)
 		p.replicators[replica] = r
 		p.srv.startGoroutine(func() {
-			r.start(epoch, stop)
+			r.start(stop)
 			p.shutdown.Done()
 		})
 	}
@@ -729,10 +747,7 @@ func (p *partition) sendAck(ack *client.Ack) {
 // requests to the partition leader, handles replicating messages, and checks
 // the health of the leader.
 func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop chan struct{}) {
-	var (
-		emptyResponseCount int
-		leaderLastSeen     = time.Now()
-	)
+	leaderLastSeen := time.Now()
 	for {
 		select {
 		case <-stop:
@@ -748,22 +763,25 @@ func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop cha
 			leaderLastSeen = time.Now()
 		}
 
-		select {
-		case <-stop:
-			return
-		default:
-		}
-
 		// Check if leader has exceeded max leader timeout.
 		p.checkLeaderHealth(leader, epoch, leaderLastSeen)
 
-		// TODO: Make this smarter. Probably have the request wait for data on
-		// the server side. Need to handle timeouts better too.
-		if replicated == 0 {
-			time.Sleep(computeReplicaFetchSleep(emptyResponseCount))
-			emptyResponseCount++
-		} else {
-			emptyResponseCount = 0
+		// If there is more data or we errored, continue replicating.
+		if replicated > 0 || err != nil {
+			continue
+		}
+
+		// If we are caught up with the leader, wait for data.
+		wait := p.computeReplicaFetchSleep()
+		select {
+		case <-stop:
+			return
+		case <-time.After(wait):
+			// Check in with leader to maintain health status.
+			continue
+		case <-p.notify:
+			// Leader has signalled more data is available.
+			continue
 		}
 	}
 }
@@ -793,16 +811,16 @@ func (p *partition) checkLeaderHealth(leader string, epoch uint64, leaderLastSee
 
 // computeReplicaFetchSleep calculates the time to backoff before sending
 // another replication request.
-func computeReplicaFetchSleep(emptyResponseCount int) time.Duration {
-	sleep := time.Duration(300+emptyResponseCount*5) * time.Millisecond
-	if sleep > time.Second {
-		sleep = time.Second
-	}
-	return sleep
+func (p *partition) computeReplicaFetchSleep() time.Duration {
+	sleep := p.srv.config.Clustering.ReplicaMaxIdleFetchWait
+	// Subtract some random jitter from the max wait time.
+	return sleep - time.Duration(rand.Intn(2000))*time.Millisecond
 }
 
 // sendReplicationRequest sends a replication request to the partition leader
-// and processes the response.
+// and processes the response. It returns an int indicating the number of
+// messages that were replicated. Zero (without an error) indicates the
+// follower is caught up with the leader.
 func (p *partition) sendReplicationRequest() (int, error) {
 	data, err := (&proto.ReplicationRequest{
 		ReplicaID: p.srv.config.Clustering.ServerID,
@@ -819,8 +837,7 @@ func (p *partition) sendReplicationRequest() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	replicated := p.handleReplicationResponse(resp)
-	return replicated, nil
+	return p.handleReplicationResponse(resp), nil
 }
 
 // truncateUncommitted truncates the log up to the start offset of the first
@@ -1048,6 +1065,19 @@ func (p *partition) updateISRLatestOffset(replica string, offset int64) {
 		default:
 		}
 	}
+}
+
+// sendPartitionNotify sends a message to the given partition replica to
+// indicate new data is available in the log.
+func (p *partition) sendPartitionNotify(replica string) {
+	req, err := (&proto.PartitionNotify{
+		Stream:    p.Stream,
+		Partition: p.Id,
+	}).Marshal()
+	if err != nil {
+		panic(err)
+	}
+	p.srv.ncRepl.Publish(p.srv.getPartitionNotifyInbox(replica), req)
 }
 
 // pauseReplication stops replication on the leader. This is for unit testing

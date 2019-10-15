@@ -88,7 +88,7 @@ func TestSegmentSeal(t *testing.T) {
 	require.Equal(t, int64(10485760), stats.Size())
 
 	// Add a waiter.
-	ch := s.waitForData(&mockContextReader{}, 0)
+	ch := s.WaitForData(&mockContextReader{}, 0)
 
 	s.Seal()
 
