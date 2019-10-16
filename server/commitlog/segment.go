@@ -201,17 +201,6 @@ func (s *Segment) MessageCount() int64 {
 	return s.Index.CountEntries()
 }
 
-func (s *Segment) WaitForLEO(waiter interface{}, leo int64) <-chan struct{} {
-	s.Lock()
-	defer s.Unlock()
-	if s.lastOffset != leo {
-		ch := make(chan struct{})
-		close(ch)
-		return ch
-	}
-	return s.waitForData(waiter, s.position)
-}
-
 func (s *Segment) WriteMessageSet(ms []byte, entries []*Entry) error {
 	s.Lock()
 	defer s.Unlock()
@@ -263,6 +252,16 @@ func (s *Segment) notifyWaiters() {
 	}
 }
 
+func (s *Segment) WaitForLEO(waiter interface{}, leo int64) <-chan struct{} {
+	s.Lock()
+	defer s.Unlock()
+	if s.lastOffset != leo {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return s.waitForData(waiter, s.position)
+}
 func (s *Segment) WaitForData(waiter interface{}, pos int64) <-chan struct{} {
 	s.Lock()
 	ch := s.waitForData(waiter, pos)

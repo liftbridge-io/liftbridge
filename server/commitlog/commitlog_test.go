@@ -433,6 +433,90 @@ func TestTruncate(t *testing.T) {
 	require.Equal(t, int64(5), l.LastOffsetForLeaderEpoch(1))
 }
 
+// Ensure NotifyLEO returns a closed channel when the given offset is not the
+// current log end offset.
+func TestNotifyLEOMismatch(t *testing.T) {
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
+
+	// Add some messages.
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Value:       []byte(strconv.Itoa(i)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 1,
+		}})
+		require.NoError(t, err)
+	}
+
+	// Get current log end offset and then add another message.
+	leo := l.NewestOffset()
+	_, err := l.Append([]*proto.Message{&proto.Message{
+		Value:       []byte(strconv.Itoa(5)),
+		Timestamp:   time.Now().UnixNano(),
+		LeaderEpoch: 1,
+	}})
+	require.NoError(t, err)
+
+	// Notify LEO should return a closed channel because the LEO is different
+	// than the expected LEO.
+	waiter := struct{}{}
+	ch := l.NotifyLEO(waiter, leo)
+	select {
+	case <-ch:
+	default:
+		t.Fatalf("Expected closed channel")
+	}
+}
+
+// Ensure NotifyLEO returns a channel that is closed once more data is written
+// to the log past the log end offset.
+func TestNotifyLEONewData(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 256,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	// Add some messages.
+	for i := 0; i < 5; i++ {
+		_, err := l.Append([]*proto.Message{&proto.Message{
+			Value:       []byte(strconv.Itoa(i)),
+			Timestamp:   time.Now().UnixNano(),
+			LeaderEpoch: 1,
+		}})
+		require.NoError(t, err)
+	}
+
+	// Get current log end offset.
+	leo := l.NewestOffset()
+
+	waiter := struct{}{}
+	ch := l.NotifyLEO(waiter, leo)
+
+	select {
+	case <-ch:
+		t.Fatalf("Unexpected channel close")
+	default:
+	}
+
+	// Add another message.
+	_, err := l.Append([]*proto.Message{&proto.Message{
+		Value:       []byte(strconv.Itoa(5)),
+		Timestamp:   time.Now().UnixNano(),
+		LeaderEpoch: 1,
+	}})
+	require.NoError(t, err)
+
+	select {
+	case <-ch:
+	default:
+		t.Fatalf("Expected channel to close")
+	}
+}
+
 func setup(t require.TestingT) (*CommitLog, func()) {
 	opts := Options{
 		Path:            tempDir(t),

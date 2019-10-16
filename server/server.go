@@ -154,9 +154,9 @@ func (s *Server) Start() (err error) {
 		return errors.Wrap(err, "failed to subscribe to partition status subject")
 	}
 
-	inbox = s.getPartitionNotifyInbox(s.config.Clustering.ServerID)
-	if _, err := s.ncRepl.Subscribe(inbox, s.handlePartitionNotify); err != nil {
-		return errors.Wrap(err, "failed to subscribe to partition new data subject")
+	inbox = s.getPartitionNotificationInbox(s.config.Clustering.ServerID)
+	if _, err := s.ncRepl.Subscribe(inbox, s.handlePartitionNotification); err != nil {
+		return errors.Wrap(err, "failed to subscribe to partition notification subject")
 	}
 
 	s.handleSignals()
@@ -680,8 +680,8 @@ func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
 	}
 }
 
-// handlePartitionNotify is a NATS handler used to process notifications from a
-// leader that new data is available on a partition for the follower to
+// handlePartitionNotification is a NATS handler used to process notifications
+// from a leader that new data is available on a partition for the follower to
 // replicate if the follower is idle.
 //
 // When a follower reaches the end of the log, it starts to sleep in between
@@ -690,16 +690,16 @@ func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
 // follower is idle. As a result, the leader will note when a follower is
 // caught up and send a notification in order to wake an idle follower back up
 // when new data is written to the log.
-func (s *Server) handlePartitionNotify(m *nats.Msg) {
-	req := &proto.PartitionNotify{}
+func (s *Server) handlePartitionNotification(m *nats.Msg) {
+	req := &proto.PartitionNotification{}
 	if err := req.Unmarshal(m.Data); err != nil {
-		s.logger.Warnf("Dropping invalid partition notify: %v", err)
+		s.logger.Warnf("Dropping invalid partition notification: %v", err)
 		return
 	}
 
 	partition := s.metadata.GetPartition(req.Stream, req.Partition)
 	if partition == nil {
-		s.logger.Warnf("Dropping invalid partition notify: no partition %d for stream %s",
+		s.logger.Warnf("Dropping invalid partition notification: no partition %d for stream %s",
 			req.Partition, req.Stream)
 		return
 	}
@@ -720,10 +720,10 @@ func (s *Server) getPartitionStatusInbox(id string) string {
 	return fmt.Sprintf("%s.status.%s", s.baseMetadataRaftSubject(), id)
 }
 
-// getPartitionNotifyInbox returns the NATS subject used for leaders to
+// getPartitionNotificationInbox returns the NATS subject used for leaders to
 // indicate new data is available on a partition for a follower to replicate if
 // the follower is idle.
-func (s *Server) getPartitionNotifyInbox(id string) string {
+func (s *Server) getPartitionNotificationInbox(id string) string {
 	return fmt.Sprintf("%s.notify.%s", s.config.Clustering.Namespace, id)
 }
 

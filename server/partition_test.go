@@ -506,3 +506,68 @@ func TestPartitionAddToISRRecoverMin(t *testing.T) {
 	require.ElementsMatch(t, []string{"a", "b", "c"}, p.GetISR())
 	require.False(t, p.belowMinISR)
 }
+
+// Ensure replicationRequestLoop's idle follower sleep is preempted when a
+// partition notification is received.
+func TestPartitionReplicationRequestLoopPreempt(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Start NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Start Liftbridge server.
+	config := getTestConfig("a", true, 5050)
+	// Set idle wait long enough that it shouldn't be reached.
+	config.Clustering.ReplicaMaxIdleWait = time.Hour
+	server := runServerWithConfig(t, config)
+	defer server.Stop()
+
+	p, err := server.newPartition(&proto.Partition{
+		Subject:  "foo",
+		Stream:   "foo",
+		Replicas: []string{"a", "b"},
+		Leader:   "b",
+		Isr:      []string{"a", "b"},
+	}, false)
+	require.NoError(t, err)
+	defer p.Close()
+
+	leaderEpoch := uint64(1)
+
+	// Set up mock leader.
+	requests := make(chan struct{}, 2)
+	_, err = nc.Subscribe(p.getReplicationRequestInbox(), func(msg *nats.Msg) {
+		// Send empty replication response.
+		resp := make([]byte, 16)
+		proto.Encoding.PutUint64(resp, leaderEpoch)
+		proto.Encoding.PutUint64(resp[8:], 0)
+		msg.Respond(resp)
+		requests <- struct{}{}
+	})
+	require.NoError(t, err)
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go p.replicationRequestLoop("b", leaderEpoch, stop)
+
+	select {
+	case <-requests:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Expected replication request")
+	}
+
+	// Notify partition to preempt sleep.
+	p.Notify()
+
+	select {
+	case <-requests:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Expected replication request")
+	}
+}

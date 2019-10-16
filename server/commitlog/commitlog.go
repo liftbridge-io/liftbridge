@@ -510,12 +510,7 @@ func (l *CommitLog) Segments() []*Segment {
 // longer the log end offset, the channel is closed immediately. Waiter is an
 // opaque value that uniquely identifies the entity waiting for data.
 func (l *CommitLog) NotifyLEO(waiter interface{}, leo int64) <-chan struct{} {
-	// Translate the LEO + 1 to a position in a segment so we can register a
-	// waiter for it. We add 1 because we want the position after the bytes of
-	// the LEO message.
-	// TODO: Revisit this logic.
-	seg := l.activeSegment()
-	return seg.WaitForLEO(waiter, leo)
+	return l.activeSegment().WaitForLEO(waiter, leo)
 }
 
 // checkAndPerformSplit determines if a new log segment should be rolled out

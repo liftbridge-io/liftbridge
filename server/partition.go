@@ -147,7 +147,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 		replicas:    replicas,
 		isr:         isr,
 		commitCheck: make(chan struct{}, len(protoPartition.Replicas)),
-		notify:      make(chan struct{}),
+		notify:      make(chan struct{}, 1),
 		recovered:   recovered,
 	}
 
@@ -746,7 +746,7 @@ func (p *partition) sendAck(ack *client.Ack) {
 // replicationRequestLoop is a long-running loop which sends replication
 // requests to the partition leader, handles replicating messages, and checks
 // the health of the leader.
-func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop chan struct{}) {
+func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop <-chan struct{}) {
 	leaderLastSeen := time.Now()
 	for {
 		select {
@@ -1067,17 +1067,17 @@ func (p *partition) updateISRLatestOffset(replica string, offset int64) {
 	}
 }
 
-// sendPartitionNotify sends a message to the given partition replica to
+// sendPartitionNotification sends a message to the given partition replica to
 // indicate new data is available in the log.
-func (p *partition) sendPartitionNotify(replica string) {
-	req, err := (&proto.PartitionNotify{
+func (p *partition) sendPartitionNotification(replica string) {
+	req, err := (&proto.PartitionNotification{
 		Stream:    p.Stream,
 		Partition: p.Id,
 	}).Marshal()
 	if err != nil {
 		panic(err)
 	}
-	p.srv.ncRepl.Publish(p.srv.getPartitionNotifyInbox(replica), req)
+	p.srv.ncRepl.Publish(p.srv.getPartitionNotificationInbox(replica), req)
 }
 
 // pauseReplication stops replication on the leader. This is for unit testing

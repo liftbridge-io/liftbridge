@@ -139,7 +139,7 @@ message PartitionStatusResponse {
     bool isLeader = 2;
 }
 
-message PartitionNotify {
+message PartitionNotification {
     string stream    = 1;
     int32  partition = 2;
 }
