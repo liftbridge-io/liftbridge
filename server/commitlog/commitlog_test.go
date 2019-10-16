@@ -493,6 +493,7 @@ func TestNotifyLEONewData(t *testing.T) {
 	// Get current log end offset.
 	leo := l.NewestOffset()
 
+	// Register a waiter.
 	waiter := struct{}{}
 	ch := l.NotifyLEO(waiter, leo)
 
@@ -515,6 +516,29 @@ func TestNotifyLEONewData(t *testing.T) {
 	default:
 		t.Fatalf("Expected channel to close")
 	}
+}
+
+// Ensure NotifyLEO returns the same channel if the waiter is already
+// registered in the log.
+func TestNotifyLEOIdempotent(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 256,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	// Get current log end offset.
+	leo := l.NewestOffset()
+
+	// Register a waiter.
+	waiter := struct{}{}
+	ch1 := l.NotifyLEO(waiter, leo)
+
+	// Register the same waiter again. This should return the same channel.
+	ch2 := l.NotifyLEO(waiter, leo)
+
+	require.Equal(t, ch1, ch2)
 }
 
 func setup(t require.TestingT) (*CommitLog, func()) {
