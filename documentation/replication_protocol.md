@@ -26,21 +26,37 @@ follows:
    recovery purposes described below.
 1. The nodes participating in the partition initialize it, and the leader
    subscribes to the NATS subject.
-1. The leader initializes the high watermark (HW) to -1. This is the offset of
+1. The leader initializes the high watermark (`HW`) to -1. This is the offset of
    the last committed message in the partition (-1 meaning, initially, no
    messages are committed).
 1. The leader begins sequencing messages from NATS and writes them to the log
    uncommitted.
 1. Followers consume from the leader's log to replicate messages to their own
-   log. We piggyback the leader's HW and `LeaderEpoch` on these responses.
+   log. We piggyback the leader's `HW` and `LeaderEpoch` on these responses.
    Replicas update their `LeaderEpoch` cache as needed and periodically
-   checkpoint the HW to stable storage.
-1. Replicas acknowledge they've replicated the message via replication requests
-   to the leader.
-1. Once the leader has heard from the ISR, the message is committed and the HW
-   is updated.
+   checkpoint the `HW` to stable storage. If the `LeaderEpoch` on the response
+   does not match the expected `LeaderEpoch`, the follower drops the response.
+   The same is true if the offset of the first message in the response is less
+   than the expected next offset. The follower uses the leader's `HW` to update
+   their own `HW`.
+1. Followers acknowledge they've replicated the message via replication
+   requests to the leader.
+1. Once the leader has heard from the ISR, the message is committed and the
+   `HW` is updated.
 
 Note that clients only see committed messages in the log.
+
+When a follower has caught up with the leader's log (i.e. it reaches the
+leader's log end offset, or LEO), the leader will register a _data waiter_ for
+the follower on the log. This waiter is used to signal when new messages have
+been written to the log. Upon catching up, followers will receive an empty
+replication response from the leader and sleep for a duration
+`replica.max.idle.wait` to avoid overloading the leader with replication
+requests. After sleeping, they will make subsequent replication requests. Even
+if data is not available, this will ensure timely health checks occur to avoid
+spurious ISR shrinking. If new messages are written while a follower is idle,
+the data waiter is signalled which causes the leader to send a notification to
+the follower to preempt the sleep and begin replicating again.
 
 ## Failure Modes
 
@@ -75,14 +91,55 @@ replicates this fact via Raft. The partition leader continues to commit messages
 with fewer replicas in the ISR, entering an under-replicated state.
 
 When a failed follower is restarted, it requests the last offset for the
-current `LeaderEpoch` from the partition leader. It then truncates its log up to
-this offset, which removes any potentially uncommitted messages from the log.
-The replica then begins fetching messages from the leader starting at this
-offset. Once the replica has caught up, it's added back into the ISR and the
-system resumes its fully replicated state. Adding a replica back into the
-ISR results in incrementing the partition's `Epoch`.
+current `LeaderEpoch` from the partition leader, called a `LeaderEpoch` offset
+request. It then truncates its log up to this offset, which removes any
+potentially uncommitted messages from the log.  The replica then begins
+fetching messages from the leader starting at this offset. Once the replica has
+caught up, it's added back into the ISR and the system resumes its fully
+replicated state. Adding a replica back into the ISR results in incrementing
+the partition's `Epoch`.
 
 We truncate uncommitted messages from the log using the `LeaderEpoch` rather
 than the HW because there are certain edge cases that can result in data loss
-or divergent log lineages with the latter. This has been [described in detail](https://cwiki.apache.org/confluence/display/KAFKA/KIP-101+-+Alter+Replication+Protocol+to+use+Leader+Epoch+rather+than+High+Watermark+for+Truncation)
+or divergent log lineages with the latter. This has been [described in
+detail](https://cwiki.apache.org/confluence/display/KAFKA/KIP-101+-+Alter+Replication+Protocol+to+use+Leader+Epoch+rather+than+High+Watermark+for+Truncation)
 by the maintainers of Kafka.
+
+## Replication RPC Protocol
+
+Replication RPCs are made over internal NATS subjects. Replication requests for
+a partition are sent to `<namespace>.<stream>.<partition>.replicate` which is a
+subject the partition leader subscribes to. The request data is a
+[protobuf](https://github.com/liftbridge-io/liftbridge/blob/8bee0478da97711dc2a8e1fdae8b2d2e3086c756/server/proto/internal.proto#L87-L90)
+containing the ID of the follower and the offset they want to begin fetching
+from. The NATS message also includes a random [reply
+inbox](https://nats-io.github.io/docs/developer/sending/replyto.html) the
+leader uses to send the response to.
+
+The leader response uses a binary format consisting of the following:
+
+```
+   0     1     2     3     4     5     6     7     8     9     10    11    12    13    14    15
++-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+...
+|                  LeaderEpoch                  |                       HW                      |...
++-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+...
+|<-------------------8 bytes------------------->|<-------------------8 bytes------------------->|
+```
+
+The remainder of the response consists of message data. If the follower is
+caught up, there won't be any message data. The `LeaderEpoch` and `HW` are
+always present, so there are 16 bytes guaranteed in the response.
+
+The `LeaderEpoch` offset requests also use internal NATS subjects similar to
+replication RPCs. These requests are sent to
+`<namespace>.<stream>.<partition>.offset`. The request and response both use a
+[protobuf](https://github.com/liftbridge-io/liftbridge/blob/8bee0478da97711dc2a8e1fdae8b2d2e3086c756/server/proto/internal.proto#L92-L98)
+containing the `LeaderEpoch` and offset, respectively. Like replication,
+responses are sent to a random reply subject included on the NATS request
+message.
+
+Notifications of new data are sent on the NATS subject
+`<namespace>.notify.<serverID>`. This is also a protobuf containing the stream
+name and ID of the partition with new data available. Upon receiving this
+notification, the follower preempts the replication loop for the respective
+partition, if idle, to begin replicating.
