@@ -1,4 +1,4 @@
-.PHONY: all
+.PHONY: deploy
 deploy: build
 	gcloud app deploy
 
