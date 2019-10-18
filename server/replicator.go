@@ -49,6 +49,7 @@ type replicator struct {
 	epoch        uint64
 	headersBuf   [28]byte // scratch buffer for reading message headers
 	writer       replicationProtocolWriter
+	waiter       <-chan struct{}
 }
 
 func newReplicator(epoch uint64, replica string, p *partition) *replicator {
@@ -262,18 +263,24 @@ func (r *replicator) replicate(
 func (r *replicator) caughtUp(stop <-chan struct{}, leo int64, req replicationRequest) {
 	r.mu.Lock()
 	r.lastCaughtUp = req.received
+	waiter := r.waiter
+	if waiter == nil {
+		// Register a waiter to be notified when new messages are written after
+		// the current log end offset to preempt an idle follower.
+		waiter = r.partition.log.NotifyLEO(r, leo)
+		r.partition.srv.startGoroutine(func() {
+			select {
+			case <-waiter:
+				r.partition.sendPartitionNotification(req.ReplicaID)
+				r.mu.Lock()
+				r.waiter = nil
+				r.mu.Unlock()
+			case <-stop:
+			}
+		})
+		r.waiter = waiter
+	}
 	r.mu.Unlock()
-
-	// Register a waiter to be notified when new messages are written after the
-	// current log end offset.
-	ch := r.partition.log.NotifyLEO(r, leo)
-	r.partition.srv.startGoroutine(func() {
-		select {
-		case <-ch:
-			r.partition.sendPartitionNotification(req.ReplicaID)
-		case <-stop:
-		}
-	})
 
 	if err := r.sendHW(req.request); err != nil {
 		r.partition.srv.logger.Errorf("Failed to send HW for partition %s to replica %s: %v",
