@@ -64,6 +64,12 @@ const siteConfig = {
   },
   */
 
+  // Add Algolia search.
+  algolia: {
+    apiKey: '81e2fdf38ab8cb38f8fbeb2a7c9939a7',
+    indexName: 'liftbridge',
+  },
+
   // This copyright info is used in /core/Footer.js and blog RSS/Atom feeds.
   copyright: `Copyright © ${new Date().getFullYear()} Tyler Treat`,
 
