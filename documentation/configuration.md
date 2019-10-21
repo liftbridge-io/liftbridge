@@ -126,6 +126,8 @@ the configuration file.
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
 | servers | nats-servers | List of NATS hosts to connect to. | list | nats://localhost:4222 | |
+| user | | Username to use to connect to NATS servers. | string | | |
+| password | | Password to use to connect to NATS servers. | string | | |
 
 ### Log Configuration Settings
 

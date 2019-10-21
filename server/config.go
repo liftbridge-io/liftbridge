@@ -298,6 +298,12 @@ func parseNATSConfig(m map[string]interface{}, opts *nats.Options) error {
 			for i, p := range servers {
 				opts.Servers[i] = p.(string)
 			}
+		case "user":
+			user := v.(string)
+			opts.User = user
+		case "password":
+			password := v.(string)
+			opts.Password = password
 		default:
 			return fmt.Errorf("Unknown nats configuration setting %q", k)
 		}
