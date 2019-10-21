@@ -1,13 +1,12 @@
 package commitlog
 
 import (
+	"context"
 	"errors"
 	"io"
 	"sync"
 
 	pkgErrors "github.com/pkg/errors"
-
-	"golang.org/x/net/context"
 )
 
 type contextReader interface {

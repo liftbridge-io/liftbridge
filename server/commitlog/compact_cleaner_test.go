@@ -1,12 +1,12 @@
 package commitlog
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
 
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )

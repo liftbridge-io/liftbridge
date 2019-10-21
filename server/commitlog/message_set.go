@@ -2,12 +2,12 @@ package commitlog
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
 
 	"github.com/pkg/errors"
-	"golang.org/x/net/context"
 
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )

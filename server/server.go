@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -19,7 +20,6 @@ import (
 	client "github.com/liftbridge-io/liftbridge-grpc/go"
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
