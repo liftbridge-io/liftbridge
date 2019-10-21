@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"strconv"
 	"testing"
 	"time"
@@ -10,7 +11,6 @@ import (
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
 
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	internal "github.com/liftbridge-io/liftbridge/server/proto"

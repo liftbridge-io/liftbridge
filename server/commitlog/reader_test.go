@@ -1,6 +1,7 @@
 package commitlog
 
 import (
+	"context"
 	"io"
 	"strconv"
 	"testing"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
 
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )

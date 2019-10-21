@@ -1,6 +1,7 @@
 package commitlog
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
 
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )

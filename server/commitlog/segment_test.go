@@ -1,11 +1,11 @@
 package commitlog
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
 )
 
 // Ensure CheckSplit returns false when the segment has not been written to and

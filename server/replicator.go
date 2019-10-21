@@ -2,12 +2,12 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"golang.org/x/net/context"
 
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/proto"
