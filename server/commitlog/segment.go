@@ -57,7 +57,7 @@ type Segment struct {
 	maxBytes       int64
 	path           string
 	suffix         string
-	waiters        map[contextReader]chan struct{}
+	waiters        map[interface{}]chan struct{}
 	sealed         bool
 	closed         bool
 	replaced       bool
@@ -73,7 +73,7 @@ func NewSegment(path string, baseOffset, maxBytes int64, isNew bool, suffix stri
 		lastOffset:  -1,
 		path:        path,
 		suffix:      suffix,
-		waiters:     make(map[contextReader]chan struct{}),
+		waiters:     make(map[interface{}]chan struct{}),
 	}
 	// If this is a new segment, ensure the file doesn't already exist.
 	if isNew && exists(s.logPath()) {
@@ -252,22 +252,42 @@ func (s *Segment) notifyWaiters() {
 	}
 }
 
-func (s *Segment) waitForData(r contextReader, pos int64) <-chan struct{} {
-	wait := make(chan struct{})
+func (s *Segment) WaitForLEO(waiter interface{}, leo int64) <-chan struct{} {
 	s.Lock()
+	defer s.Unlock()
+	if s.lastOffset != leo {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return s.waitForData(waiter, s.position)
+}
+func (s *Segment) WaitForData(waiter interface{}, pos int64) <-chan struct{} {
+	s.Lock()
+	ch := s.waitForData(waiter, pos)
+	s.Unlock()
+	return ch
+}
+
+func (s *Segment) waitForData(waiter interface{}, pos int64) <-chan struct{} {
+	// Check if we're already registered.
+	wait, ok := s.waiters[waiter]
+	if ok {
+		return wait
+	}
+	wait = make(chan struct{})
 	// Check if data has been written and/or the segment was filled.
 	if s.position > pos || s.position >= s.maxBytes {
 		close(wait)
 	} else {
-		s.waiters[r] = wait
+		s.waiters[waiter] = wait
 	}
-	s.Unlock()
 	return wait
 }
 
-func (s *Segment) removeWaiter(r contextReader) {
+func (s *Segment) removeWaiter(waiter interface{}) {
 	s.Lock()
-	delete(s.waiters, r)
+	delete(s.waiters, waiter)
 	s.Unlock()
 }
 

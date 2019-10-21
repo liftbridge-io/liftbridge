@@ -61,6 +61,13 @@ type CommitLog interface {
 	// applicable.
 	Clean() error
 
+	// NotifyLEO registers and returns a channel which is closed when messages
+	// past the given log end offset are added to the log. If the given offset
+	// is no longer the log end offset, the channel is closed immediately.
+	// Waiter is an opaque value that uniquely identifies the entity waiting
+	// for data.
+	NotifyLEO(waiter interface{}, leo int64) <-chan struct{}
+
 	// Close closes each log segment file and stops the background goroutine
 	// checkpointing the high watermark to disk.
 	Close() error

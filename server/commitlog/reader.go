@@ -157,7 +157,7 @@ LOOP:
 }
 
 func (r *uncommittedReader) waitForData(ctx context.Context, seg *Segment) bool {
-	wait := seg.waitForData(r, r.pos)
+	wait := seg.WaitForData(r, r.pos)
 	select {
 	case <-r.cl.closed:
 		seg.removeWaiter(r)

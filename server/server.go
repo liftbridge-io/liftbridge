@@ -27,11 +27,7 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
-const (
-	stateFile                    = "liftbridge"
-	serverInfoInboxTemplate      = "%s.info"
-	partitionStatusInboxTemplate = "%s.status.%s"
-)
+const stateFile = "liftbridge"
 
 // Server is the main Liftbridge object. Create it by calling New or
 // RunServerWithConfig.
@@ -149,12 +145,18 @@ func (s *Server) Start() (err error) {
 		return errors.Wrap(err, "failed to start Raft node")
 	}
 
-	if _, err := s.ncRaft.Subscribe(s.serverInfoInbox(), s.handleServerInfoRequest); err != nil {
+	if _, err := s.ncRaft.Subscribe(s.getServerInfoInbox(), s.handleServerInfoRequest); err != nil {
 		return errors.Wrap(err, "failed to subscribe to server info subject")
 	}
 
-	if _, err := s.ncRaft.Subscribe(s.partitionStatusInbox(), s.handlePartitionStatusRequest); err != nil {
+	inbox := s.getPartitionStatusInbox(s.config.Clustering.ServerID)
+	if _, err := s.ncRaft.Subscribe(inbox, s.handlePartitionStatusRequest); err != nil {
 		return errors.Wrap(err, "failed to subscribe to partition status subject")
+	}
+
+	inbox = s.getPartitionNotificationInbox(s.config.Clustering.ServerID)
+	if _, err := s.ncRepl.Subscribe(inbox, s.handlePartitionNotification); err != nil {
+		return errors.Wrap(err, "failed to subscribe to partition notification subject")
 	}
 
 	s.handleSignals()
@@ -657,7 +659,7 @@ func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
 	req := &proto.PartitionStatusRequest{}
 	if err := req.Unmarshal(m.Data); err != nil {
-		s.logger.Warn("Dropping invalid partition status request: %v", err)
+		s.logger.Warnf("Dropping invalid partition status request: %v", err)
 		return
 	}
 
@@ -678,17 +680,51 @@ func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
 	}
 }
 
-// serverInfoInbox returns the NATS subject used for handling server
-// information requests.
-func (s *Server) serverInfoInbox() string {
-	return fmt.Sprintf(serverInfoInboxTemplate, s.baseMetadataRaftSubject())
+// handlePartitionNotification is a NATS handler used to process notifications
+// from a leader that new data is available on a partition for the follower to
+// replicate if the follower is idle.
+//
+// When a follower reaches the end of the log, it starts to sleep in between
+// replication requests to avoid overloading the leader. However, this causes
+// added commit latency when new messages are published to the log since the
+// follower is idle. As a result, the leader will note when a follower is
+// caught up and send a notification in order to wake an idle follower back up
+// when new data is written to the log.
+func (s *Server) handlePartitionNotification(m *nats.Msg) {
+	req := &proto.PartitionNotification{}
+	if err := req.Unmarshal(m.Data); err != nil {
+		s.logger.Warnf("Dropping invalid partition notification: %v", err)
+		return
+	}
+
+	partition := s.metadata.GetPartition(req.Stream, req.Partition)
+	if partition == nil {
+		s.logger.Warnf("Dropping invalid partition notification: no partition %d for stream %s",
+			req.Partition, req.Stream)
+		return
+	}
+
+	// Wake the follower up.
+	partition.Notify()
 }
 
-// partitionStatusInbox returns the NATS subject used for handling stream status
-// requests.
-func (s *Server) partitionStatusInbox() string {
-	return fmt.Sprintf(partitionStatusInboxTemplate, s.baseMetadataRaftSubject(),
-		s.config.Clustering.ServerID)
+// getServerInfoInbox returns the NATS subject used for handling server
+// information requests.
+func (s *Server) getServerInfoInbox() string {
+	return fmt.Sprintf("%s.info", s.baseMetadataRaftSubject())
+}
+
+// getPartitionStatusInbox returns the NATS subject used for handling stream
+// status requests.
+func (s *Server) getPartitionStatusInbox(id string) string {
+	return fmt.Sprintf("%s.status.%s", s.baseMetadataRaftSubject(), id)
+}
+
+// getPartitionNotificationInbox returns the NATS subject used for leaders to
+// indicate new data is available on a partition for a follower to replicate if
+// the follower is idle.
+func (s *Server) getPartitionNotificationInbox(id string) string {
+	return fmt.Sprintf("%s.notify.%s", s.config.Clustering.Namespace, id)
 }
 
 // startGoroutine starts a goroutine which is managed by the server. This adds

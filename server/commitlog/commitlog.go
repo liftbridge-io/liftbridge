@@ -246,11 +246,14 @@ func (l *CommitLog) append(segment *Segment, ms []byte, entries []*Entry) ([]int
 	if err := segment.WriteMessageSet(ms, entries); err != nil {
 		return nil, err
 	}
-	lastLeaderEpoch := l.leaderEpochCache.LastLeaderEpoch()
-	offsets := make([]int64, len(entries))
+	var (
+		lastLeaderEpoch = l.leaderEpochCache.LastLeaderEpoch()
+		offsets         = make([]int64, len(entries))
+	)
 	for i, entry := range entries {
 		// Check if message is in a new leader epoch.
 		if entry.LeaderEpoch > lastLeaderEpoch {
+			// If it is, we need to assign the epoch offset.
 			if err := l.leaderEpochCache.Assign(entry.LeaderEpoch, entry.Offset); err != nil {
 				return nil, err
 			}
@@ -500,6 +503,14 @@ func (l *CommitLog) Segments() []*Segment {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.segments
+}
+
+// NotifyLEO registers and returns a channel which is closed when messages past
+// the given log end offset are added to the log. If the given offset is no
+// longer the log end offset, the channel is closed immediately. Waiter is an
+// opaque value that uniquely identifies the entity waiting for data.
+func (l *CommitLog) NotifyLEO(waiter interface{}, leo int64) <-chan struct{} {
+	return l.activeSegment().WaitForLEO(waiter, leo)
 }
 
 // checkAndPerformSplit determines if a new log segment should be rolled out

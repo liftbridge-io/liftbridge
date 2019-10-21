@@ -8,10 +8,12 @@ import (
 	lift "github.com/liftbridge-io/go-liftbridge"
 	"github.com/liftbridge-io/liftbridge-grpc/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
+	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
 
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
+	internal "github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 func waitForHW(t *testing.T, timeout time.Duration, name string, partitionID int32, hw int64, servers ...*Server) {
@@ -81,22 +83,25 @@ func TestStreamLeaderFailover(t *testing.T) {
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 5050)
-	s1Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
-	s1Config.Clustering.ReplicaFetchTimeout = time.Second
+	s1Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s1Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
+	s1Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Configure second server.
 	s2Config := getTestConfig("b", false, 5051)
-	s2Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
-	s2Config.Clustering.ReplicaFetchTimeout = time.Second
+	s2Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s2Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
+	s2Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
 	// Configure second server.
 	s3Config := getTestConfig("c", false, 5052)
-	s3Config.Clustering.ReplicaMaxLeaderTimeout = 2 * time.Second
-	s3Config.Clustering.ReplicaFetchTimeout = time.Second
+	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s3Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
+	s3Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
@@ -461,6 +466,7 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Clustering.MinISR = 1
 	s1Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s1Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s1Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -469,6 +475,7 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	s2Config := getTestConfig("b", false, 5051)
 	s2Config.Clustering.MinISR = 1
 	s2Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s2Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s2Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
@@ -477,6 +484,7 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.Clustering.MinISR = 1
 	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s3Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s3Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
@@ -590,6 +598,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Clustering.MinISR = 1
 	s1Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s1Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s1Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -598,6 +607,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	s2Config := getTestConfig("b", false, 5051)
 	s2Config.Clustering.MinISR = 1
 	s2Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s2Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s2Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
@@ -606,6 +616,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.Clustering.MinISR = 1
 	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s3Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
 	s3Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
@@ -763,5 +774,82 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(2), offset)
 		require.Equal(t, []byte("moon"), msg.Value())
+	}
+}
+
+// Ensure when a follower has caught up with the leader's log, the leader
+// notifies the follower when new messages are written to the partition.
+func TestReplicatorNotifyNewData(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5051)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1, s2)
+
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		lift.ReplicationFactor(2))
+	require.NoError(t, err)
+
+	// Get partition leader.
+	leader := getPartitionLeader(t, 5*time.Second, name, 0, s1, s2)
+	var follower *Server
+	if leader == s1 {
+		follower = s2
+	} else {
+		follower = s1
+	}
+
+	// At this point, the follower is caught up with the leader since there
+	// aren't any messages. Set up a NATS subscription to intercept
+	// notifications.
+	var (
+		notifications = make(chan *internal.PartitionNotification)
+		inbox         = follower.getPartitionNotificationInbox(
+			follower.config.Clustering.ServerID)
+	)
+	_, err = nc.Subscribe(inbox, func(msg *nats.Msg) {
+		req := &internal.PartitionNotification{}
+		if err := req.Unmarshal(msg.Data); err != nil {
+			t.Fatalf("Invalid partition notification: %v", err)
+		}
+		notifications <- req
+	})
+	require.NoError(t, err)
+
+	// Publish a message. This will cause a notification to be sent to the
+	// follower.
+	_, err = client.Publish(context.Background(), subject, []byte("hello"))
+	require.NoError(t, err)
+
+	select {
+	case req := <-notifications:
+		require.Equal(t, name, req.Stream)
+		require.Equal(t, int32(0), req.Partition)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Expected partition notification")
 	}
 }

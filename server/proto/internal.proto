@@ -138,3 +138,8 @@ message PartitionStatusResponse {
     bool exists   = 1;
     bool isLeader = 2;
 }
+
+message PartitionNotification {
+    string stream    = 1;
+    int32  partition = 2;
+}
