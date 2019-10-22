@@ -20,3 +20,5 @@
 website/node_modules/
 website/build/
 website/deploy/build/
+
+data

@@ -1,0 +1,58 @@
+version: '3'
+services:
+  nats:
+    image: nats:2.1
+    ports:
+      - "8222:8222"
+    networks:
+      - overlay
+  liftbridge1:
+    build: .
+    command: [
+      'liftbridge',
+      '--data-dir=/data1',
+      '--port=9292',
+      '--level=debug',
+      '--nats-servers=nats:4222',
+      '--raft-bootstrap-peers=server-1,server-2',
+      '--id=server-1'
+    ]
+    entrypoint: ""
+    networks:
+      - overlay
+    volumes:
+      - ./data/data1:/data1
+  liftbridge2:
+    build: .
+    command: [
+      'liftbridge',
+      '--data-dir=/data2',
+      '--port=9293',
+      '--level=debug',
+      '--nats-servers=nats:4222',
+      '--raft-bootstrap-peers=server-1,server-2',
+      '--id=server-2'
+    ]
+    entrypoint: ""
+    networks:
+      - overlay
+    volumes:
+      - ./data/data2:/data2
+  liftbridge3:
+    build: .
+    command: [
+      'liftbridge',
+      '--data-dir=/data3',
+      '--port=9294',
+      '--level=debug',
+      '--nats-servers=nats:4222',
+      '--raft-bootstrap-peers=server-1,server-2',
+      '--id=server-3'
+    ]
+    entrypoint: ""
+    networks:
+      - overlay
+    volumes:
+      - ./data/data3:/data3
+networks:
+  overlay:
