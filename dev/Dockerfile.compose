@@ -1,0 +1,14 @@
+FROM golang:1.13 as build-base
+ENV GOCACHE /cache
+ADD . /go/src/github.com/liftbridge-io/liftbridge
+WORKDIR /go/src/github.com/liftbridge-io/liftbridge
+ENV GO111MODULE on
+ENV CGO_ENABLED 1
+ENV GOARCH amd64
+ENV GOOS linux
+RUN go build -mod=readonly -race -o liftbridge
+
+FROM debian:stretch-slim
+COPY --from=build-base /go/src/github.com/liftbridge-io/liftbridge/liftbridge /liftbridge
+RUN apt-get update && apt-get install -y netcat
+COPY dev/wait-for.sh /wait-for.sh

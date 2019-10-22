@@ -1,0 +1,94 @@
+version: '3'
+services:
+  nats:
+    image: nats:2.1
+    ports:
+      - "4222:4222"
+    networks:
+      - overlay
+  natsboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.natsboard
+    ports:
+      - "3000:3000"
+    command: '/wait-for.sh natsboard --nats-mon-url http://nats:8222'
+    environment:
+      - WAIT_FOR_HOST=nats
+      - WAIT_FOR_PORT=8222
+    networks:
+      - overlay
+  liftbridge1:
+    build:
+      context: ../
+      dockerfile: dev/Dockerfile.compose
+    ports:
+      - "9292:9292"
+    command: [
+      '/wait-for.sh',
+      '/liftbridge',
+      '--data-dir=/data1',
+      '--port=9292',
+      '--level=debug',
+      '--nats-servers=nats:4222',
+      '--raft-bootstrap-peers=server-1,server-2',
+      '--id=server-1'
+    ]
+    environment:
+      - WAIT_FOR_HOST=nats
+      - WAIT_FOR_PORT=4222
+    networks:
+      - overlay
+    volumes:
+      - ./data/data1:/data1
+  liftbridge2:
+    build:
+      context: ../
+      dockerfile: dev/Dockerfile.compose
+    ports:
+      - "9293:9293"
+    command: [
+      '/wait-for.sh',
+      '/liftbridge',
+      '--data-dir=/data2',
+      '--port=9293',
+      '--level=debug',
+      '--nats-servers=nats:4222',
+      '--raft-bootstrap-peers=server-1,server-2',
+      '--id=server-2'
+    ]
+    environment:
+      - WAIT_FOR_HOST=nats
+      - WAIT_FOR_PORT=4222
+    networks:
+      - overlay
+    volumes:
+      - ./data/data2:/data2
+  liftbridge3:
+    build:
+      context: ../
+      dockerfile: dev/Dockerfile.compose
+    ports:
+      - "9294:9294"
+    command: [
+      '/wait-for.sh',
+      '/liftbridge',
+      '--data-dir=/data3',
+      '--port=9294',
+      '--level=debug',
+      '--nats-servers=nats:4222',
+      '--raft-bootstrap-peers=server-1,server-2',
+      '--id=server-3'
+    ]
+    environment:
+      - WAIT_FOR_HOST=nats
+      - WAIT_FOR_PORT=4222
+    networks:
+      - overlay
+    volumes:
+      - ./data/data3:/data3
+volumes:
+  build-cache:
+networks:
+  overlay:
+    driver: bridge
