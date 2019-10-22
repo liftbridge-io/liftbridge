@@ -48,7 +48,3 @@ func TestFindSegmentByBaseOffset(t *testing.T) {
 	require.Equal(t, segments[4], findSegmentByBaseOffset(segments, 39))
 	require.Nil(t, findSegmentByBaseOffset(segments, 41))
 }
-
-func int64Ptr(i int64) *int64 {
-	return &i
-}

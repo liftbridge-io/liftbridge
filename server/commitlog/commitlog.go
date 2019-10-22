@@ -1,5 +1,4 @@
-// Package commitlog provides an implementation for a file-backed write-ahead
-// log.
+// Package commitlog provides an implementation for a file-backed write-ahead log.
 package commitlog
 
 import (
@@ -21,6 +20,7 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
+// ErrSegmentNotFound is returned if the segment could not be found.
 var ErrSegmentNotFound = errors.New("segment not found")
 
 const (
@@ -554,7 +554,7 @@ func (l *CommitLog) split(oldActiveSegment *Segment) error {
 	if !atomic.CompareAndSwapPointer(
 		(*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment)),
 		unsafe.Pointer(oldActiveSegment), unsafe.Pointer(segment)) {
-		segment.Delete()
+		segment.Delete() // nolint: errcheck
 		return ErrSegmentExists
 	}
 	l.mu.Lock()
@@ -626,13 +626,11 @@ func (l *CommitLog) Clean() error {
 // rebaseSegments adds the segments in from to the end of the slice of segments
 // in to and adds any leader epoch offsets to the given leaderEpochCache.
 func (l *CommitLog) rebaseSegments(from, to []*Segment, epochCache *leaderEpochCache) []*Segment {
-	for _, seg := range from {
-		to = append(to, seg)
-	}
+	to = append(to, from...)
 	// Rebase any leader epoch offsets also. We don't check the error returned
 	// here because Rebase can't return an error since epochCache is not
 	// file-backed.
-	epochCache.Rebase(l.leaderEpochCache, from[0].BaseOffset)
+	epochCache.Rebase(l.leaderEpochCache, from[0].BaseOffset) // nolint: errcheck
 	return to
 }
 

@@ -41,7 +41,6 @@ const (
 	defaultCleanerInterval         = 5 * time.Minute
 	defaultMaxSegmentBytes         = 1024 * 1024 * 256 // 256MB
 	defaultLogRollTime             = defaultRetentionMaxAge
-	defaultCompactMaxGoroutines    = 10
 )
 
 // LogConfig contains settings for controlling the message log for a stream.
@@ -418,12 +417,12 @@ type HostPort struct {
 // parseListen will parse the `listen` option containing the host and port.
 func parseListen(v interface{}) (*HostPort, error) {
 	hp := &HostPort{}
-	switch v.(type) {
+	switch v := v.(type) {
 	// Only a port
 	case int64:
-		hp.Port = int(v.(int64))
+		hp.Port = int(v)
 	case string:
-		host, port, err := net.SplitHostPort(v.(string))
+		host, port, err := net.SplitHostPort(v)
 		if err != nil {
 			return nil, fmt.Errorf("Could not parse address string %q", v)
 		}
