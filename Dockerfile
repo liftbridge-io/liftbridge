@@ -4,7 +4,10 @@ RUN apk update && apk upgrade && \
 ADD . /go/src/github.com/liftbridge-io/liftbridge
 WORKDIR /go/src/github.com/liftbridge-io/liftbridge
 ENV GO111MODULE on
-RUN GOOS=linux GOARCH=amd64 go build
+ENV CGO_ENABLED 0
+ENV GOARCH amd64
+ENV GOOS linux
+RUN go build -mod=readonly -o liftbridge
 
 FROM alpine:latest
 COPY --from=build-base /go/src/github.com/liftbridge-io/liftbridge/liftbridge /usr/local/bin/liftbridge
