@@ -17,7 +17,8 @@ func TestSegmentCheckSplitFull(t *testing.T) {
 	s := createSegment(t, dir, 0, 10)
 	require.False(t, s.CheckSplit(1))
 
-	s.write(make([]byte, 10), []*Entry{&Entry{}})
+	_, err := s.write(make([]byte, 10), []*Entry{&Entry{}})
+	require.NoError(t, err)
 	require.True(t, s.CheckSplit(1))
 }
 
@@ -45,7 +46,8 @@ func TestSegmentCheckSplitNotFull(t *testing.T) {
 	}()
 
 	s := createSegment(t, dir, 0, 10)
-	s.write(make([]byte, 5), []*Entry{&Entry{}})
+	_, err := s.write(make([]byte, 5), []*Entry{&Entry{}})
+	require.NoError(t, err)
 	s.firstWriteTime = 1
 	require.False(t, s.CheckSplit(5))
 }
@@ -64,7 +66,8 @@ func TestSegmentCheckSplitLogRollTimeExceeded(t *testing.T) {
 	}()
 
 	s := createSegment(t, dir, 0, 10)
-	s.write(make([]byte, 5), []*Entry{&Entry{}})
+	_, err := s.write(make([]byte, 5), []*Entry{&Entry{}})
+	require.NoError(t, err)
 	s.firstWriteTime = 1
 	require.True(t, s.CheckSplit(1))
 }
