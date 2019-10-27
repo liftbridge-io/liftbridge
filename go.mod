@@ -13,7 +13,7 @@ require (
 	github.com/liftbridge-io/liftbridge-grpc v0.0.0-20190829220806-66e3ee4b7943
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20190703144237-760cefbfc85e
 	github.com/natefinch/atomic v0.0.0-20150920032501-a62ce929ffcc
-	github.com/nats-io/nats-server/v2 v2.0.0
+	github.com/nats-io/nats-server/v2 v2.1.0
 	github.com/nats-io/nats.go v1.8.1
 	github.com/nats-io/nuid v1.0.1
 	github.com/nsip/gommap v0.0.0-20181229045655-f7881c3a959f
