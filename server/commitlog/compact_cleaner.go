@@ -98,53 +98,14 @@ func (c *compactCleaner) compact(hw int64, segments []*segment) ([]*segment,
 	// Write new segments. Skip the last segment since we will not compact it.
 	// TODO: Join segments that are below the bytes limit.
 	for _, seg := range segments[:len(segments)-1] {
-		cleaned, err := seg.Cleaned()
+		cleaned, msgsRemoved, err := c.cleanSegment(seg, keyOffsets, hw, epochCache)
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		ss := newSegmentScanner(seg)
-		for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
-			var (
-				offset       = ms.Offset()
-				key          = ms.Message().Key()
-				leaderEpoch  = ms.LeaderEpoch()
-				latest, ok   = keyOffsets.Load(string(key))
-				latestOffset int64
-			)
-			if ok {
-				latestOffset = latest.(*keyOffset).get()
-			}
-
-			// Retain all messages with no keys and last message for each key.
-			// Also retain all messages after the HW.
-			if key == nil || offset == latestOffset || offset >= hw {
-				entries := entriesForMessageSet(cleaned.Position(), ms)
-				if err := cleaned.WriteMessageSet(ms, entries); err != nil {
-					return nil, nil, 0, err
-				}
-				// Maintain start offset for each new leader epoch.
-				if leaderEpoch > epochCache.LastLeaderEpoch() {
-					if err := epochCache.Assign(leaderEpoch, offset); err != nil {
-						return nil, nil, 0, err
-					}
-				}
-			} else {
-				removed++
-			}
-		}
-
-		if cleaned.IsEmpty() {
-			// If the new segment is empty, remove it along with the old one.
-			if err := cleanupEmptySegment(cleaned, seg); err != nil {
-				return nil, nil, 0, err
-			}
-		} else {
-			// Otherwise replace the old segment with the compacted one.
-			if err = cleaned.Replace(seg); err != nil {
-				return nil, nil, 0, err
-			}
+		if cleaned != nil {
 			compacted = append(compacted, cleaned)
 		}
+		removed += msgsRemoved
 	}
 
 	// Add the last segment back in to the compacted list.
@@ -163,6 +124,58 @@ func (c *compactCleaner) compact(hw int64, segments []*segment) ([]*segment,
 	}
 
 	return compacted, epochCache, removed, nil
+}
+
+func (c *compactCleaner) cleanSegment(seg *segment, keyOffsets *sync.Map, hw int64,
+	epochCache *leaderEpochCache) (*segment, int, error) {
+
+	cleaned, err := seg.Cleaned()
+	if err != nil {
+		return nil, 0, err
+	}
+	var (
+		ss      = newSegmentScanner(seg)
+		removed = 0
+	)
+	for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
+		var (
+			offset       = ms.Offset()
+			key          = ms.Message().Key()
+			leaderEpoch  = ms.LeaderEpoch()
+			latest, ok   = keyOffsets.Load(string(key))
+			latestOffset int64
+		)
+		if ok {
+			latestOffset = latest.(*keyOffset).get()
+		}
+
+		// Retain all messages with no keys and last message for each key.
+		// Also retain all messages after the HW.
+		if key == nil || offset == latestOffset || offset >= hw {
+			entries := entriesForMessageSet(cleaned.Position(), ms)
+			if err := cleaned.WriteMessageSet(ms, entries); err != nil {
+				return nil, removed, err
+			}
+			// Maintain start offset for each new leader epoch.
+			if leaderEpoch > epochCache.LastLeaderEpoch() {
+				if err := epochCache.Assign(leaderEpoch, offset); err != nil {
+					return nil, removed, err
+				}
+			}
+		} else {
+			removed++
+		}
+	}
+
+	if cleaned.IsEmpty() {
+		// If the new segment is empty, remove it along with the old one.
+		return nil, removed, cleanupEmptySegment(cleaned, seg)
+	}
+	// Otherwise replace the old segment with the compacted one.
+	if err = cleaned.Replace(seg); err != nil {
+		return nil, removed, err
+	}
+	return cleaned, removed, nil
 }
 
 func (c *compactCleaner) scanKeys(hw int64, segments []*segment) *sync.Map {

@@ -302,9 +302,6 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	ch1 := make(chan struct{})
 	ch2 := make(chan struct{})
 	err = client.Subscribe(context.Background(), name, func(msg *proto.Message, err error) {
-		if i == num+5 && err != nil {
-			return
-		}
 		require.NoError(t, err)
 		expect := expected[i]
 		assertMsg(t, expect, msg)
@@ -361,9 +358,6 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	ch1 = make(chan struct{})
 	err = client2.Subscribe(context.Background(), name,
 		func(msg *proto.Message, err error) {
-			if i == num+5 && err != nil {
-				return
-			}
 			require.NoError(t, err)
 			expect := expected[i]
 			assertMsg(t, expect, msg)

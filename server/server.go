@@ -515,8 +515,7 @@ func (s *Server) getPropagateInbox() string {
 func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 	var (
 		req  = &proto.PropagatedRequest{}
-		data []byte
-		err  error
+		resp []byte
 	)
 	if err := req.Unmarshal(m.Data); err != nil {
 		s.logger.Warnf("Invalid propagated request: %v", err)
@@ -524,56 +523,76 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 	}
 	switch req.Op {
 	case proto.Op_CREATE_PARTITION:
-		resp := &proto.PropagatedResponse{
-			Op: req.Op,
-		}
-		if err := s.metadata.CreatePartition(context.Background(), req.CreatePartitionOp); err != nil {
-			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-		}
-		data, err = resp.Marshal()
-		if err != nil {
-			panic(err)
-		}
+		resp = s.handleCreatePartition(req)
 	case proto.Op_SHRINK_ISR:
-		resp := &proto.PropagatedResponse{
-			Op: req.Op,
-		}
-		if err := s.metadata.ShrinkISR(context.Background(), req.ShrinkISROp); err != nil {
-			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-		}
-		data, err = resp.Marshal()
-		if err != nil {
-			panic(err)
-		}
-	case proto.Op_REPORT_LEADER:
-		resp := &proto.PropagatedResponse{
-			Op: req.Op,
-		}
-		if err := s.metadata.ReportLeader(context.Background(), req.ReportLeaderOp); err != nil {
-			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-		}
-		data, err = resp.Marshal()
-		if err != nil {
-			panic(err)
-		}
+		resp = s.handleShrinkISR(req)
 	case proto.Op_EXPAND_ISR:
-		resp := &proto.PropagatedResponse{
-			Op: req.Op,
-		}
-		if err := s.metadata.ExpandISR(context.Background(), req.ExpandISROp); err != nil {
-			resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-		}
-		data, err = resp.Marshal()
-		if err != nil {
-			panic(err)
-		}
+		resp = s.handleExpandISR(req)
+	case proto.Op_REPORT_LEADER:
+		resp = s.handleReportLeader(req)
 	default:
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
 		return
 	}
-	if err := m.Respond(data); err != nil {
+	if err := m.Respond(resp); err != nil {
 		s.logger.Errorf("Failed to respond to propagated request: %v", err)
 	}
+}
+
+func (s *Server) handleCreatePartition(req *proto.PropagatedRequest) []byte {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.CreatePartition(context.Background(), req.CreatePartitionOp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	data, err := resp.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func (s *Server) handleShrinkISR(req *proto.PropagatedRequest) []byte {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.ShrinkISR(context.Background(), req.ShrinkISROp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	data, err := resp.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func (s *Server) handleExpandISR(req *proto.PropagatedRequest) []byte {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.ExpandISR(context.Background(), req.ExpandISROp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	data, err := resp.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
+
+func (s *Server) handleReportLeader(req *proto.PropagatedRequest) []byte {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.ReportLeader(context.Background(), req.ReportLeaderOp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	data, err := resp.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
 func (s *Server) isShutdown() bool {

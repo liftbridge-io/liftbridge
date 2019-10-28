@@ -202,7 +202,7 @@ func GetLogLevel(level string) (uint32, error) {
 
 // NewConfig creates a new Config with default settings and applies any
 // settings from the given configuration file.
-func NewConfig(configFile string) (*Config, error) {
+func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	config := NewDefaultConfig()
 
 	if configFile == "" {
@@ -352,7 +352,7 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 
 // parseClusteringConfig parses the `clustering` section of a config file and
 // populates the given Config.
-func parseClusteringConfig(config *Config, m map[string]interface{}) error {
+func parseClusteringConfig(config *Config, m map[string]interface{}) error { // nolint: gocyclo
 	for k, v := range m {
 		switch strings.ToLower(k) {
 		case "server.id":

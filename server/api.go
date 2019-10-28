@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -216,32 +217,9 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 	req *client.SubscribeRequest, cancel chan struct{}) (
 	<-chan *client.Message, <-chan *status.Status, *status.Status) {
 
-	var startOffset int64
-	switch req.StartPosition {
-	case client.StartPosition_OFFSET:
-		startOffset = req.StartOffset
-	case client.StartPosition_TIMESTAMP:
-		offset, err := partition.log.OffsetForTimestamp(req.StartTimestamp)
-		if err != nil {
-			return nil, nil, status.New(
-				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
-		}
-		startOffset = offset
-	case client.StartPosition_EARLIEST:
-		startOffset = partition.log.OldestOffset()
-	case client.StartPosition_LATEST:
-		startOffset = partition.log.NewestOffset()
-	case client.StartPosition_NEW_ONLY:
-		startOffset = partition.log.NewestOffset() + 1
-	default:
-		return nil, nil, status.New(
-			codes.InvalidArgument,
-			fmt.Sprintf("Unknown StartPosition %s", req.StartPosition))
-	}
-
-	// If log is empty, next offset will be 0.
-	if startOffset < 0 {
-		startOffset = 0
+	startOffset, st := getStartOffset(req, partition.log)
+	if st != nil {
+		return nil, nil, st
 	}
 
 	var (
@@ -287,4 +265,36 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 	})
 
 	return ch, errCh, nil
+}
+
+func getStartOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int64, *status.Status) {
+	var startOffset int64
+	switch req.StartPosition {
+	case client.StartPosition_OFFSET:
+		startOffset = req.StartOffset
+	case client.StartPosition_TIMESTAMP:
+		offset, err := log.OffsetForTimestamp(req.StartTimestamp)
+		if err != nil {
+			return startOffset, status.New(
+				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
+		}
+		startOffset = offset
+	case client.StartPosition_EARLIEST:
+		startOffset = log.OldestOffset()
+	case client.StartPosition_LATEST:
+		startOffset = log.NewestOffset()
+	case client.StartPosition_NEW_ONLY:
+		startOffset = log.NewestOffset() + 1
+	default:
+		return startOffset, status.New(
+			codes.InvalidArgument,
+			fmt.Sprintf("Unknown StartPosition %s", req.StartPosition))
+	}
+
+	// If log is empty, next offset will be 0.
+	if startOffset < 0 {
+		startOffset = 0
+	}
+
+	return startOffset, nil
 }
