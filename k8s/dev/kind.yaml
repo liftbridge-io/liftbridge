@@ -1,0 +1,23 @@
+---
+kind: Cluster
+apiVersion: kind.sigs.k8s.io/v1alpha3
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 32767
+        hostPort: 9292
+        listenAddress: "0.0.0.0"
+      - containerPort: 32767
+        hostPort: 9293
+        listenAddress: "0.0.0.0"
+      - containerPort: 32767
+        hostPort: 9294
+        listenAddress: "0.0.0.0"
+      - containerPort: 32766
+        hostPort: 3000
+        listenAddress: "0.0.0.0"
+      - containerPort: 32765
+        hostPort: 4222
+        listenAddress: "0.0.0.0"
+  - role: worker
+  - role: worker

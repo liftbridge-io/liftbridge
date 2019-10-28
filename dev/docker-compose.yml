@@ -31,7 +31,7 @@ services:
       '--port=9292',
       '--level=debug',
       '--nats-servers=nats:4222',
-      '--raft-bootstrap-peers=server-1,server-2',
+      '--raft-bootstrap-seed',
       '--id=server-1'
     ]
     environment:
@@ -87,8 +87,6 @@ services:
       - overlay
     volumes:
       - ./data/data3:/data3
-volumes:
-  build-cache:
 networks:
   overlay:
     driver: bridge

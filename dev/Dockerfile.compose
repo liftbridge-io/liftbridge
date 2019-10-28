@@ -6,6 +6,7 @@ ENV GO111MODULE on
 ENV CGO_ENABLED 1
 ENV GOARCH amd64
 ENV GOOS linux
+RUN go mod download
 RUN go build -mod=readonly -race -o liftbridge
 
 FROM debian:stretch-slim
