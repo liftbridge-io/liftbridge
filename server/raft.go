@@ -184,7 +184,7 @@ func (s *Server) setupMetadataRaft() error {
 // and with the latter taking precedence.
 func (s *Server) bootstrapCluster(node *raft.Raft) error {
 	// Include ourself in the cluster.
-	servers := []raft.Server{raft.Server{
+	servers := []raft.Server{{
 		ID:      raft.ServerID(s.config.Clustering.ServerID),
 		Address: raft.ServerAddress(s.config.Clustering.ServerID),
 	}}

@@ -174,7 +174,7 @@ func (m *metadataAPI) brokerCache(serverIDs map[string]struct{}) ([]*client.Brok
 func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*client.Broker, *status.Status) {
 	// Add ourselves.
 	connectionAddress := m.config.GetConnectionAddress()
-	brokers := []*client.Broker{&client.Broker{
+	brokers := []*client.Broker{{
 		Id:   m.config.Clustering.ServerID,
 		Host: connectionAddress.Host,
 		Port: int32(connectionAddress.Port),

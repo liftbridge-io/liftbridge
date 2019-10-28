@@ -58,16 +58,16 @@ func TestCompactCleaner(t *testing.T) {
 
 	// Append some messages.
 	entries := []keyValue{
-		keyValue{[]byte("foo"), []byte("first")},
-		keyValue{[]byte("bar"), []byte("first")},
-		keyValue{[]byte("foo"), []byte("second")},
-		keyValue{[]byte("foo"), []byte("third")},
-		keyValue{[]byte("bar"), []byte("second")},
-		keyValue{[]byte("baz"), []byte("first")},
-		keyValue{[]byte("baz"), []byte("second")},
-		keyValue{[]byte("qux"), []byte("first")},
-		keyValue{[]byte("foo"), []byte("fourth")},
-		keyValue{[]byte("baz"), []byte("third")},
+		{[]byte("foo"), []byte("first")},
+		{[]byte("bar"), []byte("first")},
+		{[]byte("foo"), []byte("second")},
+		{[]byte("foo"), []byte("third")},
+		{[]byte("bar"), []byte("second")},
+		{[]byte("baz"), []byte("first")},
+		{[]byte("baz"), []byte("second")},
+		{[]byte("qux"), []byte("first")},
+		{[]byte("foo"), []byte("fourth")},
+		{[]byte("baz"), []byte("third")},
 	}
 	appendToLog(t, l, entries, true)
 
@@ -75,11 +75,11 @@ func TestCompactCleaner(t *testing.T) {
 	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
-		&expectedMsg{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
-		&expectedMsg{Offset: 7, Msg: &proto.Message{Key: []byte("qux"), Value: []byte("first")}},
-		&expectedMsg{Offset: 8, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("fourth")}},
+		{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
+		{Offset: 7, Msg: &proto.Message{Key: []byte("qux"), Value: []byte("first")}},
+		{Offset: 8, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("fourth")}},
 		// This one is present because it's in the active segment.
-		&expectedMsg{Offset: 9, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("third")}},
+		{Offset: 9, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("third")}},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -107,16 +107,16 @@ func TestCompactCleanerHW(t *testing.T) {
 
 	// Append some messages.
 	entries := []keyValue{
-		keyValue{[]byte("foo"), []byte("first")},
-		keyValue{[]byte("bar"), []byte("first")},
-		keyValue{[]byte("foo"), []byte("second")},
-		keyValue{[]byte("foo"), []byte("third")},
-		keyValue{[]byte("bar"), []byte("second")},
-		keyValue{[]byte("baz"), []byte("first")},
-		keyValue{[]byte("baz"), []byte("second")},
-		keyValue{[]byte("qux"), []byte("first")},
-		keyValue{[]byte("foo"), []byte("fourth")},
-		keyValue{[]byte("baz"), []byte("third")},
+		{[]byte("foo"), []byte("first")},
+		{[]byte("bar"), []byte("first")},
+		{[]byte("foo"), []byte("second")},
+		{[]byte("foo"), []byte("third")},
+		{[]byte("bar"), []byte("second")},
+		{[]byte("baz"), []byte("first")},
+		{[]byte("baz"), []byte("second")},
+		{[]byte("qux"), []byte("first")},
+		{[]byte("foo"), []byte("fourth")},
+		{[]byte("baz"), []byte("third")},
 	}
 	appendToLog(t, l, entries, false)
 	l.SetHighWatermark(5)
@@ -125,14 +125,14 @@ func TestCompactCleanerHW(t *testing.T) {
 	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
-		&expectedMsg{Offset: 3, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("third")}},
-		&expectedMsg{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
-		&expectedMsg{Offset: 5, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("first")}},
+		{Offset: 3, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("third")}},
+		{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
+		{Offset: 5, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("first")}},
 		// These are retained because they are after the HW.
-		&expectedMsg{Offset: 6, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("second")}},
-		&expectedMsg{Offset: 7, Msg: &proto.Message{Key: []byte("qux"), Value: []byte("first")}},
-		&expectedMsg{Offset: 8, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("fourth")}},
-		&expectedMsg{Offset: 9, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("third")}},
+		{Offset: 6, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("second")}},
+		{Offset: 7, Msg: &proto.Message{Key: []byte("qux"), Value: []byte("first")}},
+		{Offset: 8, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("fourth")}},
+		{Offset: 9, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("third")}},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -160,10 +160,10 @@ func TestCompactCleanerNoKeys(t *testing.T) {
 
 	// Append some messages.
 	entries := []keyValue{
-		keyValue{nil, []byte("first")},
-		keyValue{nil, []byte("second")},
-		keyValue{nil, []byte("third")},
-		keyValue{nil, []byte("fourth")},
+		{nil, []byte("first")},
+		{nil, []byte("second")},
+		{nil, []byte("third")},
+		{nil, []byte("fourth")},
 	}
 	appendToLog(t, l, entries, true)
 
@@ -171,10 +171,10 @@ func TestCompactCleanerNoKeys(t *testing.T) {
 	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
-		&expectedMsg{Offset: 0, Msg: &proto.Message{Value: []byte("first")}},
-		&expectedMsg{Offset: 1, Msg: &proto.Message{Value: []byte("second")}},
-		&expectedMsg{Offset: 2, Msg: &proto.Message{Value: []byte("third")}},
-		&expectedMsg{Offset: 3, Msg: &proto.Message{Value: []byte("fourth")}},
+		{Offset: 0, Msg: &proto.Message{Value: []byte("first")}},
+		{Offset: 1, Msg: &proto.Message{Value: []byte("second")}},
+		{Offset: 2, Msg: &proto.Message{Value: []byte("third")}},
+		{Offset: 3, Msg: &proto.Message{Value: []byte("fourth")}},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -216,16 +216,16 @@ func TestCompactCleanerTruncateConcurrent(t *testing.T) {
 
 	// Append some messages.
 	entries := []keyValue{
-		keyValue{[]byte("foo"), []byte("first")},
-		keyValue{[]byte("bar"), []byte("first")},
-		keyValue{[]byte("foo"), []byte("second")},
-		keyValue{[]byte("foo"), []byte("third")},
-		keyValue{[]byte("bar"), []byte("second")},
-		keyValue{[]byte("baz"), []byte("first")},
-		keyValue{[]byte("baz"), []byte("second")},
-		keyValue{[]byte("qux"), []byte("first")},
-		keyValue{[]byte("foo"), []byte("fourth")},
-		keyValue{[]byte("baz"), []byte("third")},
+		{[]byte("foo"), []byte("first")},
+		{[]byte("bar"), []byte("first")},
+		{[]byte("foo"), []byte("second")},
+		{[]byte("foo"), []byte("third")},
+		{[]byte("bar"), []byte("second")},
+		{[]byte("baz"), []byte("first")},
+		{[]byte("baz"), []byte("second")},
+		{[]byte("qux"), []byte("first")},
+		{[]byte("foo"), []byte("fourth")},
+		{[]byte("baz"), []byte("third")},
 	}
 	appendToLog(t, l, entries, true)
 

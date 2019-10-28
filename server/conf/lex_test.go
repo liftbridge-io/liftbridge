@@ -906,7 +906,7 @@ func TestBlockStringEOF(t *testing.T) {
 		{itemKey, "numbers", 2},
 		{itemString, "\n1234567890\n", 4},
 	}
-	blockbytes := []byte(blockexample[0:len(blockexample)-1])
+	blockbytes := []byte(blockexample[0 : len(blockexample)-1])
 	blockbytes = append(blockbytes, 0)
 	lx := lex(string(blockbytes))
 	expect(t, lx, expectedItems)

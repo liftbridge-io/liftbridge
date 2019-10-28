@@ -15,10 +15,10 @@ import (
 
 var (
 	msgs = []*proto.Message{
-		&proto.Message{Value: []byte("one"), Timestamp: 1, LeaderEpoch: 42},
-		&proto.Message{Value: []byte("two"), Timestamp: 2, LeaderEpoch: 42},
-		&proto.Message{Value: []byte("three"), Timestamp: 3, LeaderEpoch: 42},
-		&proto.Message{Value: []byte("four"), Timestamp: 4, LeaderEpoch: 42},
+		{Value: []byte("one"), Timestamp: 1, LeaderEpoch: 42},
+		{Value: []byte("two"), Timestamp: 2, LeaderEpoch: 42},
+		{Value: []byte("three"), Timestamp: 3, LeaderEpoch: 42},
+		{Value: []byte("four"), Timestamp: 4, LeaderEpoch: 42},
 	}
 )
 
@@ -205,7 +205,7 @@ func TestCleanerDeleteLeaderEpochOffsets(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 1,
@@ -214,7 +214,7 @@ func TestCleanerDeleteLeaderEpochOffsets(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Value:       []byte(strconv.Itoa(i + 5)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 2,
@@ -223,7 +223,7 @@ func TestCleanerDeleteLeaderEpochOffsets(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Value:       []byte(strconv.Itoa(i + 10)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 3,
@@ -270,7 +270,7 @@ func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Key:         []byte("foo"),
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
@@ -280,7 +280,7 @@ func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Key:         []byte("bar"),
 			Value:       []byte(strconv.Itoa(i + 5)),
 			Timestamp:   time.Now().UnixNano(),
@@ -290,7 +290,7 @@ func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Key:         []byte("baz"),
 			Value:       []byte(strconv.Itoa(i + 10)),
 			Timestamp:   time.Now().UnixNano(),
@@ -390,7 +390,7 @@ func TestTruncate(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 1,
@@ -399,7 +399,7 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Value:       []byte(strconv.Itoa(i + 5)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 2,
@@ -408,7 +408,7 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Value:       []byte(strconv.Itoa(i + 10)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 3,
@@ -442,7 +442,7 @@ func TestNotifyLEOMismatch(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 1,
@@ -452,7 +452,7 @@ func TestNotifyLEOMismatch(t *testing.T) {
 
 	// Get current log end offset and then add another message.
 	leo := l.NewestOffset()
-	_, err := l.Append([]*proto.Message{&proto.Message{
+	_, err := l.Append([]*proto.Message{{
 		Value:       []byte(strconv.Itoa(5)),
 		Timestamp:   time.Now().UnixNano(),
 		LeaderEpoch: 1,
@@ -482,7 +482,7 @@ func TestNotifyLEONewData(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*proto.Message{&proto.Message{
+		_, err := l.Append([]*proto.Message{{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 1,
@@ -504,7 +504,7 @@ func TestNotifyLEONewData(t *testing.T) {
 	}
 
 	// Add another message.
-	_, err := l.Append([]*proto.Message{&proto.Message{
+	_, err := l.Append([]*proto.Message{{
 		Value:       []byte(strconv.Itoa(5)),
 		Timestamp:   time.Now().UnixNano(),
 		LeaderEpoch: 1,
