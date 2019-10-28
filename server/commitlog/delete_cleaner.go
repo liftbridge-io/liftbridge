@@ -14,8 +14,8 @@ var computeTTL = func(age time.Duration) int64 {
 	return time.Now().Add(-age).UnixNano()
 }
 
-// DeleteCleanerOptions contains configuration settings for the DeleteCleaner.
-type DeleteCleanerOptions struct {
+// deleteCleanerOptions contains configuration settings for the DeleteCleaner.
+type deleteCleanerOptions struct {
 	Retention struct {
 		Bytes    int64
 		Messages int64
@@ -25,21 +25,21 @@ type DeleteCleanerOptions struct {
 	Name   string
 }
 
-// DeleteCleaner implements the delete cleanup policy which deletes old log
+// deleteCleaner implements the delete cleanup policy which deletes old log
 // segments based on the retention policy.
-type DeleteCleaner struct {
-	DeleteCleanerOptions
+type deleteCleaner struct {
+	deleteCleanerOptions
 }
 
-// NewDeleteCleaner returns a new Cleaner which enforces log retention
+// newDeleteCleaner returns a new cleaner which enforces log retention
 // policies by deleting segments.
-func NewDeleteCleaner(opts DeleteCleanerOptions) *DeleteCleaner {
-	return &DeleteCleaner{opts}
+func newDeleteCleaner(opts deleteCleanerOptions) *deleteCleaner {
+	return &deleteCleaner{opts}
 }
 
 // Clean will enforce the log retention policy by deleting old segments.
 // Deletion only occurs at the segment granularity.
-func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
+func (c *deleteCleaner) Clean(segments []*segment) ([]*segment, error) {
 	var err error
 	if len(segments) == 0 || c.noRetentionLimits() {
 		return segments, nil
@@ -75,11 +75,11 @@ func (c *DeleteCleaner) Clean(segments []*Segment) ([]*Segment, error) {
 	return segments, nil
 }
 
-func (c DeleteCleaner) noRetentionLimits() bool {
+func (c *deleteCleaner) noRetentionLimits() bool {
 	return c.Retention.Bytes == 0 && c.Retention.Messages == 0 && c.Retention.Age == 0
 }
 
-func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, error) {
+func (c *deleteCleaner) applyMessagesLimit(segments []*segment) ([]*segment, error) {
 	if len(segments) <= 1 {
 		return segments, nil
 	}
@@ -87,7 +87,7 @@ func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, erro
 	// We start at the most recent segment and work our way backwards until we
 	// meet the retention size.
 	var (
-		cleanedSegments = make([]*Segment, 0, len(segments))
+		cleanedSegments = make([]*segment, 0, len(segments))
 		totalMessages   int64
 	)
 
@@ -98,7 +98,7 @@ func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, erro
 		if totalMessages > c.Retention.Messages {
 			break
 		}
-		cleanedSegments = append([]*Segment{s}, cleanedSegments...)
+		cleanedSegments = append([]*segment{s}, cleanedSegments...)
 	}
 	if i > -1 {
 		for ; i > -1; i-- {
@@ -115,12 +115,12 @@ func (c DeleteCleaner) applyMessagesLimit(segments []*Segment) ([]*Segment, erro
 	return cleanedSegments, nil
 }
 
-func (c *DeleteCleaner) applyBytesLimit(segments []*Segment) ([]*Segment, error) {
+func (c *deleteCleaner) applyBytesLimit(segments []*segment) ([]*segment, error) {
 	// We start at the most recent segment and work our way backwards until we
 	// meet the retention size.
 	var (
 		lastSeg         = segments[len(segments)-1]
-		cleanedSegments = []*Segment{lastSeg}
+		cleanedSegments = []*segment{lastSeg}
 		totalBytes      = lastSeg.Position()
 	)
 
@@ -132,7 +132,7 @@ func (c *DeleteCleaner) applyBytesLimit(segments []*Segment) ([]*Segment, error)
 			if totalBytes > c.Retention.Bytes {
 				break
 			}
-			cleanedSegments = append([]*Segment{s}, cleanedSegments...)
+			cleanedSegments = append([]*segment{s}, cleanedSegments...)
 		}
 		if i > -1 {
 			for ; i > -1; i-- {
@@ -151,7 +151,7 @@ func (c *DeleteCleaner) applyBytesLimit(segments []*Segment) ([]*Segment, error)
 	return cleanedSegments, nil
 }
 
-func (c *DeleteCleaner) applyAgeLimit(segments []*Segment) ([]*Segment, error) {
+func (c *deleteCleaner) applyAgeLimit(segments []*segment) ([]*segment, error) {
 	// We must retain at least the active segment.
 	if len(segments) == 1 {
 		return segments, nil

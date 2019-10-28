@@ -541,7 +541,7 @@ func TestNotifyLEOIdempotent(t *testing.T) {
 	require.Equal(t, ch1, ch2)
 }
 
-func setup(t require.TestingT) (*CommitLog, func()) {
+func setup(t require.TestingT) (*commitLog, func()) {
 	opts := Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 6,
@@ -550,10 +550,10 @@ func setup(t require.TestingT) (*CommitLog, func()) {
 	return setupWithOptions(t, opts)
 }
 
-func setupWithOptions(t require.TestingT, opts Options) (*CommitLog, func()) {
+func setupWithOptions(t require.TestingT, opts Options) (*commitLog, func()) {
 	l, err := New(opts)
 	require.NoError(t, err)
-	return l, func() {
+	return l.(*commitLog), func() {
 		remove(t, opts.Path)
 	}
 }

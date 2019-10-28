@@ -2,20 +2,25 @@ package commitlog
 
 import "github.com/liftbridge-io/liftbridge/server/proto"
 
+// Message is a message read from the log.
 type Message []byte
 
+// Crc returns the CRC32 digest of the message.
 func (m Message) Crc() uint32 {
 	return proto.Encoding.Uint32(m)
 }
 
+// MagicByte returns the byte used for encoding protocol version detection.
 func (m Message) MagicByte() int8 {
 	return int8(m[4])
 }
 
+// Attributes returns the byte used for message flags.
 func (m Message) Attributes() int8 {
 	return int8(m[5])
 }
 
+// Key returns the message key.
 func (m Message) Key() []byte {
 	start, end, size := m.keyOffsets()
 	if size == -1 {
@@ -24,6 +29,7 @@ func (m Message) Key() []byte {
 	return m[start+4 : end]
 }
 
+// Value returns the message value.
 func (m Message) Value() []byte {
 	start, end, size := m.valueOffsets()
 	if size == -1 {
@@ -32,6 +38,7 @@ func (m Message) Value() []byte {
 	return m[start+4 : end]
 }
 
+// Headers returns the message headers map.
 func (m Message) Headers() map[string][]byte {
 	var (
 		_, valueEnd, _ = m.valueOffsets()

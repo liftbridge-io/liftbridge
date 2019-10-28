@@ -11,28 +11,28 @@ import (
 
 const defaultCompactMaxGoroutines = 10
 
-// CompactCleanerOptions contains configuration settings for the
-// CompactCleaner.
-type CompactCleanerOptions struct {
+// compactCleanerOptions contains configuration settings for the
+// compactCleaner.
+type compactCleanerOptions struct {
 	Logger        logger.Logger
 	Name          string
 	MaxGoroutines int
 }
 
-// CompactCleaner implements the compaction policy which replaces segments with
+// compactCleaner implements the compaction policy which replaces segments with
 // compacted ones, i.e. retaining only the last message for a given key.
-type CompactCleaner struct {
-	CompactCleanerOptions
+type compactCleaner struct {
+	compactCleanerOptions
 }
 
-// NewCompactCleaner returns a new Cleaner which performs log compaction by
+// NewCompactCleaner returns a new cleaner which performs log compaction by
 // rewriting segments such that they contain only the last message for a given
 // key.
-func NewCompactCleaner(opts CompactCleanerOptions) *CompactCleaner {
+func newCompactCleaner(opts compactCleanerOptions) *compactCleaner {
 	if opts.MaxGoroutines == 0 {
 		opts.MaxGoroutines = defaultCompactMaxGoroutines
 	}
-	return &CompactCleaner{opts}
+	return &compactCleaner{opts}
 }
 
 // Compact performs log compaction by rewriting segments such that they contain
@@ -41,7 +41,7 @@ func NewCompactCleaner(opts CompactCleanerOptions) *CompactCleaner {
 // comes first. This returns the compacted segments and a leaderEpochCache
 // containing the earliest offsets for each leader epoch or nil if nothing was
 // compacted.
-func (c *CompactCleaner) Compact(hw int64, segments []*Segment) ([]*Segment,
+func (c *compactCleaner) Compact(hw int64, segments []*segment) ([]*segment,
 	*leaderEpochCache, error) {
 
 	if len(segments) <= 1 {
@@ -82,14 +82,14 @@ func (k *keyOffset) get() int64 {
 	return k.offset
 }
 
-func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment,
+func (c *compactCleaner) compact(hw int64, segments []*segment) ([]*segment,
 	*leaderEpochCache, int, error) {
 
 	// Compact messages up to the last segment or HW, whichever is first, by
 	// scanning keys and retaining only the latest.
 	// TODO: Implement option for configuring minimum compaction lag.
 	var (
-		compacted  = make([]*Segment, 0, len(segments))
+		compacted  = make([]*segment, 0, len(segments))
 		epochCache = newLeaderEpochCacheNoFile(c.Name, c.Logger)
 		removed    = 0
 		keyOffsets = c.scanKeys(hw, segments)
@@ -102,7 +102,7 @@ func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment,
 		if err != nil {
 			return nil, nil, 0, err
 		}
-		ss := NewSegmentScanner(seg)
+		ss := newSegmentScanner(seg)
 		for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
 			var (
 				offset       = ms.Offset()
@@ -118,7 +118,7 @@ func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment,
 			// Retain all messages with no keys and last message for each key.
 			// Also retain all messages after the HW.
 			if key == nil || offset == latestOffset || offset >= hw {
-				entries := EntriesForMessageSet(cleaned.Position(), ms)
+				entries := entriesForMessageSet(cleaned.Position(), ms)
 				if err := cleaned.WriteMessageSet(ms, entries); err != nil {
 					return nil, nil, 0, err
 				}
@@ -152,7 +152,7 @@ func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment,
 	compacted = append(compacted, last)
 
 	// Maintain start offset for each new leader epoch for the last segment.
-	ss := NewSegmentScanner(last)
+	ss := newSegmentScanner(last)
 	for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
 		leaderEpoch := ms.LeaderEpoch()
 		if leaderEpoch > epochCache.LastLeaderEpoch() {
@@ -165,12 +165,12 @@ func (c *CompactCleaner) compact(hw int64, segments []*Segment) ([]*Segment,
 	return compacted, epochCache, removed, nil
 }
 
-func (c *CompactCleaner) scanKeys(hw int64, segments []*Segment) *sync.Map {
+func (c *compactCleaner) scanKeys(hw int64, segments []*segment) *sync.Map {
 	var (
 		wg            sync.WaitGroup
 		keyOffsets    = new(sync.Map)
 		numGoroutines = c.MaxGoroutines
-		segmentC      = make(chan *Segment, len(segments))
+		segmentC      = make(chan *segment, len(segments))
 	)
 	if len(segments) < numGoroutines {
 		numGoroutines = len(segments)
@@ -190,10 +190,10 @@ func (c *CompactCleaner) scanKeys(hw int64, segments []*Segment) *sync.Map {
 	return keyOffsets
 }
 
-func (c *CompactCleaner) scanSegments(hw int64, ch <-chan *Segment, wg *sync.WaitGroup, keyOffsets *sync.Map) {
+func (c *compactCleaner) scanSegments(hw int64, ch <-chan *segment, wg *sync.WaitGroup, keyOffsets *sync.Map) {
 LOOP:
 	for seg := range ch {
-		ss := NewSegmentScanner(seg)
+		ss := newSegmentScanner(seg)
 		for ms, _, err := ss.Scan(); err == nil; ms, _, err = ss.Scan() {
 			offset := ms.Offset()
 			if offset > hw {
@@ -209,7 +209,7 @@ LOOP:
 	wg.Done()
 }
 
-func cleanupEmptySegment(new, old *Segment) error {
+func cleanupEmptySegment(new, old *segment) error {
 	// Delete the new segment if it's empty.
 	if err := new.Delete(); err != nil {
 		return err

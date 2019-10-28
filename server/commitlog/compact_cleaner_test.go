@@ -23,8 +23,8 @@ type expectedMsg struct {
 
 // Ensure Compact is a no-op when there are no segments.
 func TestCompactCleanerNoSegments(t *testing.T) {
-	opts := CompactCleanerOptions{Name: "foo", Logger: noopLogger()}
-	cleaner := NewCompactCleaner(opts)
+	opts := compactCleanerOptions{Name: "foo", Logger: noopLogger()}
+	cleaner := newCompactCleaner(opts)
 	segments, epochCache, err := cleaner.Compact(0, nil)
 	require.NoError(t, err)
 	require.Nil(t, segments)
@@ -33,12 +33,12 @@ func TestCompactCleanerNoSegments(t *testing.T) {
 
 // Ensure Compact is a no-op when there is one segment.
 func TestCompactCleanerOneSegment(t *testing.T) {
-	opts := CompactCleanerOptions{Name: "foo", Logger: noopLogger()}
-	cleaner := NewCompactCleaner(opts)
+	opts := compactCleanerOptions{Name: "foo", Logger: noopLogger()}
+	cleaner := newCompactCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	expected := []*Segment{createSegment(t, dir, 0, 100)}
+	expected := []*segment{createSegment(t, dir, 0, 100)}
 	actual, epochCache, err := cleaner.Compact(0, expected)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
@@ -299,7 +299,7 @@ func benchmarkClean(b *testing.B, segmentSize int64) {
 	}
 }
 
-func appendToLog(t *testing.T, l *CommitLog, entries []keyValue, commit bool) {
+func appendToLog(t *testing.T, l *commitLog, entries []keyValue, commit bool) {
 	for _, entry := range entries {
 		msg := &proto.Message{
 			Key:   entry.key,

@@ -18,14 +18,14 @@ type contextReader interface {
 type Reader struct {
 	ctxReader   contextReader
 	offset      int64
-	log         *CommitLog
+	log         *commitLog
 	uncommitted bool
 }
 
 // NewReader creates a new Reader starting at the given offset. If uncommitted
 // is true, the Reader will read uncommitted messages from the log. Otherwise,
 // it will only return committed messages.
-func (l *CommitLog) NewReader(offset int64, uncommitted bool) (*Reader, error) {
+func (l *commitLog) NewReader(offset int64, uncommitted bool) (*Reader, error) {
 	var (
 		ctxReader contextReader
 		err       error
@@ -79,8 +79,8 @@ RETRY:
 }
 
 type uncommittedReader struct {
-	cl  *CommitLog
-	seg *Segment
+	cl  *commitLog
+	seg *segment
 	mu  sync.Mutex
 	pos int64
 }
@@ -155,7 +155,7 @@ LOOP:
 	return n, err
 }
 
-func (r *uncommittedReader) waitForData(ctx context.Context, seg *Segment) bool {
+func (r *uncommittedReader) waitForData(ctx context.Context, seg *segment) bool {
 	wait := seg.WaitForData(r, r.pos)
 	select {
 	case <-r.cl.closed:
@@ -171,7 +171,7 @@ func (r *uncommittedReader) waitForData(ctx context.Context, seg *Segment) bool 
 
 // newReaderUncommitted returns a contextReader which reads data from the log
 // starting at the given offset.
-func (l *CommitLog) newReaderUncommitted(offset int64) (contextReader, error) {
+func (l *commitLog) newReaderUncommitted(offset int64) (contextReader, error) {
 	seg, contains := findSegmentContains(l.Segments(), offset)
 	if seg == nil {
 		return nil, ErrSegmentNotFound
@@ -192,9 +192,9 @@ func (l *CommitLog) newReaderUncommitted(offset int64) (contextReader, error) {
 }
 
 type committedReader struct {
-	cl    *CommitLog
-	seg   *Segment
-	hwSeg *Segment
+	cl    *commitLog
+	seg   *segment
+	hwSeg *segment
 	mu    sync.Mutex
 	pos   int64
 	hwPos int64
@@ -244,7 +244,7 @@ func (r *committedReader) Read(ctx context.Context, p []byte) (n int, err error)
 }
 
 func (r *committedReader) readLoop(
-	ctx context.Context, p []byte, segments []*Segment) (n int, err error) {
+	ctx context.Context, p []byte, segments []*segment) (n int, err error) {
 
 	var readSize int
 LOOP:
@@ -320,12 +320,12 @@ func (r *committedReader) waitForHW(ctx context.Context, hw int64) bool {
 
 // newReaderCommitted returns a contextReader which reads only committed data
 // from the log starting at the given offset.
-func (l *CommitLog) newReaderCommitted(offset int64) (contextReader, error) {
+func (l *commitLog) newReaderCommitted(offset int64) (contextReader, error) {
 	var (
 		hw       = l.HighWatermark()
 		hwPos    = int64(-1)
 		segments = l.Segments()
-		hwSeg    *Segment
+		hwSeg    *segment
 	)
 
 	// If offset exceeds HW, wait for the next message. This also covers the
@@ -369,7 +369,7 @@ func (l *CommitLog) newReaderCommitted(offset int64) (contextReader, error) {
 	}, nil
 }
 
-func getHWPos(segments []*Segment, hw int64) (int, int64, error) {
+func getHWPos(segments []*segment, hw int64) (int, int64, error) {
 	hwSeg, hwIdx := findSegment(segments, hw)
 	if hwSeg == nil {
 		return 0, 0, ErrSegmentNotFound

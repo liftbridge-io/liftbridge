@@ -12,7 +12,7 @@ func TestIndexInitialSize(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// Create a new index.
-	idx, err := NewIndex(options{path: dir + "test.idx"})
+	idx, err := newIndex(options{path: dir + "test.idx"})
 	require.NoError(t, err)
 	entry, err := idx.InitializePosition()
 	require.NoError(t, err)
@@ -33,14 +33,14 @@ func TestIndexExistingSize(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// Create a new index.
-	idx, err := NewIndex(options{path: dir + "test.idx"})
+	idx, err := newIndex(options{path: dir + "test.idx"})
 	require.NoError(t, err)
-	entry, err := idx.InitializePosition()
+	e, err := idx.InitializePosition()
 	require.NoError(t, err)
-	require.Nil(t, entry)
+	require.Nil(t, e)
 
 	// Write some entries.
-	err = idx.writeEntries([]*Entry{
+	err = idx.writeEntries([]*entry{
 		{}, {}, {}, {},
 	})
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestIndexExistingSize(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reopen the index and verify the size and position are correct.
-	idx, err = NewIndex(options{path: dir + "test.idx"})
+	idx, err = newIndex(options{path: dir + "test.idx"})
 	require.NoError(t, err)
 	require.Equal(t, idx.size, int64(entryWidth*4))
 	require.Equal(t, idx.size, idx.position)
@@ -61,19 +61,19 @@ func TestIndexExpansion(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// Create an index with enough room for a single entry.
-	idx, err := NewIndex(options{path: dir + "test.idx", bytes: entryWidth})
+	idx, err := newIndex(options{path: dir + "test.idx", bytes: entryWidth})
 	require.NoError(t, err)
-	entry, err := idx.InitializePosition()
+	e, err := idx.InitializePosition()
 	require.NoError(t, err)
-	require.Nil(t, entry)
+	require.Nil(t, e)
 
 	// Write two entries.
-	writeEntry := Entry{Offset: 123, Timestamp: 456, Position: 789, Size: 987}
-	err = idx.writeEntries([]*Entry{{}, &writeEntry})
+	writeEntry := entry{Offset: 123, Timestamp: 456, Position: 789, Size: 987}
+	err = idx.writeEntries([]*entry{{}, &writeEntry})
 	require.NoError(t, err)
 
 	// Check the second entry can be retrieved.
-	var readEntry Entry
+	var readEntry entry
 	err = idx.ReadEntryAtLogOffset(&readEntry, 1)
 	require.NoError(t, err)
 	require.Equal(t, writeEntry, readEntry)

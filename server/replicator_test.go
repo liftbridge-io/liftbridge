@@ -12,7 +12,6 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	internal "github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -538,13 +537,13 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	partition1 := follower1.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition1)
 	require.NoError(t, partition1.stopFollowing())
-	partition1.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition1.log.OverrideHighWatermark(0)
 
 	// Stop second follower's replication and reset HW.
 	partition2 := follower2.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition2)
 	require.NoError(t, partition2.stopFollowing())
-	partition2.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition2.log.OverrideHighWatermark(0)
 
 	var (
 		follower1Config *Config
@@ -672,7 +671,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	partition1.mu.Lock()
 	require.NoError(t, partition1.stopFollowing())
 	partition1.mu.Unlock()
-	partition1.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition1.log.OverrideHighWatermark(0)
 	partition1.truncateToHW()
 
 	// Stop second follower's replication and reset HW.
@@ -681,7 +680,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	partition2.mu.Lock()
 	require.NoError(t, partition2.stopFollowing())
 	partition2.mu.Unlock()
-	partition2.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition2.log.OverrideHighWatermark(0)
 	partition2.truncateToHW()
 
 	var (
