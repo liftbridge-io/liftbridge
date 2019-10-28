@@ -1,0 +1,46 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: natsboard
+  labels:
+    app: natsboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: natsboard
+  template:
+    metadata:
+      labels:
+        app: natsboard
+    spec:
+      containers:
+        - name: natsboard
+          image: natsboard
+          command: ['/usr/bin/natsboard']
+          env:
+            - name: "WAIT_FOR_HOST"
+              value: nats-mgmt.default.svc
+            - name: "WAIT_FOR_PORT"
+              value: "8222"
+            - name: "NATS_MON_URL"
+              value: "http://nats-mgmt.default.svc:8222"
+          ports:
+            - name: http
+              containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: natsboard-external
+spec:
+  selector:
+    app: natsboard
+  type: NodePort
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      nodePort: 32766
+      targetPort: http

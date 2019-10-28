@@ -1,0 +1,41 @@
+---
+apiVersion: nats.io/v1alpha2
+kind: NatsCluster
+metadata:
+  labels:
+    app: liftbridge
+    component: nats
+    environment: dev
+    k8s-app: liftbridge
+  name: nats
+spec:
+  natsConfig:
+    writeDeadline: 5s
+  pod:
+    annotations:
+      sidecar.istio.io/inject: "false"
+    enableConfigReload: true
+    enableMetrics: true
+    metricsImage: synadia/prometheus-nats-exporter
+    metricsImageTag: 0.5.0
+    reloaderImage: connecteverything/nats-server-config-reloader
+    reloaderImagePullPolicy: IfNotPresent
+    reloaderImageTag: 0.6.0
+  size: 3
+  version: 2.1.0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-external
+spec:
+  selector:
+    app: nats
+    nats_cluster: nats
+  type: NodePort
+  ports:
+    - name: nats
+      protocol: TCP
+      port: 4222
+      nodePort: 32765
+      targetPort: 4222

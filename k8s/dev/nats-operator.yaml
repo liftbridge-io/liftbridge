@@ -1,0 +1,199 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nats-io
+  labels:
+    name: nats-io
+    environment: dev
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: nats
+    component: nats
+    k8s-app: nats
+  name: nats-operator
+  namespace: nats-io
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: nats
+    component: nats
+    k8s-app: nats
+  name: nats-server
+  namespace: nats-io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app: nats
+    component: nats
+    k8s-app: nats
+  name: nats-server
+  namespace: nats-io
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: nats
+    component: nats
+    k8s-app: nats
+  name: nats-operator
+  namespace: nats-io
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["create", "watch", "get", "update", "list"]
+  - apiGroups: ["nats.io"]
+    resources: ["natsclusters", "natsserviceroles"]
+    verbs: ['*']
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "watch", "get", "patch", "update", "delete", "list"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "watch", "get", "patch", "update", "delete", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "watch", "get", "update", "delete", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/log", "serviceaccounts/token", "events"]
+    verbs: ['*']
+  - apiGroups: [""]
+    resources: ["namespaces", "serviceaccounts"]
+    verbs: ["list", "get", "watch"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["create", "watch", "get", "update", "delete", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app: nats
+    component: nats
+    k8s-app: nats
+  name: nats-server-binding
+  namespace: nats-io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nats-server
+subjects:
+  - kind: ServiceAccount
+    name: nats-server
+    namespace: nats-io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: nats
+    component: nats
+    k8s-app: nats
+  name: nats-operator-binding
+  namespace: nats-io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nats-operator
+subjects:
+  - kind: ServiceAccount
+    name: nats-operator
+    namespace: nats-io
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  annotations:
+    sidecar.istio.io/inject: "false"
+  labels:
+    app: nats
+    component: nats
+    k8s-app: nats
+  name: nats-operator
+  namespace: nats-io
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+      component: nats
+      k8s-app: nats
+      name: nats-operator
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        app: nats
+        component: nats
+        k8s-app: nats
+        name: nats-operator
+    spec:
+      containers:
+        - args:
+            - nats-operator
+            - --feature-gates=ClusterScoped=true
+          env:
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          image: connecteverything/nats-operator:0.6.0
+          imagePullPolicy: Always
+          name: nats-operator
+          ports:
+            - containerPort: 8080
+              name: readyz
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: readyz
+            initialDelaySeconds: 15
+            timeoutSeconds: 3
+      serviceAccountName: nats-operator
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: natsclusters.nats.io
+spec:
+  group: nats.io
+  names:
+    kind: NatsCluster
+    listKind: NatsClusterList
+    plural: natsclusters
+    singular: natscluster
+    shortNames:
+      - nats
+  scope: Namespaced
+  version: v1alpha2
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: natsserviceroles.nats.io
+spec:
+  group: nats.io
+  names:
+    kind: NatsServiceRole
+    listKind: NatsServiceRoleList
+    plural: natsserviceroles
+    singular: natsservicerole
+  scope: Namespaced
+  version: v1alpha2

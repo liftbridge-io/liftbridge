@@ -1,0 +1,40 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: liftbridge
+spec:
+  serviceName: "liftbridge-headless"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: liftbridge
+  template:
+    metadata:
+      labels:
+        app: liftbridge
+    spec:
+      containers:
+        - name: liftbridge
+          image: liftbridge
+          ports:
+            - name: grpc
+              containerPort: 9292
+          volumeMounts:
+            - name: liftbridge-data
+              mountPath: /data
+            - mountPath: /etc/liftbridge.conf
+              name: config
+              subPath: liftbridge.conf
+      volumes:
+        - configMap:
+            name: config
+          name: config
+  volumeClaimTemplates:
+    - metadata:
+        name: liftbridge-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

@@ -1,0 +1,7 @@
+---
+namespace: default
+
+resources:
+  - svc.yaml
+  - statefulset.yaml
+  - config.yaml
