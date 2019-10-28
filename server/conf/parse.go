@@ -135,6 +135,7 @@ func (p *parser) popKey() string {
 	return last
 }
 
+// nolint: gocyclo
 func (p *parser) processItem(it item) error {
 	switch it.typ {
 	case itemError:

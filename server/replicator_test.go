@@ -12,7 +12,6 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	internal "github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -232,7 +231,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 	defer s3.Stop()
 
 	servers := []*Server{s1, s2, s3}
-	leader := getMetadataLeader(t, 10*time.Second, servers...)
+	getMetadataLeader(t, 10*time.Second, servers...)
 
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
@@ -246,7 +245,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 	require.NoError(t, err)
 
 	// Kill a stream follower.
-	leader = getPartitionLeader(t, 10*time.Second, name, 0, servers...)
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -261,7 +260,8 @@ func TestCommitOnISRShrink(t *testing.T) {
 	// shrinks.
 	gotAck := make(chan error)
 	go func() {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err := client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
 		gotAck <- err
 	}()
@@ -306,7 +306,7 @@ func TestAckPolicyLeader(t *testing.T) {
 	defer s3.Stop()
 
 	servers := []*Server{s1, s2, s3}
-	leader := getMetadataLeader(t, 10*time.Second, servers...)
+	getMetadataLeader(t, 10*time.Second, servers...)
 
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
@@ -320,7 +320,7 @@ func TestAckPolicyLeader(t *testing.T) {
 	require.NoError(t, err)
 
 	// Kill a stream follower.
-	leader = getPartitionLeader(t, 10*time.Second, name, 0, servers...)
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -334,7 +334,8 @@ func TestAckPolicyLeader(t *testing.T) {
 	// Publish message to stream. This should not get committed until the ISR
 	// shrinks, but an ack should still be received immediately since
 	// AckPolicy_LEADER is set (default AckPolicy).
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	cid := "cid"
 	ack, err := client.Publish(ctx, subject, []byte("hello"),
 		lift.CorrelationID(cid))
@@ -381,7 +382,8 @@ func TestCommitOnRestart(t *testing.T) {
 	// Publish some messages.
 	num := 5
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
 		require.NoError(t, err)
 	}
@@ -400,7 +402,8 @@ func TestCommitOnRestart(t *testing.T) {
 
 	// Publish some more messages.
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -504,10 +507,12 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish two messages.
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err = client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
 	require.NoError(t, err)
-	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err = client.Publish(ctx, subject, []byte("world"), lift.AckPolicyAll())
 	require.NoError(t, err)
 
@@ -538,13 +543,13 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	partition1 := follower1.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition1)
 	require.NoError(t, partition1.stopFollowing())
-	partition1.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition1.log.OverrideHighWatermark(0)
 
 	// Stop second follower's replication and reset HW.
 	partition2 := follower2.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition2)
 	require.NoError(t, partition2.stopFollowing())
-	partition2.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition2.log.OverrideHighWatermark(0)
 
 	var (
 		follower1Config *Config
@@ -636,10 +641,12 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish two messages.
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err = client.Publish(ctx, subject, []byte("hello"))
 	require.NoError(t, err)
-	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err = client.Publish(ctx, subject, []byte("world"))
 	require.NoError(t, err)
 
@@ -672,7 +679,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	partition1.mu.Lock()
 	require.NoError(t, partition1.stopFollowing())
 	partition1.mu.Unlock()
-	partition1.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition1.log.OverrideHighWatermark(0)
 	partition1.truncateToHW()
 
 	// Stop second follower's replication and reset HW.
@@ -681,7 +688,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	partition2.mu.Lock()
 	require.NoError(t, partition2.stopFollowing())
 	partition2.mu.Unlock()
-	partition2.log.(*commitlog.CommitLog).OverrideHighWatermark(0)
+	partition2.log.OverrideHighWatermark(0)
 	partition2.truncateToHW()
 
 	var (
@@ -730,11 +737,13 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	waitForISR(t, 10*time.Second, name, 0, 2, follower1, follower2)
 
 	// Publish new messages.
-	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err = client.Publish(ctx, subject, []byte("goodnight"))
 	require.NoError(t, err)
 
-	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	_, err = client.Publish(ctx, subject, []byte("moon"))
 	require.NoError(t, err)
 

@@ -1088,6 +1088,7 @@ func isNL(r rune) bool {
 	return r == '\n' || r == '\r'
 }
 
+// nolint: gocyclo
 func (itype itemType) String() string {
 	switch itype {
 	case itemError:

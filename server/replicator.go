@@ -304,7 +304,7 @@ type replicationProtocolWriter interface {
 type protocolWriter struct {
 	*replicator
 	buf        *bytes.Buffer
-	log        CommitLog
+	log        commitlog.CommitLog
 	lastOffset int64
 	stop       <-chan struct{}
 }

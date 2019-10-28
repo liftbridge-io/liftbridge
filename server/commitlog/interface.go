@@ -1,9 +1,6 @@
-package server
+package commitlog
 
-import (
-	"github.com/liftbridge-io/liftbridge/server/commitlog"
-	"github.com/liftbridge-io/liftbridge/server/proto"
-)
+import "github.com/liftbridge-io/liftbridge/server/proto"
 
 // CommitLog is the durable write-ahead log interface used to back each stream.
 type CommitLog interface {
@@ -14,7 +11,7 @@ type CommitLog interface {
 	// NewReader creates a new Reader starting at the given offset. If
 	// uncommitted is true, the Reader will read uncommitted messages from the
 	// log. Otherwise, it will only return committed messages.
-	NewReader(offset int64, uncommitted bool) (*commitlog.Reader, error)
+	NewReader(offset int64, uncommitted bool) (*Reader, error)
 
 	// Truncate removes all messages from the log starting at the given offset.
 	Truncate(offset int64) error
@@ -34,6 +31,11 @@ type CommitLog interface {
 	// SetHighWatermark sets the high watermark on the log. All messages up to
 	// and including the high watermark are considered committed.
 	SetHighWatermark(hw int64)
+
+	// OverrideHighWatermark sets the high watermark on the log using the given
+	// value, even if the value is less than the current HW. This is used for
+	// unit testing purposes.
+	OverrideHighWatermark(hw int64)
 
 	// HighWatermark returns the high watermark for the log.
 	HighWatermark() int64

@@ -76,7 +76,7 @@ type partition struct {
 	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
 	leaderOffsetSub *nats.Subscription // Subscription for leader epoch offset requests from followers
 	recvChan        chan *nats.Msg     // Channel leader places received messages on
-	log             CommitLog
+	log             commitlog.CommitLog
 	srv             *Server
 	isLeading       bool
 	isFollowing     bool

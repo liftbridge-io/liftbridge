@@ -17,17 +17,17 @@ func noopLogger() logger.Logger {
 	return log
 }
 
-func createSegment(t require.TestingT, dir string, baseOffset, maxBytes int64) *Segment {
-	s, err := NewSegment(dir, baseOffset, maxBytes, false, "")
+func createSegment(t require.TestingT, dir string, baseOffset, maxBytes int64) *segment {
+	s, err := newSegment(dir, baseOffset, maxBytes, false, "")
 	require.NoError(t, err)
 	return s
 }
 
 // Ensure Clean is a no-op when there are no segments.
 func TestDeleteCleanerNoSegments(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Bytes = 100
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	segments, err := cleaner.Clean(nil)
 	require.NoError(t, err)
 	require.Nil(t, segments)
@@ -35,12 +35,12 @@ func TestDeleteCleanerNoSegments(t *testing.T) {
 
 // Ensure Clean is a no-op when bytes and messages are 0.
 func TestDeleteCleanerNoRetentionSet(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
-	cleaner := NewDeleteCleaner(opts)
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	expected := []*Segment{createSegment(t, dir, 0, 100)}
+	expected := []*segment{createSegment(t, dir, 0, 100)}
 	actual, err := cleaner.Clean(expected)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
@@ -48,13 +48,13 @@ func TestDeleteCleanerNoRetentionSet(t *testing.T) {
 
 // Ensure Clean is a no-op when there is only one segment.
 func TestDeleteCleanerOneSegment(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Bytes = 100
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	expected := []*Segment{createSegment(t, dir, 0, 100)}
+	expected := []*segment{createSegment(t, dir, 0, 100)}
 	actual, err := cleaner.Clean(expected)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
@@ -62,13 +62,13 @@ func TestDeleteCleanerOneSegment(t *testing.T) {
 
 // Ensure Clean deletes segments to maintain the bytes limit.
 func TestDeleteCleanerBytes(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Bytes = 100
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	segs := make([]*Segment, 5)
+	segs := make([]*segment, 5)
 	for i := 0; i < 5; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
 		writeToSegment(t, segs[i], int64(i), []byte("blah"))
@@ -83,13 +83,13 @@ func TestDeleteCleanerBytes(t *testing.T) {
 // Ensure Clean is a no-op when there are segments and a bytes limit but the
 // segments don't exceed the limit.
 func TestDeleteCleanerBytesBelowLimit(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Bytes = 50
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	expected := make([]*Segment, 5)
+	expected := make([]*segment, 5)
 	for i := 0; i < 5; i++ {
 		expected[i] = createSegment(t, dir, int64(i), 20)
 	}
@@ -100,13 +100,13 @@ func TestDeleteCleanerBytesBelowLimit(t *testing.T) {
 
 // Ensure Clean deletes segments to maintain the messages limit.
 func TestDeleteCleanerMessages(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Messages = 10
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	segs := make([]*Segment, 20)
+	segs := make([]*segment, 20)
 	for i := 0; i < 20; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
 		writeToSegment(t, segs[i], int64(i), []byte("blah"))
@@ -122,13 +122,13 @@ func TestDeleteCleanerMessages(t *testing.T) {
 // Ensure Clean is a no-op when there are segments and a messages limit but the
 // segments don't exceed the limit.
 func TestDeleteCleanerMessagesBelowLimit(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Messages = 100
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	expected := make([]*Segment, 5)
+	expected := make([]*segment, 5)
 	for i := 0; i < 5; i++ {
 		expected[i] = createSegment(t, dir, int64(i), 20)
 	}
@@ -139,14 +139,14 @@ func TestDeleteCleanerMessagesBelowLimit(t *testing.T) {
 
 // Ensure Clean deletes segments to maintain the messages and bytes limits.
 func TestDeleteCleanerBytesMessages(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Messages = 15
 	opts.Retention.Bytes = 240
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	segs := make([]*Segment, 20)
+	segs := make([]*segment, 20)
 	for i := 0; i < 20; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
 		writeToSegment(t, segs[i], int64(i), []byte("blah"))
@@ -169,17 +169,17 @@ func TestDeleteCleanerAge(t *testing.T) {
 		computeTTL = computeTTLBefore
 	}()
 
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Age = 100
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	segs := make([]*Segment, 20)
+	segs := make([]*segment, 20)
 	for i := 0; i < 20; i++ {
 		segs[i] = createSegment(t, dir, int64(i), 20)
-		ms, entries, err := NewMessageSetFromProto(int64(i), 0,
-			[]*proto.Message{&proto.Message{Timestamp: int64(i * 10)}})
+		ms, entries, err := newMessageSetFromProto(int64(i), 0,
+			[]*proto.Message{{Timestamp: int64(i * 10)}})
 		require.NoError(t, err)
 		require.NoError(t, segs[i].WriteMessageSet(ms, entries))
 	}
@@ -202,17 +202,17 @@ func TestDeleteCleanerMessagesBelowAgeLimit(t *testing.T) {
 		computeTTL = computeTTLBefore
 	}()
 
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Age = 50
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
-	expected := make([]*Segment, 5)
+	expected := make([]*segment, 5)
 	for i := 0; i < 5; i++ {
 		expected[i] = createSegment(t, dir, int64(i), 20)
-		ms, entries, err := NewMessageSetFromProto(int64(i), 0,
-			[]*proto.Message{&proto.Message{Timestamp: int64(i * 10)}})
+		ms, entries, err := newMessageSetFromProto(int64(i), 0,
+			[]*proto.Message{{Timestamp: int64(i * 10)}})
 		require.NoError(t, err)
 		require.NoError(t, expected[i].WriteMessageSet(ms, entries))
 	}
@@ -224,9 +224,9 @@ func TestDeleteCleanerMessagesBelowAgeLimit(t *testing.T) {
 // Ensure Clean correctly calculates the number of messages in the log when
 // it's been compacted.
 func TestDeleteCleanerMessagesCompacted(t *testing.T) {
-	opts := DeleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Messages = 10
-	cleaner := NewDeleteCleaner(opts)
+	cleaner := newDeleteCleaner(opts)
 	dir := tempDir(t)
 	defer remove(t, dir)
 
@@ -241,14 +241,14 @@ func TestDeleteCleanerMessagesCompacted(t *testing.T) {
 	writeToSegment(t, seg2, 14, []byte("blah"))
 	writeToSegment(t, seg2, 15, []byte("blah"))
 
-	segs := []*Segment{seg1, seg2}
+	segs := []*segment{seg1, seg2}
 	actual, err := cleaner.Clean(segs)
 
 	require.NoError(t, err)
 	require.Len(t, actual, 2)
 
 	// Ensure no messages were actually deleted.
-	ss := NewSegmentScanner(actual[0])
+	ss := newSegmentScanner(actual[0])
 	_, entry, err := ss.Scan()
 	require.NoError(t, err)
 	require.Equal(t, int64(2), entry.Offset)
@@ -261,7 +261,7 @@ func TestDeleteCleanerMessagesCompacted(t *testing.T) {
 	_, _, err = ss.Scan()
 	require.Error(t, err)
 
-	ss = NewSegmentScanner(actual[1])
+	ss = newSegmentScanner(actual[1])
 	_, entry, err = ss.Scan()
 	require.NoError(t, err)
 	require.Equal(t, int64(13), entry.Offset)
@@ -275,10 +275,10 @@ func TestDeleteCleanerMessagesCompacted(t *testing.T) {
 	require.Error(t, err)
 }
 
-func writeToSegment(t *testing.T, seg *Segment, offset int64, data []byte) {
-	ms, entries, err := NewMessageSetFromProto(int64(offset), seg.Position(),
+func writeToSegment(t *testing.T, seg *segment, offset int64, data []byte) {
+	ms, entries, err := newMessageSetFromProto(int64(offset), seg.Position(),
 		[]*proto.Message{
-			&proto.Message{
+			{
 				Timestamp:   time.Now().UnixNano(),
 				LeaderEpoch: 42,
 				Value:       data,

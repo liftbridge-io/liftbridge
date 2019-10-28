@@ -2,6 +2,7 @@ package proto
 
 import client "github.com/liftbridge-io/liftbridge-grpc/go"
 
+// Message is the serialized object that gets written to the log.
 type Message struct {
 	Crc        int32
 	MagicByte  int8
@@ -18,6 +19,7 @@ type Message struct {
 	AckPolicy     client.AckPolicy
 }
 
+// Encode the Message into the PacketEncoder.
 func (m *Message) Encode(e PacketEncoder) error {
 	e.Push(&CRCField{})
 	e.PutInt8(m.MagicByte)
@@ -39,40 +41,4 @@ func (m *Message) Encode(e PacketEncoder) error {
 	}
 	e.Pop()
 	return nil
-}
-
-func (m *Message) Decode(d PacketDecoder) error {
-	var err error
-	if err = d.Push(&CRCField{}); err != nil {
-		return err
-	}
-	if m.MagicByte, err = d.Int8(); err != nil {
-		return err
-	}
-	if m.Attributes, err = d.Int8(); err != nil {
-		return err
-	}
-	if m.Key, err = d.Bytes(); err != nil {
-		return err
-	}
-	if m.Value, err = d.Bytes(); err != nil {
-		return err
-	}
-	numHeaders, err := d.Int16()
-	if err != nil {
-		return err
-	}
-	m.Headers = make(map[string][]byte, numHeaders)
-	for i := int16(0); i < numHeaders; i++ {
-		key, err := d.String()
-		if err != nil {
-			return err
-		}
-		value, err := d.Bytes()
-		if err != nil {
-			return err
-		}
-		m.Headers[key] = value
-	}
-	return d.Pop()
 }
