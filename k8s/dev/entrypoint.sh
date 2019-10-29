@@ -6,5 +6,5 @@ then
   liftbridge --data-dir=/data --config /etc/liftbridge.conf --level=debug --nats-servers=nats://nats.liftbridge.svc:4222 --raft-bootstrap-seed --id="$HOSTNAME"
 else
   echo "Running in $HOSTNAME...\n"
-  liftbridge --data-dir=/data --config /etc/liftbridge.conf --level=debug --nats-servers=nats://nats.liftbridge.svc:4222 --raft-bootstrap-peers=liftbridge-0 --id="$HOSTNAME"
+  liftbridge --data-dir=/data --config /etc/liftbridge.conf --level=debug --nats-servers=nats://nats.liftbridge.svc:4222 --id="$HOSTNAME"
 fi
