@@ -3,7 +3,7 @@ data:
   liftbridge.conf: |
     listen: 0.0.0.0:9292
     # data.dir: /tmp/liftbridge/server-2
-    # log.level: debug
+    log.level: debug
 
     clustering {
       min.insync.replicas: 1

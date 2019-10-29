@@ -8,7 +8,7 @@ build:
       docker:
         dockerfile: k8s/dev/Dockerfile.kind
     - image: natsboard
-      context: k8s/dev/
+      context: dev/
       docker:
         dockerfile: Dockerfile.natsboard
   tagPolicy:

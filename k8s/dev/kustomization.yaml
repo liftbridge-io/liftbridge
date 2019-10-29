@@ -9,3 +9,7 @@ resources:
   - nats.yaml
   - natsboard.yaml
   - svc.yaml
+  - storageclass.yaml
+
+patches:
+  - patches.yaml
