@@ -342,7 +342,7 @@ func parseLogConfig(config *Config, m map[string]interface{}) error {
 		case "compact":
 			config.Log.Compact = v.(bool)
 		case "compact.max.goroutines":
-			config.Log.CompactMaxGoroutines = v.(int)
+			config.Log.CompactMaxGoroutines = int(v.(int64))
 		default:
 			return fmt.Errorf("Unknown log configuration setting %q", k)
 		}
