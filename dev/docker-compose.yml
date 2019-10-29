@@ -1,7 +1,7 @@
 version: '3'
 services:
   nats:
-    image: nats:2.1
+    image: nats:2.1.0
     ports:
       - "4222:4222"
     networks:
@@ -54,7 +54,6 @@ services:
       '--port=9293',
       '--level=debug',
       '--nats-servers=nats:4222',
-      '--raft-bootstrap-peers=server-1,server-2',
       '--id=server-2'
     ]
     environment:
@@ -77,7 +76,6 @@ services:
       '--port=9294',
       '--level=debug',
       '--nats-servers=nats:4222',
-      '--raft-bootstrap-peers=server-1,server-2',
       '--id=server-3'
     ]
     environment:
