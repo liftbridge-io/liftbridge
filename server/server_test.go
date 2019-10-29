@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -479,7 +480,8 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	// Publish some messages.
 	num := 5
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -593,7 +595,8 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	// Publish some messages.
 	num := 2
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -653,7 +656,8 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Publish some messages.
 	num := 100
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -713,7 +717,8 @@ func TestStreamRetentionMessages(t *testing.T) {
 	// Publish some messages.
 	num := 10
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -773,7 +778,8 @@ func TestStreamRetentionAge(t *testing.T) {
 	// Publish some messages.
 	num := 100
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -867,7 +873,8 @@ func TestSubscribeEarliest(t *testing.T) {
 	// Publish some messages.
 	num := 2
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -923,7 +930,8 @@ func TestSubscribeLatest(t *testing.T) {
 	// Publish some messages.
 	num := 3
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -976,7 +984,8 @@ func TestSubscribeNewOnly(t *testing.T) {
 	// Publish some messages.
 	num := 5
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -1045,7 +1054,8 @@ func TestSubscribeStartTime(t *testing.T) {
 	// Publish some messages.
 	num := 5
 	for i := 0; i < num; i++ {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		_, err = client.Publish(ctx, subject, []byte("hello"))
 		require.NoError(t, err)
 	}
@@ -1196,4 +1206,44 @@ func TestDefaultListenHost(t *testing.T) {
 	if r != ex {
 		t.Fatalf("Not Equal:\nReceived: '%+v'\nExpected: '%+v'\n", r, ex)
 	}
+}
+
+// Ensure the leader flag is set when the server is elected metadata leader and
+// unset when it loses leadership.
+func TestMetadataLeadershipLifecycle(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 0)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 0)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Check leader flag is set.
+	require.Equal(t, int64(1), atomic.LoadInt64(&(s1.getRaft().leader)))
+
+	// Kill the follower.
+	s2.Stop()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		leader := atomic.LoadInt64(&(s1.getRaft().leader))
+		if leader == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+		continue
+	}
+	t.Fatal("Expected leader flag to be 0")
 }
