@@ -131,6 +131,7 @@ func (s *Server) setupMetadataRaft() error {
 			node.shutdown()
 			return err
 		}
+		s.logger.Debug("Successfully bootstrapped metadata Raft group")
 	} else if !existingState {
 		// Attempt to join the cluster if we're not bootstrapping.
 		req, err := (&proto.RaftJoinRequest{
@@ -164,7 +165,9 @@ func (s *Server) setupMetadataRaft() error {
 			joined = true
 			break
 		}
-		if !joined {
+		if joined {
+			s.logger.Debug("Successfully joined metadata Raft group")
+		} else {
 			node.shutdown()
 			return errors.New("failed to join metadata Raft group")
 		}
