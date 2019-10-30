@@ -862,3 +862,83 @@ func TestReplicatorNotifyNewData(t *testing.T) {
 		t.Fatal("Expected partition notification")
 	}
 }
+
+// Ensure when a follower dies, it is removed from the ISR. When it restarts
+// and catches up, it is added back into the ISR.
+func TestShrinkExpandISR(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicaMaxLagTime = time.Second
+	s1Config.Clustering.ReplicaMaxIdleWait = 2 * time.Millisecond
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5051)
+	s2Config.Clustering.ReplicaMaxLagTime = time.Second
+	s2Config.Clustering.ReplicaMaxIdleWait = 2 * time.Millisecond
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Configure third server.
+	s3Config := getTestConfig("c", false, 5052)
+	s3Config.Clustering.ReplicaMaxLagTime = time.Second
+	s3Config.Clustering.ReplicaMaxIdleWait = 2 * time.Millisecond
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1, s2, s3)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		lift.ReplicationFactor(3))
+	require.NoError(t, err)
+
+	// Get partition leader.
+	var (
+		leader   = getPartitionLeader(t, 5*time.Second, name, 0, s1, s2, s3)
+		servers  []*Server
+		follower *Server
+	)
+	if leader == s1 {
+		follower = s2
+		servers = []*Server{s1, s3}
+	} else {
+		follower = s1
+		servers = []*Server{s2, s3}
+	}
+
+	// Ensure ISR is 3.
+	waitForISR(t, 10*time.Second, name, 0, 3, s1, s2, s3)
+
+	// Kill a follower to shrink ISR.
+	follower.Stop()
+
+	// Wait for ISR to shrink to 2.
+	waitForISR(t, 10*time.Second, name, 0, 2, servers...)
+
+	// Restart follower.
+	follower = runServerWithConfig(t, follower.config)
+	defer follower.Stop()
+	servers = append(servers, follower)
+
+	// Wait for ISR to expand to 3.
+	waitForISR(t, 10*time.Second, name, 0, 3, servers...)
+}
