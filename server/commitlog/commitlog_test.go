@@ -161,6 +161,17 @@ func TestCommitLogRecoverHW(t *testing.T) {
 	require.Equal(t, int64(100), l.HighWatermark())
 }
 
+func TestOverrideHighWatermark(t *testing.T) {
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
+
+	l.SetHighWatermark(100)
+	require.Equal(t, int64(100), l.HighWatermark())
+	l.OverrideHighWatermark(90)
+	require.Equal(t, int64(90), l.HighWatermark())
+}
+
 func BenchmarkCommitLog(b *testing.B) {
 	var err error
 	l, cleanup := setup(b)
