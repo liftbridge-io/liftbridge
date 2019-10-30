@@ -1,6 +1,7 @@
 version: 2.1
 orbs:
   codecov: codecov/codecov@1.0.4
+  coveralls: coveralls/coveralls@1.0.4
 jobs:
   build:
     docker:
@@ -14,3 +15,4 @@ jobs:
       - run: GO111MODULE=on go test -v -coverprofile=coverage.txt ./...
       - codecov/upload:
           file: coverage.txt
+      - coveralls/upload
