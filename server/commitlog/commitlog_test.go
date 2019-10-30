@@ -14,11 +14,14 @@ import (
 )
 
 var (
+	headers = map[string][]byte{
+		"foo": []byte("bar"),
+	}
 	msgs = []*proto.Message{
-		{Value: []byte("one"), Timestamp: 1, LeaderEpoch: 42},
-		{Value: []byte("two"), Timestamp: 2, LeaderEpoch: 42},
-		{Value: []byte("three"), Timestamp: 3, LeaderEpoch: 42},
-		{Value: []byte("four"), Timestamp: 4, LeaderEpoch: 42},
+		{Value: []byte("one"), Timestamp: 1, LeaderEpoch: 42, Headers: headers},
+		{Value: []byte("two"), Timestamp: 2, LeaderEpoch: 42, Headers: headers},
+		{Value: []byte("three"), Timestamp: 3, LeaderEpoch: 42, Headers: headers},
+		{Value: []byte("four"), Timestamp: 4, LeaderEpoch: 42, Headers: headers},
 	}
 )
 
@@ -42,6 +45,7 @@ func TestNewCommitLog(t *testing.T) {
 		require.Equal(t, int64(i), offset)
 		require.Equal(t, msgs[i].Timestamp, timestamp)
 		require.Equal(t, msgs[i].LeaderEpoch, leaderEpoch)
+		require.Equal(t, []byte("bar"), msg.Headers()["foo"])
 		compareMessages(t, exp, msg)
 	}
 }
