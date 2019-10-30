@@ -17,6 +17,9 @@
       "configuration": {
         "title": "Configuration"
       },
+      "deployment": {
+        "title": "Deployment"
+      },
       "faq": {
         "title": "Frequently Asked Questions"
       },
@@ -41,6 +44,7 @@
     "categories": {
       "Overview": "Overview",
       "Configuration": "Configuration",
+      "Deployment": "Deployment",
       "Technical Deep Dive": "Technical Deep Dive",
       "Client Libraries": "Client Libraries"
     }
