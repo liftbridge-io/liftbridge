@@ -46,6 +46,39 @@ func TestNewCommitLog(t *testing.T) {
 	}
 }
 
+func TestNewCommitLogEmptyPath(t *testing.T) {
+	_, err := New(Options{})
+	require.Error(t, err)
+}
+
+func TestAppendMessageSet(t *testing.T) {
+	var err error
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
+
+	set, _, err := newMessageSetFromProto(0, 0, msgs)
+	require.NoError(t, err)
+
+	offsets, err := l.AppendMessageSet(set)
+	require.NoError(t, err)
+	require.Equal(t, []int64{0, 1, 2, 3}, offsets)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := l.NewReader(0, true)
+	require.NoError(t, err)
+
+	headers := make([]byte, 28)
+	for i, exp := range msgs {
+		msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
+		require.NoError(t, err)
+		require.Equal(t, int64(i), offset)
+		require.Equal(t, msgs[i].Timestamp, timestamp)
+		require.Equal(t, msgs[i].LeaderEpoch, leaderEpoch)
+		compareMessages(t, exp, msg)
+	}
+}
+
 func TestCommitLogRecover(t *testing.T) {
 	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
