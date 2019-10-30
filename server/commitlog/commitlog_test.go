@@ -14,11 +14,14 @@ import (
 )
 
 var (
+	headers = map[string][]byte{
+		"foo": []byte("bar"),
+	}
 	msgs = []*proto.Message{
-		{Value: []byte("one"), Timestamp: 1, LeaderEpoch: 42},
-		{Value: []byte("two"), Timestamp: 2, LeaderEpoch: 42},
-		{Value: []byte("three"), Timestamp: 3, LeaderEpoch: 42},
-		{Value: []byte("four"), Timestamp: 4, LeaderEpoch: 42},
+		{Value: []byte("one"), Timestamp: 1, LeaderEpoch: 42, Headers: headers},
+		{Value: []byte("two"), Timestamp: 2, LeaderEpoch: 42, Headers: headers},
+		{Value: []byte("three"), Timestamp: 3, LeaderEpoch: 42, Headers: headers},
+		{Value: []byte("four"), Timestamp: 4, LeaderEpoch: 42, Headers: headers},
 	}
 )
 
@@ -30,6 +33,40 @@ func TestNewCommitLog(t *testing.T) {
 
 	_, err = l.Append(msgs)
 	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r, err := l.NewReader(0, true)
+	require.NoError(t, err)
+
+	headers := make([]byte, 28)
+	for i, exp := range msgs {
+		msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
+		require.NoError(t, err)
+		require.Equal(t, int64(i), offset)
+		require.Equal(t, msgs[i].Timestamp, timestamp)
+		require.Equal(t, msgs[i].LeaderEpoch, leaderEpoch)
+		require.Equal(t, []byte("bar"), msg.Headers()["foo"])
+		compareMessages(t, exp, msg)
+	}
+}
+
+func TestNewCommitLogEmptyPath(t *testing.T) {
+	_, err := New(Options{})
+	require.Error(t, err)
+}
+
+func TestAppendMessageSet(t *testing.T) {
+	var err error
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
+
+	set, _, err := newMessageSetFromProto(0, 0, msgs)
+	require.NoError(t, err)
+
+	offsets, err := l.AppendMessageSet(set)
+	require.NoError(t, err)
+	require.Equal(t, []int64{0, 1, 2, 3}, offsets)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r, err := l.NewReader(0, true)
@@ -122,6 +159,17 @@ func TestCommitLogRecoverHW(t *testing.T) {
 	defer cleanup()
 	defer l.Close()
 	require.Equal(t, int64(100), l.HighWatermark())
+}
+
+func TestOverrideHighWatermark(t *testing.T) {
+	l, cleanup := setup(t)
+	defer l.Close()
+	defer cleanup()
+
+	l.SetHighWatermark(100)
+	require.Equal(t, int64(100), l.HighWatermark())
+	l.OverrideHighWatermark(90)
+	require.Equal(t, int64(90), l.HighWatermark())
 }
 
 func BenchmarkCommitLog(b *testing.B) {

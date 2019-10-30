@@ -16,6 +16,8 @@ import (
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+
+	internal "github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 var storagePath string
@@ -1246,4 +1248,78 @@ func TestMetadataLeadershipLifecycle(t *testing.T) {
 		continue
 	}
 	t.Fatal("Expected leader flag to be 0")
+}
+
+// Ensure propagation handlers for shrinking and expanding the ISR work
+// correctly.
+func TestPropagatedShrinkExpandISR(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 0)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Wait for server to elect itself leader.
+	controller := getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name,
+		lift.ReplicationFactor(2))
+	require.NoError(t, err)
+
+	waitForISR(t, 10*time.Second, name, 0, 2, s1, s2)
+
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, s1, s2)
+	followerID := s1.config.Clustering.ServerID
+	if leader == s1 {
+		followerID = s2.config.Clustering.ServerID
+	}
+	partition := leader.metadata.GetPartition(name, 0)
+	require.NotNil(t, partition)
+	leaderEpoch := partition.LeaderEpoch
+
+	// Shrink ISR.
+	controller.handleShrinkISR(&internal.PropagatedRequest{
+		ShrinkISROp: &internal.ShrinkISROp{
+			Stream:          name,
+			Partition:       0,
+			ReplicaToRemove: followerID,
+			Leader:          leader.config.Clustering.ServerID,
+			LeaderEpoch:     leaderEpoch,
+		},
+	})
+
+	// Wait for ISR to shrink.
+	waitForISR(t, 10*time.Second, name, 0, 1, s1, s2)
+
+	// Expand ISR.
+	controller.handleExpandISR(&internal.PropagatedRequest{
+		Op: internal.Op_EXPAND_ISR,
+		ExpandISROp: &internal.ExpandISROp{
+			Stream:       name,
+			Partition:    0,
+			ReplicaToAdd: followerID,
+			Leader:       leader.config.Clustering.ServerID,
+			LeaderEpoch:  leaderEpoch,
+		},
+	})
+
+	// Wait for ISR to expand.
+	waitForISR(t, 10*time.Second, name, 0, 2, s1, s2)
 }

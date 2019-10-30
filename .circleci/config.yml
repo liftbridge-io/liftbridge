@@ -1,16 +1,15 @@
 version: 2.1
-orbs:
-  codecov: codecov/codecov@1.0.4
 jobs:
   build:
     docker:
       - image: circleci/golang:1.12
-
-    working_directory: /go/src/github.com/liftbridge-io/liftbridge
+        environment:
+          GO111MODULE: "on"
 
     steps:
       - checkout
       - run: sudo apt-get update -yqq && sudo apt-get install -yqq bzr
-      - run: GO111MODULE=on go test -v -coverprofile=coverage.txt ./...
-      - codecov/upload:
-          file: coverage.txt
+      - run: go get github.com/mattn/goveralls
+      - run: go test -v .
+      - run: go test -v -coverprofile=coverage.txt ./server/...
+      - run: goveralls -coverprofile=coverage.txt -service=circle-ci -repotoken=$COVERALLS_REPO_TOKEN

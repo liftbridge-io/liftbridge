@@ -232,16 +232,6 @@ func (idx *index) Name() string {
 	return idx.file.Name()
 }
 
-func (idx *index) TruncateEntries(number int) error {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-	if int64(number*entryWidth) > idx.position {
-		return errors.New("bad truncate number")
-	}
-	idx.position = int64(number * entryWidth)
-	return nil
-}
-
 func (idx *index) InitializePosition() (*entry, error) {
 	// Find the first empty entry.
 	n := int(idx.size / entryWidth)
