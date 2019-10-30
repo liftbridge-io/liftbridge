@@ -1,6 +1,4 @@
 version: 2.1
-orbs:
-  codecov: codecov/codecov@1.0.4
 jobs:
   build:
     docker:
@@ -12,7 +10,6 @@ jobs:
       - checkout
       - run: sudo apt-get update -yqq && sudo apt-get install -yqq bzr
       - run: go get github.com/mattn/goveralls
-      - run: GO111MODULE=on go test -v -coverprofile=coverage.txt ./...
-      - codecov/upload:
-          file: coverage.txt
+      - run: GO111MODULE=on go test -v .
+      - run: GO111MODULE=on go test -v -coverprofile=coverage.txt ./server/...
       - run: goveralls -coverprofile=coverage.txt -service=circle-ci -repotoken=$COVERALLS_REPO_TOKEN
