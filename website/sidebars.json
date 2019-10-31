@@ -10,6 +10,9 @@
         "configuration",
         "ha-and-consistency-configuration"
     ],
+    "Deployment": [
+        "deployment"
+    ],
     "Technical Deep Dive": [
         "replication-protocol"
     ],

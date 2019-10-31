@@ -1,0 +1,31 @@
+---
+apiVersion: skaffold/v1beta17
+kind: Config
+build:
+  artifacts:
+    - image: liftbridge
+      context: .
+      docker:
+        dockerfile: k8s/dev/Dockerfile.kind
+    - image: natsboard
+      context: dev/
+      docker:
+        dockerfile: Dockerfile.natsboard
+  tagPolicy:
+    sha256: {}
+  local:
+    push: false
+    useBuildkit: true
+deploy:
+  kustomize:
+    path: ./k8s/
+
+profiles:
+  - name: dev
+    build:
+      local:
+        push: false
+    deploy:
+      kubeContext: kubernetes-admin@kind
+      kustomize:
+        path: ./k8s/dev

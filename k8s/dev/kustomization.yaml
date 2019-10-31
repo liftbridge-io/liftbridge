@@ -1,0 +1,15 @@
+---
+namespace: liftbridge
+
+bases:
+  - ../base
+
+resources:
+  - namespace.yaml
+  - nats.yaml
+  - natsboard.yaml
+  - svc.yaml
+  - storageclass.yaml
+
+patches:
+  - patches.yaml

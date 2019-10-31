@@ -1,0 +1,15 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: liftbridge
+spec:
+  volumeClaimTemplates:
+    - metadata:
+        name: liftbridge-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: liftbridge
+        resources:
+          requests:
+            storage: 5Gi
