@@ -5,6 +5,7 @@ metadata:
   name: liftbridge
 spec:
   serviceName: "liftbridge-headless"
+  podManagementPolicy: "Parallel"
   replicas: 3
   selector:
     matchLabels:
