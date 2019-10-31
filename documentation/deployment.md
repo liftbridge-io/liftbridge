@@ -15,6 +15,11 @@ $ make compose-up
 
 That will bring up 3 Liftbridge containers and one NATS node.
 
+To tear it down:
+```shell
+$ make compose-down
+```
+
 ### kind-based
 
 This will deploy a 3-node Liftbridge cluster backed by a 3-node NATS cluster locally using kind. For this you'll also need skaffold and kustomize in addition to kind.
@@ -36,6 +41,12 @@ $ make kind-apply
 ```
 
 Will deploy the manifests including the NATS operator and the Liftbridge cluster.
+
+Run
+```shell
+$ make kind-export
+```
+to get the command to run to export the `KUBECONFIG` env variable and point kubectl to the right context.
 
 To tear down your local environment:
 ```shell
