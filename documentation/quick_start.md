@@ -53,3 +53,11 @@ To do this, we provide the IDs of the participating peers in the cluster using t
 ```shell
 $ liftbridge --raft-bootstrap-peers server-2,server-3
 ```
+
+## Running a Liftbridge Cluster Locally
+
+The quickest way to get a Liftbridge cluster up and running on your machine is
+with either [Docker Compose](https://docs.docker.com/compose) or
+[Kind](https://kind.sigs.k8s.io) (Kubernetes in Docker). Follow the
+[deployment guide](./deployment.md) for help running a cluster locally for
+development or testing.

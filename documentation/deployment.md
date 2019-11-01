@@ -5,54 +5,69 @@ title: Deployment
 
 ## Development / Testing
 
-There's currently two options for running a Liftbridge cluster locally or for testing.
+There are currently two options for running a Liftbridge cluster locally for
+development or testing purposes: [Docker
+Compose](https://docs.docker.com/compose) or [Kind](https://kind.sigs.k8s.io)
+(Kubernetes in Docker).
 
 ### Docker Compose based
+
+This will bring up three Liftbridge containers and one NATS node:
 
 ```shell
 $ make compose-up
 ```
 
-That will bring up 3 Liftbridge containers and one NATS node.
+To tear it down, run:
 
-To tear it down:
 ```shell
 $ make compose-down
 ```
 
 ### kind-based
 
-This will deploy a 3-node Liftbridge cluster backed by a 3-node NATS cluster locally using kind. For this you'll also need skaffold and kustomize in addition to kind.
+This will deploy a three-node Liftbridge cluster backed by a three-node NATS
+cluster locally using Kind. For this you'll also need
+[Skaffold](https://skaffold.dev) and [Kustomize](https://kustomize.io) in
+addition to Kind.
 
 Download them:
-- [kind](https://github.com/kubernetes-sigs/kind/releases) version 0.5.1 or above
-- [kustomize](https://github.com/kubernetes-sigs/kustomize/releases) version 3.3.0 or above
+- [kind](https://github.com/kubernetes-sigs/kind/releases) version 0.5.1 or
+  above
+- [kustomize](https://github.com/kubernetes-sigs/kustomize/releases) version
+  3.3.0 or above
 - [skaffold](https://skaffold.dev/docs/install/) version 0.41.0 or later
 
-Then run
+To provision a local Kind cluster, run:
+
 ```shell
 $ make kind-up
 ```
 
-That will provision a local kind cluster.
+Then deploy the manifests including the NATS operator and the Liftbridge
+cluster with:
 
 ```shell
 $ make kind-apply
 ```
 
-Will deploy the manifests including the NATS operator and the Liftbridge cluster.
+To export the `KUBECONFIG` environment variable and point kubectl to the right
+context, run:
 
-Run
 ```shell
 $ make kind-export
 ```
-to get the command to run to export the `KUBECONFIG` env variable and point kubectl to the right context.
 
-To tear down your local environment:
+After running this, you can then use kubectl as normal to interact with the
+local Kubernetes cluster.
+
+To tear down your local environment, run:
+
 ```shell
 $ make kind-down
 ```
 
 ## Production
 
-We'll provide guidance on production deployments when a 1.0 release rolls around.
+We'll provide guidance on production deployments when a 1.0 release rolls
+around.
