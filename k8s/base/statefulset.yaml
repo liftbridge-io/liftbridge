@@ -21,6 +21,10 @@ spec:
           ports:
             - name: grpc
               containerPort: 9292
+          readinessProbe:
+            exec:
+              command: ["/bin/grpc_health_probe", "-service=proto.API", "-addr=:9292"]
+            initialDelaySeconds: 5
           volumeMounts:
             - name: liftbridge-data
               mountPath: /data
