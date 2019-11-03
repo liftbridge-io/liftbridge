@@ -9,6 +9,9 @@ compose-up:
 compose-down:
 	@ cd dev/; docker-compose down --rmi local
 
+push-k8s-image:
+	@ skaffold run -p deploy-k8s-image
+
 kind-up:
 	kind create cluster --config k8s/dev/kind.yaml --name=$(KIND_CLUSTER_NAME)
 
