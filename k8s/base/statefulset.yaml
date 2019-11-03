@@ -31,11 +31,3 @@ spec:
         - configMap:
             name: config
           name: config
-  volumeClaimTemplates:
-    - metadata:
-        name: liftbridge-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 5Gi
