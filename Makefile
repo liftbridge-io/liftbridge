@@ -24,3 +24,6 @@ kind-apply:
 
 kind-export:
 	@echo export KUBECONFIG="$$(kind get kubeconfig-path --name="$(KIND_CLUSTER_NAME)")"
+
+build:
+	@ CGO_ENABLED=0 go build -mod=readonly -o liftbridge
