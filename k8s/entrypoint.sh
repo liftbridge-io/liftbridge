@@ -1,7 +1,8 @@
 #!/bin/bash
 
-if [[ "$HOSTNAME" =~ -0$ ]];
 CLUSTER_NAME=${CLUSTER_NAME:=cluster}
+
+if [[ "$HOSTNAME" =~ -0$ ]] && [[ "$SKIP_SEED" != "true" ]];
 then
   echo "Running in liftbridge-0 as a bootstrap seed..."
   liftbridge --data-dir=/data --config /etc/liftbridge.conf --raft-bootstrap-seed --id="${CLUSTER_NAME}-$HOSTNAME"
