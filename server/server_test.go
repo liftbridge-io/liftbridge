@@ -836,7 +836,7 @@ func TestSubscribeStartPositionInvalid(t *testing.T) {
 	require.NoError(t, err)
 
 	// Subscribe with invalid StartPosition.
-	err = client.Subscribe(context.Background(), name, nil, lift.StartAt(9999))
+	err = client.Subscribe(context.Background(), name, nil, lift.StartAtOffset(9999))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Unknown StartPosition")
 }
