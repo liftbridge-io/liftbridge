@@ -280,11 +280,6 @@ func TestHealthServerStartedCorrectly(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
-	var (
-		servers = []*Server{s1, s2}
-		leader  = getMetadataLeader(t, 10*time.Second, servers...)
-	)
-
 	conn, err := grpc.Dial("127.0.0.1:20000", []grpc.DialOption{grpc.WithInsecure()}...)
 	require.NoError(t, err)
 	healthClient := grpc_health_v1.NewHealthClient(conn)

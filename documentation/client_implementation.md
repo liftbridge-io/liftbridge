@@ -11,7 +11,7 @@ inaccurate, feel free to make a PR fixing it.
 
 Liftbridge relies on gRPC and Protocol Buffers (protobufs) for its API. These
 definitions are stored in the
-[liftbridge-grpc](https://github.com/liftbridge-io/liftbridge-grpc) repository.
+[liftbridge-grpc](https://github.com/liftbridge-io/liftbridge-api) repository.
 Refer to the [gRPC documentation](https://grpc.io/docs/) for guidance on
 generating the gRPC code from the protobuf definitions for your particular
 programming language. The liftbridge-grpc repository also contains generated
@@ -191,7 +191,7 @@ match the subject). Since Liftbridge streams attach to normal NATS subjects,
 it's also possible to [publish messages directly to NATS](https://github.com/liftbridge-io/go-liftbridge#publishing-directly-with-nats)
 using a [NATS client](https://nats.io/download/). Liftbridge works fine with
 plain, opaque NATS messages, but it also extends NATS with a [protobuf-based
-envelope protocol](https://github.com/liftbridge-io/liftbridge-grpc). This
+envelope protocol](https://github.com/liftbridge-io/liftbridge-api). This
 allows publishers to add metadata to messages like a key, headers, and acking
 information. Liftbridge client libraries may provide helper methods to make it
 easy to create envelopes and deal with acks yourself using a NATS client
@@ -269,7 +269,7 @@ func main() {
 	nc, _ := nats.Connect(nats.DefaultURL)
 
 	// Publish a message.
-	nc.Publish("foo.bar", []byte("Hello, world!")) 
+	nc.Publish("foo.bar", []byte("Hello, world!"))
 	nc.Flush()
 }
 ```

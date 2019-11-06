@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
-	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 
+	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
