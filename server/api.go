@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	client "github.com/liftbridge-io/liftbridge-grpc/go"
+	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 	"google.golang.org/grpc/codes"
