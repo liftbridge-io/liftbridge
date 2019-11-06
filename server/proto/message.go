@@ -1,6 +1,6 @@
 package proto
 
-import client "github.com/liftbridge-io/liftbridge-grpc/go"
+import client "github.com/liftbridge-io/liftbridge-api/go"
 
 // Message is the serialized object that gets written to the log.
 type Message struct {

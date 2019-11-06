@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
-	client "github.com/liftbridge-io/liftbridge-grpc/go"
+	client "github.com/liftbridge-io/liftbridge-api/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"

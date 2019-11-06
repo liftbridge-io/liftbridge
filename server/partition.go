@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
-	client "github.com/liftbridge-io/liftbridge-grpc/go"
+	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 
