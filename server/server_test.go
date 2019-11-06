@@ -809,38 +809,6 @@ func TestStreamRetentionAge(t *testing.T) {
 	}
 }
 
-// Ensure Subscribe returns an error when an invalid StartPosition is used.
-func TestSubscribeStartPositionInvalid(t *testing.T) {
-	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
-	// Configure server.
-	s1Config := getTestConfig("a", true, 5050)
-	s1 := runServerWithConfig(t, s1Config)
-	defer s1.Stop()
-
-	// Wait for server to elect itself leader.
-	getMetadataLeader(t, 10*time.Second, s1)
-
-	client, err := lift.Connect([]string{"localhost:5050"})
-	require.NoError(t, err)
-	defer client.Close()
-
-	// Create stream.
-	name := "foo"
-	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name)
-	require.NoError(t, err)
-
-	// Subscribe with invalid StartPosition.
-	err = client.Subscribe(context.Background(), name, nil, lift.StartAtOffset(9999))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Unknown StartPosition")
-}
-
 // Ensure when StartPosition_EARLIEST is used with Subscribe, messages are read
 // starting at the oldest offset.
 func TestSubscribeEarliest(t *testing.T) {
