@@ -12,11 +12,13 @@ import (
 	"time"
 
 	lift "github.com/liftbridge-io/go-liftbridge"
-	"github.com/liftbridge-io/liftbridge-api/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health/grpc_health_v1"
 
+	proto "github.com/liftbridge-io/liftbridge-api/go"
 	internal "github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -257,6 +259,39 @@ func TestDurableServerID(t *testing.T) {
 	newID := future.Configuration().Servers[0].ID
 	if newID != "a" {
 		t.Fatalf("Incorrect cluster server id, expected: a, got: %s", newID)
+	}
+}
+
+// Ensure server starts the gRPC health service correctly.
+func TestHealthServerStartedCorrectly(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure the first server as a seed.
+	s1Config := getTestConfig("a", true, 20000)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server which should automatically join the first.
+	s2Config := getTestConfig("b", false, 20001)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	var (
+		servers = []*Server{s1, s2}
+		leader  = getMetadataLeader(t, 10*time.Second, servers...)
+	)
+
+	conn, err := grpc.Dial("127.0.0.1:20000", []grpc.DialOption{grpc.WithInsecure()}...)
+	require.NoError(t, err)
+	healthClient := grpc_health_v1.NewHealthClient(conn)
+	healthCheckReply, err := healthClient.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{Service: "proto.API"})
+	require.NoError(t, err)
+	if healthCheckReply.Status != grpc_health_v1.HealthCheckResponse_SERVING {
+		t.Fatalf("API service is not healthy when it should be: %v", err)
 	}
 }
 
