@@ -72,6 +72,24 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	return resp, err
 }
 
+// DeleteStream deletes a stream attached to a NATS subject.
+func (a *apiServer) DeleteStream(ctx context.Context, req *client.DeleteStreamRequest) (
+	*client.DeleteStreamResponse, error) {
+
+	resp := &client.DeleteStreamResponse{}
+	a.logger.Debugf("api: DeleteStream [subject=%s, name=%s]",
+		req.Subject, req.Name)
+
+	if e := a.metadata.DeleteStream(ctx, &proto.DeleteStreamOp{
+		Stream: req.Name,
+	}); e != nil {
+		a.logger.Errorf("api: Failed to delete stream %v: %v", req.Name, e.Err())
+		return nil, e.Err()
+	}
+
+	return resp, nil
+}
+
 // Subscribe creates an ephemeral subscription for the given stream partition.
 // It begins to receive messages starting at the given offset and waits for new
 // messages when it reaches the end of the partition. Use the request context

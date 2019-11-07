@@ -537,6 +537,8 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		resp = s.handleExpandISR(req)
 	case proto.Op_REPORT_LEADER:
 		resp = s.handleReportLeader(req)
+	case proto.Op_DELETE_STREAM:
+		resp = s.handleDeleteStream(req)
 	default:
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
 		return
@@ -585,6 +587,16 @@ func (s *Server) handleReportLeader(req *proto.PropagatedRequest) *proto.Propaga
 		Op: req.Op,
 	}
 	if err := s.metadata.ReportLeader(context.Background(), req.ReportLeaderOp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	return resp
+}
+
+func (s *Server) handleDeleteStream(req *proto.PropagatedRequest) *proto.PropagatedResponse {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.DeleteStream(context.Background(), req.DeleteStreamOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
 	return resp

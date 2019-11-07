@@ -12,6 +12,7 @@ enum Op {
     REPORT_LEADER    = 2;
     CHANGE_LEADER    = 3;
     EXPAND_ISR       = 4;
+    DELETE_STREAM    = 5;
 }
 
 message RaftLog {
@@ -20,6 +21,7 @@ message RaftLog {
     ShrinkISROp       shrinkISROp       = 3;
     ChangeLeaderOp    changeLeaderOp    = 4;
     ExpandISROp       expandISROp       = 5;
+    DeleteStreamOp    deleteStreamOp    = 6;
 }
 
 message CreatePartitionOp {
@@ -40,6 +42,10 @@ message ExpandISROp {
     string replicaToAdd = 3;
     string leader       = 4;
     uint64 leaderEpoch  = 5;
+}
+
+message DeleteStreamOp {
+    string stream       = 1;
 }
 
 message ReportLeaderOp {
@@ -103,6 +109,7 @@ message PropagatedRequest {
     ShrinkISROp       shrinkISROp       = 3;
     ReportLeaderOp    reportLeaderOp    = 4;
     ExpandISROp       expandISROp       = 5;
+    DeleteStreamOp    deleteStreamOp    = 6;
 }
 
 message Error {
@@ -117,6 +124,7 @@ message PropagatedResponse {
     // Reserving = 4 for shrinkISRResp if needed.
     // Reserving = 5 for reportLeaderResp if needed.
     // Reserving = 6 for expandISRResp if needed.
+    // Reserving = 7 for deleteStreamResp if needed.
 }
 
 message ServerInfoRequest {

@@ -251,6 +251,23 @@ func (p *partition) startLeadingOrFollowing() error {
 	return nil
 }
 
+// stopLeadingOrFollowing stops the partition as a leader or follower, if
+// applicable.
+func (p *partition) stopLeadingOrFollowing() error {
+	if p.isFollowing {
+		// Stop following if previously a follower.
+		if err := p.stopFollowing(); err != nil {
+			return err
+		}
+	} else if p.isLeading {
+		// If previously a leader, we need to reset.
+		if err := p.stopLeading(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetLeader returns the replica that is the partition leader and the leader
 // epoch.
 func (p *partition) GetLeader() (string, uint64) {
@@ -269,16 +286,8 @@ func (p *partition) IsLeader() bool {
 // becomeLeader is called when the server has become the leader for this
 // partition.
 func (p *partition) becomeLeader(epoch uint64) error {
-	if p.isFollowing {
-		// Stop following if previously a follower.
-		if err := p.stopFollowing(); err != nil {
-			return err
-		}
-	} else if p.isLeading {
-		// If previously a leader, we need to reset.
-		if err := p.stopLeading(); err != nil {
-			return err
-		}
+	if err := p.stopLeadingOrFollowing(); err != nil {
+		return err
 	}
 
 	if !p.recovered {
@@ -370,16 +379,8 @@ func (p *partition) stopLeading() error {
 // becomeFollower is called when the server has become a follower for this
 // partition.
 func (p *partition) becomeFollower() error {
-	if p.isLeading {
-		// Stop leading if previously a leader.
-		if err := p.stopLeading(); err != nil {
-			return err
-		}
-	} else if p.isFollowing {
-		// If previously a follower, we need to reset.
-		if err := p.stopFollowing(); err != nil {
-			return err
-		}
+	if err := p.stopLeadingOrFollowing(); err != nil {
+		return err
 	}
 
 	// Truncate potentially uncommitted messages from the log.

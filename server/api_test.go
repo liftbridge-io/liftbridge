@@ -208,6 +208,41 @@ func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	require.Contains(t, err.Error(), "No such partition")
 }
 
+// Ensure getting a deleted stream returns nil.
+func TestDeleteStream(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
+	require.NoError(t, err)
+
+	stream := s1.metadata.GetStream("foo")
+	require.NotNil(t, stream)
+
+	err = client.DeleteStream(context.Background(), "foo")
+	require.NoError(t, err)
+
+	stream = s1.metadata.GetStream("foo")
+	require.Nil(t, stream)
+
+	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
+	require.NoError(t, err)
+}
+
 // Ensure sending a subscribe request to a server that is not the stream leader
 // returns an error.
 func TestSubscribeStreamNotLeader(t *testing.T) {

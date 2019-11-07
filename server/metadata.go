@@ -323,6 +323,43 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 	return nil
 }
 
+// DeleteStream deletes a stream if this server is the metadata leader. If it is
+// not, it will forward the request to the leader and return the response. This
+// operation is replicated by Raft. If successful, this will return once the
+// stream has been deleted from the cluster.
+func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		return m.propagateDeleteStream(ctx, req)
+	}
+
+	// Replicate partition deletion through Raft.
+	op := &proto.RaftLog{
+		Op:             proto.Op_DELETE_STREAM,
+		DeleteStreamOp: req,
+	}
+
+	// Wait on result of deletion.
+	future := m.applyRaftOperation(op)
+	if err := future.Error(); err != nil {
+		return status.New(codes.Internal, "Failed to delete stream")
+	}
+
+	// If there is a response, it's an error.
+	if resp := future.Response(); resp != nil {
+		err := resp.(error)
+		code := codes.Internal
+		return status.New(code, err.Error())
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	delete(m.streams, req.Stream)
+
+	return nil
+}
+
 // ShrinkISR removes the specified replica from the partition's in-sync
 // replicas set if this server is the metadata leader. If it is not, it will
 // forward the request to the leader and return the response. This operation is
@@ -647,6 +684,16 @@ func (m *metadataAPI) propagateCreatePartition(ctx context.Context, req *proto.C
 	propagate := &proto.PropagatedRequest{
 		Op:                proto.Op_CREATE_PARTITION,
 		CreatePartitionOp: req,
+	}
+	return m.propagateRequest(ctx, propagate)
+}
+
+// propagateDeleteStream forwards a DeleteStream request to the metadata leader
+// and returns the response.
+func (m *metadataAPI) propagateDeleteStream(ctx context.Context, req *proto.DeleteStreamOp) *status.Status {
+	propagate := &proto.PropagatedRequest{
+		Op:             proto.Op_DELETE_STREAM,
+		DeleteStreamOp: req,
 	}
 	return m.propagateRequest(ctx, propagate)
 }
