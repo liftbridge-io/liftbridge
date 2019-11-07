@@ -4,6 +4,10 @@ data:
     listen: 0.0.0.0:9292
     log.level: debug
 
+    nats {
+      servers: ["nats://nats.liftbridge.svc:4222"]
+    }
+
     clustering {
       min.insync.replicas: 1
     }

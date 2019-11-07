@@ -1,6 +1,6 @@
 FROM golang:1.13-alpine as build-base
 RUN apk update && apk upgrade && \
-    apk add --no-cache bash git openssh make bzr
+    apk add --no-cache bash git openssh make bzr wget
 WORKDIR /workspace
 ENV GO111MODULE on
 
@@ -18,8 +18,13 @@ COPY server/ server/
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -mod=readonly -o liftbridge
 
+RUN GRPC_HEALTH_PROBE_VERSION=v0.3.1 && \
+    wget -qO /bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
+    chmod +x /bin/grpc_health_probe
+
 FROM alpine:latest
 RUN apk update && apk add --no-cache bash
 COPY --from=build-base /workspace/liftbridge /usr/local/bin/liftbridge
-COPY k8s/dev/entrypoint.sh /entrypoint.sh
+COPY --from=build-base /bin/grpc_health_probe /bin/grpc_health_probe
+COPY k8s/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]

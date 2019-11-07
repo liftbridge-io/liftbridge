@@ -17,12 +17,13 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	client "github.com/liftbridge-io/liftbridge-api/go"
+	"github.com/liftbridge-io/liftbridge/server/health"
 	"github.com/liftbridge-io/liftbridge/server/logger"
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
@@ -167,11 +168,13 @@ func (s *Server) Start() (err error) {
 // Stop will attempt to gracefully shut the Server down by signaling the stop
 // and waiting for all goroutines to return.
 func (s *Server) Stop() error {
+	health.SetNotServing()
 	s.mu.Lock()
 	if s.shutdown {
 		s.mu.Unlock()
 		return nil
 	}
+
 	s.logger.Info("Shutting down...")
 
 	close(s.shutdownCh)
@@ -351,10 +354,14 @@ func (s *Server) startAPIServer() error {
 	api := grpc.NewServer(opts...)
 	s.api = api
 	client.RegisterAPIServer(api, &apiServer{s})
+
+	health.Register(api)
+
 	s.mu.Lock()
 	s.running = true
 	s.mu.Unlock()
 	s.startGoroutine(func() {
+		health.SetServing()
 		err := api.Serve(s.listener)
 		s.mu.Lock()
 		s.running = false

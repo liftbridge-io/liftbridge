@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	lift "github.com/liftbridge-io/go-liftbridge"
-	"github.com/liftbridge-io/liftbridge-api/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 
+	lift "github.com/liftbridge-io/go-liftbridge"
+	proto "github.com/liftbridge-io/liftbridge-api/go"
 	internal "github.com/liftbridge-io/liftbridge/server/proto"
 )
 

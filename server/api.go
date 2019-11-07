@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )

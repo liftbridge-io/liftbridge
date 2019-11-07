@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
-	lift "github.com/liftbridge-io/go-liftbridge"
-	"github.com/liftbridge-io/liftbridge-api/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	lift "github.com/liftbridge-io/go-liftbridge"
+	proto "github.com/liftbridge-io/liftbridge-api/go"
 )
 
 type message struct {
