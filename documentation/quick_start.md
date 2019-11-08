@@ -3,10 +3,14 @@ id: quick-start
 title: Quick Start
 ---
 
-Liftbridge currently requires building and installing from source using
-[Go](https://golang.org/doc/install). This will not be required once a release
-is made which will provide binaries and container images, but in the meantime
-follow the below step to install.
+## Binary from Source
+
+Getting a Liftbridge binary currently requires building and installing from
+source using [Go](https://golang.org/doc/install). This will not be required
+once a release is made which will provide pre-built binaries and container
+images, but in the meantime follow the below step to install. Alternatively,
+you can use the [development container](#docker-container) which runs an
+instance of Liftbridge and NATS inside a single Docker container.
 
 ```shell
 $ go get github.com/liftbridge-io/liftbridge
@@ -54,10 +58,33 @@ To do this, we provide the IDs of the participating peers in the cluster using t
 $ liftbridge --raft-bootstrap-peers server-2,server-3
 ```
 
+## Docker Container
+
+Instead of running a binary, you can run Liftbridge using a container. There is
+a [container image](https://hub.docker.com/r/liftbridge/liftbridge-docker)
+available which runs an instance of Liftbridge and NATS inside a [single Docker
+container](https://github.com/liftbridge-io/liftbridge-docker). This is meant
+for development and testing purposes. Use the following Docker commands to run
+this container:
+
+```shell
+$ docker pull liftbridge/liftbridge-docker
+$ docker run -d --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 liftbridge/liftbridge-docker
+```
+
+This will run the container which will start both the NATS and Liftbridge
+servers. To check the logs to see if the container started properly, run:
+
+```shell
+$ docker logs liftbridge-main
+```
+
+See the [deployment guide](./deployment.md) for more information.
+
 ## Running a Liftbridge Cluster Locally
 
-The quickest way to get a Liftbridge cluster up and running on your machine is
-with either [Docker Compose](https://docs.docker.com/compose) or
+The quickest way to get a multi-node Liftbridge cluster up and running on your
+machine is with either [Docker Compose](https://docs.docker.com/compose) or
 [Kind](https://kind.sigs.k8s.io) (Kubernetes in Docker). Follow the
 [deployment guide](./deployment.md) for help running a cluster locally for
 development or testing.
