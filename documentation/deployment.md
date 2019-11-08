@@ -5,14 +5,58 @@ title: Deployment
 
 ## Development / Testing
 
-There are currently two options for running a Liftbridge cluster locally for
-development or testing purposes: [Docker
-Compose](https://docs.docker.com/compose) or [Kind](https://kind.sigs.k8s.io)
-(Kubernetes in Docker).
+In addition to running a native binary as described in the [quick start
+guide](./quick_start.md), there are three options for running a Liftbridge
+cluster locally for development and testing purposes:
 
-### Docker Compose based
+- [Docker](https://www.docker.com) - single-node Liftbridge cluster backed by a
+  single-node NATS cluster in one container
+- [Docker Compose](https://docs.docker.com/compose) - three-node Liftbridge
+  cluster backed by a single-node NATS cluster in separate containers
+- [Kind](https://kind.sigs.k8s.io) (Kubernetes in Docker) - three-node
+  Liftbridge cluster backed by a three-node NATS cluster running inside a local
+  Kubernetes cluster
 
-This will bring up three Liftbridge containers and one NATS node:
+### Docker
+
+There is a [container image](https://hub.docker.com/r/liftbridge/liftbridge-docker)
+available which runs an instance of Liftbridge and NATS inside a [single Docker
+container](https://github.com/liftbridge-io/liftbridge-docker) for development
+and testing purposes. In effect, this runs a single-node Liftbridge cluster on
+your machine.
+
+Use the following Docker commands to run the container:
+
+```shell
+$ docker pull liftbridge/liftbridge-docker
+$ docker run -d --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 liftbridge/liftbridge-docker
+```
+
+This will run the container which will start both the NATS and Liftbridge
+servers. To check the logs to see if the container started properly, run:
+
+```shell
+$ docker logs liftbridge-main
+```
+
+When running the container, you can optionally specify the mount point with:
+
+`--volume=/tmp/host/liftbridge:/tmp/liftbridge/liftbridge-default`
+
+This container exposes several ports described below.
+
+Liftbridge server exposes:
+- 9292 for clients connections
+
+NATS server exposes:
+- 4222 for clients connections
+- 8222 as an HTTP management port for information reporting and monitoring
+- 6222 is a routing port for clustering
+
+### Docker Compose
+
+This will bring up three Liftbridge containers and one NATS node using Docker
+Compose:
 
 ```shell
 $ make compose-up
@@ -24,7 +68,7 @@ To tear it down, run:
 $ make compose-down
 ```
 
-### kind-based
+### Kind
 
 This will deploy a three-node Liftbridge cluster backed by a three-node NATS
 cluster locally using Kind. For this you'll also need
