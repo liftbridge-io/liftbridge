@@ -27,6 +27,17 @@ function Help(props) {
                'and submit issues. Create pull requests to contribute bug fixes and new features.',
       title: 'GitHub',
     },
+    {
+      content: '<div class="slack-signup">' + 
+                 '<h2>Join the Slack Community</h2>' +
+                 '<p>Want to talk with project maintainers, contributors, and the community? Join the Liftbridge Slack channel by requesting an invitation below.</p>' +
+                 '<form action="//docs.google.com/forms/u/1/d/e/1FAIpQLSd_-F2yXdoL7zVpZwFxrZrNgHF2aqT5qLYNCNiv14t4NlxDdg/formResponse" method="post" target="_blank">' +
+                   '<input class="form-input" type="email" autocomplete="email" name="emailAddress" placeholder="Email Address">' +
+                   '<input class="form-submit" type="submit" value="Invite Me">' +
+                 '</form>'+
+                '</div>',
+      title: '',
+    },
   ];
 
   return (

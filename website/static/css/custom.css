@@ -47,3 +47,62 @@ a {
   margin-bottom: 20px !important;
   font-size: 20px;
 }
+
+.slack-signup {
+  text-align: center;
+  color: #666;
+  display: block;
+  max-width: 80%;
+  height: auto;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 30px;
+  margin-bottom: 30px;
+  padding-top: 10px;
+  padding-bottom: 20px;
+  padding-left: 30px;
+  padding-right: 20px;
+  box-shadow: 2px 2px 0px #edefed, -2px -2px 0px #edefed, 2px -2px 0px #edefed, -2px 2px 0px #edefed;
+}
+
+.slack-signup h2 {
+  margin-top: 10px;
+  margin-bottom: 20px;
+}
+
+.form-input,
+.form-submit {
+    display: inline-block;
+    padding: 10px 15px;
+    font-size: 20px;
+    border-radius: 0;
+    -webkit-appearance: none;
+}
+
+.form-input {
+    border: 1px solid lightgray;
+    margin-bottom: 10px;
+}
+
+.form-submit {
+    color: white;
+    background-color: #3B4763;
+    /**
+     * If the input field has a border,
+     * you need it here too to achieve equal heights.
+     */
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+
+.form-submit:hover {
+    background-color: #323859;
+}
+
+/**
+ * Firefox Fix
+ * Without that the submit button will be too high.
+ */
+.form-submit::-moz-focus-inner { 
+    border: 0;
+}
