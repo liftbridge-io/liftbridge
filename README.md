@@ -20,6 +20,11 @@ for more context and some of the inspiration behind it.
 - [FAQ](https://liftbridge.io/docs/faq.html)
 - [Website](https://liftbridge.io)
 
+## Community
+
+- [Slack](https://liftbridge.slack.com) - click [here](https://liftbridge.io/help.html) to request an invite
+- [Twitter](https://twitter.com/liftbridge_io)
+
 
 [License-Url]: https://www.apache.org/licenses/LICENSE-2.0
 [License-Image]: https://img.shields.io/badge/License-Apache2-blue.svg
