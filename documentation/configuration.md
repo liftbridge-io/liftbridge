@@ -101,9 +101,9 @@ the setting in the configuration file and the CLI flag if it exists.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
-| listen | | The server listen host/port. | string | 0:0:0:0:9292  | |
-| host | | The server host. | string | localhost | |
-| port | port | The server port. | int | 9292 | |
+| listen | | The server listen host/port. This is the host and port the server will bind to. If this is not specified but `host` and `port` are specified, these values will be used. If neither `listen` nor `host`/`port` are specified, the default listen address will be used. | string | 0:0:0:0:9292  | |
+| host | | The server host that is advertised to clients, i.e. the address clients will attempt to connect to based on metadata API responses. If not set, `listen` will be returned to clients. This value may differ from `listen` in situations where the external address differs from the internal address, e.g. when running in a container. If `listen` is not specified, the server will also bind to this host. | string | localhost | |
+| port | port | The server port that is advertised to clients. See `host` for more information on how this behaves. | int | 9292 | |
 | tls.key | tls-key | The private key file for server certificate. This must be set in combination with `tls.cert` to enable TLS. | string | |
 | tls.cert | tls-cert | The server certificate file. This must be set in combination with `tls.key` to enable TLS. | string | |
 | tls.client.auth | tls-client-auth | Enforce client-side authentication via certificate. | bool | false |
