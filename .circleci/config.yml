@@ -1,6 +1,20 @@
 version: 2.1
 jobs:
-  build-and-test:
+  build:
+    steps:
+      - checkout
+      - run:
+          name: Build binaries
+          command: |
+            make build
+            make build-dev
+      - persist_to_workspace:
+          - root: /root/project
+            paths:
+              - liftbridge
+              - liftbridge-dev
+              - docker/
+  test:
     docker:
       - image: caioaao/liftbridge-circleci:latest
         environment:
@@ -14,17 +28,6 @@ jobs:
             go test -v .
             go test -v -coverprofile=coverage.txt ./server/...
             goveralls -coverprofile=coverage.txt -service=circle-ci -repotoken=$COVERALLS_REPO_TOKEN
-      - run:
-          name: Build binary
-          command: |
-            mkdir /tmp/workspace
-            make build
-            mv liftbridge /tmp/workspace
-      - store_artifacts:
-          - root: /root/project
-            paths:
-              - liftbridge
-              - docker/
 
   build-and-push-standalone-dev-image:
     docker:

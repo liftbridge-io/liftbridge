@@ -89,6 +89,8 @@ cluster {
 ### Building
 
 Go to the root directory of the Liftbridge source code and run:
+
 ```
+$ make build-dev
 $ docker build -t liftbridge/liftbridge-standalone -f docker/dev-image/Dockerfile .
 ```

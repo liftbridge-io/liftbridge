@@ -26,4 +26,7 @@ kind-export:
 	@echo export KUBECONFIG="$$(kind get kubeconfig-path --name="$(KIND_CLUSTER_NAME)")"
 
 build:
-	@ CGO_ENABLED=0 go build -mod=readonly -o liftbridge
+	@ GO111MODULE=on CGO_ENABLED=0 go build -mod=readonly -o liftbridge
+
+build-dev:
+	@ GO111MODULE=on CGO_ENABLED=1 go build -mod=readonly -o liftbridge-dev
