@@ -1,28 +1,42 @@
-version: 2.0
+version: 2.1
 jobs:
-  build:
+  build-and-test:
     docker:
-      - image: circleci/golang:1.12
+      - image: caioaao/liftbridge-circleci:latest
         environment:
           GO111MODULE: "on"
-
+    working_directory: "~/project"
     steps:
       - checkout
-      - run: sudo apt-get update -yqq && sudo apt-get install -yqq bzr
-      - run: go get github.com/mattn/goveralls
-      - run: go test -v .
-      - run: go test -v -coverprofile=coverage.txt ./server/...
-      - run: goveralls -coverprofile=coverage.txt -service=circle-ci -repotoken=$COVERALLS_REPO_TOKEN
+      - run:
+          name: Test
+          command: |
+            go test -v .
+            go test -v -coverprofile=coverage.txt ./server/...
+            goveralls -coverprofile=coverage.txt -service=circle-ci -repotoken=$COVERALLS_REPO_TOKEN
+      - run:
+          name: Build binary
+          command: |
+            mkdir /tmp/workspace
+            make build
+            mv liftbridge /tmp/workspace
+      - store_artifacts:
+          - root: /root/project
+            paths:
+              - liftbridge
+              - docker/
 
   build-and-push-standalone-dev-image:
     docker:
       - image: circleci/buildpack-deps:stretch
+    working_directory: "~/project"
     branches:
       only:
         - master
     steps:
-      - checkout
       - setup_remote_docker
+      - attach_workspace:
+          at: /root/working_directory
       - run:
           name: set image version
           command: |
@@ -42,3 +56,17 @@ jobs:
           echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
           docker push "caioaao/standalone-dev:${VERSION}"
           docker push 'caioaao/standalone-dev:latest'
+
+workflows:
+  workflows:
+  version: 2
+  build-test-and-deploy:
+    jobs:
+      - build-and-test
+      - build-and-push-standalone-dev-image:
+          requires:
+            - build-and-test
+          filters:
+            branches:
+              only: master
+
