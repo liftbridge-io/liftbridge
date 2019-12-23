@@ -9,14 +9,12 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Build binaries
+          name: Build dev binary
           command: |
-            make build
             make build-dev
       - persist_to_workspace:
           root: /root/project
           paths:
-            - liftbridge
             - liftbridge-dev
             - docker/
   test:
