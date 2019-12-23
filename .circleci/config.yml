@@ -39,5 +39,6 @@ jobs:
         -run:
           name: publish image
           command: |
+            echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             docker push "caioaao/standalone-dev:${VERSION}"
             docker push 'caioaao/standalone-dev:latest'
