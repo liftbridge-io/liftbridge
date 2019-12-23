@@ -1,6 +1,9 @@
 version: 2.1
 jobs:
   build:
+    docker:
+      - image: circleci/buildpack-deps:stretch
+    working_directory: "~/project"
     steps:
       - checkout
       - run:
@@ -33,9 +36,6 @@ jobs:
     docker:
       - image: circleci/buildpack-deps:stretch
     working_directory: "~/project"
-    branches:
-      only:
-        - master
     steps:
       - setup_remote_docker
       - attach_workspace:
@@ -49,7 +49,7 @@ jobs:
                 echo "export VERSION='${CIRCLE_SHA1}'" >> $BASH_ENV
             fi
       - run:
-          name: build-image
+          name: build image
           command: |
             docker build -t "caioaao/standalone-dev:${VERSION}" -f docker/dev-standalone/Dockerfile .
             docker tag "caioaao/standalone-dev:${VERSION}" 'caioaao/standalone-dev:latest'
@@ -65,10 +65,13 @@ workflows:
   version: 2
   build-test-and-deploy:
     jobs:
-      - build-and-test
+      - build
+      - test:
+          requires:
+            - build
       - build-and-push-standalone-dev-image:
           requires:
-            - build-and-test
+            - build
           filters:
             branches:
               only: master
