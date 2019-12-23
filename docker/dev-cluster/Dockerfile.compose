@@ -19,4 +19,4 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -mod=readonly 
 FROM debian:stretch-slim
 COPY --from=build-base /workspace/liftbridge /liftbridge
 RUN apt-get update && apt-get install -y netcat
-COPY dev/wait-for.sh /wait-for.sh
+COPY docker/dev-cluster/wait-for.sh /wait-for.sh

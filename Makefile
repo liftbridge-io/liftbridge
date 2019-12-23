@@ -4,10 +4,10 @@ KIND_CLUSTER_NAME=kind
 KIND_KUBECONFIG:=~/.kube/kind-config-$(KIND_CLUSTER_NAME)
 
 compose-up:
-	@ cd dev/; docker-compose up --build
+	@ cd docker/dev-cluster/; docker-compose up --build
 
 compose-down:
-	@ cd dev/; docker-compose down --rmi local
+	@ cd docker/dev-cluster/; docker-compose down --rmi local
 
 push-k8s-image:
 	@ skaffold run -p deploy-k8s-image
@@ -26,4 +26,7 @@ kind-export:
 	@echo export KUBECONFIG="$$(kind get kubeconfig-path --name="$(KIND_CLUSTER_NAME)")"
 
 build:
-	@ CGO_ENABLED=0 go build -mod=readonly -o liftbridge
+	@ GO111MODULE=on CGO_ENABLED=0 go build -mod=readonly -o liftbridge
+
+build-dev:
+	@ GO111MODULE=on CGO_ENABLED=1 go build -mod=readonly -o liftbridge-dev

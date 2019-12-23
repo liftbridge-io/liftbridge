@@ -20,8 +20,8 @@ services:
       - overlay
   liftbridge1:
     build:
-      context: ../
-      dockerfile: dev/Dockerfile.compose
+      context: ../../
+      dockerfile: docker/dev-cluster/Dockerfile.compose
     ports:
       - "9292:9292"
     command: [
@@ -43,8 +43,8 @@ services:
       - ./data/data1:/data1
   liftbridge2:
     build:
-      context: ../
-      dockerfile: dev/Dockerfile.compose
+      context: ../../
+      dockerfile: docker/dev-cluster/Dockerfile.compose
     ports:
       - "9293:9293"
     command: [
@@ -65,8 +65,8 @@ services:
       - ./data/data2:/data2
   liftbridge3:
     build:
-      context: ../
-      dockerfile: dev/Dockerfile.compose
+      context: ../../
+      dockerfile: docker/dev-cluster/Dockerfile.compose
     ports:
       - "9294:9294"
     command: [
