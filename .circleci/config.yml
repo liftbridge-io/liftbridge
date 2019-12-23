@@ -2,7 +2,7 @@ version: 2.1
 jobs:
   build:
     docker:
-      - image: caioaao/liftbridge-circleci:latest
+      - image: liftbridge/liftbridge-circleci:0.1.0
         environment:
           GO111MODULE: "on"
     working_directory: "~/project"
@@ -20,7 +20,7 @@ jobs:
             - docker/
   test:
     docker:
-      - image: caioaao/liftbridge-circleci:latest
+      - image: liftbridge/liftbridge-circleci:latest
         environment:
           GO111MODULE: "on"
     working_directory: "~/project"
@@ -52,14 +52,14 @@ jobs:
       - run:
           name: build image
           command: |
-            docker build -t "caioaao/standalone-dev:${VERSION}" -f docker/dev-standalone/Dockerfile .
-            docker tag "caioaao/standalone-dev:${VERSION}" 'caioaao/standalone-dev:latest'
+            docker build -t "liftbridge/standalone-dev:${VERSION}" -f docker/dev-standalone/Dockerfile .
+            docker tag "liftbridge/standalone-dev:${VERSION}" 'liftbridge/standalone-dev:latest'
       - run:
           name: publish image
           command: |
             echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-            docker push "caioaao/standalone-dev:${VERSION}"
-            docker push 'caioaao/standalone-dev:latest'
+            docker push "liftbridge/standalone-dev:${VERSION}"
+            docker push 'liftbridge/standalone-dev:latest'
 
 workflows:
   version: 2
