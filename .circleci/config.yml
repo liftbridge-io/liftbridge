@@ -36,7 +36,7 @@ jobs:
             command: |
               docker build -t "caioaao/standalone-dev:${VERSION}" -f docker/dev-standalone/Dockerfile .
               docker tag "caioaao/standalone-dev:${VERSION}" 'caioaao/standalone-dev:latest'
-        -run:
+        - run:
           name: publish image
           command: |
             echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
