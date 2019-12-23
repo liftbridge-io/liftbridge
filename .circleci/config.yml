@@ -13,3 +13,31 @@ jobs:
       - run: go test -v .
       - run: go test -v -coverprofile=coverage.txt ./server/...
       - run: goveralls -coverprofile=coverage.txt -service=circle-ci -repotoken=$COVERALLS_REPO_TOKEN
+
+    build-and-push-standalone-dev-image:
+      docker:
+        - image: circleci/buildpack-deps:stretch
+      branches:
+        only:
+          - master
+      steps:
+        - checkout
+        - setup_remote_docker
+        - run:
+            name: set image version
+            command: |
+              if [ -n "$CIRCLE_TAG" ]; then
+                  echo "export VERSION='${CIRCLE_TAG}'" >> $BASH_ENV
+              else
+                  echo "export VERSION='${CIRCLE_SHA1}'" >> $BASH_ENV
+              fi
+        - run:
+            name: build-image
+            command: |
+              docker build -t "caioaao/standalone-dev:${VERSION}" -f docker/dev-standalone/Dockerfile .
+              docker tag "caioaao/standalone-dev:${VERSION}" 'caioaao/standalone-dev:latest'
+        -run:
+          name: publish image
+          command: |
+            docker push "caioaao/standalone-dev:${VERSION}"
+            docker push 'caioaao/standalone-dev:latest'
