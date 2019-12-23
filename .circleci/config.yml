@@ -19,7 +19,7 @@ jobs:
             - docker/
   test:
     docker:
-      - image: liftbridge/liftbridge-circleci:latest
+      - image: liftbridge/liftbridge-circleci:0.1.0
         environment:
           GO111MODULE: "on"
     working_directory: "~/project"
