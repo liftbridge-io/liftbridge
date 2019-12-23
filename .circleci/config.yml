@@ -11,6 +11,7 @@ jobs:
       - run:
           name: Build dev binary
           command: |
+            go get github.com/mattn/goveralls
             make build-dev
       - persist_to_workspace:
           root: /root/project
