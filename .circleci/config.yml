@@ -1,6 +1,6 @@
 version: 2.1
 jobs:
-  build:
+  build-dev:
     docker:
       - image: liftbridge/liftbridge-circleci:0.1.0
         environment:
@@ -11,7 +11,6 @@ jobs:
       - run:
           name: Build dev binary
           command: |
-            go get github.com/mattn/goveralls
             make build-dev
       - persist_to_workspace:
           root: .
@@ -27,6 +26,9 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Install dependencies
+          command: |
+            go get github.com/mattn/goveralls
           name: Test
           command: |
             go test -v .
@@ -65,13 +67,11 @@ workflows:
   version: 2
   build-test-and-deploy:
     jobs:
-      - build
-      - test:
-          requires:
-            - build
+      - build-dev
+      - test
       - build-and-push-standalone-dev-image:
           requires:
-            - build
+            - build-dev
           filters:
             branches:
               only: master
