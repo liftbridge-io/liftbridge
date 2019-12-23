@@ -63,7 +63,6 @@ jobs:
             docker push 'caioaao/standalone-dev:latest'
 
 workflows:
-  workflows:
   version: 2
   build-test-and-deploy:
     jobs:
