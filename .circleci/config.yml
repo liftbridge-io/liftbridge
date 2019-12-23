@@ -14,7 +14,7 @@ jobs:
             go get github.com/mattn/goveralls
             make build-dev
       - persist_to_workspace:
-          root: /root/project
+          root: .
           paths:
             - liftbridge-dev
             - docker/
@@ -40,7 +40,7 @@ jobs:
     steps:
       - setup_remote_docker
       - attach_workspace:
-          at: /root/working_directory
+          at: ~/project
       - run:
           name: set image version
           command: |
