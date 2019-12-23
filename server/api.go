@@ -38,6 +38,16 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	a.logger.Debugf("api: CreateStream [subject=%s, name=%s, partitions=%d, replicationFactor=%d]",
 		req.Subject, req.Name, req.Partitions, req.ReplicationFactor)
 
+	if req.Name == "" {
+		a.logger.Errorf("api: Failed to create stream: name cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "Name cannot be empty")
+	}
+	// TODO: Check if valid NATS subject?
+	if req.Subject == "" {
+		a.logger.Errorf("api: Failed to create stream: subject cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "Subject cannot be empty")
+	}
+
 	var err error
 	for i := int32(0); i < req.Partitions; i++ {
 		if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
