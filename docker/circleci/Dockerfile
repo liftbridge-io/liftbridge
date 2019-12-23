@@ -1,4 +1,4 @@
-FROM circleci/golang:1.12
+FROM circleci/golang:1.13
 
 RUN sudo apt-get update -yqq && sudo apt-get install -yqq bzr
 
