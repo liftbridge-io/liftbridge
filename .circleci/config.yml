@@ -29,6 +29,7 @@ jobs:
           name: Install dependencies
           command: |
             go get github.com/mattn/goveralls
+      - run:
           name: Test
           command: |
             go test -v .
