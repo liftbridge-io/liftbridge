@@ -28,5 +28,6 @@ kind-export:
 build:
 	@ GO111MODULE=on CGO_ENABLED=0 go build -mod=readonly -o liftbridge
 
-build-dev:
-	@ GO111MODULE=on CGO_ENABLED=1 go build -mod=readonly -o liftbridge-dev
+build-dev: liftbridge-dev
+liftbridge-dev:
+	CGO_ENABLED=1 go build -tags netgo -ldflags '-extldflags "-static"' -mod=readonly -o liftbridge-dev
