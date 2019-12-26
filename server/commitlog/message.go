@@ -75,6 +75,9 @@ func (m Message) valueOffsets() (start, end, size int32) {
 	_, keyEnd, _ := m.keyOffsets()
 	start = keyEnd
 	size = int32(proto.Encoding.Uint32(m[start:]))
-	end = start + 4 + size
+	end = start + 4
+	if size != -1 {
+		end += size
+	}
 	return
 }

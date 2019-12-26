@@ -22,6 +22,7 @@ var (
 		{Value: []byte("two"), Timestamp: 2, LeaderEpoch: 42, Headers: headers},
 		{Value: []byte("three"), Timestamp: 3, LeaderEpoch: 42, Headers: headers},
 		{Value: []byte("four"), Timestamp: 4, LeaderEpoch: 42, Headers: headers},
+		{Value: nil, Timestamp: 5, LeaderEpoch: 42, Headers: headers},
 	}
 )
 
@@ -66,7 +67,7 @@ func TestAppendMessageSet(t *testing.T) {
 
 	offsets, err := l.AppendMessageSet(set)
 	require.NoError(t, err)
-	require.Equal(t, []int64{0, 1, 2, 3}, offsets)
+	require.Equal(t, []int64{0, 1, 2, 3, 4}, offsets)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r, err := l.NewReader(0, true)
