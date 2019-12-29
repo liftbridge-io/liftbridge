@@ -28,7 +28,7 @@ queue, with Liftbridge, consumers read back the log. In this sense, the design
 is very similar to [Apache Kafka](http://kafka.apache.org/).
 
 Liftbridge was designed to bridge the gap between sophisticated log-based
-messaging systems like Apacha Kafka and Apache Pulsar and simpler, cloud-native
+messaging systems like Apache Kafka and Apache Pulsar and simpler, cloud-native
 systems. There is no ZooKeeper or other unwieldy dependencies, no JVM, no
 complicated API, and client libraries are just [gRPC](https://grpc.io/). More
 importantly, Liftbridge aims to extend NATS with a durable, at-least-once
