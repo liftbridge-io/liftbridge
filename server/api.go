@@ -143,17 +143,24 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // is returned.
 func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	*client.PublishResponse, error) {
-	if req.Message == nil {
-		a.logger.Errorf("api: Failed to publish message: message is nil")
-		return nil, status.Error(codes.InvalidArgument, "Message is nil")
-	}
-	a.logger.Debugf("api: Publish [subject=%s]", req.Message.Subject)
+	a.logger.Debugf("api: Publish [subject=%s]", req.Subject)
 
-	if req.Message.AckInbox == "" {
-		req.Message.AckInbox = nuid.Next()
+	if req.AckInbox == "" {
+		req.AckInbox = nuid.Next()
 	}
 
-	msg, err := req.Message.Marshal()
+	msg, err := (&client.Message{
+		Key:           req.Key,
+		Value:         req.Value,
+		Stream:        req.Stream,
+		Partition:     req.Partition,
+		Subject:       req.Subject,
+		ReplySubject:  req.ReplySubject,
+		Headers:       req.Headers,
+		AckInbox:      req.AckInbox,
+		CorrelationId: req.CorrelationId,
+		AckPolicy:     req.AckPolicy,
+	}).Marshal()
 	if err != nil {
 		a.logger.Errorf("api: Failed to publish message: %v", err.Error())
 		return nil, err
@@ -169,8 +176,8 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		resp           = new(client.PublishResponse)
 		_, hasDeadline = ctx.Deadline()
 	)
-	if req.Message.AckPolicy == client.AckPolicy_NONE || !hasDeadline {
-		if err := a.ncPublishes.Publish(req.Message.Subject, buf); err != nil {
+	if req.AckPolicy == client.AckPolicy_NONE || !hasDeadline {
+		if err := a.ncPublishes.Publish(req.Subject, buf); err != nil {
 			a.logger.Errorf("api: Failed to publish message: %v", err)
 			return nil, err
 		}
@@ -178,7 +185,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	}
 
 	// Otherwise we need to publish and wait for the ack.
-	resp.Ack, err = a.publishSync(ctx, req.Message.Subject, req.Message.AckInbox, buf)
+	resp.Ack, err = a.publishSync(ctx, req.Subject, req.AckInbox, buf)
 	return resp, err
 }
 
@@ -257,13 +264,13 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			headers := m.Headers()
 			var (
 				msg = &client.Message{
-					Offset:    offset,
-					Key:       m.Key(),
-					Value:     m.Value(),
-					Timestamp: timestamp,
-					Headers:   headers,
-					Subject:   string(headers["subject"]),
-					Reply:     string(headers["reply"]),
+					Offset:       offset,
+					Key:          m.Key(),
+					Value:        m.Value(),
+					Timestamp:    timestamp,
+					Headers:      headers,
+					Subject:      string(headers["subject"]),
+					ReplySubject: string(headers["reply"]),
 				}
 			)
 			select {
