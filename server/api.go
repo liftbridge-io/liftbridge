@@ -143,7 +143,11 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // is returned.
 func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	*client.PublishResponse, error) {
-	a.logger.Debugf("api: Publish [subject=%s]", req.Subject)
+	subject, err := a.getPublishSubject(req)
+	if err != nil {
+		return nil, err
+	}
+	a.logger.Debugf("api: Publish [subject=%s]", subject)
 
 	if req.AckInbox == "" {
 		req.AckInbox = nuid.Next()
@@ -153,8 +157,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		Key:           req.Key,
 		Value:         req.Value,
 		Stream:        req.Stream,
-		Partition:     req.Partition,
-		Subject:       req.Subject,
+		Subject:       subject,
 		ReplySubject:  req.ReplySubject,
 		Headers:       req.Headers,
 		AckInbox:      req.AckInbox,
@@ -177,7 +180,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		_, hasDeadline = ctx.Deadline()
 	)
 	if req.AckPolicy == client.AckPolicy_NONE || !hasDeadline {
-		if err := a.ncPublishes.Publish(req.Subject, buf); err != nil {
+		if err := a.ncPublishes.Publish(subject, buf); err != nil {
 			a.logger.Errorf("api: Failed to publish message: %v", err)
 			return nil, err
 		}
@@ -185,8 +188,26 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	}
 
 	// Otherwise we need to publish and wait for the ack.
-	resp.Ack, err = a.publishSync(ctx, req.Subject, req.AckInbox, buf)
+	resp.Ack, err = a.publishSync(ctx, subject, req.AckInbox, buf)
 	return resp, err
+}
+
+func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, error) {
+	if req.Subject != "" {
+		return req.Subject, nil
+	}
+	if req.Stream == "" {
+		return "", status.Error(codes.InvalidArgument, "No stream or subject provided")
+	}
+	stream := a.metadata.GetStream(req.Stream)
+	if stream == nil {
+		return "", status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
+	}
+	subject := stream.subject
+	if req.Partition > 0 {
+		subject = fmt.Sprintf("%s.%d", subject, req.Partition)
+	}
+	return subject, nil
 }
 
 func (a *apiServer) publishSync(ctx context.Context, subject,
@@ -264,6 +285,8 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			headers := m.Headers()
 			var (
 				msg = &client.Message{
+					Stream:       partition.Stream,
+					Partition:    partition.Id,
 					Offset:       offset,
 					Key:          m.Key(),
 					Value:        m.Value(),
