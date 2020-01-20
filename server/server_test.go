@@ -514,7 +514,7 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -531,7 +531,7 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish one more message.
-	_, err = client.Publish(context.Background(), subject, []byte("test"))
+	_, err = client.Publish(context.Background(), name, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -582,7 +582,7 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish message.
-	_, err = client.Publish(context.Background(), subject, []byte("test"))
+	_, err = client.Publish(context.Background(), name, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the message.
@@ -629,7 +629,7 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -690,7 +690,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -751,7 +751,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -812,7 +812,7 @@ func TestStreamRetentionAge(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -875,7 +875,7 @@ func TestSubscribeEarliest(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -932,7 +932,7 @@ func TestSubscribeLatest(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -986,7 +986,7 @@ func TestSubscribeNewOnly(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -1003,7 +1003,7 @@ func TestSubscribeNewOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish one more message.
-	_, err = client.Publish(context.Background(), subject, []byte("test"))
+	_, err = client.Publish(context.Background(), name, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -1056,7 +1056,7 @@ func TestSubscribeStartTime(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 

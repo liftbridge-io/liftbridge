@@ -129,7 +129,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		_, err := client.Publish(context.Background(), subject, expected[i].Value,
+		_, err := client.Publish(context.Background(), name, expected[i].Value,
 			lift.Key(expected[i].Key), lift.AckPolicyAll())
 		require.NoError(t, err)
 	}
@@ -262,7 +262,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err := client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
+		_, err := client.Publish(ctx, name, []byte("hello"), lift.AckPolicyAll())
 		gotAck <- err
 	}()
 
@@ -337,8 +337,7 @@ func TestAckPolicyLeader(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cid := "cid"
-	ack, err := client.Publish(ctx, subject, []byte("hello"),
-		lift.CorrelationID(cid))
+	ack, err := client.Publish(ctx, name, []byte("hello"), lift.CorrelationID(cid))
 	require.NoError(t, err)
 	require.NotNil(t, ack)
 	require.Equal(t, cid, ack.CorrelationId)
@@ -384,7 +383,7 @@ func TestCommitOnRestart(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
+		_, err = client.Publish(ctx, name, []byte("hello"), lift.AckPolicyAll())
 		require.NoError(t, err)
 	}
 
@@ -404,7 +403,7 @@ func TestCommitOnRestart(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -509,11 +508,11 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	// Publish two messages.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = client.Publish(ctx, subject, []byte("hello"), lift.AckPolicyAll())
+	_, err = client.Publish(ctx, name, []byte("hello"), lift.AckPolicyAll())
 	require.NoError(t, err)
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = client.Publish(ctx, subject, []byte("world"), lift.AckPolicyAll())
+	_, err = client.Publish(ctx, name, []byte("world"), lift.AckPolicyAll())
 	require.NoError(t, err)
 
 	// Find stream followers.
@@ -643,11 +642,11 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	// Publish two messages.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = client.Publish(ctx, subject, []byte("hello"))
+	_, err = client.Publish(ctx, name, []byte("hello"))
 	require.NoError(t, err)
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = client.Publish(ctx, subject, []byte("world"))
+	_, err = client.Publish(ctx, name, []byte("world"))
 	require.NoError(t, err)
 
 	// Find stream followers.
@@ -739,12 +738,12 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	// Publish new messages.
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = client.Publish(ctx, subject, []byte("goodnight"))
+	_, err = client.Publish(ctx, name, []byte("goodnight"))
 	require.NoError(t, err)
 
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = client.Publish(ctx, subject, []byte("moon"))
+	_, err = client.Publish(ctx, name, []byte("moon"))
 	require.NoError(t, err)
 
 	// Restart old leader.
@@ -851,7 +850,7 @@ func TestReplicatorNotifyNewData(t *testing.T) {
 
 	// Publish a message. This will cause a notification to be sent to the
 	// follower.
-	_, err = client.Publish(context.Background(), subject, []byte("hello"))
+	_, err = client.Publish(context.Background(), name, []byte("hello"))
 	require.NoError(t, err)
 
 	select {

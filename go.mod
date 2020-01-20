@@ -9,7 +9,7 @@ require (
 	github.com/hako/durafmt v0.0.0-20191009132224-3f39dc1ed9f4
 	github.com/hashicorp/raft v1.1.1
 	github.com/hashicorp/raft-boltdb v0.0.0-20191021154308-4207f1bf0617
-	github.com/liftbridge-io/go-liftbridge v0.0.0-20191106180712-4f7e4b9d8611
+	github.com/liftbridge-io/go-liftbridge v0.0.1-alpha.0.20200120163431-bfb99c041e6f
 	github.com/liftbridge-io/liftbridge-api v0.0.0-20200118015119-3db283f59b10
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20190703144237-760cefbfc85e
 	github.com/natefinch/atomic v0.0.0-20150920032501-a62ce929ffcc
@@ -21,8 +21,5 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/stretchr/testify v1.4.0
 	github.com/urfave/cli v1.22.1
-	golang.org/x/net v0.0.0-20200114155413-6afb5195e5aa // indirect
-	golang.org/x/sys v0.0.0-20200117145432-59e60aa80a0c // indirect
-	google.golang.org/genproto v0.0.0-20200117163144-32f20d992d24 // indirect
 	google.golang.org/grpc v1.26.0
 )

@@ -318,7 +318,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		_, err = client.Publish(context.Background(), subject, expected[i].Value,
+		_, err = client.Publish(context.Background(), name, expected[i].Value,
 			lift.Key(expected[i].Key))
 		require.NoError(t, err)
 	}
@@ -339,7 +339,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 		})
 	}
 	for i := 0; i < 5; i++ {
-		_, err = client.Publish(context.Background(), subject, expected[i+num].Value,
+		_, err = client.Publish(context.Background(), name, expected[i+num].Value,
 			lift.Key(expected[i+num].Key))
 		require.NoError(t, err)
 	}
