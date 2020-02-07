@@ -11,13 +11,13 @@ inaccurate, feel free to make a PR fixing it.
 
 Liftbridge relies on gRPC and Protocol Buffers (protobufs) for its API. These
 definitions are stored in the
-[liftbridge-grpc](https://github.com/liftbridge-io/liftbridge-api) repository.
+[liftbridge-api](https://github.com/liftbridge-io/liftbridge-api) repository.
 Refer to the [gRPC documentation](https://grpc.io/docs/) for guidance on
 generating the gRPC code from the protobuf definitions for your particular
-programming language. The liftbridge-grpc repository also contains generated
+programming language. The liftbridge-api repository also contains generated
 code for some languages which you can use in your client library (for example,
 the official Go client [relies on](https://github.com/liftbridge-io/go-liftbridge/blob/6fbf530bb220797fd91174d9f858fad3114dbc48/go.mod#L8)
-the generated Go code in liftbridge-grpc). If there is no generated code for
+the generated Go code in liftbridge-api). If there is no generated code for
 your language, feel free to make a PR adding it. Otherwise, you can simply
 vendor the generated code alongside your client library.
 
@@ -34,7 +34,9 @@ A high-level client has several operations:
   related NATS subjects if partitioned)
 - [`Subscribe`](#subscribe): creates an ephemeral subscription for a given stream that
   messages are received on
-- [`Publish`](#publish): publishes a new message to a NATS subject
+- [`Publish`](#publish): publishes a new message to a Liftbridge stream
+- [`PublishToSubject`](#publishtosubject): publishes a new message to a NATS
+  subject
 - [`FetchMetadata`](#fetchmetadata): retrieves metadata from the cluster
 - [`Close`](#close): closes any client connections to Liftbridge
 
@@ -57,18 +59,42 @@ type Client interface {
 	// Subscribe creates an ephemeral subscription for the given stream. It
 	// begins receiving messages starting at the configured position and waits
 	// for new messages when it reaches the end of the stream. The default
-	// start position is the end of the stream. It returns an ErrNoSuchStream
-	// if the given stream does not exist. Use a cancelable Context to close a
-	// subscription.
+	// start position is the end of the stream. It returns an
+	// ErrNoSuchPartition if the given stream or partition does not exist. Use
+	// a cancelable Context to close a subscription.
 	Subscribe(ctx context.Context, stream string, handler Handler, opts ...SubscriptionOption) error
 
-	// Publish publishes a new message to the NATS subject. If the AckPolicy is
-	// not NONE and a deadline is provided, this will synchronously block until
-	// the first ack is received. If the ack is not received in time, a
-	// DeadlineExceeded status code is returned. If an AckPolicy and deadline
-	// are configured, this returns the first Ack on success, otherwise it
-	// returns nil.
-	Publish(ctx context.Context, subject string, value []byte, opts ...MessageOption) (*proto.Ack, error)
+	// Publish publishes a new message to the Liftbridge stream. The partition
+	// that gets published to is determined by the provided partition or
+	// Partitioner passed through MessageOptions, if any. If a partition or
+	// Partitioner is not provided, this defaults to the base partition. This
+	// partition determines the underlying NATS subject that gets published to.
+	// To publish directly to a specific NATS subject, use the low-level
+	// PublishToSubject API.
+	//
+	// If the AckPolicy is not NONE and a deadline is provided, this will
+	// synchronously block until the ack is received. If the ack is not
+	// received in time, a DeadlineExceeded status code is returned. If an
+	// AckPolicy and deadline are configured, this returns the Ack on success,
+	// otherwise it returns nil.
+	Publish(ctx context.Context, stream string, value []byte, opts ...MessageOption) (Ack, error)
+
+	// PublishToSubject publishes a new message to the NATS subject. Note that
+	// because this publishes directly to a subject, there may be multiple (or
+	// no) streams that receive the message. As a result, MessageOptions
+	// related to partitioning will be ignored. To publish at the
+	// stream/partition level, use the high-level Publish API.
+	//
+	// If the AckPolicy is not NONE and a deadline is provided, this will
+	// synchronously block until the first ack is received. If an ack is not
+	// received in time, a DeadlineExceeded status code is returned. If an
+	// AckPolicy and deadline are configured, this returns the first Ack on
+	// success, otherwise it returns nil.
+	PublishToSubject(ctx context.Context, subject string, value []byte, opts ...MessageOption) (Ack, error)
+
+	// FetchMetadata returns cluster metadata including broker and stream
+	// information.
+	FetchMetadata(ctx context.Context) (*Metadata, error)
 }
 ```
 
@@ -151,7 +177,7 @@ below. In other languages, this might be a stream mechanism instead of a
 callback.
 
 ```go
-type Handler func(msg *proto.Message, err error)
+type Handler func(msg Message, err error)
 ```
 
 The subscription options are the equivalent of optional named arguments used to
@@ -177,18 +203,25 @@ there will be functionality for consuming all partitions.
 ### Publish
 
 ```go
-// Publish publishes a new message to the NATS subject. If the AckPolicy is
-// not NONE and a deadline is provided, this will synchronously block until
-// the first ack is received. If the ack is not received in time, a
-// DeadlineExceeded status code is returned. If an AckPolicy and deadline
-// are configured, this returns the first Ack on success, otherwise it
-// returns nil.
-Publish(ctx context.Context, subject string, value []byte, opts ...MessageOption) (*proto.Ack, error)
+// Publish publishes a new message to the Liftbridge stream. The partition
+// that gets published to is determined by the provided partition or
+// Partitioner passed through MessageOptions, if any. If a partition or
+// Partitioner is not provided, this defaults to the base partition. This
+// partition determines the underlying NATS subject that gets published to.
+// To publish directly to a specific NATS subject, use the low-level
+// PublishToSubject API.
+//
+// If the AckPolicy is not NONE and a deadline is provided, this will
+// synchronously block until the ack is received. If the ack is not
+// received in time, a DeadlineExceeded status code is returned. If an
+// AckPolicy and deadline are configured, this returns the Ack on success,
+// otherwise it returns nil.
+Publish(ctx context.Context, stream string, value []byte, opts ...MessageOption) (Ack, error)
 ```
 
-`Publish` sends a message to a NATS subject (and, in turn, any streams that
-match the subject). Since Liftbridge streams attach to normal NATS subjects,
-it's also possible to [publish messages directly to NATS](https://github.com/liftbridge-io/go-liftbridge#publishing-directly-with-nats)
+`Publish` sends a message to a Liftbridge stream. Since Liftbridge streams
+attach to normal NATS subjects, it's also possible to [publish messages
+directly to NATS](https://github.com/liftbridge-io/go-liftbridge#publishing-directly-with-nats)
 using a [NATS client](https://nats.io/download/). Liftbridge works fine with
 plain, opaque NATS messages, but it also extends NATS with a [protobuf-based
 envelope protocol](https://github.com/liftbridge-io/liftbridge-api). This
@@ -206,16 +239,17 @@ delivery. The default ack policy is `LEADER`, meaning the ack is sent once the
 partition leader has stored the message.
 
 `Publish` can send messages to particular stream partitions using a
-`Partitioner`. In effect, this publishes to a NATS subject derived from the one
-passed into `Publish` based on the partition, e.g. `foo`, `foo.1`, `foo.2`,
-etc. By default, it publishes to the base subject.
+`Partitioner` or an explicitly provided partition. By default, it publishes to
+the base partition. The partition determines the underlying NATS subject that
+gets published to. To publish directly to a specific NATS subject, use the
+low-level [`PublishToSubject`](#publishtosubject) API.
 
 In the Go client example above, `Publish` takes four arguments:
 
 | Argument | Type | Description | Required |
 |:----|:----|:----|:----|
 | context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. With `Publish`, the timeout is particularly important as it relates to acking. If an ack policy is set (see below) and a timeout is provided, `Publish` will block until the first ack is received. If the ack is not received in time, a timeout error is returned. If the ack policy is `NONE` or a timeout is not set, `Publish` returns as soon as the message has been published. | language-dependent |
-| subject | string | The NATS subject to publish to. | yes |
+| stream | string | The stream to publish to. | yes |
 | value | bytes | The message value to publish consisting of opaque bytes. | yes |
 | options | message options | Zero or more message options. These are used to pass in optional settings for the message. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis) for implementing extensible APIs. In other languages, this might be replaced with a builder pattern or optional named arguments. These `Publish` options are described below. | language-dependent |
 
@@ -245,19 +279,86 @@ described later. The Go interface definition is shown below.
 // Partitioner is used to map a message to a stream partition.
 type Partitioner interface {
 	// Partition computes the partition number for a given message.
-	Partition(msg *proto.Message, metadata *Metadata) int32
+	Partition(stream string, key, value []byte, metadata *Metadata) int32
 }
 ```
 
 [Implementation Guidance](#publish-implementation)
 
+### PublishToSubject
+
+```go
+// PublishToSubject publishes a new message to the NATS subject. Note that
+// because this publishes directly to a subject, there may be multiple (or
+// no) streams that receive the message. As a result, MessageOptions
+// related to partitioning will be ignored. To publish at the
+// stream/partition level, use the high-level Publish API.
+//
+// If the AckPolicy is not NONE and a deadline is provided, this will
+// synchronously block until the first ack is received. If an ack is not
+// received in time, a DeadlineExceeded status code is returned. If an
+// AckPolicy and deadline are configured, this returns the first Ack on
+// success, otherwise it returns nil.
+PublishToSubject(ctx context.Context, subject string, value []byte, opts ...MessageOption) (Ack, error)
+```
+
+`PublishToSubject` sends a message to a NATS subject (and, in turn, any streams
+that match the subject). Since Liftbridge streams attach to normal NATS
+subjects, it's also possible to [publish messages directly to
+NATS](https://github.com/liftbridge-io/go-liftbridge#publishing-directly-with-nats)
+using a [NATS client](https://nats.io/download/). Liftbridge works fine with
+plain, opaque NATS messages, but it also extends NATS with a [protobuf-based
+envelope protocol](https://github.com/liftbridge-io/liftbridge-api). This
+allows publishers to add metadata to messages like a key, headers, and acking
+information. Liftbridge client libraries may provide helper methods to make it
+easy to create envelopes and deal with acks yourself using a NATS client
+directly ([described below](#low-level-publish-helpers)). However, the
+`PublishToSubject` API is intended to abstract this work away from you.
+
+`PublishToSubject` is a synchronous operation, meaning when it returns, the
+message has been successfully published. `PublishToSubject` can also be
+configured to block until a message acknowledgement (ack) is returned from the
+cluster. This is useful for ensuring a message has been stored and replicated,
+guaranteeing at-least-once delivery. The default ack policy is `LEADER`,
+meaning the ack is sent once the partition leader has stored the message.
+`PublishToSubject` only waits on the first ack received. This is important to
+be aware of since there may be multiple streams attached to a subject.
+
+In the Go client example above, `PublishToSubject` takes four arguments:
+
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. With `Publish`, the timeout is particularly important as it relates to acking. If an ack policy is set (see below) and a timeout is provided, `Publish` will block until the first ack is received. If the ack is not received in time, a timeout error is returned. If the ack policy is `NONE` or a timeout is not set, `Publish` returns as soon as the message has been published. | language-dependent |
+| subject | string | The NATS subject to publish to. | yes |
+| value | bytes | The message value to publish consisting of opaque bytes. | yes |
+| options | message options | Zero or more message options. These are used to pass in optional settings for the message. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis) for implementing extensible APIs. In other languages, this might be replaced with a builder pattern or optional named arguments. These `Publish` options are described below. | language-dependent |
+
+The publish message options are the equivalent of optional named arguments used
+to configure a message. Unlike `Publish`, `PublishToSubject` does not support
+message options relating to partitioning since it operates at a lower level.
+Supported options are:
+
+| Option | Type | Description | Default |
+|:----|:----|:----|:----|
+| AckInbox | string | Sets the NATS subject Liftbridge should publish the message ack to. If this is not set, the server will generate a random inbox. This generally does not need to be configured when using the `PublishToSubject` API since the server will handle acks for you. Instead, it's used if, for some reason, you wish to handle the ack yourself. | |
+| CorrelationID | string | Sets the identifier used to correlate an ack with the published message. If it's not set, the ack will not have a correlation ID. This generally does not need to be configured when using the `PublishToSubject` API since the server will handle acks for you. Instead, it's used if, for some reason, you wish to handle the ack yourself. | |
+| AckPolicyAll | bool | Sets the ack policy of the message to `ALL`. This means the ack will be sent when the message has been stored by all partition replicas. | false |
+| AckPolicyLeader | bool | Sets the ack policy of the message to `LEADER`. This means the ack will be sent when the partition leader has stored the message. This is the default ack policy if not otherwise set. | true |
+| AckPolicyNone | bool | Sets the ack policy of the message to `NONE`. This means no ack will be sent. | false |
+| Header | string and bytes | String and opaque bytes representing a key-value pair to set as a header on the message. This may overwrite previously set headers. Client libraries may choose to forgo this option in favor of the bulk `Headers` option below. This is a convenience for setting a single header. | |
+| Headers | map of strings to bytes | Map of strings to opaque bytes representing key-value pairs to set as headers on the message. This may overwrite previously set headers. | |
+| Key | bytes | Opaque bytes used for the message key. If Liftbridge has stream compaction enabled, the stream will retain only the last message for each key (if not set, the message is always retained). | |
+
+[Implementation Guidance](#publishtosubject-implementation)
+
 #### Low-Level Publish Helpers
 
 Because Liftbridge is simply a consumer of NATS, it's also possible to publish
-messages directly to NATS rather than using Liftbridge's `Publish` API. This
-can be useful for extending the capabilities of NATS in existing systems. This
-means we can publish NATS messages as normal, as shown in the example Go code
-below, and Liftbridge streams will be able to receive them.
+messages directly to NATS rather than using Liftbridge's `Publish` and
+`PublishToSubject` APIs. This can be useful for extending the capabilities of
+NATS in existing systems. This means we can publish NATS messages as normal, as
+shown in the example Go code below, and Liftbridge streams will be able to
+receive them.
 
 ```go
 package main
@@ -302,7 +403,7 @@ Note that the envelope-cookie protocol does not need to be implemented in the
 ```go
 // UnmarshalMessage deserializes a message from the given byte slice. It
 // returns a bool indicating if the given data was actually a Message or not.
-func UnmarshalMessage(data []byte) (*proto.Message, bool)
+func UnmarshalMessage(data []byte) (Message, bool)
 ```
 
 `UnmarshalMessage` is a helper method which effectively does the reverse of
@@ -314,7 +415,7 @@ object or indication the data is not actually a message.
 ```go
 // UnmarshalAck deserializes an Ack from the given byte slice. It returns an
 // error if the given data is not actually an Ack.
-func UnmarshalAck(data []byte) (*proto.Ack, error)
+func UnmarshalAck(data []byte) (Ack, error)
 ```
 
 `UnmarshalAck` is used to deserialize a message ack received on a NATS
@@ -333,7 +434,7 @@ nc, _ := nats.Connect(nats.DefaultURL)
 nc.Subscribe("my.ack.inbox", func(msg *nats.Msg) {
     ack, _ := lift.UnmarshalAck(msg.Data)
     // CorrelationId can be used to correlate an ack with a particular message.
-    if ack.CorrelationId == "123" {
+    if ack.CorrelationID() == "123" {
         println("message acked!")
     }
 })
@@ -422,6 +523,7 @@ idempotency reasons. This resilient RPC method can be used for RPCs such as:
 
 - `CreateStream`
 - `Publish`
+- `PublishToSubject`
 - `FetchMetadata`
 
 The Go implementation of this, called `doResilientRPC`, is shown below along
@@ -632,75 +734,82 @@ of behavior to point out with the dispatching component:
 `Publish` involves constructing a `Message` protobuf, determining the partition
 to publish to, and then making the publish request to the server using the
 [resilient RPC method](#rpcs) described above. The Go implementation of this is
-shown below, including a helper function `partition` which determines the
-partition ID to publish the message to.
+shown below, including two helper functions, `partition`, which determines the
+partition ID to publish the message to, and `publish`, which performs the
+actual RPC.
 
 ```go
-// Publish publishes a new message to the NATS subject. If the AckPolicy is not
-// NONE and a deadline is provided, this will synchronously block until the
-// first ack is received. If the ack is not received in time, a
-// DeadlineExceeded status code is returned. If an AckPolicy and deadline are
-// configured, this returns the first Ack on success, otherwise it returns nil.
-func (c *client) Publish(ctx context.Context, subject string, value []byte,
-	options ...MessageOption) (*proto.Ack, error) {
+// Publish publishes a new message to the Liftbridge stream. The partition that
+// gets published to is determined by the provided partition or Partitioner
+// passed through MessageOptions, if any. If a partition or Partitioner is not
+// provided, this defaults to the base partition. This partition determines the
+// underlying NATS subject that gets published to.  To publish directly to a
+// spedcific NATS subject, use the low-level PublishToSubject API.
+//
+// If the AckPolicy is not NONE and a deadline is provided, this will
+// synchronously block until the ack is received. If the ack is not received in
+// time, a DeadlineExceeded status code is returned. If an AckPolicy and
+// deadline are configured, this returns the Ack on success, otherwise it
+// returns nil.
+func (c *client) Publish(ctx context.Context, stream string, value []byte,
+	options ...MessageOption) (Ack, error) {
 
 	opts := &MessageOptions{Headers: make(map[string][]byte)}
 	for _, opt := range options {
 		opt(opts)
 	}
 
-	msg := &proto.Message{
-		Subject:       subject,
-		Key:           opts.Key,
-		Value:         value,
-		AckInbox:      opts.AckInbox,
-		CorrelationId: opts.CorrelationID,
-		AckPolicy:     opts.AckPolicy,
-	}
-
 	// Determine which partition to publish to.
-	partition, err := c.partition(ctx, msg, opts)
+	partition, err := c.partition(ctx, stream, opts.Key, value, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	// Publish to the appropriate partition subject.
-	if partition > 0 {
-		msg.Subject = fmt.Sprintf("%s.%d", msg.Subject, partition)
+	req := &proto.PublishRequest{
+		Stream:        stream,
+		Partition:     partition,
+		Key:           opts.Key,
+		Value:         value,
+		AckInbox:      opts.AckInbox,
+		CorrelationId: opts.CorrelationID,
+		AckPolicy:     opts.AckPolicy.toProto(),
 	}
 
-	var (
-		req = &proto.PublishRequest{Message: msg}
-		ack *proto.Ack
-	)
-	err = c.doResilientRPC(func(client proto.APIClient) error {
-		resp, err := client.Publish(ctx, req)
-		if err == nil {
-			ack = resp.Ack
-		}
-		return err
-	})
-	return ack, err
+	return c.publish(ctx, req)
 }
 
 // partition determines the partition ID to publish the message to. If a
 // partition was explicitly provided, it will be returned. If a Partitioner was
 // provided, it will be used to compute the partition. Otherwise, 0 will be
 // returned.
-func (c *client) partition(ctx context.Context, msg *proto.Message, opts *MessageOptions) (int32, error) {
+func (c *client) partition(ctx context.Context, stream string, key, value []byte,
+	opts *MessageOptions) (int32, error) {
+
 	var partition int32
 	// If a partition is explicitly provided, use it.
 	if opts.Partition != nil {
 		partition = *opts.Partition
 	} else if opts.Partitioner != nil {
 		// Make sure we have metadata for the stream and, if not, update it.
-		metadata, err := c.waitForSubjectMetadata(ctx, msg.Subject)
+		metadata, err := c.waitForStreamMetadata(ctx, stream)
 		if err != nil {
 			return 0, err
 		}
-		partition = opts.Partitioner.Partition(msg, metadata)
+		partition = opts.Partitioner.Partition(stream, key, value, metadata)
 	}
 	return partition, nil
+}
+
+func (c *client) publish(ctx context.Context, req *proto.PublishRequest) (Ack, error) {
+	var ack *proto.Ack
+	err := c.doResilientRPC(func(client proto.APIClient) error {
+		resp, err := client.Publish(ctx, req)
+		if err == nil {
+			ack = resp.Ack
+		}
+		return err
+	})
+	return newProtoAck(ack), err
 }
 ```
 
@@ -710,17 +819,6 @@ The partition to publish to is determined in the following way:
    option, use it.
 2. If a `Partitioner` is provided, use it to compute the partition.
 3. If neither of the above apply, use partition 0 (the default partition).
-
-The partition is used to derive the actual NATS subject the message is
-published to. The table below shows an example of this partition-subject
-mapping logic.
-
-| Base Subject | Partition | Derived Subject |
-|:----|:----|:----|
-| foo | 0 | foo |
-| foo | 1 | foo.1 |
-| foo | 2 | foo.2 |
-| foo | 3 | foo.3 |
 
 Note that `Publish` is a synchronous operation. After the RPC returns, the
 message has been published. The server handles message acks, if applicable. If
@@ -814,6 +912,47 @@ func getPartitionCount(subject string, metadata *Metadata) int32 {
 }
 ```
 
+### PublishToSubject Implementation
+
+`PublishToSubject` implementation is similar to that of
+[`Publish`](#publish-implementation), but rather than sending a stream and
+partition in the `PublishRequest`, it only sends a subject. It can reuse the
+same publish helper used by `Publish`. The Go implementations of this is shown
+below:
+
+```go
+// PublishToSubject publishes a new message to the NATS subject. Note that
+// because this publishes directly to a subject, there may be multiple (or no)
+// streams that receive the message. As a result, MessageOptions related to
+// partitioning will be ignored. To publish at the stream/partition level, use
+// the high-level Publish API.
+//
+// If the AckPolicy is not NONE and a deadline is provided, this will
+// synchronously block until the first ack is received. If an ack is not
+// received in time, a DeadlineExceeded status code is returned. If an
+// AckPolicy and deadline are configured, this returns the first Ack on
+// success, otherwise it returns nil.
+func (c *client) PublishToSubject(ctx context.Context, subject string, value []byte,
+	options ...MessageOption) (Ack, error) {
+
+	opts := &MessageOptions{Headers: make(map[string][]byte)}
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	req := &proto.PublishRequest{
+		Subject:       subject,
+		Key:           opts.Key,
+		Value:         value,
+		AckInbox:      opts.AckInbox,
+		CorrelationId: opts.CorrelationID,
+		AckPolicy:     opts.AckPolicy.toProto(),
+	}
+
+	return c.publish(ctx, req)
+}
+```
+
 ### FetchMetadata Implementation
 
 `FetchMetadata` should return an immutable object which exposes cluster
@@ -840,10 +979,9 @@ func (m *Metadata) GetStream(name string) *StreamInfo {}
 // does not match on wildcard subjects, e.g.  "foo.*".
 func (m *Metadata) GetStreams(subject string) []*StreamInfo {}
 
-// PartitionCountsForSubject returns a map containing stream names and the
-// number of partitions for the stream. This does not match on wildcard
-// subjects, e.g. "foo.*".
-func (m *Metadata) PartitionCountsForSubject(subject string) map[string]int32 {}
+// PartitionCountForStream returns the number of partitions for the given
+// stream.
+func (m *Metadata) PartitionCountForStream(stream string) int32 {}
 ```
 
 `BrokerInfo` is an immutable object containing server information like ID,
