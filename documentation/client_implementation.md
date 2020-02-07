@@ -105,7 +105,7 @@ type Client interface {
 // the NATS subject the stream is attached to, and name is the stream
 // identifier, unique per subject. It returns ErrStreamExists if a stream
 // with the given subject and name already exists.
-CreateStream(ctx context.Context, subject, name string, opts ...StreamOption) error
+func CreateStream(ctx context.Context, subject, name string, opts ...StreamOption) error
 ```
 
 `CreateStream` creates a new stream attached to a NATS subject or set of NATS
@@ -155,7 +155,7 @@ configure a stream. Supported options are:
 // start position is the end of the stream. It returns an ErrNoSuchStream
 // if the given stream does not exist. Use a cancelable Context to close a
 // subscription.
-Subscribe(ctx context.Context, stream string, handler Handler, opts ...SubscriptionOption) error
+func Subscribe(ctx context.Context, stream string, handler Handler, opts ...SubscriptionOption) error
 ```
 
 `Subscribe` is used to consume streams. By default, it begins reading messages
@@ -216,7 +216,7 @@ there will be functionality for consuming all partitions.
 // received in time, a DeadlineExceeded status code is returned. If an
 // AckPolicy and deadline are configured, this returns the Ack on success,
 // otherwise it returns nil.
-Publish(ctx context.Context, stream string, value []byte, opts ...MessageOption) (Ack, error)
+func Publish(ctx context.Context, stream string, value []byte, opts ...MessageOption) (Ack, error)
 ```
 
 `Publish` sends a message to a Liftbridge stream. Since Liftbridge streams
@@ -299,7 +299,7 @@ type Partitioner interface {
 // received in time, a DeadlineExceeded status code is returned. If an
 // AckPolicy and deadline are configured, this returns the first Ack on
 // success, otherwise it returns nil.
-PublishToSubject(ctx context.Context, subject string, value []byte, opts ...MessageOption) (Ack, error)
+func PublishToSubject(ctx context.Context, subject string, value []byte, opts ...MessageOption) (Ack, error)
 ```
 
 `PublishToSubject` sends a message to a NATS subject (and, in turn, any streams
@@ -490,7 +490,7 @@ In the Go client example above, `FetchMetadata` takes one argument:
 
 ```go
 // Close the client connection.
-Close() error
+func Close() error
 ```
 
 `Close` simply releases all resources associated with the client, namely all
@@ -843,18 +843,13 @@ var hasher = crc32.ChecksumIEEE
 type keyPartitioner struct{}
 
 // Partition computes the partition number for a given message by hashing the
-// key and modding by the number of partitions for the first stream found with
-// the subject of the message. This does not work with streams containing
-// wildcards in their subjects, e.g. "foo.*", since this matches on the subject
-// literal of the published message. This also has undefined behavior if there
-// are multiple streams for the given subject.
-func (k *keyPartitioner) Partition(msg *proto.Message, metadata *Metadata) int32 {
-	key := msg.Key
+// key and modding by the number of stream partitions.
+func (k *keyPartitioner) Partition(stream string, key, value []byte, metadata *Metadata) int32 {
 	if key == nil {
 		key = []byte("")
 	}
 
-	partitions := getPartitionCount(msg.Subject, metadata)
+	partitions := metadata.PartitionCountForStream(stream)
 	if partitions == 0 {
 		return 0
 	}
@@ -875,22 +870,18 @@ type roundRobinPartitioner struct {
 }
 
 // Partition computes the partition number for a given message in a round-robin
-// fashion by atomically incrementing a counter for the message subject and
-// modding by the number of partitions for the first stream found with the
-// subject. This does not work with streams containing wildcards in their
-// subjects, e.g. "foo.*", since this matches on the subject literal of the
-// published message. This also has undefined behavior if there are multiple
-// streams for the given subject.
-func (r *roundRobinPartitioner) Partition(msg *proto.Message, metadata *Metadata) int32 {
-	partitions := getPartitionCount(msg.Subject, metadata)
+// fashion by atomically incrementing a counter for the message stream and
+// modding by the number of stream partitions.
+func (r *roundRobinPartitioner) Partition(stream string, key, value []byte, metadata *Metadata) int32 {
+	partitions := metadata.PartitionCountForStream(stream)
 	if partitions == 0 {
 		return 0
 	}
 	r.Lock()
-	counter, ok := r.subjectCounterMap[msg.Subject]
+	counter, ok := r.streamCounterMap[stream]
 	if !ok {
-		counter = new(subjectCounter)
-		r.subjectCounterMap[msg.Subject] = counter
+		counter = new(streamCounter)
+		r.streamCounterMap[stream] = counter
 	}
 	r.Unlock()
 	counter.Lock()
@@ -898,17 +889,6 @@ func (r *roundRobinPartitioner) Partition(msg *proto.Message, metadata *Metadata
 	counter.count++
 	counter.Unlock()
 	return count % partitions
-}
-
-func getPartitionCount(subject string, metadata *Metadata) int32 {
-	counts := metadata.PartitionCountsForSubject(subject)
-
-	// Get the first matching stream's count.
-	for _, count := range counts {
-		return count
-	}
-
-	return 0
 }
 ```
 
