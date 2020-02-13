@@ -20,6 +20,8 @@ const (
 	msgSetHeaderLen = 28
 )
 
+var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
+
 type messageSet []byte
 
 func entriesForMessageSet(basePos int64, ms []byte) []*entry {
@@ -120,7 +122,7 @@ func readMessage(ctx context.Context, reader contextReader, headersBuf []byte) (
 	m := Message(buf)
 	// Check the CRC on the message.
 	crc := m.Crc()
-	if c := crc32.ChecksumIEEE(m[4:]); crc != c {
+	if c := crc32.Checksum(m[4:], crc32cTable); crc != c {
 		// If the CRC doesn't match, data on disk is corrupted which means the
 		// server is in an unrecoverable state.
 		panic(fmt.Errorf("Read corrupted data, expected CRC: 0x%08x, got: 0x%08x", crc, c))

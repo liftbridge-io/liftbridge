@@ -165,13 +165,15 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		AckPolicy:     req.AckPolicy,
 	}).Marshal()
 	if err != nil {
-		a.logger.Errorf("api: Failed to publish message: %v", err.Error())
+		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
 		return nil, err
 	}
 
-	buf := make([]byte, envelopeCookieLen+len(msg))
-	copy(buf[0:], envelopeCookie)
-	copy(buf[envelopeCookieLen:], msg)
+	buf, err := marshalMessage(msg)
+	if err != nil {
+		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
+		return nil, err
+	}
 
 	// If AckPolicy is NONE or a timeout isn't specified, then we will fire and
 	// forget.
@@ -337,4 +339,28 @@ func getStartOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int6
 	}
 
 	return startOffset, nil
+}
+
+func marshalMessage(data []byte) ([]byte, error) {
+	var (
+		buf       = make([]byte, envelopeMagicNumberLen+4+len(data))
+		pos       = 0
+		headerLen = envelopeMinHeaderLen
+	)
+	copy(buf[pos:], envelopeMagicNumber)
+	pos += envelopeMagicNumberLen
+	buf[pos] = envelopeProtoV0 // Version
+	pos++
+	buf[pos] = byte(headerLen) // HeaderLen
+	pos++
+	buf[pos] = 0x00 // Flags
+	pos++
+	buf[pos] = 0x00 // Reserved
+	pos++
+	if pos != headerLen {
+		return nil, fmt.Errorf("Payload position (%d) does not match expected HeaderLen (%d)",
+			pos, headerLen)
+	}
+	copy(buf[pos:], data)
+	return buf, nil
 }

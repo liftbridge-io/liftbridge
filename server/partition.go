@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"hash/crc32"
 	"math/rand"
 	"path/filepath"
 	"strconv"
@@ -19,19 +20,32 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
-// recvChannelSize specifies the size of the channel that feeds the leader
-// message processing loop.
-const recvChannelSize = 64 * 1024
+const (
+	// recvChannelSize specifies the size of the channel that feeds the leader
+	// message processing loop.
+	recvChannelSize = 64 * 1024
+
+	// envelopeProtoV0 is version 0 of the envelope protocol.
+	envelopeProtoV0 = 0x00
+
+	// envelopeMinHeaderLen is the minimum length of the envelope header, i.e.
+	// without CRC-32C set.
+	envelopeMinHeaderLen = 8
+)
 
 var (
-	// envelopeCookie is a magic value that indicates if a NATS message is a
-	// structured message protobuf.
-	envelopeCookie    = []byte("LIFT")
-	envelopeCookieLen = len(envelopeCookie)
+	// envelopeMagicNumber is a value that indicates if a NATS message is a
+	// structured message protobuf. This was chosen by random but deliberately
+	// restricted to invalid UTF-8 to reduce the chance of a collision. This
+	// was also verified to not match known file signatures.
+	envelopeMagicNumber    = []byte{0xB9, 0x0E, 0x43, 0xB4}
+	envelopeMagicNumberLen = len(envelopeMagicNumber)
 
 	// timestamp returns the current time in Unix nanoseconds. This function
 	// exists for mocking purposes.
 	timestamp = func() int64 { return time.Now().UnixNano() }
+
+	crc32cTable = crc32.MakeTable(crc32.Castagnoli)
 )
 
 // replica tracks the latest log offset for a particular partition replica.
@@ -1099,17 +1113,42 @@ func (p *partition) getSubject() string {
 }
 
 // getMessage converts the given payload into a client Message if it is one.
-// This is indicated by the presence of the envelope cookie. If it is not, nil
-// is returned.
+// This is indicated by the presence of the envelope magic number. If it is
+// not, nil is returned.
 func getMessage(data []byte) *client.Message {
-	if len(data) <= 4 {
+	if len(data) <= envelopeMinHeaderLen {
 		return nil
 	}
-	if !bytes.Equal(data[0:4], envelopeCookie) {
+	if !bytes.Equal(data[:envelopeMagicNumberLen], envelopeMagicNumber) {
 		return nil
 	}
-	msg := &client.Message{}
-	if err := msg.Unmarshal(data[4:]); err != nil {
+	if data[4] != envelopeProtoV0 {
+		return nil
+	}
+
+	var (
+		headerLen = int(data[5])
+		flags     = data[6]
+		payload   = data[headerLen:]
+	)
+
+	// Check CRC.
+	if hasBit(flags, 0) {
+		// Make sure there is a CRC present.
+		if headerLen != envelopeMinHeaderLen+4 {
+			return nil
+		}
+		crc := proto.Encoding.Uint32(data[envelopeMinHeaderLen:headerLen])
+		if crc32.Checksum(payload, crc32cTable) != crc {
+			return nil
+		}
+	}
+
+	var (
+		msg = &client.Message{}
+		err = msg.Unmarshal(payload)
+	)
+	if err != nil {
 		return nil
 	}
 	return msg
@@ -1152,4 +1191,10 @@ func min(v []int64) (m int64) {
 		}
 	}
 	return
+}
+
+// hasBit checks if the given bit position is set on the provided byte.
+func hasBit(n byte, pos uint8) bool {
+	val := n & (1 << pos)
+	return (val > 0)
 }

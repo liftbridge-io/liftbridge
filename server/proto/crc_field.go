@@ -5,6 +5,8 @@ import (
 	"hash/crc32"
 )
 
+var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
+
 // CRCField is used to perform a CRC32 check on a message.
 type CRCField struct {
 	StartOffset int
@@ -22,14 +24,14 @@ func (f *CRCField) ReserveSize() int {
 
 // Fill sets the CRC digest.
 func (f *CRCField) Fill(curOffset int, buf []byte) error {
-	crc := crc32.ChecksumIEEE(buf[f.StartOffset+4 : curOffset])
+	crc := crc32.Checksum(buf[f.StartOffset+4:curOffset], crc32cTable)
 	Encoding.PutUint32(buf[f.StartOffset:], crc)
 	return nil
 }
 
 // Check the CRC digest.
 func (f *CRCField) Check(curOffset int, buf []byte) error {
-	crc := crc32.ChecksumIEEE(buf[f.StartOffset+4 : curOffset])
+	crc := crc32.Checksum(buf[f.StartOffset+4:curOffset], crc32cTable)
 	if crc != Encoding.Uint32(buf[f.StartOffset:]) {
 		return errors.New("crc didn't match")
 	}
