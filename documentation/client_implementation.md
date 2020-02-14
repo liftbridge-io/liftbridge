@@ -390,25 +390,25 @@ func NewMessage(value []byte, options ...MessageOption) []byte
 ```
 
 `NewMessage` creates a Liftbridge message envelope serialized to bytes ready
-for publishing to NATS. This consists of a four bytes ("LIFT"), which is
-referred to as the envelope cookie, followed by the serialized message
-protobuf. It takes the same arguments as `Publish` (see above) with the
-exception of the context and subject.
+for publishing to NATS. This consists of an [envelope
+header](envelope_protocol.md) followed by the serialized message protobuf. It
+takes the same arguments as `Publish` (see above) with the exception of the
+context and subject.
 
-Note that the envelope-cookie protocol does not need to be implemented in the
+Note that the envelope protocol does not need to be implemented in the
 `Publish` API since the envelope serialization is handled by the server.
 
 ##### UnmarshalMessage
 
 ```go
 // UnmarshalMessage deserializes a message from the given byte slice. It
-// returns a bool indicating if the given data was actually a Message or not.
-func UnmarshalMessage(data []byte) (Message, bool)
+// returns an error if the given data is not actually a Message.
+func UnmarshalMessage(data []byte) (Message, error)
 ```
 
 `UnmarshalMessage` is a helper method which effectively does the reverse of
-`NewMessage`, taking a serialized message and returning a deserialized message
-object or indication the data is not actually a message.
+`NewMessage`, taking a serialized message envelope and returning a deserialized
+message object or indication the data is not actually a message.
 
 ##### UnmarshalAck
 
@@ -421,7 +421,7 @@ func UnmarshalAck(data []byte) (Ack, error)
 `UnmarshalAck` is used to deserialize a message ack received on a NATS
 subscription. It takes a single argument consisting of the ack bytes as
 received from NATS and throws an error/exception if the bytes are not actually
-a serialized ack protobuf.
+a serialized ack envelope.
 
 This is useful for handling acks for messages published with a set ack inbox
 (i.e. the NATS subject Liftbridge will publish message acks to). For example:
