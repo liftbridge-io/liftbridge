@@ -32,8 +32,9 @@ jobs:
       - run:
           name: Test
           command: |
-            go test -v .
-            go test -v -coverprofile=coverage.txt ./server/...
+            go test -v . # Run tests in root but exclude from coverage
+            go test -v -coverprofile=coverage.txt.tmp ./server/...
+            cat coverage.txt.tmp | grep -v ".pb.go" > coverage.txt # Exclude protobuf from coverage
             goveralls -coverprofile=coverage.txt -service=circle-ci -repotoken=$COVERALLS_REPO_TOKEN
 
   build-and-push-standalone-dev-image:
