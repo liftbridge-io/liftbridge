@@ -153,7 +153,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		req.AckInbox = nuid.Next()
 	}
 
-	msg, err := (&client.Message{
+	msg := &client.Message{
 		Key:           req.Key,
 		Value:         req.Value,
 		Stream:        req.Stream,
@@ -163,13 +163,9 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		AckInbox:      req.AckInbox,
 		CorrelationId: req.CorrelationId,
 		AckPolicy:     req.AckPolicy,
-	}).Marshal()
-	if err != nil {
-		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
-		return nil, err
 	}
 
-	buf, err := marshalMessage(msg)
+	buf, err := proto.MarshalEnvelope(msg)
 	if err != nil {
 		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
 		return nil, err
@@ -242,7 +238,7 @@ func (a *apiServer) publishSync(ctx context.Context, subject,
 	}
 
 	ack := new(client.Ack)
-	if err := ack.Unmarshal(ackMsg.Data); err != nil {
+	if err := proto.UnmarshalEnvelope(ackMsg.Data, ack); err != nil {
 		a.logger.Errorf("api: Invalid ack for publish: %v", err)
 		return nil, err
 	}
@@ -339,28 +335,4 @@ func getStartOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int6
 	}
 
 	return startOffset, nil
-}
-
-func marshalMessage(data []byte) ([]byte, error) {
-	var (
-		buf       = make([]byte, envelopeMagicNumberLen+4+len(data))
-		pos       = 0
-		headerLen = envelopeMinHeaderLen
-	)
-	copy(buf[pos:], envelopeMagicNumber)
-	pos += envelopeMagicNumberLen
-	buf[pos] = envelopeProtoV0 // Version
-	pos++
-	buf[pos] = byte(headerLen) // HeaderLen
-	pos++
-	buf[pos] = 0x00 // Flags
-	pos++
-	buf[pos] = 0x00 // Reserved
-	pos++
-	if pos != headerLen {
-		return nil, fmt.Errorf("Payload position (%d) does not match expected HeaderLen (%d)",
-			pos, headerLen)
-	}
-	copy(buf[pos:], data)
-	return buf, nil
 }

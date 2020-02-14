@@ -5,8 +5,6 @@ import (
 	"hash/crc32"
 )
 
-var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
-
 // CRCField is used to perform a CRC32 check on a message.
 type CRCField struct {
 	StartOffset int
