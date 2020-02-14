@@ -2,6 +2,7 @@ package proto
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -19,6 +20,9 @@ const (
 )
 
 var (
+	// Encoding is the byte order to use for protocol serialization.
+	Encoding = binary.BigEndian
+
 	// envelopeMagicNumber is a value that indicates if a NATS message is a
 	// structured message protobuf. This was chosen by random but deliberately
 	// restricted to invalid UTF-8 to reduce the chance of a collision. This

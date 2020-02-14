@@ -9,8 +9,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-
-	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 var segmentSizeTests = []struct {
@@ -35,9 +33,9 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 			defer cleanup()
 
 			numMsgs := 10
-			msgs := make([]*proto.Message, numMsgs)
+			msgs := make([]*Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = &proto.Message{
+				msgs[i] = &Message{
 					Value:       []byte(strconv.Itoa(i)),
 					Timestamp:   int64(i),
 					LeaderEpoch: 42,
@@ -70,8 +68,8 @@ func TestReaderUncommittedBlockCancel(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	msg := &proto.Message{Value: []byte("hi")}
-	_, err := l.Append([]*proto.Message{msg})
+	msg := &Message{Value: []byte("hi")}
+	_, err := l.Append([]*Message{msg})
 	require.NoError(t, err)
 
 	r, err := l.NewReader(0, true)
@@ -95,12 +93,12 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	msg := &proto.Message{
+	msg := &Message{
 		Value:       []byte("hi"),
 		Timestamp:   1,
 		LeaderEpoch: 42,
 	}
-	_, err := l.Append([]*proto.Message{msg})
+	_, err := l.Append([]*Message{msg})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -115,7 +113,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 	require.Equal(t, uint64(42), leaderEpoch)
 	compareMessages(t, msg, m)
 
-	msg = &proto.Message{
+	msg = &Message{
 		Value:       []byte("hello"),
 		Timestamp:   2,
 		LeaderEpoch: 43,
@@ -125,7 +123,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		_, err := l.Append([]*proto.Message{msg})
+		_, err := l.Append([]*Message{msg})
 		require.NoError(t, err)
 		close(done)
 	}()
@@ -147,8 +145,8 @@ func TestReaderUncommittedReadError(t *testing.T) {
 	})
 	defer cleanup()
 
-	msg := &proto.Message{Value: []byte("hi")}
-	_, err := l.Append([]*proto.Message{msg})
+	msg := &Message{Value: []byte("hi")}
+	_, err := l.Append([]*Message{msg})
 	require.NoError(t, err)
 
 	r, err := l.NewReader(0, true)
@@ -173,9 +171,9 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 			defer cleanup()
 
 			numMsgs := 10
-			msgs := make([]*proto.Message, numMsgs)
+			msgs := make([]*Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = &proto.Message{
+				msgs[i] = &Message{
 					Value:       []byte(strconv.Itoa(i)),
 					Timestamp:   int64(i),
 					LeaderEpoch: 42,
@@ -223,11 +221,11 @@ func TestReaderCommittedReadError(t *testing.T) {
 	})
 	defer cleanup()
 
-	msg := &proto.Message{Value: []byte("hi")}
-	_, err := l.Append([]*proto.Message{msg})
+	msg := &Message{Value: []byte("hi")}
+	_, err := l.Append([]*Message{msg})
 	require.NoError(t, err)
-	msg = &proto.Message{Value: []byte("hi")}
-	_, err = l.Append([]*proto.Message{msg})
+	msg = &Message{Value: []byte("hi")}
+	_, err = l.Append([]*Message{msg})
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 
@@ -252,7 +250,7 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	r, err := l.NewReader(0, false)
 	require.NoError(t, err)
 
-	msg := &proto.Message{
+	msg := &Message{
 		Value:       []byte("hello"),
 		Timestamp:   1,
 		LeaderEpoch: 42,
@@ -260,7 +258,7 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		_, err := l.Append([]*proto.Message{msg})
+		_, err := l.Append([]*Message{msg})
 		require.NoError(t, err)
 		l.SetHighWatermark(0)
 	}()
@@ -286,9 +284,9 @@ func TestReaderCommittedRead(t *testing.T) {
 			defer cleanup()
 
 			numMsgs := 10
-			msgs := make([]*proto.Message, numMsgs)
+			msgs := make([]*Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = &proto.Message{
+				msgs[i] = &Message{
 					Value:       []byte(strconv.Itoa(i)),
 					Timestamp:   int64(i),
 					LeaderEpoch: 42,
@@ -325,9 +323,9 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 			defer cleanup()
 
 			numMsgs := 10
-			msgs := make([]*proto.Message, numMsgs)
+			msgs := make([]*Message, numMsgs)
 			for i := 0; i < numMsgs; i++ {
-				msgs[i] = &proto.Message{
+				msgs[i] = &Message{
 					Value:       []byte(strconv.Itoa(i)),
 					Timestamp:   int64(i),
 					LeaderEpoch: 42,
@@ -362,9 +360,9 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 	defer cleanup()
 
 	numMsgs := 10
-	msgs := make([]*proto.Message, numMsgs)
+	msgs := make([]*Message, numMsgs)
 	for i := 0; i < numMsgs; i++ {
-		msgs[i] = &proto.Message{
+		msgs[i] = &Message{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   int64(i),
 			LeaderEpoch: 42,
@@ -402,9 +400,9 @@ func TestReaderCommittedCancel(t *testing.T) {
 	defer cleanup()
 
 	numMsgs := 10
-	msgs := make([]*proto.Message, numMsgs)
+	msgs := make([]*Message, numMsgs)
 	for i := 0; i < numMsgs; i++ {
-		msgs[i] = &proto.Message{
+		msgs[i] = &Message{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   int64(i),
 			LeaderEpoch: 42,
@@ -449,19 +447,19 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	})
 	defer cleanup()
 
-	msg1 := &proto.Message{
+	msg1 := &Message{
 		Value:       []byte("hi"),
 		Timestamp:   1,
 		LeaderEpoch: 42,
 	}
-	_, err := l.Append([]*proto.Message{msg1})
+	_, err := l.Append([]*Message{msg1})
 	require.NoError(t, err)
-	msg2 := &proto.Message{
+	msg2 := &Message{
 		Value:       []byte("hi"),
 		Timestamp:   2,
 		LeaderEpoch: 42,
 	}
-	_, err = l.Append([]*proto.Message{msg2})
+	_, err = l.Append([]*Message{msg2})
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 
@@ -479,7 +477,7 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	compareMessages(t, msg2, m)
 }
 
-func compareMessages(t *testing.T, exp *proto.Message, act Message) {
+func compareMessages(t *testing.T, exp *Message, act SerializedMessage) {
 	// TODO: check timestamp
 	require.Equal(t, exp.MagicByte, act.MagicByte())
 	require.Equal(t, exp.Attributes, act.Attributes())

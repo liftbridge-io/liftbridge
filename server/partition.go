@@ -541,7 +541,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		msg       *nats.Msg
 		batchSize = p.srv.config.BatchMaxMessages
 		batchWait = p.srv.config.BatchWaitTime
-		msgBatch  = make([]*proto.Message, 0, batchSize)
+		msgBatch  = make([]*commitlog.Message, 0, batchSize)
 	)
 	for {
 		msgBatch = msgBatch[:0]
@@ -605,7 +605,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 // processPendingMessage sends an ack if the message's AckPolicy is LEADER and
 // adds the pending message to the commit queue. Messages are removed from the
 // queue and committed when the entire ISR has replicated them.
-func (p *partition) processPendingMessage(offset int64, msg *proto.Message) {
+func (p *partition) processPendingMessage(offset int64, msg *commitlog.Message) {
 	ack := &client.Ack{
 		Stream:           p.Stream,
 		PartitionSubject: p.Subject,
@@ -1101,10 +1101,10 @@ func getMessage(data []byte) *client.Message {
 	return msg
 }
 
-// natsToProtoMessage converts the given NATS message to a proto Message.
-func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *proto.Message {
+// natsToProtoMessage converts the given NATS message to a commit log Message.
+func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 	message := getMessage(msg.Data)
-	m := &proto.Message{
+	m := &commitlog.Message{
 		MagicByte:   1,
 		Timestamp:   timestamp(),
 		LeaderEpoch: leaderEpoch,

@@ -17,7 +17,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/liftbridge-io/liftbridge/server/logger"
-	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 // ErrSegmentNotFound is returned if the segment could not be found.
@@ -212,7 +211,7 @@ func (l *commitLog) open() error {
 
 // Append writes the given batch of messages to the log and returns their
 // corresponding offsets in the log.
-func (l *commitLog) Append(msgs []*proto.Message) ([]int64, error) {
+func (l *commitLog) Append(msgs []*Message) ([]int64, error) {
 	if _, err := l.checkAndPerformSplit(); err != nil {
 		return nil, err
 	}

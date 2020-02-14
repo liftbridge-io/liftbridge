@@ -226,7 +226,7 @@ func (r *replicator) replicate(
 
 	var (
 		newestOffset = r.partition.log.NewestOffset()
-		message      commitlog.Message
+		message      commitlog.SerializedMessage
 		err          error
 	)
 	for offset < newestOffset && r.writer.Len() < replicationMaxSize {
