@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	lift "github.com/liftbridge-io/go-liftbridge"
-	proto "github.com/liftbridge-io/liftbridge-api/go"
-	internal "github.com/liftbridge-io/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 func waitForHW(t *testing.T, timeout time.Duration, name string, partitionID int32, hw int64, servers ...*Server) {
@@ -138,7 +137,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	i := 0
 	ch := make(chan struct{})
 	err = client.Subscribe(context.Background(), name,
-		func(msg *proto.Message, err error) {
+		func(msg lift.Message, err error) {
 			if i == num && err != nil {
 				return
 			}
@@ -179,7 +178,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	i = 0
 	ch = make(chan struct{})
 	err = client.Subscribe(context.Background(), name,
-		func(msg *proto.Message, err error) {
+		func(msg lift.Message, err error) {
 			if i == num && err != nil {
 				return
 			}
@@ -340,7 +339,7 @@ func TestAckPolicyLeader(t *testing.T) {
 	ack, err := client.Publish(ctx, name, []byte("hello"), lift.CorrelationID(cid))
 	require.NoError(t, err)
 	require.NotNil(t, ack)
-	require.Equal(t, cid, ack.CorrelationId)
+	require.Equal(t, cid, ack.CorrelationID())
 }
 
 // Ensure messages in the log still get committed after the leader is
@@ -435,12 +434,12 @@ func TestCommitOnRestart(t *testing.T) {
 	i := 0
 	ch := make(chan struct{})
 	err = client.Subscribe(context.Background(), name,
-		func(msg *proto.Message, err error) {
+		func(msg lift.Message, err error) {
 			if i == num*2 && err != nil {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, int64(i), msg.Offset)
+			require.Equal(t, int64(i), msg.Offset())
 			i++
 			if i == num*2 {
 				close(ch)
@@ -835,12 +834,12 @@ func TestReplicatorNotifyNewData(t *testing.T) {
 	// aren't any messages. Set up a NATS subscription to intercept
 	// notifications.
 	var (
-		notifications = make(chan *internal.PartitionNotification)
+		notifications = make(chan *proto.PartitionNotification)
 		inbox         = follower.getPartitionNotificationInbox(
 			follower.config.Clustering.ServerID)
 	)
 	_, err = nc.Subscribe(inbox, func(msg *nats.Msg) {
-		req := &internal.PartitionNotification{}
+		req := &proto.PartitionNotification{}
 		if err := req.Unmarshal(msg.Data); err != nil {
 			t.Fatalf("Invalid partition notification: %v", err)
 		}
