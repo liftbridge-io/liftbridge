@@ -5,7 +5,7 @@ go 1.13
 require (
 	github.com/Workiva/go-datastructures v1.0.50
 	github.com/dustin/go-humanize v1.0.0
-	github.com/golang/protobuf v1.3.2
+	github.com/golang/protobuf v1.3.3
 	github.com/hako/durafmt v0.0.0-20191009132224-3f39dc1ed9f4
 	github.com/hashicorp/raft v1.1.1
 	github.com/hashicorp/raft-boltdb v0.0.0-20191021154308-4207f1bf0617
@@ -21,5 +21,8 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/stretchr/testify v1.4.0
 	github.com/urfave/cli v1.22.1
-	google.golang.org/grpc v1.26.0
+	golang.org/x/net v0.0.0-20200219183655-46282727080f // indirect
+	golang.org/x/sys v0.0.0-20200219091948-cb0a6d8edb6c // indirect
+	google.golang.org/genproto v0.0.0-20200218151345-dad8c97a84f5 // indirect
+	google.golang.org/grpc v1.27.1
 )
