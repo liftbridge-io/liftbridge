@@ -44,16 +44,16 @@ func (l *commitLog) NewReader(offset int64, uncommitted bool) (*Reader, error) {
 }
 
 // ReadMessage reads a single message from the underlying CommitLog or blocks
-// until one is available. It returns the Message in addition to its offset,
-// timestamp, and leader epoch. This may return uncommitted messages if the
-// reader was created with the uncommitted flag set to true.
+// until one is available. It returns the SerializedMessage in addition to its
+// offset, timestamp, and leader epoch. This may return uncommitted messages if
+// the reader was created with the uncommitted flag set to true.
 //
 // ReadMessage should not be called concurrently, and the headersBuf slice
 // should have a capacity of at least 28.
 //
 // TODO: Should this just return a MessageSet directly instead of a Message and
 // the MessageSet header values?
-func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte) (Message, int64, int64, uint64, error) {
+func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte) (SerializedMessage, int64, int64, uint64, error) {
 RETRY:
 	msg, offset, timestamp, leaderEpoch, err := readMessage(ctx, r.ctxReader, headersBuf)
 	if err != nil {

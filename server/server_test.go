@@ -18,8 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
-	proto "github.com/liftbridge-io/liftbridge-api/go"
-	internal "github.com/liftbridge-io/liftbridge/server/proto"
+	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 var storagePath string
@@ -514,7 +513,7 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -522,16 +521,16 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 	// starting at offset 5.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
-		require.Equal(t, int64(5), msg.Offset)
+		require.Equal(t, int64(5), msg.Offset())
 		close(gotMsg)
 		cancel()
 	}, lift.StartAtOffset(100))
 	require.NoError(t, err)
 
 	// Publish one more message.
-	_, err = client.Publish(context.Background(), subject, []byte("test"))
+	_, err = client.Publish(context.Background(), name, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -573,16 +572,16 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	// starting at offset 0.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
-		require.Equal(t, int64(0), msg.Offset)
+		require.Equal(t, int64(0), msg.Offset())
 		close(gotMsg)
 		cancel()
 	})
 	require.NoError(t, err)
 
 	// Publish message.
-	_, err = client.Publish(context.Background(), subject, []byte("test"))
+	_, err = client.Publish(context.Background(), name, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the message.
@@ -629,7 +628,7 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -639,9 +638,9 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	// Subscribe with underflowed offset. This should set the offset to 1.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
-		require.Equal(t, int64(1), msg.Offset)
+		require.Equal(t, int64(1), msg.Offset())
 		close(gotMsg)
 		cancel()
 	}, lift.StartAtOffset(0))
@@ -690,7 +689,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -698,9 +697,9 @@ func TestStreamRetentionBytes(t *testing.T) {
 	forceLogClean(t, subject, name, s1)
 
 	// The first message read back should have offset 87.
-	msgs := make(chan *proto.Message, 1)
+	msgs := make(chan lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -710,7 +709,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(87), msg.Offset)
+		require.Equal(t, int64(87), msg.Offset())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
@@ -751,7 +750,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -759,9 +758,9 @@ func TestStreamRetentionMessages(t *testing.T) {
 	forceLogClean(t, subject, name, s1)
 
 	// The first message read back should have offset 5.
-	msgs := make(chan *proto.Message, 1)
+	msgs := make(chan lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -771,7 +770,7 @@ func TestStreamRetentionMessages(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(5), msg.Offset)
+		require.Equal(t, int64(5), msg.Offset())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
@@ -812,7 +811,7 @@ func TestStreamRetentionAge(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -821,9 +820,9 @@ func TestStreamRetentionAge(t *testing.T) {
 
 	// We expect all segments but the last to be truncated due to age, so the
 	// first message read back should have offset 99.
-	msgs := make(chan *proto.Message, 1)
+	msgs := make(chan lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -833,7 +832,7 @@ func TestStreamRetentionAge(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(99), msg.Offset)
+		require.Equal(t, int64(99), msg.Offset())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
@@ -875,7 +874,7 @@ func TestSubscribeEarliest(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -885,9 +884,9 @@ func TestSubscribeEarliest(t *testing.T) {
 	// Subscribe with EARLIEST. This should start reading from offset 1.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
-		require.Equal(t, int64(1), msg.Offset)
+		require.Equal(t, int64(1), msg.Offset())
 		close(gotMsg)
 		cancel()
 	}, lift.StartAtEarliestReceived())
@@ -932,16 +931,16 @@ func TestSubscribeLatest(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
 	// Subscribe with LATEST. This should start reading from offset 2.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
-		require.Equal(t, int64(2), msg.Offset)
+		require.Equal(t, int64(2), msg.Offset())
 		close(gotMsg)
 		cancel()
 	}, lift.StartAtLatestReceived())
@@ -986,7 +985,7 @@ func TestSubscribeNewOnly(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -994,16 +993,16 @@ func TestSubscribeNewOnly(t *testing.T) {
 	// offset 5.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
-		require.Equal(t, int64(5), msg.Offset)
+		require.Equal(t, int64(5), msg.Offset())
 		close(gotMsg)
 		cancel()
 	})
 	require.NoError(t, err)
 
 	// Publish one more message.
-	_, err = client.Publish(context.Background(), subject, []byte("test"))
+	_, err = client.Publish(context.Background(), name, []byte("test"))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -1056,22 +1055,22 @@ func TestSubscribeStartTime(t *testing.T) {
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, err = client.Publish(ctx, subject, []byte("hello"))
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
 	// Subscribe with TIMESTAMP 25. This should start reading from offset 3.
 	gotMsg := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
-	client.Subscribe(ctx, name, func(msg *proto.Message, err error) {
+	client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		select {
 		case <-gotMsg:
 			return
 		default:
 		}
 		require.NoError(t, err)
-		require.Equal(t, int64(3), msg.Offset)
-		require.Equal(t, int64(30), msg.Timestamp)
+		require.Equal(t, int64(3), msg.Offset())
+		require.Equal(t, int64(30), msg.Timestamp().UnixNano())
 		close(gotMsg)
 		cancel()
 	}, lift.StartAtTime(time.Unix(0, 25)))
@@ -1293,8 +1292,8 @@ func TestPropagatedShrinkExpandISR(t *testing.T) {
 	leaderEpoch := partition.LeaderEpoch
 
 	// Shrink ISR.
-	controller.handleShrinkISR(&internal.PropagatedRequest{
-		ShrinkISROp: &internal.ShrinkISROp{
+	controller.handleShrinkISR(&proto.PropagatedRequest{
+		ShrinkISROp: &proto.ShrinkISROp{
 			Stream:          name,
 			Partition:       0,
 			ReplicaToRemove: followerID,
@@ -1307,9 +1306,9 @@ func TestPropagatedShrinkExpandISR(t *testing.T) {
 	waitForISR(t, 10*time.Second, name, 0, 1, s1, s2)
 
 	// Expand ISR.
-	controller.handleExpandISR(&internal.PropagatedRequest{
-		Op: internal.Op_EXPAND_ISR,
-		ExpandISROp: &internal.ExpandISROp{
+	controller.handleExpandISR(&proto.PropagatedRequest{
+		Op: proto.Op_EXPAND_ISR,
+		ExpandISROp: &proto.ExpandISROp{
 			Stream:       name,
 			Partition:    0,
 			ReplicaToAdd: followerID,

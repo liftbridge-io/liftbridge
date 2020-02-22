@@ -14,7 +14,8 @@
         "deployment"
     ],
     "Technical Deep Dive": [
-        "replication-protocol"
+        "replication-protocol",
+        "envelope-protocol"
     ],
     "Client Libraries": [
         "clients",

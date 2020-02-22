@@ -143,25 +143,33 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // is returned.
 func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	*client.PublishResponse, error) {
-	if req.Message == nil {
-		a.logger.Errorf("api: Failed to publish message: message is nil")
-		return nil, status.Error(codes.InvalidArgument, "Message is nil")
-	}
-	a.logger.Debugf("api: Publish [subject=%s]", req.Message.Subject)
-
-	if req.Message.AckInbox == "" {
-		req.Message.AckInbox = nuid.Next()
-	}
-
-	msg, err := req.Message.Marshal()
+	subject, err := a.getPublishSubject(req)
 	if err != nil {
-		a.logger.Errorf("api: Failed to publish message: %v", err.Error())
 		return nil, err
 	}
+	a.logger.Debugf("api: Publish [subject=%s]", subject)
 
-	buf := make([]byte, envelopeCookieLen+len(msg))
-	copy(buf[0:], envelopeCookie)
-	copy(buf[envelopeCookieLen:], msg)
+	if req.AckInbox == "" {
+		req.AckInbox = nuid.Next()
+	}
+
+	msg := &client.Message{
+		Key:           req.Key,
+		Value:         req.Value,
+		Stream:        req.Stream,
+		Subject:       subject,
+		ReplySubject:  req.ReplySubject,
+		Headers:       req.Headers,
+		AckInbox:      req.AckInbox,
+		CorrelationId: req.CorrelationId,
+		AckPolicy:     req.AckPolicy,
+	}
+
+	buf, err := proto.MarshalEnvelope(msg)
+	if err != nil {
+		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
+		return nil, err
+	}
 
 	// If AckPolicy is NONE or a timeout isn't specified, then we will fire and
 	// forget.
@@ -169,8 +177,8 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		resp           = new(client.PublishResponse)
 		_, hasDeadline = ctx.Deadline()
 	)
-	if req.Message.AckPolicy == client.AckPolicy_NONE || !hasDeadline {
-		if err := a.ncPublishes.Publish(req.Message.Subject, buf); err != nil {
+	if req.AckPolicy == client.AckPolicy_NONE || !hasDeadline {
+		if err := a.ncPublishes.Publish(subject, buf); err != nil {
 			a.logger.Errorf("api: Failed to publish message: %v", err)
 			return nil, err
 		}
@@ -178,8 +186,26 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	}
 
 	// Otherwise we need to publish and wait for the ack.
-	resp.Ack, err = a.publishSync(ctx, req.Message.Subject, req.Message.AckInbox, buf)
+	resp.Ack, err = a.publishSync(ctx, subject, req.AckInbox, buf)
 	return resp, err
+}
+
+func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, error) {
+	if req.Subject != "" {
+		return req.Subject, nil
+	}
+	if req.Stream == "" {
+		return "", status.Error(codes.InvalidArgument, "No stream or subject provided")
+	}
+	stream := a.metadata.GetStream(req.Stream)
+	if stream == nil {
+		return "", status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
+	}
+	subject := stream.subject
+	if req.Partition > 0 {
+		subject = fmt.Sprintf("%s.%d", subject, req.Partition)
+	}
+	return subject, nil
 }
 
 func (a *apiServer) publishSync(ctx context.Context, subject,
@@ -212,7 +238,7 @@ func (a *apiServer) publishSync(ctx context.Context, subject,
 	}
 
 	ack := new(client.Ack)
-	if err := ack.Unmarshal(ackMsg.Data); err != nil {
+	if err := proto.UnmarshalEnvelope(ackMsg.Data, ack); err != nil {
 		a.logger.Errorf("api: Invalid ack for publish: %v", err)
 		return nil, err
 	}
@@ -257,13 +283,15 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			headers := m.Headers()
 			var (
 				msg = &client.Message{
-					Offset:    offset,
-					Key:       m.Key(),
-					Value:     m.Value(),
-					Timestamp: timestamp,
-					Headers:   headers,
-					Subject:   string(headers["subject"]),
-					Reply:     string(headers["reply"]),
+					Stream:       partition.Stream,
+					Partition:    partition.Id,
+					Offset:       offset,
+					Key:          m.Key(),
+					Value:        m.Value(),
+					Timestamp:    timestamp,
+					Headers:      headers,
+					Subject:      string(headers["subject"]),
+					ReplySubject: string(headers["reply"]),
 				}
 			)
 			select {

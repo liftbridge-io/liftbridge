@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -23,16 +22,9 @@ import (
 // message processing loop.
 const recvChannelSize = 64 * 1024
 
-var (
-	// envelopeCookie is a magic value that indicates if a NATS message is a
-	// structured message protobuf.
-	envelopeCookie    = []byte("LIFT")
-	envelopeCookieLen = len(envelopeCookie)
-
-	// timestamp returns the current time in Unix nanoseconds. This function
-	// exists for mocking purposes.
-	timestamp = func() int64 { return time.Now().UnixNano() }
-)
+// timestamp returns the current time in Unix nanoseconds. This function exists
+// for mocking purposes.
+var timestamp = func() int64 { return time.Now().UnixNano() }
 
 // replica tracks the latest log offset for a particular partition replica.
 type replica struct {
@@ -549,7 +541,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		msg       *nats.Msg
 		batchSize = p.srv.config.BatchMaxMessages
 		batchWait = p.srv.config.BatchWaitTime
-		msgBatch  = make([]*proto.Message, 0, batchSize)
+		msgBatch  = make([]*commitlog.Message, 0, batchSize)
 	)
 	for {
 		msgBatch = msgBatch[:0]
@@ -613,7 +605,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 // processPendingMessage sends an ack if the message's AckPolicy is LEADER and
 // adds the pending message to the commit queue. Messages are removed from the
 // queue and committed when the entire ISR has replicated them.
-func (p *partition) processPendingMessage(offset int64, msg *proto.Message) {
+func (p *partition) processPendingMessage(offset int64, msg *commitlog.Message) {
 	ack := &client.Ack{
 		Stream:           p.Stream,
 		PartitionSubject: p.Subject,
@@ -736,7 +728,7 @@ func (p *partition) sendAck(ack *client.Ack) {
 	if ack.AckInbox == "" {
 		return
 	}
-	data, err := ack.Marshal()
+	data, err := proto.MarshalEnvelope(ack)
 	if err != nil {
 		panic(err)
 	}
@@ -1099,26 +1091,20 @@ func (p *partition) getSubject() string {
 }
 
 // getMessage converts the given payload into a client Message if it is one.
-// This is indicated by the presence of the envelope cookie. If it is not, nil
-// is returned.
+// This is indicated by the presence of the envelope magic number. If it is
+// not, nil is returned.
 func getMessage(data []byte) *client.Message {
-	if len(data) <= 4 {
-		return nil
-	}
-	if !bytes.Equal(data[0:4], envelopeCookie) {
-		return nil
-	}
-	msg := &client.Message{}
-	if err := msg.Unmarshal(data[4:]); err != nil {
+	msg := new(client.Message)
+	if err := proto.UnmarshalEnvelope(data, msg); err != nil {
 		return nil
 	}
 	return msg
 }
 
-// natsToProtoMessage converts the given NATS message to a proto Message.
-func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *proto.Message {
+// natsToProtoMessage converts the given NATS message to a commit log Message.
+func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 	message := getMessage(msg.Data)
-	m := &proto.Message{
+	m := &commitlog.Message{
 		MagicByte:   1,
 		Timestamp:   timestamp(),
 		LeaderEpoch: leaderEpoch,

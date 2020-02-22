@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 type keyValue struct {
@@ -18,7 +16,7 @@ type keyValue struct {
 
 type expectedMsg struct {
 	Offset int64
-	Msg    *proto.Message
+	Msg    *Message
 }
 
 // Ensure Compact is a no-op when there are no segments.
@@ -75,11 +73,11 @@ func TestCompactCleaner(t *testing.T) {
 	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
-		{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
-		{Offset: 7, Msg: &proto.Message{Key: []byte("qux"), Value: []byte("first")}},
-		{Offset: 8, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("fourth")}},
+		{Offset: 4, Msg: &Message{Key: []byte("bar"), Value: []byte("second")}},
+		{Offset: 7, Msg: &Message{Key: []byte("qux"), Value: []byte("first")}},
+		{Offset: 8, Msg: &Message{Key: []byte("foo"), Value: []byte("fourth")}},
 		// This one is present because it's in the active segment.
-		{Offset: 9, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("third")}},
+		{Offset: 9, Msg: &Message{Key: []byte("baz"), Value: []byte("third")}},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -125,14 +123,14 @@ func TestCompactCleanerHW(t *testing.T) {
 	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
-		{Offset: 3, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("third")}},
-		{Offset: 4, Msg: &proto.Message{Key: []byte("bar"), Value: []byte("second")}},
-		{Offset: 5, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("first")}},
+		{Offset: 3, Msg: &Message{Key: []byte("foo"), Value: []byte("third")}},
+		{Offset: 4, Msg: &Message{Key: []byte("bar"), Value: []byte("second")}},
+		{Offset: 5, Msg: &Message{Key: []byte("baz"), Value: []byte("first")}},
 		// These are retained because they are after the HW.
-		{Offset: 6, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("second")}},
-		{Offset: 7, Msg: &proto.Message{Key: []byte("qux"), Value: []byte("first")}},
-		{Offset: 8, Msg: &proto.Message{Key: []byte("foo"), Value: []byte("fourth")}},
-		{Offset: 9, Msg: &proto.Message{Key: []byte("baz"), Value: []byte("third")}},
+		{Offset: 6, Msg: &Message{Key: []byte("baz"), Value: []byte("second")}},
+		{Offset: 7, Msg: &Message{Key: []byte("qux"), Value: []byte("first")}},
+		{Offset: 8, Msg: &Message{Key: []byte("foo"), Value: []byte("fourth")}},
+		{Offset: 9, Msg: &Message{Key: []byte("baz"), Value: []byte("third")}},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -171,10 +169,10 @@ func TestCompactCleanerNoKeys(t *testing.T) {
 	require.NoError(t, l.Clean())
 
 	expected := []*expectedMsg{
-		{Offset: 0, Msg: &proto.Message{Value: []byte("first")}},
-		{Offset: 1, Msg: &proto.Message{Value: []byte("second")}},
-		{Offset: 2, Msg: &proto.Message{Value: []byte("third")}},
-		{Offset: 3, Msg: &proto.Message{Value: []byte("fourth")}},
+		{Offset: 0, Msg: &Message{Value: []byte("first")}},
+		{Offset: 1, Msg: &Message{Value: []byte("second")}},
+		{Offset: 2, Msg: &Message{Value: []byte("third")}},
+		{Offset: 3, Msg: &Message{Value: []byte("fourth")}},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -282,11 +280,11 @@ func benchmarkClean(b *testing.B, segmentSize int64) {
 
 				buf := make([]byte, msgSize)
 				for i := 0; i < 200000; i++ {
-					msg := &proto.Message{
+					msg := &Message{
 						Key:   []byte(keys[rand.Intn(len(keys))]),
 						Value: buf,
 					}
-					offsets, err := l.Append([]*proto.Message{msg})
+					offsets, err := l.Append([]*Message{msg})
 					require.NoError(b, err)
 					l.SetHighWatermark(offsets[len(offsets)-1])
 				}
@@ -301,11 +299,11 @@ func benchmarkClean(b *testing.B, segmentSize int64) {
 
 func appendToLog(t *testing.T, l *commitLog, entries []keyValue, commit bool) {
 	for _, entry := range entries {
-		msg := &proto.Message{
+		msg := &Message{
 			Key:   entry.key,
 			Value: entry.value,
 		}
-		offsets, err := l.Append([]*proto.Message{msg})
+		offsets, err := l.Append([]*Message{msg})
 		require.NoError(t, err)
 		if commit {
 			l.SetHighWatermark(offsets[len(offsets)-1])

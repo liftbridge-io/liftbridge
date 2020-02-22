@@ -1,7 +1,5 @@
 package commitlog
 
-import "github.com/liftbridge-io/liftbridge/server/proto"
-
 // CommitLog is the durable write-ahead log interface used to back each stream.
 type CommitLog interface {
 	// Delete closes the log and removes all data associated with it from the
@@ -53,7 +51,7 @@ type CommitLog interface {
 
 	// Append writes the given batch of messages to the log and returns their
 	// corresponding offsets in the log.
-	Append(msg []*proto.Message) ([]int64, error)
+	Append(msg []*Message) ([]int64, error)
 
 	// AppendMessageSet writes the given message set data to the log and
 	// returns the corresponding offsets in the log.

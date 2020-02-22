@@ -20,6 +20,9 @@
       "deployment": {
         "title": "Deployment"
       },
+      "envelope-protocol": {
+        "title": "Envelope Protocol"
+      },
       "faq": {
         "title": "Frequently Asked Questions"
       },

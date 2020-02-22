@@ -23,10 +23,10 @@ type message struct {
 	Offset int64
 }
 
-func assertMsg(t *testing.T, expected *message, msg *proto.Message) {
-	require.Equal(t, expected.Offset, msg.Offset)
-	require.Equal(t, expected.Key, msg.Key)
-	require.Equal(t, expected.Value, msg.Value)
+func assertMsg(t *testing.T, expected *message, msg lift.Message) {
+	require.Equal(t, expected.Offset, msg.Offset())
+	require.Equal(t, expected.Key, msg.Key())
+	require.Equal(t, expected.Value, msg.Value())
 }
 
 // Ensure creating a stream works, and it returns an error when creating the
@@ -302,7 +302,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	i := 0
 	ch1 := make(chan struct{})
 	ch2 := make(chan struct{})
-	err = client.Subscribe(context.Background(), name, func(msg *proto.Message, err error) {
+	err = client.Subscribe(context.Background(), name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
 		expect := expected[i]
 		assertMsg(t, expect, msg)
@@ -318,7 +318,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 
 	// Publish messages.
 	for i := 0; i < num; i++ {
-		_, err = client.Publish(context.Background(), subject, expected[i].Value,
+		_, err = client.Publish(context.Background(), name, expected[i].Value,
 			lift.Key(expected[i].Key))
 		require.NoError(t, err)
 	}
@@ -339,7 +339,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 		})
 	}
 	for i := 0; i < 5; i++ {
-		_, err = client.Publish(context.Background(), subject, expected[i+num].Value,
+		_, err = client.Publish(context.Background(), name, expected[i+num].Value,
 			lift.Key(expected[i+num].Key))
 		require.NoError(t, err)
 	}
@@ -358,7 +358,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	i = num
 	ch1 = make(chan struct{})
 	err = client2.Subscribe(context.Background(), name,
-		func(msg *proto.Message, err error) {
+		func(msg lift.Message, err error) {
 			require.NoError(t, err)
 			expect := expected[i]
 			assertMsg(t, expect, msg)

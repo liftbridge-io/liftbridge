@@ -8,8 +8,6 @@ import (
 	"hash/crc32"
 
 	"github.com/pkg/errors"
-
-	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
 const (
@@ -50,7 +48,7 @@ func entriesForMessageSet(basePos int64, ms []byte) []*entry {
 	return entries
 }
 
-func newMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
+func newMessageSetFromProto(baseOffset, basePos int64, msgs []*Message) (
 	messageSet, []*entry, error) {
 
 	var (
@@ -59,7 +57,7 @@ func newMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
 		n       int32
 	)
 	for i, m := range msgs {
-		data, err := proto.Encode(m)
+		data, err := encode(m)
 		if err != nil {
 			panic(err)
 		}
@@ -68,19 +66,19 @@ func newMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
 			relPos = int64(n)
 			offset = int64(i) + baseOffset
 		)
-		if err := binary.Write(buf, proto.Encoding, uint64(offset)); err != nil {
+		if err := binary.Write(buf, encoding, uint64(offset)); err != nil {
 			return nil, nil, err
 		}
 		n += 8
-		if err := binary.Write(buf, proto.Encoding, uint64(m.Timestamp)); err != nil {
+		if err := binary.Write(buf, encoding, uint64(m.Timestamp)); err != nil {
 			return nil, nil, err
 		}
 		n += 8
-		if err := binary.Write(buf, proto.Encoding, m.LeaderEpoch); err != nil {
+		if err := binary.Write(buf, encoding, m.LeaderEpoch); err != nil {
 			return nil, nil, err
 		}
 		n += 8
-		if err := binary.Write(buf, proto.Encoding, uint32(len)); err != nil {
+		if err := binary.Write(buf, encoding, uint32(len)); err != nil {
 			return nil, nil, err
 		}
 		n += 4
@@ -103,24 +101,24 @@ func newMessageSetFromProto(baseOffset, basePos int64, msgs []*proto.Message) (
 // available. It returns the Message in addition to its offset, timestamp, and
 // leader epoch. This may return uncommitted messages if the reader was created
 // with the uncommitted flag set to true.
-func readMessage(ctx context.Context, reader contextReader, headersBuf []byte) (Message, int64, int64, uint64, error) {
+func readMessage(ctx context.Context, reader contextReader, headersBuf []byte) (SerializedMessage, int64, int64, uint64, error) {
 	if _, err := reader.Read(ctx, headersBuf); err != nil {
 		return nil, 0, 0, 0, errors.Wrap(err, "failed to read message headers")
 	}
 	var (
-		offset      = int64(proto.Encoding.Uint64(headersBuf[offsetPos:]))
-		timestamp   = int64(proto.Encoding.Uint64(headersBuf[timestampPos:]))
-		leaderEpoch = proto.Encoding.Uint64(headersBuf[leaderEpochPos:])
-		size        = proto.Encoding.Uint32(headersBuf[sizePos:])
+		offset      = int64(encoding.Uint64(headersBuf[offsetPos:]))
+		timestamp   = int64(encoding.Uint64(headersBuf[timestampPos:]))
+		leaderEpoch = encoding.Uint64(headersBuf[leaderEpochPos:])
+		size        = encoding.Uint32(headersBuf[sizePos:])
 		buf         = make([]byte, int(size))
 	)
 	if _, err := reader.Read(ctx, buf); err != nil {
 		return nil, 0, 0, 0, errors.Wrap(err, "failed to ready message payload")
 	}
-	m := Message(buf)
+	m := SerializedMessage(buf)
 	// Check the CRC on the message.
 	crc := m.Crc()
-	if c := crc32.ChecksumIEEE(m[4:]); crc != c {
+	if c := crc32.Checksum(m[4:], crc32cTable); crc != c {
 		// If the CRC doesn't match, data on disk is corrupted which means the
 		// server is in an unrecoverable state.
 		panic(fmt.Errorf("Read corrupted data, expected CRC: 0x%08x, got: 0x%08x", crc, c))
@@ -129,25 +127,25 @@ func readMessage(ctx context.Context, reader contextReader, headersBuf []byte) (
 }
 
 func (ms messageSet) Offset() int64 {
-	return int64(proto.Encoding.Uint64(ms[offsetPos : offsetPos+8]))
+	return int64(encoding.Uint64(ms[offsetPos : offsetPos+8]))
 }
 
 func (ms messageSet) Timestamp() int64 {
-	return int64(proto.Encoding.Uint64(ms[timestampPos : timestampPos+8]))
+	return int64(encoding.Uint64(ms[timestampPos : timestampPos+8]))
 }
 
 func (ms messageSet) LeaderEpoch() uint64 {
-	return proto.Encoding.Uint64(ms[leaderEpochPos : leaderEpochPos+8])
+	return encoding.Uint64(ms[leaderEpochPos : leaderEpochPos+8])
 }
 
 func (ms messageSet) Size() int32 {
-	return int32(proto.Encoding.Uint32(ms[sizePos : sizePos+4]))
+	return int32(encoding.Uint32(ms[sizePos : sizePos+4]))
 }
 
-func (ms messageSet) Message() Message {
+func (ms messageSet) Message() SerializedMessage {
 	if len(ms) <= msgSetHeaderLen {
 		return nil
 	}
 	size := ms.Size()
-	return Message(ms[msgSetHeaderLen : msgSetHeaderLen+size])
+	return SerializedMessage(ms[msgSetHeaderLen : msgSetHeaderLen+size])
 }
