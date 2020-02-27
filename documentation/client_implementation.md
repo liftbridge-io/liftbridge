@@ -223,13 +223,13 @@ func Publish(ctx context.Context, stream string, value []byte, opts ...MessageOp
 attach to normal NATS subjects, it's also possible to [publish messages
 directly to NATS](https://github.com/liftbridge-io/go-liftbridge#publishing-directly-with-nats)
 using a [NATS client](https://nats.io/download/). Liftbridge works fine with
-plain, opaque NATS messages, but it also extends NATS with a [protobuf-based
-envelope protocol](https://github.com/liftbridge-io/liftbridge-api). This
-allows publishers to add metadata to messages like a key, headers, and acking
-information. Liftbridge client libraries may provide helper methods to make it
-easy to create envelopes and deal with acks yourself using a NATS client
-directly ([described below](#low-level-publish-helpers)). However, the
-`Publish` API is intended to abstract this work away from you.
+plain, opaque NATS messages, but it also extends NATS with a protobuf-based
+[envelope protocol](./envelope_protocol.md). This allows publishers to add
+metadata to messages like a key, headers, and acking information. Liftbridge
+client libraries may provide helper methods to make it easy to create envelopes
+and deal with acks yourself using a NATS client directly ([described
+below](#low-level-publish-helpers)). However, the `Publish` API is intended to
+abstract this work away from you.
 
 `Publish` is a synchronous operation, meaning when it returns, the message has
 been successfully published. `Publish` can also be configured to block until a
@@ -307,13 +307,13 @@ that match the subject). Since Liftbridge streams attach to normal NATS
 subjects, it's also possible to [publish messages directly to
 NATS](https://github.com/liftbridge-io/go-liftbridge#publishing-directly-with-nats)
 using a [NATS client](https://nats.io/download/). Liftbridge works fine with
-plain, opaque NATS messages, but it also extends NATS with a [protobuf-based
-envelope protocol](https://github.com/liftbridge-io/liftbridge-api). This
-allows publishers to add metadata to messages like a key, headers, and acking
-information. Liftbridge client libraries may provide helper methods to make it
-easy to create envelopes and deal with acks yourself using a NATS client
-directly ([described below](#low-level-publish-helpers)). However, the
-`PublishToSubject` API is intended to abstract this work away from you.
+plain, opaque NATS messages, but it also extends NATS with a protobuf-based
+[envelope protocol](./envelope_protocol.md). This allows publishers to add
+metadata to messages like a key, headers, and acking information. Liftbridge
+client libraries may provide helper methods to make it easy to create envelopes
+and deal with acks yourself using a NATS client directly ([described
+below](#low-level-publish-helpers)). However, the `PublishToSubject` API is
+intended to abstract this work away from you.
 
 `PublishToSubject` is a synchronous operation, meaning when it returns, the
 message has been successfully published. `PublishToSubject` can also be
@@ -376,11 +376,11 @@ func main() {
 ```
 
 However, these low-level publishes lose out on some of the additional
-capabilities of Liftbridge provided by message envelopes, such as message
-headers, keys, etc. As a result, client libraries may provide helper methods to
-facilitate publishing message envelopes directly to NATS as well as handling
-acks. These include `NewMessage`, `UnmarshalAck`, and `UnmarshalMessage`
-described below.
+capabilities of Liftbridge provided by message
+[envelopes](./envelope_protocol.md), such as message headers, keys, etc. As a
+result, client libraries may provide helper methods to facilitate publishing
+message envelopes directly to NATS as well as handling acks. These include
+`NewMessage`, `UnmarshalAck`, and `UnmarshalMessage` described below.
 
 ##### NewMessage
 
@@ -391,9 +391,9 @@ func NewMessage(value []byte, options ...MessageOption) []byte
 
 `NewMessage` creates a Liftbridge message envelope serialized to bytes ready
 for publishing to NATS. This consists of an [envelope
-header](envelope_protocol.md) followed by the serialized message protobuf. It
-takes the same arguments as `Publish` (see above) with the exception of the
-context and subject.
+header](envelope_protocol.md#liftbridge-envelope-header) followed by the
+serialized message protobuf. It takes the same arguments as `Publish` (see
+above) with the exception of the context and subject.
 
 Note that the envelope protocol does not need to be implemented in the
 `Publish` API since the envelope serialization is handled by the server.
