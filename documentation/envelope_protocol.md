@@ -47,6 +47,8 @@ bumped if the envelope format changes or if the message encoding changes in a
 non-backwards-compatible way. Adding fields to the messages should not require
 a version bump.
 
+Currently, the only supported protocol version is v0, i.e. `0x00`.
+
 ### HeaderLen [1 byte]
 
 The header length is the offset of the payload. This is included primarily for
