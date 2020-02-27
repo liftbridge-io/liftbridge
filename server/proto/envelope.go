@@ -11,11 +11,11 @@ import (
 	client "github.com/liftbridge-io/liftbridge-api/go"
 )
 
-// MsgType indicates the type of message contained by an envelope.
-type MsgType byte
+// msgType indicates the type of message contained by an envelope.
+type msgType byte
 
 const (
-	msgTypePublish MsgType = iota
+	msgTypePublish msgType = iota
 	msgTypeAck
 
 	msgTypeReplicationRequest
@@ -159,7 +159,7 @@ func WriteReplicationResponseHeader(buf *bytes.Buffer) int {
 
 // marshalEnvelope serializes a protobuf message into the Liftbridge envelope
 // wire format.
-func marshalEnvelope(msg pb.Message, msgType MsgType) ([]byte, error) {
+func marshalEnvelope(msg pb.Message, msgType msgType) ([]byte, error) {
 	data, err := pb.Marshal(msg)
 	if err != nil {
 		return nil, err
@@ -350,7 +350,7 @@ func UnmarshalReplicationResponse(data []byte) (uint64, int64, []byte, error) {
 
 // unmarshalEnvelope deserializes a Liftbridge envelope into a protobuf
 // message.
-func unmarshalEnvelope(data []byte, msg pb.Message, msgType MsgType) error {
+func unmarshalEnvelope(data []byte, msg pb.Message, msgType msgType) error {
 	payload, err := checkEnvelope(data, msgType)
 	if err != nil {
 		return err
@@ -358,7 +358,7 @@ func unmarshalEnvelope(data []byte, msg pb.Message, msgType MsgType) error {
 	return pb.Unmarshal(payload, msg)
 }
 
-func checkEnvelope(data []byte, msgType MsgType) ([]byte, error) {
+func checkEnvelope(data []byte, expectedType msgType) ([]byte, error) {
 	if len(data) < envelopeMinHeaderLen {
 		return nil, errors.New("data missing envelope header")
 	}
@@ -372,12 +372,12 @@ func checkEnvelope(data []byte, msgType MsgType) ([]byte, error) {
 	var (
 		headerLen  = int(data[5])
 		flags      = data[6]
-		actualType = MsgType(data[7])
+		actualType = msgType(data[7])
 		payload    = data[headerLen:]
 	)
 
-	if actualType != msgType {
-		return nil, fmt.Errorf("MsgType mismatch: expected %v, got %v", msgType, actualType)
+	if actualType != expectedType {
+		return nil, fmt.Errorf("MsgType mismatch: expected %v, got %v", expectedType, actualType)
 	}
 
 	// Check CRC.
