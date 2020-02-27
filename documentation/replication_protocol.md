@@ -109,8 +109,9 @@ by the maintainers of Kafka.
 
 Replication RPCs are made over internal NATS subjects. Replication requests for
 a partition are sent to `<namespace>.<stream>.<partition>.replicate` which is a
-subject the partition leader subscribes to. The request data is a
-[protobuf](https://github.com/liftbridge-io/liftbridge/blob/8bee0478da97711dc2a8e1fdae8b2d2e3086c756/server/proto/internal.proto#L87-L90)
+subject the partition leader subscribes to. Request and response payloads are
+prefixed with the [Liftbridge envelope header](./envelope_protocol.md). The
+request data is a [protobuf](https://github.com/liftbridge-io/liftbridge/blob/8bee0478da97711dc2a8e1fdae8b2d2e3086c756/server/proto/internal.proto#L87-L90)
 containing the ID of the follower and the offset they want to begin fetching
 from. The NATS message also includes a random [reply
 inbox](https://nats-io.github.io/docs/developer/sending/replyto.html) the
@@ -118,7 +119,7 @@ leader uses to send the response to.
 
 The leader response uses a binary format consisting of the following:
 
-```
+```plaintext
    0     1     2     3     4     5     6     7     8     9     10    11    12    13    14    15
 +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+...
 |                  LeaderEpoch                  |                       HW                      |...
@@ -128,7 +129,8 @@ The leader response uses a binary format consisting of the following:
 
 The remainder of the response consists of message data. If the follower is
 caught up, there won't be any message data. The `LeaderEpoch` and `HW` are
-always present, so there are 16 bytes guaranteed in the response.
+always present, so there are 16 bytes guaranteed in the response after the
+envelope header.
 
 The `LeaderEpoch` offset requests also use internal NATS subjects similar to
 replication RPCs. These requests are sent to
