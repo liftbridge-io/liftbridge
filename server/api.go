@@ -165,7 +165,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		AckPolicy:     req.AckPolicy,
 	}
 
-	buf, err := proto.MarshalEnvelope(msg)
+	buf, err := proto.MarshalPublish(msg)
 	if err != nil {
 		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
 		return nil, err
@@ -237,8 +237,8 @@ func (a *apiServer) publishSync(ctx context.Context, subject,
 		return nil, err
 	}
 
-	ack := new(client.Ack)
-	if err := proto.UnmarshalEnvelope(ackMsg.Data, ack); err != nil {
+	ack, err := proto.UnmarshalAck(ackMsg.Data)
+	if err != nil {
 		a.logger.Errorf("api: Invalid ack for publish: %v", err)
 		return nil, err
 	}

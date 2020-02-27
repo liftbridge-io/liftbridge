@@ -521,10 +521,10 @@ func (s *Server) getPropagateInbox() string {
 // will fail when it's proposed to the Raft cluster.
 func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 	var (
-		req  = &proto.PropagatedRequest{}
-		resp []byte
+		req, err = proto.UnmarshalPropagatedRequest(m.Data)
+		resp     *proto.PropagatedResponse
 	)
-	if err := req.Unmarshal(m.Data); err != nil {
+	if err != nil {
 		s.logger.Warnf("Invalid propagated request: %v", err)
 		return
 	}
@@ -541,65 +541,53 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
 		return
 	}
-	if err := m.Respond(resp); err != nil {
+	data, err := proto.MarshalPropagatedResponse(resp)
+	if err != nil {
+		panic(err)
+	}
+	if err := m.Respond(data); err != nil {
 		s.logger.Errorf("Failed to respond to propagated request: %v", err)
 	}
 }
 
-func (s *Server) handleCreatePartition(req *proto.PropagatedRequest) []byte {
+func (s *Server) handleCreatePartition(req *proto.PropagatedRequest) *proto.PropagatedResponse {
 	resp := &proto.PropagatedResponse{
 		Op: req.Op,
 	}
 	if err := s.metadata.CreatePartition(context.Background(), req.CreatePartitionOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
-	data, err := resp.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	return data
+	return resp
 }
 
-func (s *Server) handleShrinkISR(req *proto.PropagatedRequest) []byte {
+func (s *Server) handleShrinkISR(req *proto.PropagatedRequest) *proto.PropagatedResponse {
 	resp := &proto.PropagatedResponse{
 		Op: req.Op,
 	}
 	if err := s.metadata.ShrinkISR(context.Background(), req.ShrinkISROp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
-	data, err := resp.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	return data
+	return resp
 }
 
-func (s *Server) handleExpandISR(req *proto.PropagatedRequest) []byte {
+func (s *Server) handleExpandISR(req *proto.PropagatedRequest) *proto.PropagatedResponse {
 	resp := &proto.PropagatedResponse{
 		Op: req.Op,
 	}
 	if err := s.metadata.ExpandISR(context.Background(), req.ExpandISROp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
-	data, err := resp.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	return data
+	return resp
 }
 
-func (s *Server) handleReportLeader(req *proto.PropagatedRequest) []byte {
+func (s *Server) handleReportLeader(req *proto.PropagatedRequest) *proto.PropagatedResponse {
 	resp := &proto.PropagatedResponse{
 		Op: req.Op,
 	}
 	if err := s.metadata.ReportLeader(context.Background(), req.ReportLeaderOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
-	data, err := resp.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	return data
+	return resp
 }
 
 func (s *Server) isShutdown() bool {
@@ -653,8 +641,8 @@ func (s *Server) natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err err
 // handleServerInfoRequest is a NATS handler used to process requests for
 // server information used in the metadata API.
 func (s *Server) handleServerInfoRequest(m *nats.Msg) {
-	req := &proto.ServerInfoRequest{}
-	if err := req.Unmarshal(m.Data); err != nil {
+	req, err := proto.UnmarshalServerInfoRequest(m.Data)
+	if err != nil {
 		s.logger.Warnf("Dropping invalid server info request: %v", err)
 		return
 	}
@@ -665,11 +653,11 @@ func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 	}
 
 	connectionAddress := s.config.GetConnectionAddress()
-	data, err := (&proto.ServerInfoResponse{
+	data, err := proto.MarshalServerInfoResponse(&proto.ServerInfoResponse{
 		Id:   s.config.Clustering.ServerID,
 		Host: connectionAddress.Host,
 		Port: int32(connectionAddress.Port),
-	}).Marshal()
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -683,8 +671,8 @@ func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 // querying the status of a partition. This is used as a readiness check to
 // determine if a created partition has actually started.
 func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
-	req := &proto.PartitionStatusRequest{}
-	if err := req.Unmarshal(m.Data); err != nil {
+	req, err := proto.UnmarshalPartitionStatusRequest(m.Data)
+	if err != nil {
 		s.logger.Warnf("Dropping invalid partition status request: %v", err)
 		return
 	}
@@ -696,7 +684,7 @@ func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
 		resp.IsLeader = partition.IsLeader()
 	}
 
-	data, err := resp.Marshal()
+	data, err := proto.MarshalPartitionStatusResponse(resp)
 	if err != nil {
 		panic(err)
 	}
@@ -717,8 +705,8 @@ func (s *Server) handlePartitionStatusRequest(m *nats.Msg) {
 // caught up and send a notification in order to wake an idle follower back up
 // when new data is written to the log.
 func (s *Server) handlePartitionNotification(m *nats.Msg) {
-	req := &proto.PartitionNotification{}
-	if err := req.Unmarshal(m.Data); err != nil {
+	req, err := proto.UnmarshalPartitionNotification(m.Data)
+	if err != nil {
 		s.logger.Warnf("Dropping invalid partition notification: %v", err)
 		return
 	}

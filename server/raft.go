@@ -134,17 +134,14 @@ func (s *Server) setupMetadataRaft() error {
 		s.logger.Debug("Successfully bootstrapped metadata Raft group")
 	} else if !existingState {
 		// Attempt to join the cluster if we're not bootstrapping.
-		req, err := (&proto.RaftJoinRequest{
+		req, err := proto.MarshalRaftJoinRequest(&proto.RaftJoinRequest{
 			NodeID:   s.config.Clustering.ServerID,
 			NodeAddr: s.config.Clustering.ServerID, // NATS transport uses ID for addr.
-		}).Marshal()
+		})
 		if err != nil {
 			panic(err)
 		}
-		var (
-			joined = false
-			resp   = &proto.RaftJoinResponse{}
-		)
+		joined := false
 		// Attempt to join for up to 30 seconds before giving up.
 		for i := 0; i < raftJoinAttempts; i++ {
 			s.logger.Debug("Attempting to join metadata Raft group...")
@@ -154,7 +151,8 @@ func (s *Server) setupMetadataRaft() error {
 				time.Sleep(time.Second)
 				continue
 			}
-			if err := resp.Unmarshal(r.Data); err != nil {
+			resp, err := proto.UnmarshalRaftJoinResponse(r.Data)
+			if err != nil {
 				time.Sleep(time.Second)
 				continue
 			}
@@ -320,8 +318,8 @@ func (s *Server) createRaftNode() (bool, error) {
 		if node.State() != raft.Leader {
 			return
 		}
-		req := &proto.RaftJoinRequest{}
-		if err := req.Unmarshal(msg.Data); err != nil {
+		req, err := proto.UnmarshalRaftJoinRequest(msg.Data)
+		if err != nil {
 			s.logger.Warn("Invalid join request for metadata Raft group")
 			return
 		}
@@ -339,7 +337,7 @@ func (s *Server) createRaftNode() (bool, error) {
 		}
 
 		// Send the response.
-		r, err := resp.Marshal()
+		r, err := proto.MarshalRaftJoinResponse(resp)
 		if err != nil {
 			panic(err)
 		}

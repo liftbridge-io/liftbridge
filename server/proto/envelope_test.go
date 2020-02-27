@@ -1,6 +1,8 @@
 package proto
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 	"time"
 
@@ -9,7 +11,7 @@ import (
 )
 
 // Ensure we can marshal a message and then unmarshal it.
-func TestMarshalUnmarshalEnvelopeMessage(t *testing.T) {
+func TestMarshalUnmarshalPublish(t *testing.T) {
 	msg := &client.Message{
 		Offset:       42,
 		Key:          []byte("foo"),
@@ -26,17 +28,17 @@ func TestMarshalUnmarshalEnvelopeMessage(t *testing.T) {
 		CorrelationId: "123",
 	}
 
-	envelope, err := MarshalEnvelope(msg)
+	envelope, err := MarshalPublish(msg)
 	require.NoError(t, err)
 
-	unmarshaled := new(client.Message)
-	require.NoError(t, UnmarshalEnvelope(envelope, unmarshaled))
+	unmarshaled, err := UnmarshalPublish(envelope)
+	require.NoError(t, err)
 
 	require.Equal(t, msg, unmarshaled)
 }
 
 // Ensure we can marshal an ack and then unmarshal it.
-func TestMarshalUnmarshalEnvelopeAck(t *testing.T) {
+func TestMarshalUnmarshalAck(t *testing.T) {
 	ack := &client.Ack{
 		Offset:           42,
 		Stream:           "foo",
@@ -46,48 +48,257 @@ func TestMarshalUnmarshalEnvelopeAck(t *testing.T) {
 		PartitionSubject: "foo.1",
 	}
 
-	envelope, err := MarshalEnvelope(ack)
+	envelope, err := MarshalAck(ack)
 	require.NoError(t, err)
 
-	unmarshaled := new(client.Ack)
-	require.NoError(t, UnmarshalEnvelope(envelope, unmarshaled))
+	unmarshaled, err := UnmarshalAck(envelope)
+	require.NoError(t, err)
 
 	require.Equal(t, ack, unmarshaled)
 }
 
-// Ensure UnmarshalEnvelope returns an error if there is not enough data for an
+// Ensure we can marshal a ServerInfoRequest and then unmarshal it.
+func TestMarshalUnmarshalServerInfoRequest(t *testing.T) {
+	req := &ServerInfoRequest{
+		Id: "foo",
+	}
+	envelope, err := MarshalServerInfoRequest(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalServerInfoRequest(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a ServerInfoResponse and then unmarshal it.
+func TestMarshalUnmarshalServerInfoResponse(t *testing.T) {
+	req := &ServerInfoResponse{
+		Id:   "foo",
+		Host: "0.0.0.0",
+		Port: 4000,
+	}
+	envelope, err := MarshalServerInfoResponse(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalServerInfoResponse(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a PropagatedRequest and then unmarshal it.
+func TestMarshalUnmarshalPropagatedRequest(t *testing.T) {
+	req := &PropagatedRequest{
+		Op: Op_CREATE_PARTITION,
+		CreatePartitionOp: &CreatePartitionOp{
+			Partition: &Partition{
+				Subject:           "foo",
+				Stream:            "foo",
+				ReplicationFactor: 3,
+			},
+		},
+	}
+	envelope, err := MarshalPropagatedRequest(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalPropagatedRequest(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a PropagatedResponse and then unmarshal it.
+func TestMarshalUnmarshalPropagatedResponse(t *testing.T) {
+	req := &PropagatedResponse{
+		Op: Op_CREATE_PARTITION,
+	}
+	envelope, err := MarshalPropagatedResponse(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalPropagatedResponse(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a PartitionStatusRequest and then unmarshal it.
+func TestMarshalUnmarshalPartitionStatusRequest(t *testing.T) {
+	req := &PartitionStatusRequest{
+		Stream:    "foo",
+		Partition: 1,
+	}
+	envelope, err := MarshalPartitionStatusRequest(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalPartitionStatusRequest(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a PartitionStatusResponse and then unmarshal it.
+func TestMarshalUnmarshalPartitionStatusResponse(t *testing.T) {
+	req := &PartitionStatusResponse{
+		Exists: false,
+	}
+	envelope, err := MarshalPartitionStatusResponse(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalPartitionStatusResponse(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a ReplicationRequest and then unmarshal it.
+func TestMarshalUnmarshalReplicationRequest(t *testing.T) {
+	req := &ReplicationRequest{
+		ReplicaID: "b",
+		Offset:    10,
+	}
+	envelope, err := MarshalReplicationRequest(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalReplicationRequest(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a ReplicationResponse and then unmarshal it.
+func TestMarshalUnmarshalReplicationResponse(t *testing.T) {
+	buf := new(bytes.Buffer)
+	n := WriteReplicationResponseHeader(buf)
+	require.Equal(t, 8, n)
+
+	var (
+		epoch = uint64(2)
+		hw    = int64(100)
+		data  = []byte("blah")
+	)
+
+	// Write the leader epoch.
+	binary.Write(buf, Encoding, epoch)
+	// Write the HW.
+	binary.Write(buf, Encoding, hw)
+	// Write some fake message data.
+	buf.Write(data)
+
+	unmarshaledEpoch, unmarshaledHW, unmarshaledData, err := UnmarshalReplicationResponse(buf.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, epoch, unmarshaledEpoch)
+	require.Equal(t, hw, unmarshaledHW)
+	require.Equal(t, data, unmarshaledData)
+}
+
+// Ensure we can marshal a LeaderEpochOffsetRequest and then unmarshal it.
+func TestMarshalUnmarshalLeaderEpochOffsetRequest(t *testing.T) {
+	req := &LeaderEpochOffsetRequest{
+		LeaderEpoch: 1,
+	}
+	envelope, err := MarshalLeaderEpochOffsetRequest(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalLeaderEpochOffsetRequest(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a LeaderEpochOffsetResponse and then unmarshal it.
+func TestMarshalUnmarshalLeaderEpochOffsetResponse(t *testing.T) {
+	req := &LeaderEpochOffsetResponse{
+		EndOffset: 10,
+	}
+	envelope, err := MarshalLeaderEpochOffsetResponse(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalLeaderEpochOffsetResponse(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a PartitionNotification and then unmarshal it.
+func TestMarshalUnmarshalPartitionNotification(t *testing.T) {
+	req := &PartitionNotification{
+		Stream:    "foo",
+		Partition: 2,
+	}
+	envelope, err := MarshalPartitionNotification(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalPartitionNotification(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a RaftJoinRequest and then unmarshal it.
+func TestMarshalUnmarshalRaftJoinRequest(t *testing.T) {
+	req := &RaftJoinRequest{
+		NodeID:   "foo",
+		NodeAddr: "bar",
+	}
+	envelope, err := MarshalRaftJoinRequest(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalRaftJoinRequest(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure we can marshal a RaftJoinResponse and then unmarshal it.
+func TestMarshalUnmarshalRaftJoinResponse(t *testing.T) {
+	req := &RaftJoinResponse{}
+	envelope, err := MarshalRaftJoinResponse(req)
+	require.NoError(t, err)
+
+	unmarshaled, err := UnmarshalRaftJoinResponse(envelope)
+	require.NoError(t, err)
+
+	require.Equal(t, req, unmarshaled)
+}
+
+// Ensure unmarshalEnvelope returns an error if there is not enough data for an
 // envelope.
 func TestUnmarshalEnvelopeUnderflow(t *testing.T) {
-	require.Error(t, UnmarshalEnvelope([]byte{}, new(client.Ack)))
+	_, err := UnmarshalAck([]byte{})
+	require.Error(t, err)
 }
 
-// Ensure UnmarshalEnvelope returns an error if the magic number is different.
+// Ensure unmarshalEnvelope returns an error if the magic number is different.
 func TestUnmarshalEnvelopeUnexpectedMagicNumber(t *testing.T) {
-	require.Error(t, UnmarshalEnvelope([]byte("foobarbaz"), new(client.Ack)))
+	_, err := UnmarshalAck([]byte("foobarbaz"))
+	require.Error(t, err)
 }
 
-// Ensure UnmarshalEnvelope returns an error if the protocol version is
+// Ensure unmarshalEnvelope returns an error if the protocol version is
 // unknown.
 func TestUnmarshalEnvelopeUnexpectedProtoVersion(t *testing.T) {
-	msg, err := MarshalEnvelope(new(client.Message))
+	msg, err := MarshalPublish(new(client.Message))
 	require.NoError(t, err)
 	msg[4] = 0x01
-	require.Error(t, UnmarshalEnvelope(msg, new(client.Message)))
+	_, err = UnmarshalPublish(msg)
+	require.Error(t, err)
 }
 
-// Ensure UnmarshalEnvelope returns an error if the CRC flag is set but no CRC
+// Ensure unmarshalEnvelope returns an error if the CRC flag is set but no CRC
 // is present.
 func TestUnmarshalEnvelopeMissingCRC(t *testing.T) {
-	msg, err := MarshalEnvelope(new(client.Message))
+	msg, err := MarshalPublish(new(client.Message))
 	require.NoError(t, err)
 	msg[6] = setBit(msg[6], 0)
-	require.Error(t, UnmarshalEnvelope(msg, new(client.Message)))
+	_, err = UnmarshalPublish(msg)
+	require.Error(t, err)
 }
 
-// Ensure UnmarshalEnvelope returns an error if the CRC flag is set but the CRC
+// Ensure unmarshalEnvelope returns an error if the CRC flag is set but the CRC
 // doesn't match the expected CRC.
 func TestUnmarshalEnvelopeMismatchedCRC(t *testing.T) {
-	msg, err := MarshalEnvelope(new(client.Message))
+	msg, err := MarshalPublish(new(client.Message))
 	require.NoError(t, err)
 	msg[6] = setBit(msg[6], 0)
 	buf := make([]byte, len(msg)+4)
@@ -95,7 +306,17 @@ func TestUnmarshalEnvelopeMismatchedCRC(t *testing.T) {
 	buf[8] = byte(32)
 	copy(buf[12:], msg[8:])
 	buf[5] = byte(12)
-	require.Error(t, UnmarshalEnvelope(buf, new(client.Message)))
+	_, err = UnmarshalPublish(buf)
+	require.Error(t, err)
+}
+
+// Ensure unmarshalEnvelope returns an error if the envelope's MsgType doesn't
+// match the expected type.
+func TestUnmarshalEnvelopeMismatchedType(t *testing.T) {
+	msg, err := MarshalPublish(new(client.Message))
+	require.NoError(t, err)
+	_, err = UnmarshalAck(msg)
+	require.Error(t, err)
 }
 
 func setBit(n byte, pos uint8) byte {

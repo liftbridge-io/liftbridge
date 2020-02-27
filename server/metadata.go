@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
+
 	"github.com/liftbridge-io/liftbridge/server/proto"
 )
 
@@ -196,9 +197,9 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 	defer sub.Unsubscribe()
 
 	// Survey the cluster.
-	queryReq, err := (&proto.ServerInfoRequest{
+	queryReq, err := proto.MarshalServerInfoRequest(&proto.ServerInfoRequest{
 		Id: m.config.Clustering.ServerID,
-	}).Marshal()
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -210,8 +211,8 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 		if err != nil {
 			break
 		}
-		queryResp := &proto.ServerInfoResponse{}
-		if err := queryResp.Unmarshal(msg.Data); err != nil {
+		queryResp, err := proto.UnmarshalServerInfoResponse(msg.Data)
+		if err != nil {
 			m.logger.Warnf("Received invalid server info response: %v", err)
 			continue
 		}
@@ -688,7 +689,7 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 		return status.New(codes.Internal, "No known metadata leader")
 	}
 
-	data, err := req.Marshal()
+	data, err := proto.MarshalPropagatedRequest(req)
 	if err != nil {
 		panic(err)
 	}
@@ -704,8 +705,8 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 		return status.New(codes.Internal, err.Error())
 	}
 
-	r := &proto.PropagatedResponse{}
-	if err := r.Unmarshal(resp.Data); err != nil {
+	r, err := proto.UnmarshalPropagatedResponse(resp.Data)
+	if err != nil {
 		m.logger.Errorf("metadata: Invalid response for propagated request: %v", err)
 		return status.New(codes.Internal, "invalid response")
 	}
@@ -728,10 +729,10 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, stream, leader
 		return
 	}
 
-	req, err := (&proto.PartitionStatusRequest{
+	req, err := proto.MarshalPartitionStatusRequest(&proto.PartitionStatusRequest{
 		Stream:    stream,
 		Partition: partition,
-	}).Marshal()
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -745,8 +746,8 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, stream, leader
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		statusResp := &proto.PartitionStatusResponse{}
-		if err := statusResp.Unmarshal(resp.Data); err != nil {
+		statusResp, err := proto.UnmarshalPartitionStatusResponse(resp.Data)
+		if err != nil {
 			m.logger.Warnf(
 				"Invalid status response for partition [stream=%s, partition=%d] from leader %s: %v",
 				stream, partition, leader, err)

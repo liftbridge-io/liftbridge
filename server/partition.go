@@ -418,14 +418,14 @@ func (p *partition) stopFollowing() error {
 // epoch or the log end offset if the leader's current epoch is equal to the
 // one requested.
 func (p *partition) handleLeaderOffsetRequest(msg *nats.Msg) {
-	req := &proto.LeaderEpochOffsetRequest{}
-	if err := req.Unmarshal(msg.Data); err != nil {
+	req, err := proto.UnmarshalLeaderEpochOffsetRequest(msg.Data)
+	if err != nil {
 		p.srv.logger.Errorf("Invalid leader epoch offset request for partition %s: %v", p, err)
 		return
 	}
-	resp, err := (&proto.LeaderEpochOffsetResponse{
+	resp, err := proto.MarshalLeaderEpochOffsetResponse(&proto.LeaderEpochOffsetResponse{
 		EndOffset: p.log.LastOffsetForLeaderEpoch(req.LeaderEpoch),
-	}).Marshal()
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -439,8 +439,8 @@ func (p *partition) handleLeaderOffsetRequest(msg *nats.Msg) {
 // NATS subject specified on the request.
 func (p *partition) handleReplicationRequest(msg *nats.Msg) {
 	received := time.Now()
-	req := &proto.ReplicationRequest{}
-	if err := req.Unmarshal(msg.Data); err != nil {
+	req, err := proto.UnmarshalReplicationRequest(msg.Data)
+	if err != nil {
 		p.srv.logger.Errorf("Invalid replication request for partition %s: %v", p, err)
 		return
 	}
@@ -467,14 +467,11 @@ func (p *partition) handleReplicationRequest(msg *nats.Msg) {
 // receives a replication response from the leader. This response will contain
 // the leader epoch, leader HW, and (optionally) messages to replicate.
 func (p *partition) handleReplicationResponse(msg *nats.Msg) int {
-	// We should have at least 16 bytes, 8 for leader epoch and 8 for HW, i.e.
-	// replicationOverhead.
-	if len(msg.Data) < replicationOverhead {
-		p.srv.logger.Warnf("Invalid replication response for partition %s", p)
+	leaderEpoch, hw, data, err := proto.UnmarshalReplicationResponse(msg.Data)
+	if err != nil {
+		p.srv.logger.Warnf("Invalid replication response for partition %s: %s", p, err)
 		return 0
 	}
-
-	leaderEpoch := proto.Encoding.Uint64(msg.Data[:8])
 
 	p.mu.RLock()
 	if !p.isFollowing {
@@ -489,10 +486,8 @@ func (p *partition) handleReplicationResponse(msg *nats.Msg) int {
 	p.mu.RUnlock()
 
 	// Update HW from leader's HW.
-	hw := int64(proto.Encoding.Uint64(msg.Data[8:]))
 	p.log.SetHighWatermark(hw)
 
-	data := msg.Data[replicationOverhead:]
 	if len(data) == 0 {
 		return 0
 	}
@@ -728,7 +723,7 @@ func (p *partition) sendAck(ack *client.Ack) {
 	if ack.AckInbox == "" {
 		return
 	}
-	data, err := proto.MarshalEnvelope(ack)
+	data, err := proto.MarshalAck(ack)
 	if err != nil {
 		panic(err)
 	}
@@ -814,10 +809,10 @@ func (p *partition) computeReplicaFetchSleep() time.Duration {
 // messages that were replicated. Zero (without an error) indicates the
 // follower is caught up with the leader.
 func (p *partition) sendReplicationRequest() (int, error) {
-	data, err := (&proto.ReplicationRequest{
+	data, err := proto.MarshalReplicationRequest(&proto.ReplicationRequest{
 		ReplicaID: p.srv.config.Clustering.ServerID,
 		Offset:    p.log.NewestOffset(),
-	}).Marshal()
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -870,7 +865,8 @@ func (p *partition) truncateUncommitted() error {
 // sendLeaderOffsetRequest sends a request to the leader for the last offset
 // for the current leader epoch.
 func (p *partition) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
-	data, err := (&proto.LeaderEpochOffsetRequest{LeaderEpoch: leaderEpoch}).Marshal()
+	data, err := proto.MarshalLeaderEpochOffsetRequest(
+		&proto.LeaderEpochOffsetRequest{LeaderEpoch: leaderEpoch})
 	if err != nil {
 		panic(err)
 	}
@@ -882,8 +878,8 @@ func (p *partition) sendLeaderOffsetRequest(leaderEpoch uint64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	offsetResp := &proto.LeaderEpochOffsetResponse{}
-	if err := offsetResp.Unmarshal(resp.Data); err != nil {
+	offsetResp, err := proto.UnmarshalLeaderEpochOffsetResponse(resp.Data)
+	if err != nil {
 		return 0, err
 	}
 	return offsetResp.EndOffset, nil
@@ -1062,10 +1058,10 @@ func (p *partition) updateISRLatestOffset(replica string, offset int64) {
 // sendPartitionNotification sends a message to the given partition replica to
 // indicate new data is available in the log.
 func (p *partition) sendPartitionNotification(replica string) {
-	req, err := (&proto.PartitionNotification{
+	req, err := proto.MarshalPartitionNotification(&proto.PartitionNotification{
 		Stream:    p.Stream,
 		Partition: p.Id,
-	}).Marshal()
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -1094,8 +1090,8 @@ func (p *partition) getSubject() string {
 // This is indicated by the presence of the envelope magic number. If it is
 // not, nil is returned.
 func getMessage(data []byte) *client.Message {
-	msg := new(client.Message)
-	if err := proto.UnmarshalEnvelope(data, msg); err != nil {
+	msg, err := proto.UnmarshalPublish(data)
+	if err != nil {
 		return nil
 	}
 	return msg
