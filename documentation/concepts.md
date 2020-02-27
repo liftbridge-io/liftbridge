@@ -197,5 +197,6 @@ Controller is also referred to as "metadata leader" in some contexts.
 Liftbridge extends NATS by allowing regular NATS messages to flow into durable
 streams. This can be completely transparent to publishers. However, it also
 allows publishers to *enhance* messages by providing additional metadata and
-serializing their messages into *envelopes*. An envelope allows publishers to
-set things like the `AckInbox`, `Key`, `Headers`, and other pieces of metadata.
+serializing their messages into [*envelopes*](./envelope_protocol.md). An
+envelope allows publishers to set things like the `AckInbox`, `Key`, `Headers`,
+and other pieces of metadata.
