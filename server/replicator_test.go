@@ -839,8 +839,8 @@ func TestReplicatorNotifyNewData(t *testing.T) {
 			follower.config.Clustering.ServerID)
 	)
 	_, err = nc.Subscribe(inbox, func(msg *nats.Msg) {
-		req := &proto.PartitionNotification{}
-		if err := req.Unmarshal(msg.Data); err != nil {
+		req, err := proto.UnmarshalPartitionNotification(msg.Data)
+		if err != nil {
 			t.Fatalf("Invalid partition notification: %v", err)
 		}
 		notifications <- req

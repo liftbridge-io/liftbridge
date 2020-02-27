@@ -306,6 +306,7 @@ type protocolWriter struct {
 	buf        *bytes.Buffer
 	log        commitlog.CommitLog
 	lastOffset int64
+	dataPos    int
 	stop       <-chan struct{}
 }
 
@@ -334,7 +335,7 @@ func (w *protocolWriter) Write(offset int64, headers, message []byte) error {
 func (w *protocolWriter) Flush(write func([]byte) error) error {
 	data := w.buf.Bytes()
 	// Replace the HW.
-	proto.Encoding.PutUint64(data[8:], uint64(w.log.HighWatermark()))
+	proto.Encoding.PutUint64(data[w.dataPos+8:], uint64(w.log.HighWatermark()))
 
 	if err := write(data); err != nil {
 		w.Reset()
@@ -352,6 +353,9 @@ func (w *protocolWriter) Len() int {
 func (w *protocolWriter) Reset() {
 	w.buf.Reset()
 	w.lastOffset = -1
+
+	// Write envelope header.
+	w.dataPos = proto.WriteReplicationResponseHeader(w.buf)
 
 	// Write the leader epoch.
 	binary.Write(w.buf, proto.Encoding, w.replicator.epoch)

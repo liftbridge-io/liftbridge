@@ -24,7 +24,7 @@ the Liftbridge API.
 ├───────────────┴───────────────┴───────────────┴───────────────┤
 │                          Magic Number                         │
 ├───────────────┬───────────────┬───────────────┬───────────────┤
-│    Version    │   HeaderLen   │     Flags     │    Reserved   │
+│    Version    │   HeaderLen   │     Flags     │    MsgType    │
 ├───────────────┴───────────────┴───────────────┴───────────────┤
 │                       CRC-32C (optional)                      │
 └───────────────────────────────────────────────────────────────┘
@@ -53,12 +53,30 @@ safety.
 The flag bits are defined as follows:
 
 | Bit | Description     |
-| --- | --------------- |
+| :-- | :-------------- |
 | 0   | CRC-32C enabled |
 
-### Reserved [1 byte]
+### MsgType [1 byte]
 
-Reserved for future use.
+This is the Liftbridge-specific message type the envelope contains:
+
+| MsgType | Name                      | Description                                            | Internal |
+| :------ | :------------------------ | :----------------------------------------------------- | :------- |
+| 0       | Publish                   | Client-published message                               | no       |
+| 1       | Ack                       | Server-published ack                                   | no       |
+| 2       | ReplicationRequest        | Request to replicate partition data                    | yes      |
+| 3       | ReplicationResponse       | Response to ReplicationRequest                         | yes      |
+| 4       | RaftJoinRequest           | Request to join Raft cluster                           | yes      |
+| 5       | RaftJoinResponse          | Response to RaftJoinRequest                            | yes      |
+| 6       | LeaderEpochOffsetRequest  | Request for partition leader's latest offset for epoch | yes      |
+| 7       | LeaderEpochOffsetResponse | Response to LeaderEpochOffsetRequest                   | yes      |
+| 8       | PropagatedRequest         | Request forwarded to metadata leader                   | yes      |
+| 9       | PropagatedResponse        | Response to PropagatedRequest                          | yes      |
+| 10      | ServerInfoRequest         | Request for cluster information                        | yes      |
+| 11      | ServerInfoResponse        | Response to ServerInfoRequest                          | yes      |
+| 12      | PartitionStatusRequest    | Request to get partition status                        | yes      |
+| 13      | PartitionStatusResponse   | Response to PartitionStatusRequest                     | yes      |
+| 14      | PartitionNotification     | Signal new data is available for partition             | yes      |
 
 ### CRC-32C [4 bytes, optional]
 
