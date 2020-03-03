@@ -1,0 +1,25 @@
+{
+  "version-v1.0.0-beta-docs": {
+    "Overview": [
+      "version-v1.0.0-beta-overview",
+      "version-v1.0.0-beta-faq",
+      "version-v1.0.0-beta-concepts",
+      "version-v1.0.0-beta-quick-start"
+    ],
+    "Configuration": [
+      "version-v1.0.0-beta-configuration",
+      "version-v1.0.0-beta-ha-and-consistency-configuration"
+    ],
+    "Deployment": [
+      "version-v1.0.0-beta-deployment"
+    ],
+    "Technical Deep Dive": [
+      "version-v1.0.0-beta-replication-protocol",
+      "version-v1.0.0-beta-envelope-protocol"
+    ],
+    "Client Libraries": [
+      "version-v1.0.0-beta-clients",
+      "version-v1.0.0-beta-client-implementation"
+    ]
+  }
+}
