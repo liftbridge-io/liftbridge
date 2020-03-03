@@ -38,6 +38,36 @@
       "replication-protocol": {
         "title": "Replication Protocol"
       },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-client-implementation": {
+        "title": "Client Implementation Guidance"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-clients": {
+        "title": "Clients"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-concepts": {
+        "title": "Concepts"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-configuration": {
+        "title": "Configuration"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-deployment": {
+        "title": "Deployment"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-faq": {
+        "title": "Frequently Asked Questions"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-ha-and-consistency-configuration": {
+        "title": "Configuring for High Availability and Consistency"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-overview": {
+        "title": "Liftbridge Overview"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-quick-start": {
+        "title": "Quick Start"
+      },
+      "version-v0.0.1-alpha/version-v0.0.1-alpha-replication-protocol": {
+        "title": "Replication Protocol"
+      },
       "version-v1.0.0-alpha/version-v1.0.0-alpha-client-implementation": {
         "title": "Client Implementation Guidance"
       },

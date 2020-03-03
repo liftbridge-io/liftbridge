@@ -67,6 +67,7 @@ class Footer extends React.Component {
             <h5>More</h5>
             <a href={this.pageUrl('help.html', this.props.language)}>Help</a>
             <a href={this.pageUrl('acknowledgements.html', this.props.language)}>Acknowledgements</a>
+            <a href={this.pageUrl('versions.html', this.props.language)}>Versions</a>
           </div>
         </section>
         <section className="copyright">{this.props.config.copyright}</section>

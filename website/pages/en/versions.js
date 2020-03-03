@@ -26,7 +26,7 @@ function Versions(props) {
       <Container className="mainContainer versionsContainer">
         <div className="post">
           <header className="postHeader">
-            <h1>{siteConfig.title} Versions</h1>
+            <h1>Liftbridge Versions</h1>
           </header>
           <h3 id="latest">Current Release (Stable)</h3>
           <p>
@@ -83,7 +83,7 @@ function Versions(props) {
               {versions.map(
                 version =>
                   version !== latestVersion && (
-                    <tr>
+                    <tr key={version}>
                       <th>{version}</th>
                       <td>
                         {/* You are supposed to change this href where appropriate

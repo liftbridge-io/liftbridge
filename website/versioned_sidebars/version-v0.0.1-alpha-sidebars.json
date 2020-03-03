@@ -1,0 +1,24 @@
+{
+  "version-v0.0.1-alpha-docs": {
+    "Overview": [
+      "version-v0.0.1-alpha-overview",
+      "version-v0.0.1-alpha-faq",
+      "version-v0.0.1-alpha-concepts",
+      "version-v0.0.1-alpha-quick-start"
+    ],
+    "Configuration": [
+      "version-v0.0.1-alpha-configuration",
+      "version-v0.0.1-alpha-ha-and-consistency-configuration"
+    ],
+    "Deployment": [
+      "version-v0.0.1-alpha-deployment"
+    ],
+    "Technical Deep Dive": [
+      "version-v0.0.1-alpha-replication-protocol"
+    ],
+    "Client Libraries": [
+      "version-v0.0.1-alpha-clients",
+      "version-v0.0.1-alpha-client-implementation"
+    ]
+  }
+}
