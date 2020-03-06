@@ -72,6 +72,7 @@ workflows:
       - build-dev
       - test
       - build-and-push-standalone-dev-image:
+          context: docker-push
           requires:
             - build-dev
           filters:
