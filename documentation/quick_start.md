@@ -61,15 +61,14 @@ $ liftbridge --raft-bootstrap-peers server-2,server-3
 ## Docker Container
 
 Instead of running a binary, you can run Liftbridge using a container. There is
-a [container image](https://hub.docker.com/r/liftbridge/liftbridge-docker)
-available which runs an instance of Liftbridge and NATS inside a [single Docker
-container](https://github.com/liftbridge-io/liftbridge-docker). This is meant
-for development and testing purposes. Use the following Docker commands to run
-this container:
+a [container image](https://hub.docker.com/r/liftbridge/standalone-dev)
+available which runs an instance of Liftbridge and NATS inside a single Docker
+container. This is meant for development and testing purposes. Use the
+following Docker commands to run this container:
 
 ```shell
-$ docker pull liftbridge/liftbridge-docker
-$ docker run -d --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 liftbridge/liftbridge-docker
+$ docker pull liftbridge/standalone-dev
+$ docker run -d --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 liftbridge/standalone-dev
 ```
 
 This will run the container which will start both the NATS and Liftbridge
