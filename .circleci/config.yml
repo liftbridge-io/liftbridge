@@ -64,6 +64,7 @@ jobs:
 
   build-and-push-website:
     docker:
+      - image: circleci/node
       - image: google/cloud-sdk
     steps:
       - checkout
