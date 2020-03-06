@@ -19,17 +19,16 @@ cluster locally for development and testing purposes:
 
 ### Docker
 
-There is a [container image](https://hub.docker.com/r/liftbridge/liftbridge-docker)
-available which runs an instance of Liftbridge and NATS inside a [single Docker
-container](https://github.com/liftbridge-io/liftbridge-docker) for development
-and testing purposes. In effect, this runs a single-node Liftbridge cluster on
-your machine.
+There is a [container image](https://hub.docker.com/r/liftbridge/standalone-dev)
+available which runs an instance of Liftbridge and NATS inside a single Docker
+container for development and testing purposes. In effect, this runs a
+single-node Liftbridge cluster on your machine.
 
 Use the following Docker commands to run the container:
 
 ```shell
-$ docker pull liftbridge/liftbridge-docker
-$ docker run -d --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 liftbridge/liftbridge-docker
+$ docker pull liftbridge/standalone-dev
+$ docker run -d --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 liftbridge/standalone-dev
 ```
 
 This will run the container which will start both the NATS and Liftbridge

@@ -1,5 +1,5 @@
-# liftbridge-docker
-[![GitHub](https://img.shields.io/github/license/liftbridge-io/liftbridge-docker)](https://github.com/liftbridge-io/liftbridge-docker/blob/master/LICENSE)
+# Standalone Docker Image
+
 > **WARNING**: This container is intended for testing and/or development
 > purposes!
 
@@ -7,7 +7,8 @@ Liftbridge provides lightweight, fault-tolerant message streams by implementing
 a durable stream augmentation for the NATS messaging system.
 
 This is the source code of the Docker image embedding [NATS](https://nats.io/)
-next to [Liftbridge](https://github.com/liftbridge-io/liftbridge).
+next to [Liftbridge](https://github.com/liftbridge-io/liftbridge). The image is
+available on Docker Hub [here](https://hub.docker.com/repository/docker/liftbridge/standalone-dev).
 
 
 ## Usage
@@ -15,8 +16,8 @@ next to [Liftbridge](https://github.com/liftbridge-io/liftbridge).
 Using the container can be done like this:
 
 ```
-$ docker pull liftbridge/liftbridge-standalone
-$ docker run -d --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 liftbridge/liftbridge-standalone
+$ docker pull liftbridge/standalone-dev
+$ docker run -d --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 liftbridge/standalone-dev
 ```
 
 This will bootup the container and start both the NATS and Liftbridge servers.
@@ -92,5 +93,5 @@ Go to the root directory of the Liftbridge source code and run:
 
 ```
 $ make build-dev
-$ docker build -t liftbridge/liftbridge-standalone -f docker/dev-image/Dockerfile .
+$ docker build -t liftbridge/standalone-dev -f docker/dev-image/Dockerfile .
 ```
