@@ -46,7 +46,7 @@ jobs:
       - attach_workspace:
           at: ~/project
       - run:
-          name: set image version
+          name: Set image version
           command: |
             if [ -n "$CIRCLE_TAG" ]; then
                 echo "export VERSION='${CIRCLE_TAG}'" >> $BASH_ENV
@@ -54,16 +54,28 @@ jobs:
                 echo "export VERSION='${CIRCLE_SHA1}'" >> $BASH_ENV
             fi
       - run:
-          name: build image
+          name: Build image
           command: |
             docker build -t "liftbridge/standalone-dev:${VERSION}" -f docker/dev-standalone/Dockerfile .
             docker tag "liftbridge/standalone-dev:${VERSION}" 'liftbridge/standalone-dev:latest'
       - run:
-          name: publish image
+          name: Publish image
           command: |
             echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             docker push "liftbridge/standalone-dev:${VERSION}"
             docker push 'liftbridge/standalone-dev:latest'
+
+  build-and-push-website:
+    docker:
+      - image: google/cloud-sdk
+    working_directory: "~/project/website/deploy"
+    steps:
+      - run:
+          name: Build and deploy website
+          command: |
+            echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+            make clean
+            make deploy DEPLOY_FLAGS=--quiet
 
 workflows:
   version: 2
@@ -75,6 +87,11 @@ workflows:
           context: docker-push
           requires:
             - build-dev
+          filters:
+            branches:
+              only: master
+      - build-and-push-website:
+          context: website-push
           filters:
             branches:
               only: master
