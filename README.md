@@ -34,3 +34,4 @@ for more context and some of the inspiration behind it.
 [ReportCard-Image]: https://goreportcard.com/badge/github.com/liftbridge-io/liftbridge
 [Coverage-Url]: https://coveralls.io/github/liftbridge-io/liftbridge?branch=master
 [Coverage-image]: https://coveralls.io/repos/github/liftbridge-io/liftbridge/badge.svg?branch=master
+
