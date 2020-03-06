@@ -1,6 +1,6 @@
 .PHONY: deploy
 deploy: build
-	gcloud app deploy
+	gcloud app deploy $(DEPLOY_FLAGS)
 
 build:
 	yarn --cwd .. run build
