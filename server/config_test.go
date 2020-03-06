@@ -45,6 +45,13 @@ func TestNewConfigFromFile(t *testing.T) {
 	require.Equal(t, 3*time.Second, config.Clustering.ReplicaFetchTimeout)
 	require.Equal(t, 1, config.Clustering.MinISR)
 
+	require.Equal(t, true, config.ActivityStream.Enabled)
+	require.Equal(t, time.Minute, config.ActivityStream.PublicationTimeout)
+	require.Equal(t, "leader", config.ActivityStream.PublicationAckPolicy)
+	require.Equal(t, "foo", config.ActivityStream.Group)
+	require.Equal(t, int32(2), config.ActivityStream.ReplicationFactor)
+	require.Equal(t, int32(3), config.ActivityStream.Partitions)
+
 	require.Equal(t, []string{"nats://localhost:4222"}, config.NATS.Servers)
 	require.Equal(t, "user", config.NATS.User)
 	require.Equal(t, "pass", config.NATS.Password)

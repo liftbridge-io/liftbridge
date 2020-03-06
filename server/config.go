@@ -27,21 +27,23 @@ const (
 
 // Config setting defaults.
 const (
-	defaultListenAddress           = "0.0.0.0"
-	defaultConnectionAddress       = "localhost"
-	defaultReplicaMaxLagTime       = 15 * time.Second
-	defaultReplicaMaxLeaderTimeout = 15 * time.Second
-	defaultReplicaMaxIdleWait      = 10 * time.Second
-	defaultRaftSnapshots           = 2
-	defaultRaftCacheSize           = 512
-	defaultMetadataCacheMaxAge     = 2 * time.Minute
-	defaultBatchMaxMessages        = 1024
-	defaultReplicaFetchTimeout     = 3 * time.Second
-	defaultMinInsyncReplicas       = 1
-	defaultRetentionMaxAge         = 7 * 24 * time.Hour
-	defaultCleanerInterval         = 5 * time.Minute
-	defaultMaxSegmentBytes         = 1024 * 1024 * 256 // 256MB
-	defaultMaxSegmentAge           = defaultRetentionMaxAge
+	defaultListenAddress                      = "0.0.0.0"
+	defaultConnectionAddress                  = "localhost"
+	defaultReplicaMaxLagTime                  = 15 * time.Second
+	defaultReplicaMaxLeaderTimeout            = 15 * time.Second
+	defaultReplicaMaxIdleWait                 = 10 * time.Second
+	defaultRaftSnapshots                      = 2
+	defaultRaftCacheSize                      = 512
+	defaultMetadataCacheMaxAge                = 2 * time.Minute
+	defaultBatchMaxMessages                   = 1024
+	defaultReplicaFetchTimeout                = 3 * time.Second
+	defaultMinInsyncReplicas                  = 1
+	defaultRetentionMaxAge                    = 7 * 24 * time.Hour
+	defaultCleanerInterval                    = 5 * time.Minute
+	defaultMaxSegmentBytes                    = 1024 * 1024 * 256 // 256MB
+	defaultMaxSegmentAge                      = defaultRetentionMaxAge
+	defaultActivityStreamPublicationTimeout   = 5 * time.Second
+	defaultActivityStreamPublicationAckPolicy = "all"
 )
 
 // Config setting key names.
@@ -89,6 +91,10 @@ const (
 	configClusteringReplicaMaxIdleWait      = "clustering.replica.max.idle.wait"
 	configClusteringReplicaFetchTimeout     = "clustering.replica.fetch.timeout"
 	configClusteringMinInsyncReplicas       = "clustering.min.insync.replicas"
+
+	configActivityStreamEnabled              = "activity.stream.enabled"
+	configActivityStreamPublicationTimeout   = "activity.stream.publication.timeout"
+	configActivityStreamPublicationAckPolicy = "activity.stream.publication.ack.policy"
 )
 
 var configKeys = map[string]struct{}{
@@ -184,6 +190,17 @@ type ClusteringConfig struct {
 	MinISR                  int
 }
 
+// ActivityStreamConfig contains settings for controlling activity stream
+// behavior.
+type ActivityStreamConfig struct {
+	Enabled              bool
+	PublicationTimeout   time.Duration
+	PublicationAckPolicy string
+	Group                string
+	ReplicationFactor    int32
+	Partitions           int32
+}
+
 // Config contains all settings for a Liftbridge Server.
 type Config struct {
 	Listen              HostPort
@@ -204,6 +221,7 @@ type Config struct {
 	NATS                nats.Options
 	Streams             StreamsConfig
 	Clustering          ClusteringConfig
+	ActivityStream      ActivityStreamConfig
 }
 
 // NewDefaultConfig creates a new Config with default settings.
@@ -228,6 +246,8 @@ func NewDefaultConfig() *Config {
 	config.Streams.SegmentMaxAge = defaultMaxSegmentAge
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
 	config.Streams.CleanerInterval = defaultCleanerInterval
+	config.ActivityStream.PublicationTimeout = defaultActivityStreamPublicationTimeout
+	config.ActivityStream.PublicationAckPolicy = defaultActivityStreamPublicationAckPolicy
 	return config
 }
 
@@ -391,6 +411,7 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	parseNATSConfig(&config.NATS, v)
 	parseStreamsConfig(config, v)
 	parseClusteringConfig(config, v)
+	parseActivityStreamConfig(config, v)
 
 	// If SegmentMaxAge is not set, default it to the retention time.
 	if config.Streams.SegmentMaxAge == 0 {
@@ -511,6 +532,29 @@ func parseClusteringConfig(config *Config, v *viper.Viper) error { // nolint: go
 	return nil
 }
 
+// parseActivityStreamConfig parses the `activitystream` section of a config
+// file and populates the given Config.
+func parseActivityStreamConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
+	if v.IsSet(configActivityStreamEnabled) {
+		config.ActivityStream.Enabled = v.GetBool(configActivityStreamEnabled)
+	}
+
+	if v.IsSet(configActivityStreamPublicationTimeout) {
+		config.ActivityStream.PublicationTimeout = v.GetDuration(configActivityStreamPublicationTimeout)
+	}
+
+	if v.IsSet(configActivityStreamPublicationAckPolicy) {
+		ackPolicy, err := parseAckPolicy(v)
+		if err != nil {
+			return err
+		}
+
+		config.ActivityStream.PublicationAckPolicy = ackPolicy
+	}
+
+	return nil
+}
+
 // HostPort is simple struct to hold parsed listen/addr strings.
 type HostPort struct {
 	Host string
@@ -537,4 +581,18 @@ func parseListen(v *viper.Viper) (*HostPort, error) {
 		hp.Host = host
 	}
 	return hp, nil
+}
+
+// parseAckPolicy will parse the activity stream's `ack.policy` option
+// containing the ack policy to use when publishing activity events.
+func parseAckPolicy(v *viper.Viper) (string, error) {
+	ackPolicy := v.GetString(configActivityStreamPublicationAckPolicy)
+	switch ackPolicy {
+	case "none":
+	case "leader":
+	case "all":
+	default:
+		return "", fmt.Errorf("Unknown activity stream publication ack policy %q", ackPolicy)
+	}
+	return ackPolicy, nil
 }
