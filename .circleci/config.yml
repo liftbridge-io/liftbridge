@@ -5,7 +5,6 @@ jobs:
       - image: liftbridge/liftbridge-circleci:0.1.0
         environment:
           GO111MODULE: "on"
-    working_directory: "~/project"
     steps:
       - checkout
       - run:
@@ -22,7 +21,6 @@ jobs:
       - image: liftbridge/liftbridge-circleci:0.1.0
         environment:
           GO111MODULE: "on"
-    working_directory: "~/project"
     steps:
       - checkout
       - run:
@@ -40,7 +38,6 @@ jobs:
   build-and-push-standalone-dev-image:
     docker:
       - image: circleci/buildpack-deps:stretch
-    working_directory: "~/project"
     steps:
       - setup_remote_docker
       - attach_workspace:
@@ -68,10 +65,11 @@ jobs:
   build-and-push-website:
     docker:
       - image: google/cloud-sdk
-    working_directory: "~/project/website/deploy"
     steps:
+      - checkout
       - run:
           name: Build and deploy website
+          working_directory: website/deploy
           command: |
             echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
             make clean
