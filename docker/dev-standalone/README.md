@@ -1,6 +1,5 @@
 # Standalone Docker Image
 
-[![GitHub](https://img.shields.io/github/license/liftbridge-io/liftbridge-docker)](https://github.com/liftbridge-io/liftbridge-docker/blob/master/LICENSE)
 > **WARNING**: This container is intended for testing and/or development
 > purposes!
 
