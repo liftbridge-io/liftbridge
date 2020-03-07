@@ -70,6 +70,7 @@ jobs:
       - run:
           name: Build website
           command: |
+            npx docusaurus-init
             make website/build
       - persist_to_workspace:
           root: .
