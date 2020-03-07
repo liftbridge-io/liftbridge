@@ -1,4 +1,4 @@
-.PHONY: compose-up compose-down kind-up kind-down kind-apply kind-export
+.PHONY: compose-up compose-down kind-up kind-down kind-apply kind-export website-deploy website-clean
 
 KIND_CLUSTER_NAME=kind
 KIND_KUBECONFIG:=~/.kube/kind-config-$(KIND_CLUSTER_NAME)
@@ -31,3 +31,12 @@ build:
 build-dev: liftbridge-dev
 liftbridge-dev:
 	CGO_ENABLED=1 go build -tags netgo -ldflags '-extldflags "-static"' -mod=readonly -o liftbridge-dev
+
+website-deploy: website/build
+	gcloud app deploy $(WEBSITE_DEPLOY_FLAGS) website/app.yaml
+
+website/build:
+	yarn --cwd website run build
+
+website-clean:
+	rm -rf website/build

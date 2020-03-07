@@ -1,0 +1,18 @@
+runtime: python37
+
+handlers:
+- url: /
+  static_files: build/liftbridge/index.html
+  upload: build/liftbridge/index.html
+  secure: always
+
+# Redirect /docs to documentation.
+- url: /docs(\/?)
+  static_files: build/liftbridge/docs/overview.html
+  upload: build/liftbridge/docs/overview.html
+  secure: always
+
+- url: /(.*)
+  static_files: build/liftbridge/\1
+  upload: build/liftbridge/(.*)
+  secure: always

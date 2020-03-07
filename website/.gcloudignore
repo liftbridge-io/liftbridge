@@ -17,3 +17,18 @@
 __pycache__/
 # Ignored by the build system
 /setup.cfg
+
+# Website artifacts (only need build directory):
+node_modules/
+core/
+i18n/
+pages/
+static/
+versioned_docs/
+versioned_sidebars/
+README.md
+package.json
+sidebars.json
+siteConfig.js
+versions.json
+yarn.lock

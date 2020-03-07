@@ -62,19 +62,31 @@ jobs:
             docker push "liftbridge/standalone-dev:${VERSION}"
             docker push 'liftbridge/standalone-dev:latest'
 
-  build-and-push-website:
+  build-website:
     docker:
       - image: circleci/node
+    steps:
+      - checkout
+      - run:
+          name: Build website
+          command: |
+            echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+            make website/build
+      - persist_to_workspace:
+          root: .
+          paths:
+            - website/
+
+  deploy-website:
+    docker:
       - image: google/cloud-sdk
     steps:
       - checkout
       - run:
-          name: Build and deploy website
-          working_directory: website/deploy
+          name: Deploy website
           command: |
             echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
-            make clean
-            make deploy DEPLOY_FLAGS=--quiet
+            make website-deploy WEBSITE_DEPLOY_FLAGS=--quiet
 
 workflows:
   version: 2
@@ -89,9 +101,14 @@ workflows:
           filters:
             branches:
               only: master
-      - build-and-push-website:
-          context: website-push
+      - build-website:
           filters:
             branches:
               only: master
-
+      - deploy-website:
+          context: website-push
+          requires:
+            - build-website
+          filters:
+            branches:
+              only: master
