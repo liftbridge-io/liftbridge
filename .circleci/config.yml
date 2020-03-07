@@ -88,6 +88,7 @@ jobs:
           name: Deploy website
           command: |
             echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+            gcloud config set project $GCLOUD_PROJECT_ID
             make website-deploy WEBSITE_DEPLOY_FLAGS=--quiet
 
 workflows:
