@@ -75,6 +75,7 @@ jobs:
       - persist_to_workspace:
           root: .
           paths:
+            - Makefile
             - website/
 
   deploy-website:
