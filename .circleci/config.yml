@@ -81,6 +81,8 @@ jobs:
     docker:
       - image: google/cloud-sdk
     steps:
+      - attach_workspace:
+          at: ~/project
       - checkout
       - run:
           name: Deploy website
