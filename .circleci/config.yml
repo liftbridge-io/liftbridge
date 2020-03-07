@@ -83,7 +83,6 @@ jobs:
     steps:
       - attach_workspace:
           at: ~/project
-      - checkout
       - run:
           name: Deploy website
           command: |
