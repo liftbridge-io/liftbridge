@@ -70,7 +70,7 @@ jobs:
       - run:
           name: Build website
           command: |
-            yarn global add docusaurus
+            yarn --cwd website
             make website/build
       - persist_to_workspace:
           root: .
