@@ -227,6 +227,9 @@ func TestDeleteStream(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
+	err = client.DeleteStream(context.Background(), "foo")
+	require.Error(t, err)
+
 	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
 	require.NoError(t, err)
 
