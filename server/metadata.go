@@ -304,7 +304,7 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 	// Wait on result of replication.
 	future := m.applyRaftOperation(op)
 	if err := future.Error(); err != nil {
-		return status.New(codes.Internal, "Failed to replicate partition")
+		return status.Newf(codes.Internal, "Failed to replicate partition: %v", err.Error())
 	}
 
 	// If there is a response, it's an error (most likely ErrPartitionExists).
@@ -342,7 +342,7 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 	// Wait on result of deletion.
 	future := m.applyRaftOperation(op)
 	if err := future.Error(); err != nil {
-		return status.New(codes.Internal, "Failed to delete stream")
+		return status.Newf(codes.Internal, "Failed to delete stream: %v", err.Error())
 	}
 
 	// If there is a response, it's an error.
@@ -394,7 +394,7 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 
 	// Wait on result of replication.
 	if err := m.applyRaftOperation(op).Error(); err != nil {
-		return status.New(codes.Internal, "Failed to shrink ISR")
+		return status.Newf(codes.Internal, "Failed to shrink ISR: %v", err.Error())
 	}
 
 	return nil
@@ -434,7 +434,7 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 
 	// Wait on result of replication.
 	if err := m.applyRaftOperation(op).Error(); err != nil {
-		return status.New(codes.Internal, "Failed to expand ISR")
+		return status.Newf(codes.Internal, "Failed to expand ISR: %v", err.Error())
 	}
 
 	return nil
@@ -672,7 +672,7 @@ func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Stat
 
 	// Wait on result of replication.
 	if err := m.applyRaftOperation(op).Error(); err != nil {
-		return status.New(codes.Internal, "Failed to replicate leader change")
+		return status.Newf(codes.Internal, "Failed to replicate leader change: %v", err.Error())
 	}
 
 	return nil
