@@ -160,14 +160,25 @@ func (p *partition) Close() error {
 		return err
 	}
 
-	if p.isFollowing {
-		if err := p.stopFollowing(); err != nil {
-			return err
-		}
-	} else if p.isLeading {
-		if err := p.stopLeading(); err != nil {
-			return err
-		}
+	if err := p.stopLeadingOrFollowing(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Delete stops the partition if it is running, closes, and deletes the commit
+// log.
+func (p *partition) Delete() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.log.Delete(); err != nil {
+		return err
+	}
+
+	if err := p.stopLeadingOrFollowing(); err != nil {
+		return err
 	}
 
 	return nil

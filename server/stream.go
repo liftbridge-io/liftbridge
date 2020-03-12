@@ -17,3 +17,13 @@ func (p *stream) Close() error {
 	}
 	return nil
 }
+
+// Delete the stream by closing and deleting each of its partitions.
+func (p *stream) Delete() error {
+	for _, partition := range p.partitions {
+		if err := partition.Delete(); err != nil {
+			return err
+		}
+	}
+	return nil
+}

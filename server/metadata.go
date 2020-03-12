@@ -581,15 +581,16 @@ func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	err := stream.Close()
+	err := stream.Delete()
 	if err != nil {
 		return errors.Wrap(err, "failed to delete stream")
 	}
 
-	streamDatapath := filepath.Join(m.Server.config.DataDir, "streams", stream.name)
-	err = os.RemoveAll(streamDatapath)
+	// Remove the (now empty) stream data directory
+	streamDataDir := filepath.Join(m.Server.config.DataDir, "streams", stream.name)
+	err = os.Remove(streamDataDir)
 	if err != nil {
-		return errors.Wrap(err, "failed to delete stream data path")
+		return errors.Wrap(err, "failed to delete stream data directory")
 	}
 
 	delete(m.streams, stream.name)
