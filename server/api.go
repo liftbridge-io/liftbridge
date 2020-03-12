@@ -292,8 +292,15 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			// TODO: this could be more efficient.
 			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf)
 			if err != nil {
+				var s *status.Status
+				if err == commitlog.ErrCommitLogDeleted {
+					s = status.New(codes.NotFound, err.Error())
+				} else {
+					s = status.Convert(err)
+				}
+
 				select {
-				case errCh <- status.Convert(err):
+				case errCh <- s:
 				case <-cancel:
 				}
 				return
