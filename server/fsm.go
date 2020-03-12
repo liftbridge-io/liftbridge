@@ -168,7 +168,13 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		var (
 			stream = log.DeleteStreamOp.Stream
 		)
-		if err := s.applyDeleteStream(stream); err != nil {
+		err := s.applyDeleteStream(stream)
+		// If err is ErrStreamNotFound, we want to return this value back to the
+		// caller.
+		if err == ErrStreamNotFound {
+			return err, nil
+		}
+		if err != nil {
 			return nil, err
 		}
 	default:
@@ -410,12 +416,12 @@ func (s *Server) applyChangeStreamLeader(stream, leader string, partitionID int3
 func (s *Server) applyDeleteStream(streamName string) error {
 	stream := s.metadata.GetStream(streamName)
 	if stream == nil {
-		return fmt.Errorf("No such stream [stream=%s]", streamName)
+		return ErrStreamNotFound
 	}
 
-	err := stream.Close()
+	err := s.metadata.CloseAndDeleteStream(stream)
 	if err != nil {
-		return errors.Wrap(err, "failed to close partition")
+		return errors.Wrap(err, "failed to delete stream")
 	}
 
 	s.logger.Debugf("fsm: Deleted stream %s", streamName)

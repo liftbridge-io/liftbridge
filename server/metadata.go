@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -26,6 +28,10 @@ const (
 // ErrPartitionExists is returned by CreatePartition when attempting to create
 // a stream partition that already exists.
 var ErrPartitionExists = errors.New("partition already exists")
+
+// ErrStreamNotFound is returned by DeleteStream when attempting to delete a
+// stream that does not exists.
+var ErrStreamNotFound = errors.New("stream does not exists")
 
 // leaderReport tracks witnesses for a partition leader. Witnesses are replicas
 // which have reported the leader as unresponsive. If a quorum of replicas
@@ -345,17 +351,15 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 		return status.Newf(codes.Internal, "Failed to delete stream: %v", err.Error())
 	}
 
-	// If there is a response, it's an error.
+	// If there is a response, it's an error (most likely ErrStreamNotFound).
 	if resp := future.Response(); resp != nil {
 		err := resp.(error)
 		code := codes.Internal
+		if err == ErrStreamNotFound {
+			code = codes.NotFound
+		}
 		return status.New(code, err.Error())
 	}
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	delete(m.streams, req.Stream)
 
 	return nil
 }
@@ -568,6 +572,36 @@ func (m *metadataAPI) Reset() error {
 		report.cancel()
 	}
 	m.leaderReports = make(map[*partition]*leaderReport)
+	return nil
+}
+
+// CloseStream close a streams and clears corresponding state in the metadata
+// store.
+func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	err := stream.Close()
+	if err != nil {
+		return errors.Wrap(err, "failed to delete stream")
+	}
+
+	streamDatapath := filepath.Join(m.Server.config.DataDir, "streams", stream.name)
+	err = os.RemoveAll(streamDatapath)
+	if err != nil {
+		return errors.Wrap(err, "failed to delete stream data path")
+	}
+
+	delete(m.streams, stream.name)
+
+	for _, partition := range stream.partitions {
+		report, ok := m.leaderReports[partition]
+		if ok {
+			report.cancel()
+			delete(m.leaderReports, partition)
+		}
+	}
+
 	return nil
 }
 
