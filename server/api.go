@@ -77,8 +77,8 @@ func (a *apiServer) DeleteStream(ctx context.Context, req *client.DeleteStreamRe
 	*client.DeleteStreamResponse, error) {
 
 	resp := &client.DeleteStreamResponse{}
-	a.logger.Debugf("api: DeleteStream [subject=%s, name=%s]",
-		req.Subject, req.Name)
+	a.logger.Debugf("api: DeleteStream [name=%s]",
+		req.Name)
 
 	if e := a.metadata.DeleteStream(ctx, &proto.DeleteStreamOp{
 		Stream: req.Name,
