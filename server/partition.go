@@ -160,11 +160,7 @@ func (p *partition) Close() error {
 		return err
 	}
 
-	if err := p.stopLeadingOrFollowing(); err != nil {
-		return err
-	}
-
-	return nil
+	return p.stopLeadingOrFollowing()
 }
 
 // Delete stops the partition if it is running, closes, and deletes the commit
@@ -177,11 +173,7 @@ func (p *partition) Delete() error {
 		return err
 	}
 
-	if err := p.stopLeadingOrFollowing(); err != nil {
-		return err
-	}
-
-	return nil
+	return p.stopLeadingOrFollowing()
 }
 
 // Notify is used to short circuit the sleep backoff a partition uses when it
