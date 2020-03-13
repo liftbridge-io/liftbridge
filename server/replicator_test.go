@@ -104,7 +104,6 @@ func TestStreamLeaderFailover(t *testing.T) {
 	defer s3.Stop()
 
 	servers := []*Server{s1, s2, s3}
-	getMetadataLeader(t, 10*time.Second, servers...)
 
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
@@ -112,8 +111,9 @@ func TestStreamLeaderFailover(t *testing.T) {
 
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name,
-		lift.ReplicationFactor(3))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	num := 100
@@ -230,7 +230,6 @@ func TestCommitOnISRShrink(t *testing.T) {
 	defer s3.Stop()
 
 	servers := []*Server{s1, s2, s3}
-	getMetadataLeader(t, 10*time.Second, servers...)
 
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
@@ -239,8 +238,9 @@ func TestCommitOnISRShrink(t *testing.T) {
 	// Create stream.
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name,
-		lift.ReplicationFactor(3))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	// Kill a stream follower.
@@ -364,7 +364,6 @@ func TestCommitOnRestart(t *testing.T) {
 	defer s2.Stop()
 
 	servers := []*Server{s1, s2}
-	leader := getMetadataLeader(t, 10*time.Second, servers...)
 
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051"})
 	require.NoError(t, err)
@@ -373,8 +372,9 @@ func TestCommitOnRestart(t *testing.T) {
 	// Create stream.
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name,
-		lift.ReplicationFactor(2))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(2))
 	require.NoError(t, err)
 
 	// Publish some messages.
@@ -387,7 +387,7 @@ func TestCommitOnRestart(t *testing.T) {
 	}
 
 	// Kill stream follower.
-	leader = getPartitionLeader(t, 10*time.Second, name, 0, servers...)
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var follower *Server
 	for i, server := range servers {
 		if server != leader {
@@ -625,7 +625,6 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	defer s3.Stop()
 
 	servers := []*Server{s1, s2, s3}
-	getMetadataLeader(t, 10*time.Second, servers...)
 
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
@@ -634,12 +633,13 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	// Create stream.
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name,
-		lift.ReplicationFactor(3))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	// Publish two messages.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err = client.Publish(ctx, name, []byte("hello"))
 	require.NoError(t, err)
@@ -808,8 +808,6 @@ func TestReplicatorNotifyNewData(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
-	getMetadataLeader(t, 10*time.Second, s1, s2)
-
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051"})
 	require.NoError(t, err)
 	defer client.Close()
@@ -817,8 +815,9 @@ func TestReplicatorNotifyNewData(t *testing.T) {
 	// Create stream.
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name,
-		lift.ReplicationFactor(2))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(2))
 	require.NoError(t, err)
 
 	// Get partition leader.

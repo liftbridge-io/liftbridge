@@ -76,14 +76,14 @@ func TestCreateStreamPropagate(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
-	getMetadataLeader(t, 10*time.Second, s1, s2)
-
 	// Connect and send the request to the follower.
 	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client.Close()
 
-	err = client.CreateStream(context.Background(), "foo", "foo")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, "foo", "foo")
 	require.NoError(t, err)
 
 	// Creating the same stream returns ErrStreamExists.
