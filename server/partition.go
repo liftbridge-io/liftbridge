@@ -362,6 +362,11 @@ func (p *partition) stopLeading() error {
 		return err
 	}
 
+	// Unsubscribe from leader epoch offset subject.
+	if err := p.leaderOffsetSub.Unsubscribe(); err != nil {
+		return err
+	}
+
 	// Stop processing messages and replicating.
 	p.shutdown.Add(1) // Message processing loop
 	p.shutdown.Add(1) // Commit loop
