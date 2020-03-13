@@ -5,7 +5,6 @@ jobs:
       - image: liftbridge/liftbridge-circleci:0.1.0
         environment:
           GO111MODULE: "on"
-    working_directory: "~/project"
     steps:
       - checkout
       - run:
@@ -22,7 +21,6 @@ jobs:
       - image: liftbridge/liftbridge-circleci:0.1.0
         environment:
           GO111MODULE: "on"
-    working_directory: "~/project"
     steps:
       - checkout
       - run:
@@ -40,13 +38,12 @@ jobs:
   build-and-push-standalone-dev-image:
     docker:
       - image: circleci/buildpack-deps:stretch
-    working_directory: "~/project"
     steps:
       - setup_remote_docker
       - attach_workspace:
           at: ~/project
       - run:
-          name: set image version
+          name: Set image version
           command: |
             if [ -n "$CIRCLE_TAG" ]; then
                 echo "export VERSION='${CIRCLE_TAG}'" >> $BASH_ENV
@@ -54,16 +51,45 @@ jobs:
                 echo "export VERSION='${CIRCLE_SHA1}'" >> $BASH_ENV
             fi
       - run:
-          name: build image
+          name: Build image
           command: |
             docker build -t "liftbridge/standalone-dev:${VERSION}" -f docker/dev-standalone/Dockerfile .
             docker tag "liftbridge/standalone-dev:${VERSION}" 'liftbridge/standalone-dev:latest'
       - run:
-          name: publish image
+          name: Publish image
           command: |
             echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             docker push "liftbridge/standalone-dev:${VERSION}"
             docker push 'liftbridge/standalone-dev:latest'
+
+  build-website:
+    docker:
+      - image: circleci/node
+    steps:
+      - checkout
+      - run:
+          name: Build website
+          command: |
+            yarn --cwd website
+            make website/build
+      - persist_to_workspace:
+          root: .
+          paths:
+            - Makefile
+            - website/
+
+  deploy-website:
+    docker:
+      - image: google/cloud-sdk
+    steps:
+      - attach_workspace:
+          at: ~/project
+      - run:
+          name: Deploy website
+          command: |
+            echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+            gcloud config set project $GCLOUD_PROJECT_ID
+            make website-deploy WEBSITE_DEPLOY_FLAGS=--quiet
 
 workflows:
   version: 2
@@ -72,9 +98,20 @@ workflows:
       - build-dev
       - test
       - build-and-push-standalone-dev-image:
+          context: docker-push
           requires:
             - build-dev
           filters:
             branches:
               only: master
-
+      - build-website:
+          filters:
+            branches:
+              only: master
+      - deploy-website:
+          context: website-push
+          requires:
+            - build-website
+          filters:
+            branches:
+              only: master
