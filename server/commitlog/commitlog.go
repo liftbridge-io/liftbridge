@@ -45,6 +45,7 @@ type commitLog struct {
 	vActiveSegment   *segment
 	hwWaiters        map[contextReader]chan struct{}
 	leaderEpochCache *leaderEpochCache
+	deleted          bool
 }
 
 // Options contains settings for configuring a commitLog.
@@ -400,11 +401,7 @@ func (l *commitLog) activeSegment() *segment {
 	return (*segment)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&l.vActiveSegment))))
 }
 
-// Close closes each log segment file and stops the background goroutine
-// checkpointing the high watermark to disk.
-func (l *commitLog) Close() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func (l *commitLog) close() error {
 	if err := l.checkpointHW(); err != nil {
 		return err
 	}
@@ -417,13 +414,34 @@ func (l *commitLog) Close() error {
 	return nil
 }
 
+// Close closes each log segment file and stops the background goroutine
+// checkpointing the high watermark to disk.
+func (l *commitLog) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.close()
+}
+
 // Delete closes the log and removes all data associated with it from the
 // filesystem.
 func (l *commitLog) Delete() error {
-	if err := l.Close(); err != nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.deleted = true
+	if err := l.close(); err != nil {
 		return err
 	}
 	return os.RemoveAll(l.Path)
+}
+
+// IsDeleted returns true if the commit log has been deleted.
+func (l *commitLog) IsDeleted() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	return l.deleted
 }
 
 // Truncate removes all messages from the log starting at the given offset.
@@ -661,6 +679,10 @@ func (l *commitLog) checkpointHWLoop() {
 			return
 		}
 		l.mu.RLock()
+		if l.deleted {
+			l.mu.RUnlock()
+			return
+		}
 		if err := l.checkpointHW(); err != nil {
 			panic(errors.Wrap(err, "failed to checkpoint high watermark"))
 		}

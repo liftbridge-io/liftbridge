@@ -38,6 +38,10 @@ var (
 	// new segment.
 	ErrSegmentReplaced = errors.New("segment was replaced")
 
+	// ErrCommitLogDeleted is returned when attempting to read from a commit log
+	// that has been deleted.
+	ErrCommitLogDeleted = errors.New("commit log was deleted")
+
 	// timestamp returns the current time in Unix nanoseconds. This function
 	// exists for mocking purposes.
 	timestamp = func() int64 { return time.Now().UnixNano() }

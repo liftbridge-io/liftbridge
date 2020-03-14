@@ -305,7 +305,6 @@ func TestAckPolicyLeader(t *testing.T) {
 	defer s3.Stop()
 
 	servers := []*Server{s1, s2, s3}
-	getMetadataLeader(t, 10*time.Second, servers...)
 
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
 	require.NoError(t, err)
@@ -314,8 +313,9 @@ func TestAckPolicyLeader(t *testing.T) {
 	// Create stream.
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name,
-		lift.ReplicationFactor(3))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	// Kill a stream follower.
@@ -333,7 +333,7 @@ func TestAckPolicyLeader(t *testing.T) {
 	// Publish message to stream. This should not get committed until the ISR
 	// shrinks, but an ack should still be received immediately since
 	// AckPolicy_LEADER is set (default AckPolicy).
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cid := "cid"
 	ack, err := client.Publish(ctx, name, []byte("hello"), lift.CorrelationID(cid))

@@ -57,7 +57,9 @@ func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte) (Serialized
 RETRY:
 	msg, offset, timestamp, leaderEpoch, err := readMessage(ctx, r.ctxReader, headersBuf)
 	if err != nil {
-		if pkgErrors.Cause(err) == ErrSegmentReplaced {
+		if r.log.IsDeleted() {
+			return nil, 0, 0, 0, ErrCommitLogDeleted
+		} else if pkgErrors.Cause(err) == ErrSegmentReplaced {
 			// ErrSegmentReplaced indicates we attempted to read from a log
 			// segment that was replaced due to compaction, so reinitialize the
 			// contextReader and try again to read from the new segment.

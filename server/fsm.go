@@ -164,6 +164,19 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		if err := s.applyExpandISR(stream, replica, partition, index); err != nil {
 			return nil, err
 		}
+	case proto.Op_DELETE_STREAM:
+		var (
+			stream = log.DeleteStreamOp.Stream
+		)
+		err := s.applyDeleteStream(stream)
+		// If err is ErrStreamNotFound, we want to return this value back to the
+		// caller.
+		if err == ErrStreamNotFound {
+			return err, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("Unknown Raft operation: %s", log.Op)
 	}
@@ -396,5 +409,21 @@ func (s *Server) applyChangeStreamLeader(stream, leader string, partitionID int3
 	partition.SetEpoch(epoch)
 
 	s.logger.Debugf("fsm: Changed leader for partition %s to %s", partition, leader)
+	return nil
+}
+
+// applyDeleteStream deletes the given stream partition.
+func (s *Server) applyDeleteStream(streamName string) error {
+	stream := s.metadata.GetStream(streamName)
+	if stream == nil {
+		return ErrStreamNotFound
+	}
+
+	err := s.metadata.CloseAndDeleteStream(stream)
+	if err != nil {
+		return errors.Wrap(err, "failed to delete stream")
+	}
+
+	s.logger.Debugf("fsm: Deleted stream %s", streamName)
 	return nil
 }

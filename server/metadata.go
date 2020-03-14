@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -26,6 +28,10 @@ const (
 // ErrPartitionExists is returned by CreatePartition when attempting to create
 // a stream partition that already exists.
 var ErrPartitionExists = errors.New("partition already exists")
+
+// ErrStreamNotFound is returned by DeleteStream when attempting to delete a
+// stream that does not exists.
+var ErrStreamNotFound = errors.New("stream does not exists")
 
 // leaderReport tracks witnesses for a partition leader. Witnesses are replicas
 // which have reported the leader as unresponsive. If a quorum of replicas
@@ -304,7 +310,7 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 	// Wait on result of replication.
 	future := m.applyRaftOperation(op)
 	if err := future.Error(); err != nil {
-		return status.New(codes.Internal, "Failed to replicate partition")
+		return status.Newf(codes.Internal, "Failed to replicate partition: %v", err.Error())
 	}
 
 	// If there is a response, it's an error (most likely ErrPartitionExists).
@@ -319,6 +325,41 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 
 	// Wait for leader to create partition (best effort).
 	m.waitForPartitionLeader(ctx, req.Partition.Stream, leader, req.Partition.Id)
+
+	return nil
+}
+
+// DeleteStream deletes a stream if this server is the metadata leader. If it is
+// not, it will forward the request to the leader and return the response. This
+// operation is replicated by Raft. If successful, this will return once the
+// stream has been deleted from the cluster.
+func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		return m.propagateDeleteStream(ctx, req)
+	}
+
+	// Replicate partition deletion through Raft.
+	op := &proto.RaftLog{
+		Op:             proto.Op_DELETE_STREAM,
+		DeleteStreamOp: req,
+	}
+
+	// Wait on result of deletion.
+	future := m.applyRaftOperation(op)
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to delete stream: %v", err.Error())
+	}
+
+	// If there is a response, it's an error (most likely ErrStreamNotFound).
+	if resp := future.Response(); resp != nil {
+		err := resp.(error)
+		code := codes.Internal
+		if err == ErrStreamNotFound {
+			code = codes.NotFound
+		}
+		return status.New(code, err.Error())
+	}
 
 	return nil
 }
@@ -357,7 +398,7 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 
 	// Wait on result of replication.
 	if err := m.applyRaftOperation(op).Error(); err != nil {
-		return status.New(codes.Internal, "Failed to shrink ISR")
+		return status.Newf(codes.Internal, "Failed to shrink ISR: %v", err.Error())
 	}
 
 	return nil
@@ -397,7 +438,7 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 
 	// Wait on result of replication.
 	if err := m.applyRaftOperation(op).Error(); err != nil {
-		return status.New(codes.Internal, "Failed to expand ISR")
+		return status.Newf(codes.Internal, "Failed to expand ISR: %v", err.Error())
 	}
 
 	return nil
@@ -534,6 +575,37 @@ func (m *metadataAPI) Reset() error {
 	return nil
 }
 
+// CloseStream close a streams and clears corresponding state in the metadata
+// store.
+func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	err := stream.Delete()
+	if err != nil {
+		return errors.Wrap(err, "failed to delete stream")
+	}
+
+	// Remove the (now empty) stream data directory
+	streamDataDir := filepath.Join(m.Server.config.DataDir, "streams", stream.name)
+	err = os.Remove(streamDataDir)
+	if err != nil {
+		return errors.Wrap(err, "failed to delete stream data directory")
+	}
+
+	delete(m.streams, stream.name)
+
+	for _, partition := range stream.partitions {
+		report, ok := m.leaderReports[partition]
+		if ok {
+			report.cancel()
+			delete(m.leaderReports, partition)
+		}
+	}
+
+	return nil
+}
+
 // LostLeadership should be called when the server loses metadata leadership.
 func (m *metadataAPI) LostLeadership() {
 	m.mu.Lock()
@@ -635,7 +707,7 @@ func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Stat
 
 	// Wait on result of replication.
 	if err := m.applyRaftOperation(op).Error(); err != nil {
-		return status.New(codes.Internal, "Failed to replicate leader change")
+		return status.Newf(codes.Internal, "Failed to replicate leader change: %v", err.Error())
 	}
 
 	return nil
@@ -647,6 +719,16 @@ func (m *metadataAPI) propagateCreatePartition(ctx context.Context, req *proto.C
 	propagate := &proto.PropagatedRequest{
 		Op:                proto.Op_CREATE_PARTITION,
 		CreatePartitionOp: req,
+	}
+	return m.propagateRequest(ctx, propagate)
+}
+
+// propagateDeleteStream forwards a DeleteStream request to the metadata leader
+// and returns the response.
+func (m *metadataAPI) propagateDeleteStream(ctx context.Context, req *proto.DeleteStreamOp) *status.Status {
+	propagate := &proto.PropagatedRequest{
+		Op:             proto.Op_DELETE_STREAM,
+		DeleteStreamOp: req,
 	}
 	return m.propagateRequest(ctx, propagate)
 }
