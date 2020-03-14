@@ -285,7 +285,14 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePartitionOp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.IsLeader() {
-		return m.propagateCreatePartition(ctx, req)
+		isLeader, st := m.propagateCreatePartition(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
 	}
 
 	// Select replicationFactor nodes to participate in the partition.
@@ -336,7 +343,14 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamOp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.IsLeader() {
-		return m.propagateDeleteStream(ctx, req)
+		isLeader, st := m.propagateDeleteStream(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
 	}
 
 	// Replicate partition deletion through Raft.
@@ -371,7 +385,14 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.IsLeader() {
-		return m.propagateShrinkISR(ctx, req)
+		isLeader, st := m.propagateShrinkISR(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
 	}
 
 	// Verify the partition exists.
@@ -411,7 +432,14 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.IsLeader() {
-		return m.propagateExpandISR(ctx, req)
+		isLeader, st := m.propagateExpandISR(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
 	}
 
 	// Verify the partition exists.
@@ -452,7 +480,14 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderOp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.IsLeader() {
-		return m.propagateReportLeader(ctx, req)
+		isLeader, st := m.propagateReportLeader(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
 	}
 
 	// Verify the partition exists.
@@ -714,8 +749,10 @@ func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Stat
 }
 
 // propagateCreatePartition forwards a CreatePartition request to the metadata
-// leader and returns the response.
-func (m *metadataAPI) propagateCreatePartition(ctx context.Context, req *proto.CreatePartitionOp) *status.Status {
+// leader. The bool indicates if this server has since become leader and the
+// request should be performed locally. A Status is returned if the propagated
+// request failed.
+func (m *metadataAPI) propagateCreatePartition(ctx context.Context, req *proto.CreatePartitionOp) (bool, *status.Status) {
 	propagate := &proto.PropagatedRequest{
 		Op:                proto.Op_CREATE_PARTITION,
 		CreatePartitionOp: req,
@@ -723,9 +760,11 @@ func (m *metadataAPI) propagateCreatePartition(ctx context.Context, req *proto.C
 	return m.propagateRequest(ctx, propagate)
 }
 
-// propagateDeleteStream forwards a DeleteStream request to the metadata leader
-// and returns the response.
-func (m *metadataAPI) propagateDeleteStream(ctx context.Context, req *proto.DeleteStreamOp) *status.Status {
+// propagateDeleteStream forwards a DeleteStream request to the metadata
+// leader. The bool indicates if this server has since become leader and the
+// request should be performed locally. A Status is returned if the propagated
+// request failed.
+func (m *metadataAPI) propagateDeleteStream(ctx context.Context, req *proto.DeleteStreamOp) (bool, *status.Status) {
 	propagate := &proto.PropagatedRequest{
 		Op:             proto.Op_DELETE_STREAM,
 		DeleteStreamOp: req,
@@ -733,9 +772,10 @@ func (m *metadataAPI) propagateDeleteStream(ctx context.Context, req *proto.Dele
 	return m.propagateRequest(ctx, propagate)
 }
 
-// propagateShrinkISR forwards a ShrinkISR request to the metadata leader and
-// returns the response.
-func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *status.Status {
+// propagateShrinkISR forwards a ShrinkISR request to the metadata leader. The
+// bool indicates if this server has since become leader and the request should
+// be performed locally. A Status is returned if the propagated request failed.
+func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkISROp) (bool, *status.Status) {
 	propagate := &proto.PropagatedRequest{
 		Op:          proto.Op_SHRINK_ISR,
 		ShrinkISROp: req,
@@ -743,9 +783,10 @@ func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkI
 	return m.propagateRequest(ctx, propagate)
 }
 
-// propagateExpandISR forwards a ExpandISR request to the metadata leader and
-// returns the response.
-func (m *metadataAPI) propagateExpandISR(ctx context.Context, req *proto.ExpandISROp) *status.Status {
+// propagateExpandISR forwards a ExpandISR request to the metadata leader. The
+// bool indicates if this server has since become leader and the request should
+// be performed locally. A Status is returned if the propagated request failed.
+func (m *metadataAPI) propagateExpandISR(ctx context.Context, req *proto.ExpandISROp) (bool, *status.Status) {
 	propagate := &proto.PropagatedRequest{
 		Op:          proto.Op_EXPAND_ISR,
 		ExpandISROp: req,
@@ -753,9 +794,11 @@ func (m *metadataAPI) propagateExpandISR(ctx context.Context, req *proto.ExpandI
 	return m.propagateRequest(ctx, propagate)
 }
 
-// propagateReportLeader forwards a ReportLeader request to the metadata leader
-// and returns the response.
-func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.ReportLeaderOp) *status.Status {
+// propagateReportLeader forwards a ReportLeader request to the metadata
+// leader. The bool indicates if this server has since become leader and the
+// request should be performed locally. A Status is returned if the propagated
+// request failed.
+func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.ReportLeaderOp) (bool, *status.Status) {
 	propagate := &proto.PropagatedRequest{
 		Op:             proto.Op_REPORT_LEADER,
 		ReportLeaderOp: req,
@@ -763,21 +806,19 @@ func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.Repo
 	return m.propagateRequest(ctx, propagate)
 }
 
-// propagateRequest forwards a metadata request to the metadata leader and
-// returns the response.
-func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.PropagatedRequest) *status.Status {
+// propagateRequest forwards a metadata request to the metadata leader. The
+// bool indicates if this server has since become leader and the request should
+// be performed locally. A Status is returned if the propagated request failed.
+func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.PropagatedRequest) (bool, *status.Status) {
 	// Check if there is currently a metadata leader.
-	for {
-		if m.getRaft().Leader() != "" {
-			break
-		}
-		// Wait up to deadline for a metadata leader to be established.
-		deadline, _ := ctx.Deadline()
-		if time.Now().Before(deadline) {
-			time.Sleep(2 * time.Millisecond)
-			continue
-		}
-		return status.New(codes.Internal, "No known metadata leader")
+	isLeader, err := m.waitForMetadataLeader(ctx)
+	if err != nil {
+		return false, status.New(codes.Internal, err.Error())
+	}
+	// This server has since become metadata leader, so the request should be
+	// performed locally.
+	if isLeader {
+		return true, nil
 	}
 
 	data, err := proto.MarshalPropagatedRequest(req)
@@ -793,19 +834,42 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 
 	resp, err := m.nc.RequestWithContext(ctx, m.getPropagateInbox(), data)
 	if err != nil {
-		return status.New(codes.Internal, err.Error())
+		return false, status.New(codes.Internal, err.Error())
 	}
 
 	r, err := proto.UnmarshalPropagatedResponse(resp.Data)
 	if err != nil {
 		m.logger.Errorf("metadata: Invalid response for propagated request: %v", err)
-		return status.New(codes.Internal, "invalid response")
+		return false, status.New(codes.Internal, "invalid response")
 	}
 	if r.Error != nil {
-		return status.New(codes.Code(r.Error.Code), r.Error.Msg)
+		return false, status.New(codes.Code(r.Error.Code), r.Error.Msg)
 	}
 
-	return nil
+	return false, nil
+}
+
+// waitForMetadataLeader waits up to the deadline specified on the Context
+// until a metadata leader is established. If no leader is established in time,
+// an error is returned. The bool indicates if this server has become the
+// leader. False and a nil error indicates another server has become leader.
+func (m *metadataAPI) waitForMetadataLeader(ctx context.Context) (bool, error) {
+	for {
+		if leader := m.getRaft().Leader(); leader != "" {
+			if string(leader) == m.config.Clustering.ServerID {
+				return true, nil
+			}
+			break
+		}
+		// Wait up to deadline for a metadata leader to be established.
+		deadline, _ := ctx.Deadline()
+		if time.Now().Before(deadline) {
+			time.Sleep(2 * time.Millisecond)
+			continue
+		}
+		return false, errors.New("no known metadata leader")
+	}
+	return false, nil
 }
 
 // waitForPartitionLeader does a best-effort wait for the leader of the given
