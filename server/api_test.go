@@ -123,7 +123,7 @@ func TestCreateStreamNoMetadataLeader(t *testing.T) {
 	err = client.CreateStream(context.Background(), "foo", "foo")
 	require.Error(t, err)
 	st := status.Convert(err)
-	require.Equal(t, "No known metadata leader", st.Message())
+	require.Equal(t, "no known metadata leader", st.Message())
 	require.Equal(t, codes.Internal, st.Code())
 }
 
