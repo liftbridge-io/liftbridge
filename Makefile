@@ -1,4 +1,4 @@
-.PHONY: compose-up compose-down kind-up kind-down kind-apply kind-export website-deploy website-clean
+.PHONY: compose-up compose-down kind-up kind-down kind-apply kind-export website-deploy website-clean website-up
 
 KIND_CLUSTER_NAME=kind
 KIND_KUBECONFIG:=~/.kube/kind-config-$(KIND_CLUSTER_NAME)
@@ -40,3 +40,6 @@ website/build:
 
 website-clean:
 	rm -rf website/build
+
+website-up:
+	yarn --cwd website start

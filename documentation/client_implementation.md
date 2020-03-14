@@ -32,6 +32,7 @@ A high-level client has several operations:
 
 - [`CreateStream`](#createstream): creates a new stream attached to a NATS subject (or group of
   related NATS subjects if partitioned)
+- [`DeleteStream`](#deletestream): deletes a stream and all of its partitions
 - [`Subscribe`](#subscribe): creates an ephemeral subscription for a given stream that
   messages are received on
 - [`Publish`](#publish): publishes a new message to a Liftbridge stream
@@ -55,6 +56,10 @@ type Client interface {
 	// identifier, unique per subject. It returns ErrStreamExists if a stream
 	// with the given subject and name already exists.
 	CreateStream(ctx context.Context, subject, name string, opts ...StreamOption) error
+
+	// DeleteStream deletes a stream and all of its partitions. Name is the
+	// stream identifier, globally unique.
+	DeleteStream(ctx context.Context, name string) error
 
 	// Subscribe creates an ephemeral subscription for the given stream. It
 	// begins receiving messages starting at the configured position and waits
@@ -145,6 +150,29 @@ configure a stream. Supported options are:
 `ErrStreamExists` if a stream with the given name already exists.
 
 [Implementation Guidance](#createstream-implementation)
+
+### DeleteStream
+
+```go
+// DeleteStream deletes a stream and all of its partitions. Name is the stream
+// identifier, globally unique.
+func (c *client) DeleteStream(ctx context.Context, name string) error
+```
+
+`DeleteStream` deletes a stream and all of its partitions. If the deletion
+fails or the stream does not exist, it returns/throws an error.
+
+In the Go client example above, `DeleteStream` takes two arguments:
+
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
+| name | string | The name of the stream to delete. | yes |
+
+`DeleteStream` returns/throws an error if the operation fails, specifically
+`ErrNoSuchStream` if the stream doesn't exist.
+
+[Implementation Guidance](#deletestream-implementation)
 
 ### Subscribe
 
@@ -522,6 +550,7 @@ known servers. It's important to be mindful of which errors are retried for
 idempotency reasons. This resilient RPC method can be used for RPCs such as:
 
 - `CreateStream`
+- `DeleteStream`
 - `Publish`
 - `PublishToSubject`
 - `FetchMetadata`
@@ -647,6 +676,29 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 	})
 	if status.Code(err) == codes.AlreadyExists {
 		return ErrStreamExists
+	}
+	return err
+}
+```
+
+### DeleteStream Implementation
+
+The `DeleteStream` implementation simply constructs a gRPC request and executes
+it using the [resilient RPC method](#rpcs) described above. If the
+`NotFound` gRPC error is returned, an `ErrNoSuchStream` error/exception is
+thrown. Otherwise, any other error/exception is thrown if the operation failed.
+
+```go
+// DeleteStream deletes a stream and all of its partitions. Name is the stream
+// identifier, globally unique.
+func (c *client) DeleteStream(ctx context.Context, name string) error {
+	req := &proto.DeleteStreamRequest{Name: name}
+	err := c.doResilientRPC(func(client proto.APIClient) error {
+		_, err := client.DeleteStream(ctx, req)
+		return err
+	})
+	if status.Code(err) == codes.NotFound {
+		return ErrNoSuchStream
 	}
 	return err
 }
