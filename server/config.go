@@ -12,8 +12,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/liftbridge-io/liftbridge/server/conf"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -202,85 +201,99 @@ func GetLogLevel(level string) (uint32, error) {
 
 // NewConfig creates a new Config with default settings and applies any
 // settings from the given configuration file.
-func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
+func NewConfig(configFilePath string) (*Config, error) { // nolint: gocyclo
 
-	// [TODO] should not load default config but load a default config file
-	config := NewDefaultConfig()
+	defaultConfPath := "./server/configs/"
 
-	if configFile == "" {
-		return config, nil
-	}
-	// [TODO] Parse config file here with new format
-	c, err := conf.ParseFile(configFile)
-	if err != nil {
-		return nil, err
+	config := new(Config)
+	// Expect a config.yaml file in the destination
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(configFilePath)
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			fmt.Println("Loading default config.")
+			// Read default conf file
+			viper.SetConfigName("defaultConf")
+			viper.AddConfigPath(defaultConfPath)
+
+			if err := viper.ReadInConfig(); err != nil {
+				return nil, fmt.Errorf("Error on loading default config file: %v ", err)
+			}
+		} else {
+			// if something else when reading conf
+			return nil, fmt.Errorf("Error on loading given config file: %v ", err)
+		}
+
 	}
 
 	// Reset LogRollTime since this will get overwritten later.
 	config.Log.LogRollTime = 0
 
-	for k, v := range c {
-		switch strings.ToLower(k) {
-		case "listen":
-			hp, err := parseListen(v)
-			if err != nil {
-				return nil, err
-			}
-
-			config.Listen = *hp
-		case "port":
-			config.Port = int(v.(int64))
-		case "host":
-			config.Host = v.(string)
-		case "log.level":
-			level, err := GetLogLevel(v.(string))
-			if err != nil {
-				return nil, err
-			}
-			config.LogLevel = level
-		case "log.recovery":
-			config.LogRecovery = v.(bool)
-		case "data.dir":
-			config.DataDir = v.(string)
-		case "batch.max.messages":
-			config.BatchMaxMessages = int(v.(int64))
-		case "batch.wait.time":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return nil, err
-			}
-			config.BatchWaitTime = dur
-		case "metadata.cache.max.age":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return nil, err
-			}
-			config.MetadataCacheMaxAge = dur
-		case "tls.key":
-			config.TLSKey = v.(string)
-		case "tls.cert":
-			config.TLSCert = v.(string)
-		case "tls.client.auth":
-			config.TLSClientAuth = v.(bool)
-		case "tls.client.auth.ca":
-			config.TLSClientAuthCA = v.(string)
-		case "nats":
-			if err := parseNATSConfig(v.(map[string]interface{}), &config.NATS); err != nil {
-				return nil, err
-			}
-		case "log":
-			if err := parseLogConfig(config, v.(map[string]interface{})); err != nil {
-				return nil, err
-			}
-		case "clustering":
-			if err := parseClusteringConfig(config, v.(map[string]interface{})); err != nil {
-				return nil, err
-			}
-		default:
-			return nil, fmt.Errorf("Unknown configuration setting %q", k)
-		}
+	//Parse config file here with Viper
+	hp, err := parseListen(viper.Get("Listen"))
+	if err != nil {
+		return nil, err
 	}
 
+	config.Listen = *hp
+
+	config.LogRecovery = viper.GetBool("log.recovery")
+
+	config.Port = viper.GetInt("port")
+	config.Host = viper.GetString("host")
+
+	level := viper.GetString("log.level")
+	levelInt, err := GetLogLevel(level)
+	if err != nil {
+		return nil, err
+	}
+	config.LogLevel = levelInt
+
+	config.LogRecovery = viper.GetBool("log.recovery")
+
+	config.DataDir = viper.GetString("data.dir")
+
+	config.BatchMaxMessages = viper.GetInt("batch.max.messages")
+
+	waitTime := viper.GetString("batch.wait.time")
+	durWaitTime, err := time.ParseDuration(waitTime)
+	if err != nil {
+		return nil, err
+	}
+	config.BatchWaitTime = durWaitTime
+
+	maxAge := viper.GetString("metadata.cache.max.age")
+	durMaxAge, err := time.ParseDuration(maxAge)
+	if err != nil {
+		return nil, err
+	}
+	config.MetadataCacheMaxAge = durMaxAge
+
+	config.TLSKey = viper.GetString("tls.key")
+	config.TLSCert = viper.GetString("tls.cert")
+
+	config.TLSClientAuth = viper.GetBool("tls.client.auth")
+
+	config.TLSClientAuthCA = viper.GetString("tls.client.auth.ca")
+	natsConfig := viper.GetStringMap("nats")
+
+	if err := parseNATSConfig(natsConfig, &config.NATS); err != nil {
+		return nil, err
+	}
+
+	logConfig := viper.GetStringMap("log")
+
+	if err := parseLogConfig(config, logConfig); err != nil {
+		return nil, err
+	}
+
+	clusterConfig := viper.GetStringMap("clustering")
+
+	if err := parseClusteringConfig(config, clusterConfig); err != nil {
+		return nil, err
+	}
 	// If LogRollTime is not set, default it to the retention time.
 	if config.Log.LogRollTime == 0 {
 		config.Log.LogRollTime = config.Log.RetentionMaxAge
