@@ -203,11 +203,14 @@ func GetLogLevel(level string) (uint32, error) {
 // NewConfig creates a new Config with default settings and applies any
 // settings from the given configuration file.
 func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
+
+	// [TODO] should not load default config but load a default config file
 	config := NewDefaultConfig()
 
 	if configFile == "" {
 		return config, nil
 	}
+	// [TODO] Parse config file here with new format
 	c, err := conf.ParseFile(configFile)
 	if err != nil {
 		return nil, err

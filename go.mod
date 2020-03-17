@@ -22,4 +22,5 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/urfave/cli v1.22.3
 	google.golang.org/grpc v1.28.0
+	github.com/spf13/viper v1.6.2
 )
