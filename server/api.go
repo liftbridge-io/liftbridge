@@ -90,6 +90,24 @@ func (a *apiServer) DeleteStream(ctx context.Context, req *client.DeleteStreamRe
 	return resp, nil
 }
 
+// PauseStream pauses a stream attached to a NATS subject.
+func (a *apiServer) PauseStream(ctx context.Context, req *client.PauseStreamRequest) (
+	*client.PauseStreamResponse, error) {
+
+	resp := &client.PauseStreamResponse{}
+	a.logger.Debugf("api: PauseStream [name=%s]",
+		req.Name)
+
+	if e := a.metadata.PauseStream(ctx, &proto.PauseStreamOp{
+		Stream: req.Name,
+	}); e != nil {
+		a.logger.Errorf("api: Failed to pause stream %v: %v", req.Name, e.Err())
+		return nil, e.Err()
+	}
+
+	return resp, nil
+}
+
 // Subscribe creates an ephemeral subscription for the given stream partition.
 // It begins to receive messages starting at the given offset and waits for new
 // messages when it reaches the end of the partition. Use the request context
@@ -166,6 +184,28 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		return nil, err
 	}
 	a.logger.Debugf("api: Publish [subject=%s]", subject)
+
+	stream := a.metadata.GetStream(req.Stream)
+	if stream == nil {
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
+	}
+	partition, ok := stream.partitions[0] // Only check the first partition for now
+	if !ok {
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("No partition in stream: %s", req.Stream))
+	}
+	if partition.paused {
+		// This partition (and thus, this stream) is paused.
+		// We need to re-create the stream before being able to use it.
+		protoPart := partition.Partition
+		for i := 0; i < len(stream.partitions); i++ {
+			if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
+				Partition: protoPart,
+			}); e != nil {
+				a.logger.Errorf("api: Failed to resume stream partition %d: %v", i, e.Err())
+				return nil, e.Err()
+			}
+		}
+	}
 
 	if req.AckInbox == "" {
 		req.AckInbox = nuid.Next()

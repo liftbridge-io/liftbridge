@@ -18,6 +18,16 @@ func (p *stream) Close() error {
 	return nil
 }
 
+// Pause the stream by pausing each of its partitions.
+func (p *stream) Pause() error {
+	for _, partition := range p.partitions {
+		if err := partition.Pause(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Delete the stream by closing and deleting each of its partitions.
 func (p *stream) Delete() error {
 	for _, partition := range p.partitions {

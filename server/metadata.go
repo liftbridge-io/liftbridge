@@ -29,9 +29,9 @@ const (
 // a stream partition that already exists.
 var ErrPartitionExists = errors.New("partition already exists")
 
-// ErrStreamNotFound is returned by DeleteStream when attempting to delete a
-// stream that does not exists.
-var ErrStreamNotFound = errors.New("stream does not exists")
+// ErrStreamNotFound is returned by DeleteStream/PauseStream when attempting to
+// delete/pause a stream that does not exists.
+var ErrStreamNotFound = errors.New("stream does not exist")
 
 // leaderReport tracks witnesses for a partition leader. Witnesses are replicas
 // which have reported the leader as unresponsive. If a quorum of replicas
@@ -378,6 +378,48 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 	return nil
 }
 
+// PauseStream pauses a stream if this server is the metadata leader. If it is
+// not, it will forward the request to the leader and return the response. This
+// operation is replicated by Raft. If successful, this will return once the
+// stream has been paused.
+func (m *metadataAPI) PauseStream(ctx context.Context, req *proto.PauseStreamOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagatePauseStream(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Replicate partition pausing through Raft.
+	op := &proto.RaftLog{
+		Op:            proto.Op_PAUSE_STREAM,
+		PauseStreamOp: req,
+	}
+
+	// Wait on result of pausing.
+	future := m.applyRaftOperation(op)
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to pause stream: %v", err.Error())
+	}
+
+	// If there is a response, it's an error (most likely ErrStreamNotFound).
+	if resp := future.Response(); resp != nil {
+		err := resp.(error)
+		code := codes.Internal
+		if err == ErrStreamNotFound {
+			code = codes.NotFound
+		}
+		return status.New(code, err.Error())
+	}
+
+	return nil
+}
+
 // ShrinkISR removes the specified replica from the partition's in-sync
 // replicas set if this server is the metadata leader. If it is not, it will
 // forward the request to the leader and return the response. This operation is
@@ -551,7 +593,7 @@ func (m *metadataAPI) addPartition(protoPartition *proto.Partition, recovered bo
 		}
 		m.streams[protoPartition.Stream] = st
 	}
-	if _, ok := st.partitions[protoPartition.Id]; ok {
+	if p, ok := st.partitions[protoPartition.Id]; ok && !p.paused {
 		// Partition already exists for stream.
 		return nil, ErrPartitionExists
 	}
@@ -561,6 +603,7 @@ func (m *metadataAPI) addPartition(protoPartition *proto.Partition, recovered bo
 	if err != nil {
 		return nil, err
 	}
+	partition.paused = false
 	st.partitions[protoPartition.Id] = partition
 	return partition, nil
 }
@@ -768,6 +811,18 @@ func (m *metadataAPI) propagateDeleteStream(ctx context.Context, req *proto.Dele
 	propagate := &proto.PropagatedRequest{
 		Op:             proto.Op_DELETE_STREAM,
 		DeleteStreamOp: req,
+	}
+	return m.propagateRequest(ctx, propagate)
+}
+
+// propagatePauseStream forwards a PauseStream request to the metadata
+// leader. The bool indicates if this server has since become leader and the
+// request should be performed locally. A Status is returned if the propagated
+// request failed.
+func (m *metadataAPI) propagatePauseStream(ctx context.Context, req *proto.PauseStreamOp) (bool, *status.Status) {
+	propagate := &proto.PropagatedRequest{
+		Op:            proto.Op_PAUSE_STREAM,
+		PauseStreamOp: req,
 	}
 	return m.propagateRequest(ctx, propagate)
 }

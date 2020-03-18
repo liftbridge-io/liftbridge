@@ -84,6 +84,7 @@ type partition struct {
 	belowMinISR     bool
 	pause           bool // Pause replication on the leader (for unit testing)
 	shutdown        sync.WaitGroup
+	paused          bool
 }
 
 // newPartition creates a new stream partition. If the partition is recovered,
@@ -151,16 +152,31 @@ func (p *partition) String() string {
 	return fmt.Sprintf("[subject=%s, stream=%s, partition=%d]", p.Subject, p.Stream, p.Id)
 }
 
-// Close stops the partition if it is running and closes the commit log.
-func (p *partition) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+func (p *partition) close() error {
 	if err := p.log.Close(); err != nil {
 		return err
 	}
 
 	return p.stopLeadingOrFollowing()
+}
+
+// Close stops the partition if it is running and closes the commit log.
+func (p *partition) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.close()
+}
+
+// Pause stops the partition if it is running, closes the commit log and sets
+// the paused flag.
+func (p *partition) Pause() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.paused = true
+
+	return p.close()
 }
 
 // Delete stops the partition if it is running, closes, and deletes the commit

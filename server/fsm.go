@@ -177,6 +177,19 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		if err != nil {
 			return nil, err
 		}
+	case proto.Op_PAUSE_STREAM:
+		var (
+			stream = log.PauseStreamOp.Stream
+		)
+		err := s.applyPauseStream(stream)
+		// If err is ErrStreamNotFound, we want to return this value back to the
+		// caller.
+		if err == ErrStreamNotFound {
+			return err, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("Unknown Raft operation: %s", log.Op)
 	}
@@ -425,5 +438,21 @@ func (s *Server) applyDeleteStream(streamName string) error {
 	}
 
 	s.logger.Debugf("fsm: Deleted stream %s", streamName)
+	return nil
+}
+
+// applyPauseStream pauses the given stream partition.
+func (s *Server) applyPauseStream(streamName string) error {
+	stream := s.metadata.GetStream(streamName)
+	if stream == nil {
+		return ErrStreamNotFound
+	}
+
+	err := stream.Pause()
+	if err != nil {
+		return errors.Wrap(err, "failed to pause stream")
+	}
+
+	s.logger.Debugf("fsm: Paused stream %s", streamName)
 	return nil
 }
