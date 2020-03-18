@@ -226,8 +226,8 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	config.Log.LogRollTime = 0
 
 	//Parse config file here with v
-	if v.IsSet("Listen") {
-		hp, err := parseListen(v.Get("Listen"))
+	if v.IsSet("listen") {
+		hp, err := parseListen(v)
 		if err != nil {
 			return nil, err
 		}
@@ -466,16 +466,17 @@ type HostPort struct {
 }
 
 // parseListen will parse the `listen` option containing the host and port.
-func parseListen(v interface{}) (*HostPort, error) {
+func parseListen(v *viper.Viper) (*HostPort, error) {
 	hp := &HostPort{}
-	switch v := v.(type) {
+	listenConf := v.Get("listen")
+	switch listenConf := listenConf.(type) {
 	// Only a port
 	case int64:
-		hp.Port = int(v)
+		hp.Port = int(listenConf)
 	case string:
-		host, port, err := net.SplitHostPort(v)
+		host, port, err := net.SplitHostPort(listenConf)
 		if err != nil {
-			return nil, fmt.Errorf("Could not parse address string %q", v)
+			return nil, fmt.Errorf("Could not parse address string %q", listenConf)
 		}
 		hp.Port, err = strconv.Atoi(port)
 		if err != nil {

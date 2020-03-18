@@ -53,3 +53,15 @@ func TestNewConfigNATSAuth(t *testing.T) {
 	require.Equal(t, "admin", config.NATS.User)
 	require.Equal(t, "password", config.NATS.Password)
 }
+
+// Ensure parsing host and listen
+
+func TestNewConfigListen(t *testing.T) {
+	config, err := NewConfig("configs/listen-host.yaml")
+	require.NoError(t, err)
+	require.Equal(t, "192.168.0.1", config.Listen.Host)
+	require.Equal(t, int(4222), config.Listen.Port)
+	require.Equal(t, "my-host", config.Host)
+	require.Equal(t, int(4333), config.Port)
+
+}
