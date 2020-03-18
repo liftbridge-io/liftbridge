@@ -117,6 +117,12 @@ type Config struct {
 	Clustering          ClusteringConfig
 }
 
+// new Viper to parse configuration file
+func newViper() *viper.Viper {
+	v := viper.New()
+	return v
+}
+
 // NewDefaultConfig creates a new Config with default settings.
 func NewDefaultConfig() *Config {
 	config := &Config{
@@ -206,19 +212,20 @@ func NewConfig(configFilePath string) (*Config, error) { // nolint: gocyclo
 	defaultConfPath := "./server/configs/"
 
 	config := new(Config)
+	v := newViper()
 	// Expect a config.yaml file in the destination
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(configFilePath)
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.AddConfigPath(configFilePath)
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			fmt.Println("Loading default config.")
 			// Read default conf file
-			viper.SetConfigName("defaultConf")
-			viper.AddConfigPath(defaultConfPath)
+			v.SetConfigName("defaultConf")
+			v.AddConfigPath(defaultConfPath)
 
-			if err := viper.ReadInConfig(); err != nil {
+			if err := v.ReadInConfig(); err != nil {
 				return nil, fmt.Errorf("Error on loading default config file: %v ", err)
 			}
 		} else {
@@ -231,65 +238,63 @@ func NewConfig(configFilePath string) (*Config, error) { // nolint: gocyclo
 	// Reset LogRollTime since this will get overwritten later.
 	config.Log.LogRollTime = 0
 
-	//Parse config file here with Viper
-	hp, err := parseListen(viper.Get("Listen"))
+	//Parse config file here with v
+	hp, err := parseListen(v.Get("Listen"))
 	if err != nil {
 		return nil, err
 	}
 
 	config.Listen = *hp
 
-	config.LogRecovery = viper.GetBool("log.recovery")
+	config.LogRecovery = v.GetBool("log.recovery")
 
-	config.Port = viper.GetInt("port")
-	config.Host = viper.GetString("host")
+	config.Port = v.GetInt("port")
+	config.Host = v.GetString("host")
 
-	level := viper.GetString("log.level")
+	level := v.GetString("log.level")
 	levelInt, err := GetLogLevel(level)
 	if err != nil {
 		return nil, err
 	}
 	config.LogLevel = levelInt
 
-	config.LogRecovery = viper.GetBool("log.recovery")
+	config.LogRecovery = v.GetBool("log.recovery")
 
-	config.DataDir = viper.GetString("data.dir")
+	config.DataDir = v.GetString("data.dir")
 
-	config.BatchMaxMessages = viper.GetInt("batch.max.messages")
+	config.BatchMaxMessages = v.GetInt("batch.max.messages")
 
-	waitTime := viper.GetString("batch.wait.time")
+	waitTime := v.GetString("batch.wait.time")
 	durWaitTime, err := time.ParseDuration(waitTime)
 	if err != nil {
 		return nil, err
 	}
 	config.BatchWaitTime = durWaitTime
 
-	maxAge := viper.GetString("metadata.cache.max.age")
+	maxAge := v.GetString("metadata.cache.max.age")
 	durMaxAge, err := time.ParseDuration(maxAge)
 	if err != nil {
 		return nil, err
 	}
 	config.MetadataCacheMaxAge = durMaxAge
 
-	config.TLSKey = viper.GetString("tls.key")
-	config.TLSCert = viper.GetString("tls.cert")
+	config.TLSKey = v.GetString("tls.key")
+	config.TLSCert = v.GetString("tls.cert")
 
-	config.TLSClientAuth = viper.GetBool("tls.client.auth")
+	config.TLSClientAuth = v.GetBool("tls.client.auth")
 
-	config.TLSClientAuthCA = viper.GetString("tls.client.auth.ca")
-	natsConfig := viper.GetStringMap("nats")
+	config.TLSClientAuthCA = v.GetString("tls.client.auth.ca")
+	natsConfig := v.GetStringMap("nats")
 
 	if err := parseNATSConfig(natsConfig, &config.NATS); err != nil {
 		return nil, err
 	}
 
-	logConfig := viper.GetStringMap("log")
-
-	if err := parseLogConfig(config, logConfig); err != nil {
+	if err := parseLogConfig(config, v); err != nil {
 		return nil, err
 	}
 
-	clusterConfig := viper.GetStringMap("clustering")
+	clusterConfig := v.GetStringMap("clustering")
 
 	if err := parseClusteringConfig(config, clusterConfig); err != nil {
 		return nil, err
@@ -328,41 +333,35 @@ func parseNATSConfig(m map[string]interface{}, opts *nats.Options) error {
 
 // parseLogConfig parses the `log` section of a config file and populates the
 // given Config.
-func parseLogConfig(config *Config, m map[string]interface{}) error {
-	for k, v := range m {
-		switch strings.ToLower(k) {
-		case "retention.max.bytes":
-			config.Log.RetentionMaxBytes = v.(int64)
-		case "retention.max.messages":
-			config.Log.RetentionMaxMessages = v.(int64)
-		case "retention.max.age":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return err
-			}
-			config.Log.RetentionMaxAge = dur
-		case "cleaner.interval":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return err
-			}
-			config.Log.CleanerInterval = dur
-		case "segment.max.bytes":
-			config.Log.SegmentMaxBytes = v.(int64)
-		case "log.roll.time":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return err
-			}
-			config.Log.LogRollTime = dur
-		case "compact":
-			config.Log.Compact = v.(bool)
-		case "compact.max.goroutines":
-			config.Log.CompactMaxGoroutines = int(v.(int64))
-		default:
-			return fmt.Errorf("Unknown log configuration setting %q", k)
-		}
+func parseLogConfig(config *Config, v *viper.Viper) error {
+
+	config.Log.RetentionMaxBytes = v.GetInt64("log.retention.max.bytes")
+	config.Log.RetentionMaxMessages = v.GetInt64("log.retention.max.messages")
+	durMaxAgeStr := v.GetString("log.retention.max.age")
+	durMaxAge, err := time.ParseDuration(durMaxAgeStr)
+	if err != nil {
+		return err
 	}
+	config.Log.RetentionMaxAge = durMaxAge
+
+	cleanerIntervalStr := v.GetString("log.cleaner.interval")
+	durCleanerInterval, err := time.ParseDuration(cleanerIntervalStr)
+	if err != nil {
+		return err
+	}
+	config.Log.CleanerInterval = durCleanerInterval
+
+	config.Log.SegmentMaxBytes = v.GetInt64("log.segment.max.bytes")
+
+	rollTimeStr := v.GetString("log.roll.time")
+	durRollTime, err := time.ParseDuration(rollTimeStr)
+	if err != nil {
+		return err
+	}
+	config.Log.LogRollTime = durRollTime
+	config.Log.Compact = v.GetBool("log.compact.compact")
+	config.Log.CompactMaxGoroutines = v.GetInt("log.compact.max.goroutines")
+
 	return nil
 }
 
