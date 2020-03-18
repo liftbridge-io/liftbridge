@@ -239,54 +239,81 @@ func NewConfig(configFilePath string) (*Config, error) { // nolint: gocyclo
 	config.Log.LogRollTime = 0
 
 	//Parse config file here with v
-	hp, err := parseListen(v.Get("Listen"))
-	if err != nil {
-		return nil, err
-	}
+	if v.IsSet("Listen") {
+		hp, err := parseListen(v.Get("Listen"))
+		if err != nil {
+			return nil, err
+		}
 
-	config.Listen = *hp
+		config.Listen = *hp
+	}
 
 	config.LogRecovery = v.GetBool("log.recovery")
-
-	config.Port = v.GetInt("port")
-	config.Host = v.GetString("host")
-
-	level := v.GetString("log.level")
-	levelInt, err := GetLogLevel(level)
-	if err != nil {
-		return nil, err
+	if v.IsSet("port") {
+		config.Port = v.GetInt("port")
 	}
-	config.LogLevel = levelInt
 
-	config.LogRecovery = v.GetBool("log.recovery")
-
-	config.DataDir = v.GetString("data.dir")
-
-	config.BatchMaxMessages = v.GetInt("batch.max.messages")
-
-	waitTime := v.GetString("batch.wait.time")
-	durWaitTime, err := time.ParseDuration(waitTime)
-	if err != nil {
-		return nil, err
+	if v.IsSet("host") {
+		config.Host = v.GetString("host")
 	}
-	config.BatchWaitTime = durWaitTime
 
-	maxAge := v.GetString("metadata.cache.max.age")
-	durMaxAge, err := time.ParseDuration(maxAge)
-	if err != nil {
-		return nil, err
+	if v.IsSet("log.level") {
+		level := v.GetString("log.level")
+		levelInt, err := GetLogLevel(level)
+		if err != nil {
+			return nil, err
+		}
+
+		config.LogLevel = levelInt
 	}
-	config.MetadataCacheMaxAge = durMaxAge
 
-	config.TLSKey = v.GetString("tls.key")
-	config.TLSCert = v.GetString("tls.cert")
+	if v.IsSet("log.recovery") {
+		config.LogRecovery = v.GetBool("log.recovery")
+	}
 
-	config.TLSClientAuth = v.GetBool("tls.client.auth")
+	if v.IsSet("data.dir") {
+		config.DataDir = v.GetString("data.dir")
+	}
 
-	config.TLSClientAuthCA = v.GetString("tls.client.auth.ca")
-	natsConfig := v.GetStringMap("nats")
+	if v.IsSet("batch.max.messages") {
+		config.BatchMaxMessages = v.GetInt("batch.max.messages")
+	}
 
-	if err := parseNATSConfig(natsConfig, &config.NATS); err != nil {
+	if v.IsSet("batch.wait.time") {
+		waitTime := v.GetString("batch.wait.time")
+		durWaitTime, err := time.ParseDuration(waitTime)
+		if err != nil {
+			return nil, err
+		}
+		config.BatchWaitTime = durWaitTime
+	}
+
+	if v.IsSet("metadata.cache.max.age") {
+		maxAge := v.GetString("metadata.cache.max.age")
+		durMaxAge, err := time.ParseDuration(maxAge)
+		if err != nil {
+			return nil, err
+		}
+		config.MetadataCacheMaxAge = durMaxAge
+	}
+
+	if v.IsSet("tls.key") {
+		config.TLSKey = v.GetString("tls.key")
+	}
+
+	if v.IsSet("tls.cert") {
+		config.TLSCert = v.GetString("tls.cert")
+	}
+
+	if v.IsSet("tls.client.auth") {
+		config.TLSClientAuth = v.GetBool("tls.client.auth")
+	}
+
+	if v.IsSet("tls.client.auth.ca") {
+		config.TLSClientAuthCA = v.GetString("tls.client.auth.ca")
+	}
+
+	if err := parseNATSConfig(&config.NATS, v); err != nil {
 		return nil, err
 	}
 
@@ -294,9 +321,7 @@ func NewConfig(configFilePath string) (*Config, error) { // nolint: gocyclo
 		return nil, err
 	}
 
-	clusterConfig := v.GetStringMap("clustering")
-
-	if err := parseClusteringConfig(config, clusterConfig); err != nil {
+	if err := parseClusteringConfig(config, v); err != nil {
 		return nil, err
 	}
 	// If LogRollTime is not set, default it to the retention time.
@@ -309,25 +334,20 @@ func NewConfig(configFilePath string) (*Config, error) { // nolint: gocyclo
 
 // parseNATSConfig parses the `nats` section of a config file and populates the
 // given nats.Options.
-func parseNATSConfig(m map[string]interface{}, opts *nats.Options) error {
-	for k, v := range m {
-		switch strings.ToLower(k) {
-		case "servers":
-			servers := v.([]interface{})
-			opts.Servers = make([]string, len(servers))
-			for i, p := range servers {
-				opts.Servers[i] = p.(string)
-			}
-		case "user":
-			user := v.(string)
-			opts.User = user
-		case "password":
-			password := v.(string)
-			opts.Password = password
-		default:
-			return fmt.Errorf("Unknown nats configuration setting %q", k)
-		}
+func parseNATSConfig(opts *nats.Options, v *viper.Viper) error {
+	if v.IsSet("nats.servers") {
+		servers := v.GetStringSlice("nats.servers")
+		opts.Servers = servers
 	}
+
+	if v.IsSet("nats.user") {
+		opts.User = v.GetString("nats.user")
+	}
+
+	if v.IsSet("nats.password") {
+		opts.Password = v.GetString("nats.password")
+	}
+
 	return nil
 }
 
@@ -335,90 +355,119 @@ func parseNATSConfig(m map[string]interface{}, opts *nats.Options) error {
 // given Config.
 func parseLogConfig(config *Config, v *viper.Viper) error {
 
-	config.Log.RetentionMaxBytes = v.GetInt64("log.retention.max.bytes")
-	config.Log.RetentionMaxMessages = v.GetInt64("log.retention.max.messages")
-	durMaxAgeStr := v.GetString("log.retention.max.age")
-	durMaxAge, err := time.ParseDuration(durMaxAgeStr)
-	if err != nil {
-		return err
+	if v.IsSet("log.retention.max.bytes") {
+		config.Log.RetentionMaxBytes = v.GetInt64("log.retention.max.bytes")
 	}
-	config.Log.RetentionMaxAge = durMaxAge
 
-	cleanerIntervalStr := v.GetString("log.cleaner.interval")
-	durCleanerInterval, err := time.ParseDuration(cleanerIntervalStr)
-	if err != nil {
-		return err
+	if v.IsSet("log.retention.max.messages") {
+		config.Log.RetentionMaxMessages = v.GetInt64("log.retention.max.messages")
 	}
-	config.Log.CleanerInterval = durCleanerInterval
 
-	config.Log.SegmentMaxBytes = v.GetInt64("log.segment.max.bytes")
-
-	rollTimeStr := v.GetString("log.roll.time")
-	durRollTime, err := time.ParseDuration(rollTimeStr)
-	if err != nil {
-		return err
+	if v.IsSet("log.retention.max.age") {
+		durMaxAgeStr := v.GetString("log.retention.max.age")
+		durMaxAge, err := time.ParseDuration(durMaxAgeStr)
+		if err != nil {
+			return err
+		}
+		config.Log.RetentionMaxAge = durMaxAge
 	}
-	config.Log.LogRollTime = durRollTime
-	config.Log.Compact = v.GetBool("log.compact.compact")
-	config.Log.CompactMaxGoroutines = v.GetInt("log.compact.max.goroutines")
+
+	if v.IsSet("log.cleaner.interval") {
+		cleanerIntervalStr := v.GetString("log.cleaner.interval")
+		durCleanerInterval, err := time.ParseDuration(cleanerIntervalStr)
+		if err != nil {
+			return err
+		}
+		config.Log.CleanerInterval = durCleanerInterval
+	}
+
+	if v.IsSet("log.segment.max.bytes") {
+		config.Log.SegmentMaxBytes = v.GetInt64("log.segment.max.bytes")
+	}
+
+	if v.IsSet("log.roll.time") {
+		rollTimeStr := v.GetString("log.roll.time")
+		durRollTime, err := time.ParseDuration(rollTimeStr)
+		if err != nil {
+			return err
+		}
+		config.Log.LogRollTime = durRollTime
+	}
+
+	if v.IsSet("log.compact.compact") {
+		config.Log.Compact = v.GetBool("log.compact.compact")
+	}
+
+	if v.IsSet("log.compact.max.goroutines") {
+		config.Log.CompactMaxGoroutines = v.GetInt("log.compact.max.goroutines")
+	}
 
 	return nil
 }
 
 // parseClusteringConfig parses the `clustering` section of a config file and
 // populates the given Config.
-func parseClusteringConfig(config *Config, m map[string]interface{}) error { // nolint: gocyclo
-	for k, v := range m {
-		switch strings.ToLower(k) {
-		case "server.id":
-			config.Clustering.ServerID = v.(string)
-		case "namespace":
-			config.Clustering.Namespace = v.(string)
-		case "raft.snapshot.retain":
-			config.Clustering.RaftSnapshots = int(v.(int64))
-		case "raft.snapshot.threshold":
-			config.Clustering.RaftSnapshotThreshold = uint64(v.(int64))
-		case "raft.cache.size":
-			config.Clustering.RaftCacheSize = int(v.(int64))
-		case "raft.bootstrap.seed":
-			config.Clustering.RaftBootstrapSeed = v.(bool)
-		case "raft.bootstrap.peers":
-			peers := v.([]interface{})
-			config.Clustering.RaftBootstrapPeers = make([]string, len(peers))
-			for i, p := range peers {
-				config.Clustering.RaftBootstrapPeers[i] = p.(string)
-			}
-		case "raft.logging":
-			config.Clustering.RaftLogging = v.(bool)
-		case "replica.max.lag.time":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return err
-			}
-			config.Clustering.ReplicaMaxLagTime = dur
-		case "replica.max.leader.timeout":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return err
-			}
-			config.Clustering.ReplicaMaxLeaderTimeout = dur
-		case "replica.max.idle.wait":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return err
-			}
-			config.Clustering.ReplicaMaxIdleWait = dur
-		case "replica.fetch.timeout":
-			dur, err := time.ParseDuration(v.(string))
-			if err != nil {
-				return err
-			}
-			config.Clustering.ReplicaFetchTimeout = dur
-		case "min.insync.replicas":
-			config.Clustering.MinISR = int(v.(int64))
-		default:
-			return fmt.Errorf("Unknown clustering configuration setting %q", k)
+func parseClusteringConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
+
+	if v.IsSet("clustering.server.id") {
+		config.Clustering.ServerID = v.GetString("clustering.server.id")
+	}
+	if v.IsSet("clustering.namespace") {
+		config.Clustering.Namespace = v.GetString("clustering.namespace")
+	}
+	if v.IsSet("clustering.raft.snapshot.retain") {
+		config.Clustering.RaftSnapshots = v.GetInt("clustering.raft.snapshot.retain")
+	}
+	if v.IsSet("clustering.raft.snapshot.threshold") {
+		config.Clustering.RaftSnapshotThreshold = uint64(v.GetInt64("clustering.raft.snapshot.threshold"))
+	}
+	if v.IsSet("clustering.raft.cache.size") {
+		config.Clustering.RaftCacheSize = v.GetInt("clustering.raft.cache.size")
+	}
+	if v.IsSet("clustering.raft.bootstrap.seed") {
+		config.Clustering.RaftBootstrapSeed = v.GetBool("clustering.raft.bootstrap.seed")
+	}
+	if v.IsSet("clustering.raft.bootstrap.peers") {
+		config.Clustering.RaftBootstrapPeers = v.GetStringSlice("clustering.raft.bootstrap.peers")
+	}
+
+	if v.IsSet("clustering.raft.logging") {
+		config.Clustering.RaftLogging = v.GetBool("clustering.raft.logging")
+	}
+	if v.IsSet("clustering.replica.max.lag.time") {
+		dur, err := time.ParseDuration(v.GetString("clustering.replica.max.lag.time"))
+		if err != nil {
+			return err
 		}
+		config.Clustering.ReplicaMaxLagTime = dur
+	}
+
+	if v.IsSet("clustering.replica.max.leader.timeout") {
+		dur, err := time.ParseDuration(v.GetString("clustering.replica.max.leader.timeout"))
+		if err != nil {
+			return err
+		}
+		config.Clustering.ReplicaMaxLeaderTimeout = dur
+	}
+
+	if v.IsSet("clustering.replica.max.idle.wait") {
+		dur, err := time.ParseDuration(v.GetString("clustering.replica.max.idle.wait"))
+		if err != nil {
+			return err
+		}
+		config.Clustering.ReplicaMaxIdleWait = dur
+	}
+
+	if v.IsSet("clustering.replica.fetch.timeout") {
+		dur, err := time.ParseDuration(v.GetString("clustering.replica.fetch.timeout"))
+		if err != nil {
+			return err
+		}
+		config.Clustering.ReplicaFetchTimeout = dur
+	}
+
+	if v.IsSet("clustering.min.insync.replicas") {
+		config.Clustering.MinISR = v.GetInt("clustering.min.insync.replicas")
 	}
 	return nil
 }
