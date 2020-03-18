@@ -69,29 +69,39 @@ The config file format supports the following syntax:
 ## Example Configuration File
 
 An example configuration file is shown below.
+Accept YAML as configuration file.
 
 ```plaintext
-listen: localhost:9293
-data.dir: /tmp/liftbridge/server-2
-log.level: debug
+---
+host: 0.0.0.0
+port: '5050'
+data:
+  dir: "/foo"
+# Log configuration
+log:
+  level: 'debug'
+  recovery: 'true'
+  retention:
+    max:
+      bytes: '1024'
+      messages: '100'
+      age: '1h'
+# Cluster configuration
+clustering:
+  server:
+    id: foo
+  namespace: bar
+  raft:
+    snapshot:
+      retain: '10'
+      threshold: '100'
+    cache:
+      size: '5'
+# NATS configuration
+nats:
+  servers:
+  - nats://localhost:4222
 
-# Define NATS cluster to connect to.
-nats {
-    servers: ["nats://localhost:4300", "nats://localhost:4301"]
-}
-
-# Specify message log settings.
-log {
-    retention.max.age: "24h"
-}
-
-# Specify cluster settings.
-clustering {
-    server.id: server-2
-    raft.logging: true
-    raft.bootstrap.seed: true
-    replica.max.lag.time: "20s"
-}
 ```
 
 ## Configuration Settings
