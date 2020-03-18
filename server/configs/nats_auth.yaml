@@ -1,4 +1,4 @@
-nats {
+nats: 
     user: "admin"
     password: "password"
-}
+

@@ -9,7 +9,7 @@ import (
 
 // Ensure NewConfig properly parses config files.
 func TestNewConfig(t *testing.T) {
-	config, err := NewConfig("configs/full.conf")
+	config, err := NewConfig("configs/full.yaml")
 	require.NoError(t, err)
 
 	require.Equal(t, "0.0.0.0", config.Host)
@@ -48,36 +48,8 @@ func TestNewConfig(t *testing.T) {
 
 // Ensure we can properly parse NATS username and password from a config file.
 func TestNewConfigNATSAuth(t *testing.T) {
-	config, err := NewConfig("configs/nats_auth.conf")
+	config, err := NewConfig("configs/nats_auth.yaml")
 	require.NoError(t, err)
 	require.Equal(t, "admin", config.NATS.User)
 	require.Equal(t, "password", config.NATS.Password)
-}
-
-// Ensure an error is returned when there is an unknown setting in a config
-// file.
-func TestNewConfigInvalidSetting(t *testing.T) {
-	_, err := NewConfig("configs/invalid.conf")
-	require.Error(t, err)
-}
-
-// Ensure an error is returned when there is an unknown log setting in a config
-// file.
-func TestNewConfigInvalidLogSetting(t *testing.T) {
-	_, err := NewConfig("configs/invalid_log.conf")
-	require.Error(t, err)
-}
-
-// Ensure an error is returned when there is an unknown NATS setting in a
-// config file.
-func TestNewConfigInvalidNATSSetting(t *testing.T) {
-	_, err := NewConfig("configs/invalid_nats.conf")
-	require.Error(t, err)
-}
-
-// Ensure an error is returned when there is an unknown clustering setting in a
-// config file.
-func TestNewConfigInvalidClusteringSetting(t *testing.T) {
-	_, err := NewConfig("configs/invalid_clustering.conf")
-	require.Error(t, err)
 }
