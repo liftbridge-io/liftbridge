@@ -17,6 +17,9 @@ official clients.
 
 [go-liftbridge](https://github.com/liftbridge-io/go-liftbridge)*
 
+## Java
+[java-liftbridge](https://github.com/liftbridge-io/java-liftbridge)*
+
 ## Node.js
 
 [node-liftbridge](https://github.com/paambaati/node-liftbridge)
