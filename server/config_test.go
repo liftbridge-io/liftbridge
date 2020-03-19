@@ -64,7 +64,6 @@ func TestNewConfigNATSAuth(t *testing.T) {
 }
 
 // Ensure parsing host and listen
-
 func TestNewConfigListen(t *testing.T) {
 	config, err := NewConfig("configs/listen-host.yaml")
 	require.NoError(t, err)
@@ -72,5 +71,12 @@ func TestNewConfigListen(t *testing.T) {
 	require.Equal(t, int(4222), config.Listen.Port)
 	require.Equal(t, "my-host", config.Host)
 	require.Equal(t, int(4333), config.Port)
+}
 
+// Ensure parsing TLS config
+func TestNewConfigTLS(t *testing.T) {
+	config, err := NewConfig("configs/tls.yaml")
+	require.NoError(t, err)
+	require.Equal(t, "./configs/certs/server.key", config.TLSKey)
+	require.Equal(t, "./configs/certs/server.crt", config.TLSCert)
 }

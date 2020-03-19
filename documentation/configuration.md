@@ -49,22 +49,8 @@ GLOBAL OPTIONS:
 
 ## Configuration File Format
 
-The configuration file format borrows from the [NATS configuration
-format](https://nats.io/documentation/server/gnatsd-config/). It is a flexible
-format that combines the best of traditional configuration formats and newer
-styles such as JSON and YAML.
+Currently supports YAML.
 
-The config file format supports the following syntax:
-
-- Mixed Arrays: `[...]`
-- Nested Maps: `{...}`
-- Multiple comment types: `#` and `//`
-- Key value assigments using:
-  - Equals sign (`foo = 2`)
-  - Colon (`foo: 2`)
-  - Whitespace (`foo 2`)
-- Maps can be assigned with no key separator
-- Semicolons as value terminators in key/value assignments are optional
 
 ## Example Configuration File
 
