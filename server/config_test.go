@@ -55,6 +55,20 @@ func TestDefaultConfig(t *testing.T) {
 	require.Equal(t, 1024, config.BatchMaxMessages)
 }
 
+//Ensure that both config file and default configs are loaded
+func TestBothDefaultConfigAndConfigFile(t *testing.T) {
+	config, err := NewConfig("configs/simple.yaml")
+	require.NoError(t, err)
+	// Ensure custom configs are loaded
+	require.Equal(t, true, config.LogRecovery)
+	require.Equal(t, int64(1024), config.Log.RetentionMaxBytes)
+
+	// Ensure also default values are loaded at the same time
+	require.Equal(t, 512, config.Clustering.RaftCacheSize)
+	require.Equal(t, "liftbridge-default", config.Clustering.Namespace)
+	require.Equal(t, 1024, config.BatchMaxMessages)
+}
+
 // Ensure we can properly parse NATS username and password from a config file.
 func TestNewConfigNATSAuth(t *testing.T) {
 	config, err := NewConfig("configs/nats_auth.yaml")

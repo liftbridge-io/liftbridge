@@ -1092,7 +1092,7 @@ func TestTLS(t *testing.T) {
 	defer ns.Shutdown()
 
 	// Configure server with TLS.
-	s1Config, err := NewConfig("./configs/tls.conf")
+	s1Config, err := NewConfig("./configs/tls.yaml")
 	require.NoError(t, err)
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -1113,7 +1113,7 @@ func TestTLS(t *testing.T) {
 // Ensure that the host address is the same as the listen address when
 // specifying only the latter
 func TestListen(t *testing.T) {
-	config, err := NewConfig("./configs/listen.conf")
+	config, err := NewConfig("./configs/listen.yaml")
 	require.NoError(t, err)
 
 	ex := HostPort{
@@ -1135,7 +1135,7 @@ func TestListen(t *testing.T) {
 // Ensure that the listen address is the same as the host address when
 // specifying only the latter
 func TestHost(t *testing.T) {
-	config, err := NewConfig("./configs/host.conf")
+	config, err := NewConfig("./configs/host.yam")
 	require.NoError(t, err)
 
 	ex := HostPort{
@@ -1157,7 +1157,7 @@ func TestHost(t *testing.T) {
 // Ensure that the listen and connection addresses have the expected values
 // when specifying both
 func TestListenHost(t *testing.T) {
-	config, err := NewConfig("./configs/listen-host.conf")
+	config, err := NewConfig("./configs/listen-host.yaml")
 	require.NoError(t, err)
 
 	ex := HostPort{

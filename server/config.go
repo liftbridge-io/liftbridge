@@ -208,6 +208,9 @@ func GetLogLevel(level string) (uint32, error) {
 // NewConfig creates a new Config with default settings and applies any
 // settings from the given configuration file.
 func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
+	// Default config
+	config := NewDefaultConfig()
+
 	v := newViper()
 	// Expect a config.yaml file in the destination
 	v.SetConfigFile(configFile)
@@ -215,14 +218,11 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// return default config
-			config := NewDefaultConfig()
 			return config, nil
 		}
 
 		return nil, fmt.Errorf("Error on loading config: %v", err)
 	}
-
-	config := new(Config)
 	// Reset LogRollTime since this will get overwritten later.
 	config.Log.LogRollTime = 0
 
