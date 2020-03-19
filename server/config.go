@@ -211,7 +211,6 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	v := newViper()
 	// Expect a config.yaml file in the destination
 	v.SetConfigFile(configFile)
-	v.SetConfigType("yaml")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -219,6 +218,8 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 			config := NewDefaultConfig()
 			return config, nil
 		}
+
+		return nil, fmt.Errorf("Error on loading config: %v", err)
 	}
 
 	config := new(Config)
@@ -268,20 +269,20 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 
 	if v.IsSet("batch.wait.time") {
 		waitTime := v.GetString("batch.wait.time")
-		durWaitTime, err := time.ParseDuration(waitTime)
+		dur, err := time.ParseDuration(waitTime)
 		if err != nil {
 			return nil, err
 		}
-		config.BatchWaitTime = durWaitTime
+		config.BatchWaitTime = dur
 	}
 
 	if v.IsSet("metadata.cache.max.age") {
 		maxAge := v.GetString("metadata.cache.max.age")
-		durMaxAge, err := time.ParseDuration(maxAge)
+		dur, err := time.ParseDuration(maxAge)
 		if err != nil {
 			return nil, err
 		}
-		config.MetadataCacheMaxAge = durMaxAge
+		config.MetadataCacheMaxAge = dur
 	}
 
 	if v.IsSet("tls.key") {
@@ -352,20 +353,20 @@ func parseLogConfig(config *Config, v *viper.Viper) error {
 
 	if v.IsSet("log.retention.max.age") {
 		durMaxAgeStr := v.GetString("log.retention.max.age")
-		durMaxAge, err := time.ParseDuration(durMaxAgeStr)
+		dur, err := time.ParseDuration(durMaxAgeStr)
 		if err != nil {
 			return err
 		}
-		config.Log.RetentionMaxAge = durMaxAge
+		config.Log.RetentionMaxAge = dur
 	}
 
 	if v.IsSet("log.cleaner.interval") {
 		cleanerIntervalStr := v.GetString("log.cleaner.interval")
-		durCleanerInterval, err := time.ParseDuration(cleanerIntervalStr)
+		dur, err := time.ParseDuration(cleanerIntervalStr)
 		if err != nil {
 			return err
 		}
-		config.Log.CleanerInterval = durCleanerInterval
+		config.Log.CleanerInterval = dur
 	}
 
 	if v.IsSet("log.segment.max.bytes") {
@@ -374,11 +375,11 @@ func parseLogConfig(config *Config, v *viper.Viper) error {
 
 	if v.IsSet("log.roll.time") {
 		rollTimeStr := v.GetString("log.roll.time")
-		durRollTime, err := time.ParseDuration(rollTimeStr)
+		dur, err := time.ParseDuration(rollTimeStr)
 		if err != nil {
 			return err
 		}
-		config.Log.LogRollTime = durRollTime
+		config.Log.LogRollTime = dur
 	}
 
 	if v.IsSet("log.compact.compact") {

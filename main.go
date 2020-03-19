@@ -30,7 +30,6 @@ func main() {
 
 func start(c *cli.Context) error {
 	// Read config from file if present.
-	// [NOTE] entry point for config is here
 	config, err := server.NewConfig(c.String("config"))
 	if err != nil {
 		return err

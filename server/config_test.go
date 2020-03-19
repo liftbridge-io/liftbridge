@@ -46,6 +46,15 @@ func TestNewConfig(t *testing.T) {
 	require.Equal(t, []string{"nats://localhost:4222"}, config.NATS.Servers)
 }
 
+//Ensure that default config is loaded
+func TestDefaultConfig(t *testing.T) {
+	config, err := NewConfig("")
+	require.NoError(t, err)
+	require.Equal(t, 512, config.Clustering.RaftCacheSize)
+	require.Equal(t, "liftbridge-default", config.Clustering.Namespace)
+	require.Equal(t, 1024, config.BatchMaxMessages)
+}
+
 // Ensure we can properly parse NATS username and password from a config file.
 func TestNewConfigNATSAuth(t *testing.T) {
 	config, err := NewConfig("configs/nats_auth.yaml")
