@@ -11,6 +11,7 @@ import (
 	"github.com/hako/durafmt"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -117,12 +118,6 @@ type Config struct {
 	Clustering          ClusteringConfig
 }
 
-// new Viper to parse configuration file
-func newViper() *viper.Viper {
-	v := viper.New()
-	return v
-}
-
 // NewDefaultConfig creates a new Config with default settings.
 func NewDefaultConfig() *Config {
 	config := &Config{
@@ -211,17 +206,22 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	// Default config
 	config := NewDefaultConfig()
 
-	v := newViper()
+	v := viper.New()
 	// Expect a config.yaml file in the destination
 	v.SetConfigFile(configFile)
+
+	// Return default config if config file is not given
+	if configFile == "" {
+		return config, nil
+	}
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// return default config
-			return config, nil
+			return config, err
 		}
+		return nil, errors.Wrap(err, "Error on loading configuration")
 
-		return nil, fmt.Errorf("Error on loading config: %v", err)
 	}
 	// Reset LogRollTime since this will get overwritten later.
 	config.Log.LogRollTime = 0
@@ -268,21 +268,11 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	}
 
 	if v.IsSet("batch.wait.time") {
-		waitTime := v.GetString("batch.wait.time")
-		dur, err := time.ParseDuration(waitTime)
-		if err != nil {
-			return nil, err
-		}
-		config.BatchWaitTime = dur
+		config.BatchWaitTime = v.GetDuration("batch.wait.time")
 	}
 
 	if v.IsSet("metadata.cache.max.age") {
-		maxAge := v.GetString("metadata.cache.max.age")
-		dur, err := time.ParseDuration(maxAge)
-		if err != nil {
-			return nil, err
-		}
-		config.MetadataCacheMaxAge = dur
+		config.MetadataCacheMaxAge = v.GetDuration("metadata.cache.max.age")
 	}
 
 	if v.IsSet("tls.key") {
@@ -352,21 +342,11 @@ func parseLogConfig(config *Config, v *viper.Viper) error {
 	}
 
 	if v.IsSet("log.retention.max.age") {
-		durMaxAgeStr := v.GetString("log.retention.max.age")
-		dur, err := time.ParseDuration(durMaxAgeStr)
-		if err != nil {
-			return err
-		}
-		config.Log.RetentionMaxAge = dur
+		config.Log.RetentionMaxAge = v.GetDuration("log.retention.max.age")
 	}
 
 	if v.IsSet("log.cleaner.interval") {
-		cleanerIntervalStr := v.GetString("log.cleaner.interval")
-		dur, err := time.ParseDuration(cleanerIntervalStr)
-		if err != nil {
-			return err
-		}
-		config.Log.CleanerInterval = dur
+		config.Log.CleanerInterval = v.GetDuration("log.cleaner.interval")
 	}
 
 	if v.IsSet("log.segment.max.bytes") {
@@ -374,12 +354,7 @@ func parseLogConfig(config *Config, v *viper.Viper) error {
 	}
 
 	if v.IsSet("log.roll.time") {
-		rollTimeStr := v.GetString("log.roll.time")
-		dur, err := time.ParseDuration(rollTimeStr)
-		if err != nil {
-			return err
-		}
-		config.Log.LogRollTime = dur
+		config.Log.LogRollTime = v.GetDuration("log.roll.time")
 	}
 
 	if v.IsSet("log.compact.compact") {
@@ -423,35 +398,19 @@ func parseClusteringConfig(config *Config, v *viper.Viper) error { // nolint: go
 		config.Clustering.RaftLogging = v.GetBool("clustering.raft.logging")
 	}
 	if v.IsSet("clustering.replica.max.lag.time") {
-		dur, err := time.ParseDuration(v.GetString("clustering.replica.max.lag.time"))
-		if err != nil {
-			return err
-		}
-		config.Clustering.ReplicaMaxLagTime = dur
+		config.Clustering.ReplicaMaxLagTime = v.GetDuration("clustering.replica.max.lag.time")
 	}
 
 	if v.IsSet("clustering.replica.max.leader.timeout") {
-		dur, err := time.ParseDuration(v.GetString("clustering.replica.max.leader.timeout"))
-		if err != nil {
-			return err
-		}
-		config.Clustering.ReplicaMaxLeaderTimeout = dur
+		config.Clustering.ReplicaMaxLeaderTimeout = v.GetDuration("clustering.replica.max.leader.timeout")
 	}
 
 	if v.IsSet("clustering.replica.max.idle.wait") {
-		dur, err := time.ParseDuration(v.GetString("clustering.replica.max.idle.wait"))
-		if err != nil {
-			return err
-		}
-		config.Clustering.ReplicaMaxIdleWait = dur
+		config.Clustering.ReplicaMaxIdleWait = v.GetDuration("clustering.replica.max.idle.wait")
 	}
 
 	if v.IsSet("clustering.replica.fetch.timeout") {
-		dur, err := time.ParseDuration(v.GetString("clustering.replica.fetch.timeout"))
-		if err != nil {
-			return err
-		}
-		config.Clustering.ReplicaFetchTimeout = dur
+		config.Clustering.ReplicaFetchTimeout = v.GetDuration("clustering.replica.fetch.timeout")
 	}
 
 	if v.IsSet("clustering.min.insync.replicas") {

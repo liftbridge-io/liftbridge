@@ -1135,7 +1135,7 @@ func TestListen(t *testing.T) {
 // Ensure that the listen address is the same as the host address when
 // specifying only the latter
 func TestHost(t *testing.T) {
-	config, err := NewConfig("./configs/host.yam")
+	config, err := NewConfig("./configs/host.yaml")
 	require.NoError(t, err)
 
 	ex := HostPort{
