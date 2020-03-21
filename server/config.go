@@ -43,8 +43,8 @@ const (
 	defaultLogRollTime             = defaultRetentionMaxAge
 )
 
-// LogConfig contains settings for controlling the message log for a stream.
-type LogConfig struct {
+// StreamConfig contains settings for controlling the message log for a stream.
+type StreamConfig struct {
 	RetentionMaxBytes    int64
 	RetentionMaxMessages int64
 	RetentionMaxAge      time.Duration
@@ -57,7 +57,7 @@ type LogConfig struct {
 
 // RetentionString returns a human-readable string representation of the
 // retention policy.
-func (l LogConfig) RetentionString() string {
+func (l StreamConfig) RetentionString() string {
 	str := "["
 	prefix := ""
 	if l.RetentionMaxMessages != 0 {
@@ -114,7 +114,7 @@ type Config struct {
 	TLSClientAuth       bool
 	TLSClientAuthCA     string
 	NATS                nats.Options
-	Log                 LogConfig
+	Stream              StreamConfig
 	Clustering          ClusteringConfig
 }
 
@@ -136,10 +136,10 @@ func NewDefaultConfig() *Config {
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Clustering.RaftCacheSize = defaultRaftCacheSize
 	config.Clustering.MinISR = defaultMinInsyncReplicas
-	config.Log.SegmentMaxBytes = defaultMaxSegmentBytes
-	config.Log.RetentionMaxAge = defaultRetentionMaxAge
-	config.Log.LogRollTime = defaultLogRollTime
-	config.Log.CleanerInterval = defaultCleanerInterval
+	config.Stream.SegmentMaxBytes = defaultMaxSegmentBytes
+	config.Stream.RetentionMaxAge = defaultRetentionMaxAge
+	config.Stream.LogRollTime = defaultLogRollTime
+	config.Stream.CleanerInterval = defaultCleanerInterval
 	return config
 }
 
@@ -224,7 +224,7 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 
 	}
 	// Reset LogRollTime since this will get overwritten later.
-	config.Log.LogRollTime = 0
+	config.Stream.LogRollTime = 0
 
 	//Parse config file here with v
 	if v.IsSet("listen") {
@@ -293,12 +293,12 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 
 	parseNATSConfig(&config.NATS, v)
 
-	parseLogConfig(config, v)
+	parseStreamConfig(config, v)
 
 	parseClusteringConfig(config, v)
 	// If LogRollTime is not set, default it to the retention time.
-	if config.Log.LogRollTime == 0 {
-		config.Log.LogRollTime = config.Log.RetentionMaxAge
+	if config.Stream.LogRollTime == 0 {
+		config.Stream.LogRollTime = config.Stream.RetentionMaxAge
 	}
 
 	return config, nil
@@ -323,40 +323,40 @@ func parseNATSConfig(opts *nats.Options, v *viper.Viper) error {
 	return nil
 }
 
-// parseLogConfig parses the `log` section of a config file and populates the
+// parseStreamConfig parses the `log` section of a config file and populates the
 // given Config.
-func parseLogConfig(config *Config, v *viper.Viper) error {
+func parseStreamConfig(config *Config, v *viper.Viper) error {
 
-	if v.IsSet("log.retention.max.bytes") {
-		config.Log.RetentionMaxBytes = v.GetInt64("log.retention.max.bytes")
+	if v.IsSet("stream.retention.max.bytes") {
+		config.Stream.RetentionMaxBytes = v.GetInt64("stream.retention.max.bytes")
 	}
 
-	if v.IsSet("log.retention.max.messages") {
-		config.Log.RetentionMaxMessages = v.GetInt64("log.retention.max.messages")
+	if v.IsSet("stream.retention.max.messages") {
+		config.Stream.RetentionMaxMessages = v.GetInt64("stream.retention.max.messages")
 	}
 
-	if v.IsSet("log.retention.max.age") {
-		config.Log.RetentionMaxAge = v.GetDuration("log.retention.max.age")
+	if v.IsSet("stream.retention.max.age") {
+		config.Stream.RetentionMaxAge = v.GetDuration("stream.retention.max.age")
 	}
 
-	if v.IsSet("log.cleaner.interval") {
-		config.Log.CleanerInterval = v.GetDuration("log.cleaner.interval")
+	if v.IsSet("stream.cleaner.interval") {
+		config.Stream.CleanerInterval = v.GetDuration("stream.cleaner.interval")
 	}
 
-	if v.IsSet("log.segment.max.bytes") {
-		config.Log.SegmentMaxBytes = v.GetInt64("log.segment.max.bytes")
+	if v.IsSet("stream.segment.max.bytes") {
+		config.Stream.SegmentMaxBytes = v.GetInt64("stream.segment.max.bytes")
 	}
 
-	if v.IsSet("log.roll.time") {
-		config.Log.LogRollTime = v.GetDuration("log.roll.time")
+	if v.IsSet("stream.roll.time") {
+		config.Stream.LogRollTime = v.GetDuration("stream.roll.time")
 	}
 
-	if v.IsSet("log.compact.compact") {
-		config.Log.Compact = v.GetBool("log.compact.compact")
+	if v.IsSet("stream.compact.compact") {
+		config.Stream.Compact = v.GetBool("stream.compact.compact")
 	}
 
-	if v.IsSet("log.compact.max.goroutines") {
-		config.Log.CompactMaxGoroutines = v.GetInt("log.compact.max.goroutines")
+	if v.IsSet("stream.compact.max.goroutines") {
+		config.Stream.CompactMaxGoroutines = v.GetInt("stream.compact.max.goroutines")
 	}
 
 	return nil

@@ -129,7 +129,7 @@ func (s *Server) Start() (err error) {
 
 	s.logger.Infof("Server ID:        %s", s.config.Clustering.ServerID)
 	s.logger.Infof("Namespace:        %s", s.config.Clustering.Namespace)
-	s.logger.Infof("Retention Policy: %s", s.config.Log.RetentionString())
+	s.logger.Infof("Retention Policy: %s", s.config.Stream.RetentionString())
 	s.logger.Infof("Starting server on %s...",
 		net.JoinHostPort(listenAddress.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
 
@@ -137,9 +137,9 @@ func (s *Server) Start() (err error) {
 	// rolls which will cause performance problems. This is mainly here because
 	// LogRollTime defaults to RetentionMaxAge if it's not set explicitly, so
 	// users could otherwise unknowingly cause frequent log rolls.
-	if logRollTime := s.config.Log.LogRollTime; logRollTime != 0 && logRollTime < time.Second {
+	if logRollTime := s.config.Stream.LogRollTime; logRollTime != 0 && logRollTime < time.Second {
 		s.logger.Info("Defaulting log.roll.time to 1 second to avoid frequent log rolls")
-		s.config.Log.LogRollTime = time.Second
+		s.config.Stream.LogRollTime = time.Second
 	}
 
 	if err := s.startMetadataRaft(); err != nil {

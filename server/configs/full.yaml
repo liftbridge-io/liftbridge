@@ -15,6 +15,7 @@ metadata:
 log:
   level: 'debug'
   recovery: 'true'
+stream:
   retention:
     max:
       bytes: '1024'

@@ -102,14 +102,14 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 		log, err = commitlog.New(commitlog.Options{
 			Name:                 name,
 			Path:                 file,
-			MaxSegmentBytes:      s.config.Log.SegmentMaxBytes,
-			MaxLogBytes:          s.config.Log.RetentionMaxBytes,
-			MaxLogMessages:       s.config.Log.RetentionMaxMessages,
-			MaxLogAge:            s.config.Log.RetentionMaxAge,
-			LogRollTime:          s.config.Log.LogRollTime,
-			CleanerInterval:      s.config.Log.CleanerInterval,
-			Compact:              s.config.Log.Compact,
-			CompactMaxGoroutines: s.config.Log.CompactMaxGoroutines,
+			MaxSegmentBytes:      s.config.Stream.SegmentMaxBytes,
+			MaxLogBytes:          s.config.Stream.RetentionMaxBytes,
+			MaxLogMessages:       s.config.Stream.RetentionMaxMessages,
+			MaxLogAge:            s.config.Stream.RetentionMaxAge,
+			LogRollTime:          s.config.Stream.LogRollTime,
+			CleanerInterval:      s.config.Stream.CleanerInterval,
+			Compact:              s.config.Stream.Compact,
+			CompactMaxGoroutines: s.config.Stream.CompactMaxGoroutines,
 			Logger:               s.logger,
 		})
 	)

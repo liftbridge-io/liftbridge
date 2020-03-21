@@ -604,8 +604,8 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	// Set these to force deletion so we can get an underflow.
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxBytes = 1
+	s1Config.Stream.SegmentMaxBytes = 1
+	s1Config.Stream.RetentionMaxBytes = 1
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -665,8 +665,8 @@ func TestStreamRetentionBytes(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxBytes = 1000
+	s1Config.Stream.SegmentMaxBytes = 1
+	s1Config.Stream.RetentionMaxBytes = 1000
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -726,8 +726,8 @@ func TestStreamRetentionMessages(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxMessages = 5
+	s1Config.Stream.SegmentMaxBytes = 1
+	s1Config.Stream.RetentionMaxMessages = 5
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -787,8 +787,8 @@ func TestStreamRetentionAge(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxAge = time.Nanosecond
+	s1Config.Stream.SegmentMaxBytes = 1
+	s1Config.Stream.RetentionMaxAge = time.Nanosecond
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -850,8 +850,8 @@ func TestSubscribeEarliest(t *testing.T) {
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	// Set these to force deletion.
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxBytes = 1
+	s1Config.Stream.SegmentMaxBytes = 1
+	s1Config.Stream.RetentionMaxBytes = 1
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()

@@ -67,6 +67,8 @@ data:
 log:
   level: 'debug'
   recovery: 'true'
+# Stream configuration
+stream:
   retention:
     max:
       bytes: '1024'
@@ -111,7 +113,7 @@ the setting in the configuration file and the CLI flag if it exists.
 | batch.wait.time | | The time to wait to batch more messages when writing to disk. | duration | 0 | |
 | metadata.cache.max.age | | The maximum age of cached broker metadata. | duration | 2m | |
 | nats | | NATS configuration. | map | | [See below](#nats-configuration-settings) |
-| log | | Stream write-ahead log configuration. | map | | [See below](#log-configuration-settings) |
+| stream | | Stream write-ahead log configuration. | map | | [See below](#log-configuration-settings) |
 | clustering | | Broker cluster configuration. | map | | [See below](#cluster-configuration-settings) |
 
 ### NATS Configuration Settings
@@ -125,9 +127,9 @@ the configuration file.
 | user | | Username to use to connect to NATS servers. | string | | |
 | password | | Password to use to connect to NATS servers. | string | | |
 
-### Log Configuration Settings
+### Stream Configuration Settings
 
-Below is the list of the configuration settings for the `log` part of
+Below is the list of the configuration settings for the `stream` part of
 the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |

@@ -21,14 +21,14 @@ func TestNewConfig(t *testing.T) {
 	require.Equal(t, time.Second, config.BatchWaitTime)
 	require.Equal(t, time.Minute, config.MetadataCacheMaxAge)
 
-	require.Equal(t, int64(1024), config.Log.RetentionMaxBytes)
-	require.Equal(t, int64(100), config.Log.RetentionMaxMessages)
-	require.Equal(t, time.Hour, config.Log.RetentionMaxAge)
-	require.Equal(t, time.Minute, config.Log.CleanerInterval)
-	require.Equal(t, int64(64), config.Log.SegmentMaxBytes)
-	require.Equal(t, time.Minute, config.Log.LogRollTime)
-	require.True(t, config.Log.Compact)
-	require.Equal(t, 2, config.Log.CompactMaxGoroutines)
+	require.Equal(t, int64(1024), config.Stream.RetentionMaxBytes)
+	require.Equal(t, int64(100), config.Stream.RetentionMaxMessages)
+	require.Equal(t, time.Hour, config.Stream.RetentionMaxAge)
+	require.Equal(t, time.Minute, config.Stream.CleanerInterval)
+	require.Equal(t, int64(64), config.Stream.SegmentMaxBytes)
+	require.Equal(t, time.Minute, config.Stream.LogRollTime)
+	require.True(t, config.Stream.Compact)
+	require.Equal(t, 2, config.Stream.CompactMaxGoroutines)
 
 	require.Equal(t, "foo", config.Clustering.ServerID)
 	require.Equal(t, "bar", config.Clustering.Namespace)
@@ -61,7 +61,7 @@ func TestBothDefaultConfigAndConfigFile(t *testing.T) {
 	require.NoError(t, err)
 	// Ensure custom configs are loaded
 	require.Equal(t, true, config.LogRecovery)
-	require.Equal(t, int64(1024), config.Log.RetentionMaxBytes)
+	require.Equal(t, int64(1024), config.Stream.RetentionMaxBytes)
 
 	// Ensure also default values are loaded at the same time
 	require.Equal(t, 512, config.Clustering.RaftCacheSize)
@@ -98,5 +98,11 @@ func TestNewConfigTLS(t *testing.T) {
 // Ensure error is raised when given config file not found
 func TestConfigFileNotFound(t *testing.T) {
 	_, err := NewConfig("somefile.yaml")
+	require.Error(t, err)
+}
+
+// Ensure an error is returned when there is invalid configuration in listen
+func TestNewConfigInvalidClusteringSetting(t *testing.T) {
+	_, err := NewConfig("configs/invalid_listen.yaml")
 	require.Error(t, err)
 }
