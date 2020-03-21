@@ -94,3 +94,9 @@ func TestNewConfigTLS(t *testing.T) {
 	require.Equal(t, "./configs/certs/server.key", config.TLSKey)
 	require.Equal(t, "./configs/certs/server.crt", config.TLSCert)
 }
+
+// Ensure error is raised when given config file not found
+func TestConfigFileNotFound(t *testing.T) {
+	_, err := NewConfig("somefile.yaml")
+	require.Error(t, err)
+}

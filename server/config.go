@@ -291,17 +291,11 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 		config.TLSClientAuthCA = v.GetString("tls.client.auth.ca")
 	}
 
-	if err := parseNATSConfig(&config.NATS, v); err != nil {
-		return nil, err
-	}
+	parseNATSConfig(&config.NATS, v)
 
-	if err := parseLogConfig(config, v); err != nil {
-		return nil, err
-	}
+	parseLogConfig(config, v)
 
-	if err := parseClusteringConfig(config, v); err != nil {
-		return nil, err
-	}
+	parseClusteringConfig(config, v)
 	// If LogRollTime is not set, default it to the retention time.
 	if config.Log.LogRollTime == 0 {
 		config.Log.LogRollTime = config.Log.RetentionMaxAge
