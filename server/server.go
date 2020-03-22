@@ -129,17 +129,17 @@ func (s *Server) Start() (err error) {
 
 	s.logger.Infof("Server ID:        %s", s.config.Clustering.ServerID)
 	s.logger.Infof("Namespace:        %s", s.config.Clustering.Namespace)
-	s.logger.Infof("Retention Policy: %s", s.config.Log.RetentionString())
+	s.logger.Infof("Retention Policy: %s", s.config.Streams.RetentionString())
 	s.logger.Infof("Starting server on %s...",
 		net.JoinHostPort(listenAddress.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
 
-	// Set a lower bound of one second for LogRollTime to avoid frequent log
+	// Set a lower bound of one second for SegmentMaxAge to avoid frequent log
 	// rolls which will cause performance problems. This is mainly here because
-	// LogRollTime defaults to RetentionMaxAge if it's not set explicitly, so
-	// users could otherwise unknowingly cause frequent log rolls.
-	if logRollTime := s.config.Log.LogRollTime; logRollTime != 0 && logRollTime < time.Second {
-		s.logger.Info("Defaulting log.roll.time to 1 second to avoid frequent log rolls")
-		s.config.Log.LogRollTime = time.Second
+	// SegmentMaxAge defaults to RetentionMaxAge if it's not set explicitly,
+	// so users could otherwise unknowingly cause frequent log rolls.
+	if logRollTime := s.config.Streams.SegmentMaxAge; logRollTime != 0 && logRollTime < time.Second {
+		s.logger.Infof("Defaulting %s to 1 second to avoid frequent log rolls", configStreamsSegmentMaxAge)
+		s.config.Streams.SegmentMaxAge = time.Second
 	}
 
 	if err := s.startMetadataRaft(); err != nil {

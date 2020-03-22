@@ -102,14 +102,14 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (
 		log, err = commitlog.New(commitlog.Options{
 			Name:                 name,
 			Path:                 file,
-			MaxSegmentBytes:      s.config.Log.SegmentMaxBytes,
-			MaxLogBytes:          s.config.Log.RetentionMaxBytes,
-			MaxLogMessages:       s.config.Log.RetentionMaxMessages,
-			MaxLogAge:            s.config.Log.RetentionMaxAge,
-			LogRollTime:          s.config.Log.LogRollTime,
-			CleanerInterval:      s.config.Log.CleanerInterval,
-			Compact:              s.config.Log.Compact,
-			CompactMaxGoroutines: s.config.Log.CompactMaxGoroutines,
+			MaxSegmentBytes:      s.config.Streams.SegmentMaxBytes,
+			MaxSegmentAge:        s.config.Streams.SegmentMaxAge,
+			MaxLogBytes:          s.config.Streams.RetentionMaxBytes,
+			MaxLogMessages:       s.config.Streams.RetentionMaxMessages,
+			MaxLogAge:            s.config.Streams.RetentionMaxAge,
+			CleanerInterval:      s.config.Streams.CleanerInterval,
+			Compact:              s.config.Streams.Compact,
+			CompactMaxGoroutines: s.config.Streams.CompactMaxGoroutines,
 			Logger:               s.logger,
 		})
 	)
@@ -544,7 +544,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 	var (
 		msg       *nats.Msg
 		batchSize = p.srv.config.BatchMaxMessages
-		batchWait = p.srv.config.BatchWaitTime
+		batchWait = p.srv.config.BatchMaxTime
 		msgBatch  = make([]*commitlog.Message, 0, batchSize)
 	)
 	for {

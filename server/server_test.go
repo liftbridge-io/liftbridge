@@ -44,7 +44,7 @@ func getTestConfig(id string, bootstrap bool, port int) *Config {
 	config.Clustering.RaftBootstrapSeed = bootstrap
 	config.DataDir = filepath.Join(storagePath, id)
 	config.Clustering.RaftSnapshots = 1
-	config.Clustering.RaftLogging = true
+	config.LogRaft = true
 	config.Clustering.ServerID = id
 	config.LogLevel = uint32(log.DebugLevel)
 	config.NATS.Servers = []string{"nats://localhost:4222"}
@@ -604,8 +604,8 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	// Set these to force deletion so we can get an underflow.
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxBytes = 1
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxBytes = 1
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -665,8 +665,8 @@ func TestStreamRetentionBytes(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxBytes = 1000
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxBytes = 1000
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -726,8 +726,8 @@ func TestStreamRetentionMessages(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxMessages = 5
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxMessages = 5
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -787,8 +787,8 @@ func TestStreamRetentionAge(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxAge = time.Nanosecond
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxAge = time.Nanosecond
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -850,8 +850,8 @@ func TestSubscribeEarliest(t *testing.T) {
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	// Set these to force deletion.
-	s1Config.Log.SegmentMaxBytes = 1
-	s1Config.Log.RetentionMaxBytes = 1
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxBytes = 1
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -1092,7 +1092,7 @@ func TestTLS(t *testing.T) {
 	defer ns.Shutdown()
 
 	// Configure server with TLS.
-	s1Config, err := NewConfig("./configs/tls.conf")
+	s1Config, err := NewConfig("./configs/tls.yaml")
 	require.NoError(t, err)
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -1113,7 +1113,7 @@ func TestTLS(t *testing.T) {
 // Ensure that the host address is the same as the listen address when
 // specifying only the latter
 func TestListen(t *testing.T) {
-	config, err := NewConfig("./configs/listen.conf")
+	config, err := NewConfig("./configs/listen.yaml")
 	require.NoError(t, err)
 
 	ex := HostPort{
@@ -1135,7 +1135,7 @@ func TestListen(t *testing.T) {
 // Ensure that the listen address is the same as the host address when
 // specifying only the latter
 func TestHost(t *testing.T) {
-	config, err := NewConfig("./configs/host.conf")
+	config, err := NewConfig("./configs/host.yaml")
 	require.NoError(t, err)
 
 	ex := HostPort{
@@ -1157,7 +1157,7 @@ func TestHost(t *testing.T) {
 // Ensure that the listen and connection addresses have the expected values
 // when specifying both
 func TestListenHost(t *testing.T) {
-	config, err := NewConfig("./configs/listen-host.conf")
+	config, err := NewConfig("./configs/listen-host.yaml")
 	require.NoError(t, err)
 
 	ex := HostPort{

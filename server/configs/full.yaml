@@ -1,0 +1,53 @@
+---
+listen: localhost:9293
+host: 0.0.0.0
+port: 5050
+data.dir: /foo
+metadata.cache.max.age: 1m
+
+batch.max:
+  messages: 10
+  time: 1s
+
+logging:
+  level: debug
+  recovery: true
+  raft: true
+
+streams:
+  retention.max:
+    bytes: 1024
+    messages: 100
+    age: 1h
+  cleaner.interval: 1m
+  segment.max:
+    bytes: 64
+    age: 1m
+  compact: 
+    enabled: true
+    max.goroutines: 2
+
+clustering:
+  server.id: foo
+  namespace: bar
+  raft:
+    snapshot:
+      retain: 10
+      threshold: 100
+    cache.size: 5
+    bootstrap.peers:
+      - a
+      - b
+  replica:
+    max:
+      lag.time: 1m
+      leader.timeout: 30s
+      idle.wait: 2s
+    fetch.timeout: 3s
+  min.insync.replicas: '1'
+
+nats:
+  servers:
+    - nats://localhost:4222
+  user: user
+  password: pass
