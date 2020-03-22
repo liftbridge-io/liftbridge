@@ -14,13 +14,11 @@ import (
 	"github.com/liftbridge-io/liftbridge/server"
 )
 
-const version = "0.0.1"
-
 func main() {
 	app := cli.NewApp()
 	app.Name = "liftbridge"
 	app.Usage = "Lightweight, fault-tolerant message streams"
-	app.Version = version
+	app.Version = server.Version
 	app.Flags = getFlags()
 	app.Action = start
 	if err := app.Run(os.Args); err != nil {
