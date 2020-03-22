@@ -84,7 +84,7 @@ type raftLogger struct {
 
 // Write pipes the given data to the Server logger.
 func (r *raftLogger) Write(b []byte) (int, error) {
-	if !r.config.Clustering.RaftLogging {
+	if !r.config.LogRaft {
 		return len(b), nil
 	}
 	levelStart := bytes.IndexByte(b, '[')

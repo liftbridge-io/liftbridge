@@ -1,0 +1,3 @@
+host: localhost
+port: 5050
+foo.bar.baz: qux

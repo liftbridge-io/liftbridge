@@ -53,6 +53,7 @@ type Options struct {
 	Name                 string        // commitLog name
 	Path                 string        // Path to log directory
 	MaxSegmentBytes      int64         // Max bytes a Segment can contain before creating a new one
+	MaxSegmentAge        time.Duration // Max time before a new log segment is rolled out.
 	MaxLogBytes          int64         // Retention by bytes
 	MaxLogMessages       int64         // Retention by messages
 	MaxLogAge            time.Duration // Retention by age
@@ -60,7 +61,6 @@ type Options struct {
 	CompactMaxGoroutines int           // Max number of goroutines to use in a log compaction
 	CleanerInterval      time.Duration // Frequency to enforce retention policy
 	HWCheckpointInterval time.Duration // Frequency to checkpoint HW to disk
-	LogRollTime          time.Duration // Max time before a new log segment is rolled out.
 	Logger               logger.Logger
 }
 
@@ -531,7 +531,7 @@ func (l *commitLog) NotifyLEO(waiter interface{}, leo int64) <-chan struct{} {
 }
 
 // checkAndPerformSplit determines if a new log segment should be rolled out
-// either because the active segment is full or LogRollTime has passed since
+// either because the active segment is full or MaxSegmentAge has passed since
 // the first message was written to it. It then performs the split if eligible,
 // returning any error resulting from the split. The returned bool indicates if
 // a split was performed.
@@ -541,7 +541,7 @@ func (l *commitLog) checkAndPerformSplit() (bool, error) {
 	// retry the check on the new active segment.
 	for {
 		activeSegment := l.activeSegment()
-		if !activeSegment.CheckSplit(l.LogRollTime) {
+		if !activeSegment.CheckSplit(l.MaxSegmentAge) {
 			return false, nil
 		}
 		if err := l.split(activeSegment); err != nil {

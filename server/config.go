@@ -25,6 +25,7 @@ const (
 	DefaultPort = 9292
 )
 
+// Config setting defaults.
 const (
 	defaultListenAddress           = "0.0.0.0"
 	defaultConnectionAddress       = "localhost"
@@ -40,24 +41,111 @@ const (
 	defaultRetentionMaxAge         = 7 * 24 * time.Hour
 	defaultCleanerInterval         = 5 * time.Minute
 	defaultMaxSegmentBytes         = 1024 * 1024 * 256 // 256MB
-	defaultLogRollTime             = defaultRetentionMaxAge
+	defaultMaxSegmentAge           = defaultRetentionMaxAge
 )
 
-// StreamConfig contains settings for controlling the message log for a stream.
-type StreamConfig struct {
+// Config setting key names.
+const (
+	configListen              = "listen"
+	configHost                = "host"
+	configPort                = "port"
+	configDataDir             = "data.dir"
+	configMetadataCacheMaxAge = "metadata.cache.max.age"
+
+	configLoggingLevel    = "logging.level"
+	configLoggingRecovery = "logging.recovery"
+	configLoggingRaft     = "logging.raft"
+
+	configBatchMaxMessages = "batch.max.messages"
+	configBatchMaxTime     = "batch.max.time"
+
+	configTLSKey               = "tls.key"
+	configTLSCert              = "tls.cert"
+	configTLSClientAuthEnabled = "tls.client.auth.enabled"
+	configTLSClientAuthCA      = "tls.client.auth.ca"
+
+	configNATSServers  = "nats.servers"
+	configNATSUser     = "nats.user"
+	configNATSPassword = "nats.password"
+
+	configStreamsRetentionMaxBytes    = "streams.retention.max.bytes"
+	configStreamsRetentionMaxMessages = "streams.retention.max.messages"
+	configStreamsRetentionMaxAge      = "streams.retention.max.age"
+	configStreamsCleanerInterval      = "streams.cleaner.interval"
+	configStreamsSegmentMaxBytes      = "streams.segment.max.bytes"
+	configStreamsSegmentMaxAge        = "streams.segment.max.age"
+	configStreamsCompactEnabled       = "streams.compact.enabled"
+	configStreamsCompactMaxGoroutines = "streams.compact.max.goroutines"
+
+	configClusteringServerID                = "clustering.server.id"
+	configClusteringNamespace               = "clustering.namespace"
+	configClusteringRaftSnapshotRetain      = "clustering.raft.snapshot.retain"
+	configClusteringRaftSnapshotThreshold   = "clustering.raft.snapshot.threshold"
+	configClusteringRaftCacheSize           = "clustering.raft.cache.size"
+	configClusteringRaftBootstrapSeed       = "clustering.raft.bootstrap.seed"
+	configClusteringRaftBootstrapPeers      = "clustering.raft.bootstrap.peers"
+	configClusteringReplicaMaxLagTime       = "clustering.replica.max.lag.time"
+	configClusteringReplicaMaxLeaderTimeout = "clustering.replica.max.leader.timeout"
+	configClusteringReplicaMaxIdleWait      = "clustering.replica.max.idle.wait"
+	configClusteringReplicaFetchTimeout     = "clustering.replica.fetch.timeout"
+	configClusteringMinInsyncReplicas       = "clustering.min.insync.replicas"
+)
+
+var configKeys = map[string]struct{}{
+	configListen:                            {},
+	configHost:                              {},
+	configPort:                              {},
+	configDataDir:                           {},
+	configMetadataCacheMaxAge:               {},
+	configLoggingLevel:                      {},
+	configLoggingRecovery:                   {},
+	configLoggingRaft:                       {},
+	configBatchMaxMessages:                  {},
+	configBatchMaxTime:                      {},
+	configTLSKey:                            {},
+	configTLSCert:                           {},
+	configTLSClientAuthEnabled:              {},
+	configTLSClientAuthCA:                   {},
+	configNATSServers:                       {},
+	configNATSUser:                          {},
+	configNATSPassword:                      {},
+	configStreamsRetentionMaxBytes:          {},
+	configStreamsRetentionMaxMessages:       {},
+	configStreamsRetentionMaxAge:            {},
+	configStreamsCleanerInterval:            {},
+	configStreamsSegmentMaxBytes:            {},
+	configStreamsSegmentMaxAge:              {},
+	configStreamsCompactEnabled:             {},
+	configStreamsCompactMaxGoroutines:       {},
+	configClusteringServerID:                {},
+	configClusteringNamespace:               {},
+	configClusteringRaftSnapshotRetain:      {},
+	configClusteringRaftSnapshotThreshold:   {},
+	configClusteringRaftCacheSize:           {},
+	configClusteringRaftBootstrapSeed:       {},
+	configClusteringRaftBootstrapPeers:      {},
+	configClusteringReplicaMaxLagTime:       {},
+	configClusteringReplicaMaxLeaderTimeout: {},
+	configClusteringReplicaMaxIdleWait:      {},
+	configClusteringReplicaFetchTimeout:     {},
+	configClusteringMinInsyncReplicas:       {},
+}
+
+// StreamsConfig contains settings for controlling the message log for streams.
+type StreamsConfig struct {
 	RetentionMaxBytes    int64
 	RetentionMaxMessages int64
 	RetentionMaxAge      time.Duration
 	CleanerInterval      time.Duration
 	SegmentMaxBytes      int64
-	LogRollTime          time.Duration
+	SegmentMaxAge        time.Duration
 	Compact              bool
 	CompactMaxGoroutines int
 }
 
 // RetentionString returns a human-readable string representation of the
 // retention policy.
-func (l StreamConfig) RetentionString() string {
+func (l StreamsConfig) RetentionString() string {
 	str := "["
 	prefix := ""
 	if l.RetentionMaxMessages != 0 {
@@ -89,7 +177,6 @@ type ClusteringConfig struct {
 	RaftCacheSize           int
 	RaftBootstrapSeed       bool
 	RaftBootstrapPeers      []string
-	RaftLogging             bool
 	ReplicaMaxLagTime       time.Duration
 	ReplicaMaxLeaderTimeout time.Duration
 	ReplicaFetchTimeout     time.Duration
@@ -104,17 +191,18 @@ type Config struct {
 	Port                int
 	LogLevel            uint32
 	LogRecovery         bool
+	LogRaft             bool
 	LogSilent           bool
 	DataDir             string
 	BatchMaxMessages    int
-	BatchWaitTime       time.Duration
+	BatchMaxTime        time.Duration
 	MetadataCacheMaxAge time.Duration
 	TLSKey              string
 	TLSCert             string
 	TLSClientAuth       bool
 	TLSClientAuthCA     string
 	NATS                nats.Options
-	Stream              StreamConfig
+	Streams             StreamsConfig
 	Clustering          ClusteringConfig
 }
 
@@ -136,10 +224,10 @@ func NewDefaultConfig() *Config {
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Clustering.RaftCacheSize = defaultRaftCacheSize
 	config.Clustering.MinISR = defaultMinInsyncReplicas
-	config.Stream.SegmentMaxBytes = defaultMaxSegmentBytes
-	config.Stream.RetentionMaxAge = defaultRetentionMaxAge
-	config.Stream.LogRollTime = defaultLogRollTime
-	config.Stream.CleanerInterval = defaultCleanerInterval
+	config.Streams.SegmentMaxBytes = defaultMaxSegmentBytes
+	config.Streams.SegmentMaxAge = defaultMaxSegmentAge
+	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
+	config.Streams.CleanerInterval = defaultCleanerInterval
 	return config
 }
 
@@ -195,7 +283,7 @@ func GetLogLevel(level string) (uint32, error) {
 	case "error":
 		l = uint32(log.ErrorLevel)
 	default:
-		return 0, fmt.Errorf("Invalid log.level setting %q", level)
+		return 0, fmt.Errorf("Invalid %s setting %q", configLoggingLevel, level)
 	}
 	return l, nil
 }
@@ -203,31 +291,37 @@ func GetLogLevel(level string) (uint32, error) {
 // NewConfig creates a new Config with default settings and applies any
 // settings from the given configuration file.
 func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
-	// Default config
-	config := NewDefaultConfig()
+	var (
+		config = NewDefaultConfig()
+		v      = viper.New()
+	)
 
-	v := viper.New()
-	// Expect a config.yaml file in the destination
-	v.SetConfigFile(configFile)
-
-	// Return default config if config file is not given
+	// Return default config if config file is not given.
 	if configFile == "" {
 		return config, nil
 	}
 
+	// Expect a yaml config file.
+	v.SetConfigFile(configFile)
+	v.SetConfigType("yaml")
+
+	// Parse the config file.
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// return default config
-			return config, err
-		}
-		return nil, errors.Wrap(err, "Error on loading configuration")
-
+		return nil, errors.Wrap(err, "Failed to load configuration file")
 	}
-	// Reset LogRollTime since this will get overwritten later.
-	config.Stream.LogRollTime = 0
 
-	//Parse config file here with v
-	if v.IsSet("listen") {
+	// Validate config settings.
+	for _, setting := range v.AllKeys() {
+		if _, ok := configKeys[setting]; !ok {
+			return nil, fmt.Errorf("Unknown configuration setting %q", setting)
+		}
+	}
+
+	// Reset SegmentMaxAge since this will get overwritten later.
+	config.Streams.SegmentMaxAge = 0
+
+	// Process parsed config file here with v.
+	if v.IsSet(configListen) {
 		hp, err := parseListen(v)
 		if err != nil {
 			return nil, err
@@ -236,17 +330,16 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 		config.Listen = *hp
 	}
 
-	config.LogRecovery = v.GetBool("log.recovery")
-	if v.IsSet("port") {
-		config.Port = v.GetInt("port")
+	if v.IsSet(configPort) {
+		config.Port = v.GetInt(configPort)
 	}
 
-	if v.IsSet("host") {
-		config.Host = v.GetString("host")
+	if v.IsSet(configHost) {
+		config.Host = v.GetString(configHost)
 	}
 
-	if v.IsSet("log.level") {
-		level := v.GetString("log.level")
+	if v.IsSet(configLoggingLevel) {
+		level := v.GetString(configLoggingLevel)
 		levelInt, err := GetLogLevel(level)
 		if err != nil {
 			return nil, err
@@ -255,50 +348,53 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 		config.LogLevel = levelInt
 	}
 
-	if v.IsSet("log.recovery") {
-		config.LogRecovery = v.GetBool("log.recovery")
+	if v.IsSet(configLoggingRecovery) {
+		config.LogRecovery = v.GetBool(configLoggingRecovery)
 	}
 
-	if v.IsSet("data.dir") {
-		config.DataDir = v.GetString("data.dir")
+	if v.IsSet(configLoggingRaft) {
+		config.LogRaft = v.GetBool(configLoggingRaft)
 	}
 
-	if v.IsSet("batch.max.messages") {
-		config.BatchMaxMessages = v.GetInt("batch.max.messages")
+	if v.IsSet(configDataDir) {
+		config.DataDir = v.GetString(configDataDir)
 	}
 
-	if v.IsSet("batch.wait.time") {
-		config.BatchWaitTime = v.GetDuration("batch.wait.time")
+	if v.IsSet(configBatchMaxMessages) {
+		config.BatchMaxMessages = v.GetInt(configBatchMaxMessages)
 	}
 
-	if v.IsSet("metadata.cache.max.age") {
-		config.MetadataCacheMaxAge = v.GetDuration("metadata.cache.max.age")
+	if v.IsSet(configBatchMaxTime) {
+		config.BatchMaxTime = v.GetDuration(configBatchMaxTime)
 	}
 
-	if v.IsSet("tls.key") {
-		config.TLSKey = v.GetString("tls.key")
+	if v.IsSet(configMetadataCacheMaxAge) {
+		config.MetadataCacheMaxAge = v.GetDuration(configMetadataCacheMaxAge)
 	}
 
-	if v.IsSet("tls.cert") {
-		config.TLSCert = v.GetString("tls.cert")
+	if v.IsSet(configTLSKey) {
+		config.TLSKey = v.GetString(configTLSKey)
 	}
 
-	if v.IsSet("tls.client.auth") {
-		config.TLSClientAuth = v.GetBool("tls.client.auth")
+	if v.IsSet(configTLSCert) {
+		config.TLSCert = v.GetString(configTLSCert)
 	}
 
-	if v.IsSet("tls.client.auth.ca") {
-		config.TLSClientAuthCA = v.GetString("tls.client.auth.ca")
+	if v.IsSet(configTLSClientAuthEnabled) {
+		config.TLSClientAuth = v.GetBool(configTLSClientAuthEnabled)
+	}
+
+	if v.IsSet(configTLSClientAuthCA) {
+		config.TLSClientAuthCA = v.GetString(configTLSClientAuthCA)
 	}
 
 	parseNATSConfig(&config.NATS, v)
-
-	parseStreamConfig(config, v)
-
+	parseStreamsConfig(config, v)
 	parseClusteringConfig(config, v)
-	// If LogRollTime is not set, default it to the retention time.
-	if config.Stream.LogRollTime == 0 {
-		config.Stream.LogRollTime = config.Stream.RetentionMaxAge
+
+	// If SegmentMaxAge is not set, default it to the retention time.
+	if config.Streams.SegmentMaxAge == 0 {
+		config.Streams.SegmentMaxAge = config.Streams.RetentionMaxAge
 	}
 
 	return config, nil
@@ -307,56 +403,55 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 // parseNATSConfig parses the `nats` section of a config file and populates the
 // given nats.Options.
 func parseNATSConfig(opts *nats.Options, v *viper.Viper) error {
-	if v.IsSet("nats.servers") {
-		servers := v.GetStringSlice("nats.servers")
+	if v.IsSet(configNATSServers) {
+		servers := v.GetStringSlice(configNATSServers)
 		opts.Servers = servers
 	}
 
-	if v.IsSet("nats.user") {
-		opts.User = v.GetString("nats.user")
+	if v.IsSet(configNATSUser) {
+		opts.User = v.GetString(configNATSUser)
 	}
 
-	if v.IsSet("nats.password") {
-		opts.Password = v.GetString("nats.password")
+	if v.IsSet(configNATSPassword) {
+		opts.Password = v.GetString(configNATSPassword)
 	}
 
 	return nil
 }
 
-// parseStreamConfig parses the `log` section of a config file and populates the
-// given Config.
-func parseStreamConfig(config *Config, v *viper.Viper) error {
-
-	if v.IsSet("stream.retention.max.bytes") {
-		config.Stream.RetentionMaxBytes = v.GetInt64("stream.retention.max.bytes")
+// parseStreamConfig parses the `streams` section of a config file and
+// populates the given Config.
+func parseStreamsConfig(config *Config, v *viper.Viper) error {
+	if v.IsSet(configStreamsRetentionMaxBytes) {
+		config.Streams.RetentionMaxBytes = v.GetInt64(configStreamsRetentionMaxBytes)
 	}
 
-	if v.IsSet("stream.retention.max.messages") {
-		config.Stream.RetentionMaxMessages = v.GetInt64("stream.retention.max.messages")
+	if v.IsSet(configStreamsRetentionMaxMessages) {
+		config.Streams.RetentionMaxMessages = v.GetInt64(configStreamsRetentionMaxMessages)
 	}
 
-	if v.IsSet("stream.retention.max.age") {
-		config.Stream.RetentionMaxAge = v.GetDuration("stream.retention.max.age")
+	if v.IsSet(configStreamsRetentionMaxAge) {
+		config.Streams.RetentionMaxAge = v.GetDuration(configStreamsRetentionMaxAge)
 	}
 
-	if v.IsSet("stream.cleaner.interval") {
-		config.Stream.CleanerInterval = v.GetDuration("stream.cleaner.interval")
+	if v.IsSet(configStreamsCleanerInterval) {
+		config.Streams.CleanerInterval = v.GetDuration(configStreamsCleanerInterval)
 	}
 
-	if v.IsSet("stream.segment.max.bytes") {
-		config.Stream.SegmentMaxBytes = v.GetInt64("stream.segment.max.bytes")
+	if v.IsSet(configStreamsSegmentMaxBytes) {
+		config.Streams.SegmentMaxBytes = v.GetInt64(configStreamsSegmentMaxBytes)
 	}
 
-	if v.IsSet("stream.roll.time") {
-		config.Stream.LogRollTime = v.GetDuration("stream.roll.time")
+	if v.IsSet(configStreamsSegmentMaxAge) {
+		config.Streams.SegmentMaxAge = v.GetDuration(configStreamsSegmentMaxAge)
 	}
 
-	if v.IsSet("stream.compact.compact") {
-		config.Stream.Compact = v.GetBool("stream.compact.compact")
+	if v.IsSet(configStreamsCompactEnabled) {
+		config.Streams.Compact = v.GetBool(configStreamsCompactEnabled)
 	}
 
-	if v.IsSet("stream.compact.max.goroutines") {
-		config.Stream.CompactMaxGoroutines = v.GetInt("stream.compact.max.goroutines")
+	if v.IsSet(configStreamsCompactMaxGoroutines) {
+		config.Streams.CompactMaxGoroutines = v.GetInt(configStreamsCompactMaxGoroutines)
 	}
 
 	return nil
@@ -365,51 +460,54 @@ func parseStreamConfig(config *Config, v *viper.Viper) error {
 // parseClusteringConfig parses the `clustering` section of a config file and
 // populates the given Config.
 func parseClusteringConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
-
-	if v.IsSet("clustering.server.id") {
-		config.Clustering.ServerID = v.GetString("clustering.server.id")
-	}
-	if v.IsSet("clustering.namespace") {
-		config.Clustering.Namespace = v.GetString("clustering.namespace")
-	}
-	if v.IsSet("clustering.raft.snapshot.retain") {
-		config.Clustering.RaftSnapshots = v.GetInt("clustering.raft.snapshot.retain")
-	}
-	if v.IsSet("clustering.raft.snapshot.threshold") {
-		config.Clustering.RaftSnapshotThreshold = uint64(v.GetInt64("clustering.raft.snapshot.threshold"))
-	}
-	if v.IsSet("clustering.raft.cache.size") {
-		config.Clustering.RaftCacheSize = v.GetInt("clustering.raft.cache.size")
-	}
-	if v.IsSet("clustering.raft.bootstrap.seed") {
-		config.Clustering.RaftBootstrapSeed = v.GetBool("clustering.raft.bootstrap.seed")
-	}
-	if v.IsSet("clustering.raft.bootstrap.peers") {
-		config.Clustering.RaftBootstrapPeers = v.GetStringSlice("clustering.raft.bootstrap.peers")
+	if v.IsSet(configClusteringServerID) {
+		config.Clustering.ServerID = v.GetString(configClusteringServerID)
 	}
 
-	if v.IsSet("clustering.raft.logging") {
-		config.Clustering.RaftLogging = v.GetBool("clustering.raft.logging")
-	}
-	if v.IsSet("clustering.replica.max.lag.time") {
-		config.Clustering.ReplicaMaxLagTime = v.GetDuration("clustering.replica.max.lag.time")
+	if v.IsSet(configClusteringNamespace) {
+		config.Clustering.Namespace = v.GetString(configClusteringNamespace)
 	}
 
-	if v.IsSet("clustering.replica.max.leader.timeout") {
-		config.Clustering.ReplicaMaxLeaderTimeout = v.GetDuration("clustering.replica.max.leader.timeout")
+	if v.IsSet(configClusteringRaftSnapshotRetain) {
+		config.Clustering.RaftSnapshots = v.GetInt(configClusteringRaftSnapshotRetain)
 	}
 
-	if v.IsSet("clustering.replica.max.idle.wait") {
-		config.Clustering.ReplicaMaxIdleWait = v.GetDuration("clustering.replica.max.idle.wait")
+	if v.IsSet(configClusteringRaftSnapshotThreshold) {
+		config.Clustering.RaftSnapshotThreshold = uint64(v.GetInt64(configClusteringRaftSnapshotThreshold))
 	}
 
-	if v.IsSet("clustering.replica.fetch.timeout") {
-		config.Clustering.ReplicaFetchTimeout = v.GetDuration("clustering.replica.fetch.timeout")
+	if v.IsSet(configClusteringRaftCacheSize) {
+		config.Clustering.RaftCacheSize = v.GetInt(configClusteringRaftCacheSize)
 	}
 
-	if v.IsSet("clustering.min.insync.replicas") {
-		config.Clustering.MinISR = v.GetInt("clustering.min.insync.replicas")
+	if v.IsSet(configClusteringRaftBootstrapSeed) {
+		config.Clustering.RaftBootstrapSeed = v.GetBool(configClusteringRaftBootstrapSeed)
 	}
+
+	if v.IsSet(configClusteringRaftBootstrapPeers) {
+		config.Clustering.RaftBootstrapPeers = v.GetStringSlice(configClusteringRaftBootstrapPeers)
+	}
+
+	if v.IsSet(configClusteringReplicaMaxLagTime) {
+		config.Clustering.ReplicaMaxLagTime = v.GetDuration(configClusteringReplicaMaxLagTime)
+	}
+
+	if v.IsSet(configClusteringReplicaMaxLeaderTimeout) {
+		config.Clustering.ReplicaMaxLeaderTimeout = v.GetDuration(configClusteringReplicaMaxLeaderTimeout)
+	}
+
+	if v.IsSet(configClusteringReplicaMaxIdleWait) {
+		config.Clustering.ReplicaMaxIdleWait = v.GetDuration(configClusteringReplicaMaxIdleWait)
+	}
+
+	if v.IsSet(configClusteringReplicaFetchTimeout) {
+		config.Clustering.ReplicaFetchTimeout = v.GetDuration(configClusteringReplicaFetchTimeout)
+	}
+
+	if v.IsSet(configClusteringMinInsyncReplicas) {
+		config.Clustering.MinISR = v.GetInt(configClusteringMinInsyncReplicas)
+	}
+
 	return nil
 }
 
@@ -422,7 +520,7 @@ type HostPort struct {
 // parseListen will parse the `listen` option containing the host and port.
 func parseListen(v *viper.Viper) (*HostPort, error) {
 	hp := &HostPort{}
-	listenConf := v.Get("listen")
+	listenConf := v.Get(configListen)
 	switch listenConf := listenConf.(type) {
 	// Only a port
 	case int64:
