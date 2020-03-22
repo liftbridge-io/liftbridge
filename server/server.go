@@ -127,9 +127,10 @@ func (s *Server) Start() (err error) {
 	}
 	s.listener = l
 
-	s.logger.Infof("Server ID:        %s", s.config.Clustering.ServerID)
-	s.logger.Infof("Namespace:        %s", s.config.Clustering.Namespace)
-	s.logger.Infof("Retention Policy: %s", s.config.Streams.RetentionString())
+	s.logger.Infof("Liftbridge Version: %s", Version)
+	s.logger.Infof("Server ID:          %s", s.config.Clustering.ServerID)
+	s.logger.Infof("Namespace:          %s", s.config.Clustering.Namespace)
+	s.logger.Infof("Retention Policy:   %s", s.config.Streams.RetentionString())
 	s.logger.Infof("Starting server on %s...",
 		net.JoinHostPort(listenAddress.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
 
