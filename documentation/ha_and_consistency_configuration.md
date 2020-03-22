@@ -45,7 +45,8 @@ consistency guarantee at the expense of slower writes.
 You can set the minimum number of in-sync replicas (ISR) that must acknowledge
 a stream write before it can be committed. If the ISR drops below this size,
 messages cannot be committed. This is controlled with the `min.insync.replicas`
-setting in `clustering` configuration.
+setting in [`clustering`](./configuration.md#clustering-configuration-settings)
+configuration.
 
 By default, this value is 1, favoring availability over consistency. This
 setting can be used in conjunction with the replication factor and ack policy
@@ -54,8 +55,7 @@ example, for a stream with a replication factor of 3, `AckPolicy_ALL` and a
 `min.insync.replicas` value of 2 will guarantee the message is written to at
 least 2 replicas.
 
-```plaintext
-clustering {
-    min.insync.replicas: 2
-}
+```yaml
+clustering:
+  min.insync.replicas: 2
 ```
