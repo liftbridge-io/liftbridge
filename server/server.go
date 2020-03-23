@@ -539,6 +539,8 @@ func (s *Server) leadershipAcquired() error {
 	s.leaderSub = sub
 
 	atomic.StoreInt64(&(s.getRaft().leader), 1)
+
+	return s.createActivityStream()
 }
 
 // leadershipLost should be called when this node loses leadership.
