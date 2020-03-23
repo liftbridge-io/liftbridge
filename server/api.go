@@ -185,26 +185,9 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	}
 	a.logger.Debugf("api: Publish [subject=%s]", subject)
 
-	stream := a.metadata.GetStream(req.Stream)
-	if stream == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
-	}
-	partition, ok := stream.partitions[0] // Only check the first partition for now
-	if !ok {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("No partition in stream: %s", req.Stream))
-	}
-	if partition.paused {
-		// This partition (and thus, this stream) is paused.
-		// We need to re-create the stream before being able to use it.
-		protoPart := partition.Partition
-		for i := 0; i < len(stream.partitions); i++ {
-			if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
-				Partition: protoPart,
-			}); e != nil {
-				a.logger.Errorf("api: Failed to resume stream partition %d: %v", i, e.Err())
-				return nil, e.Err()
-			}
-		}
+	err = a.resumeStream(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.AckInbox == "" {
@@ -246,6 +229,34 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	// Otherwise we need to publish and wait for the ack.
 	resp.Ack, err = a.publishSync(ctx, subject, req.AckInbox, buf)
 	return resp, err
+}
+
+func (a *apiServer) resumeStream(ctx context.Context, req *client.PublishRequest) error {
+	if req.Stream == "" {
+		return nil
+	}
+	stream := a.metadata.GetStream(req.Stream)
+	if stream == nil {
+		status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
+	}
+	partition, ok := stream.partitions[0] // Only check the first partition for now
+	if !ok {
+		status.Error(codes.NotFound, fmt.Sprintf("No partition in stream: %s", req.Stream))
+	}
+	if partition.paused {
+		// This partition (and thus, this stream) is paused.
+		// We need to re-create the stream before being able to use it.
+		protoPart := partition.Partition
+		for i := 0; i < len(stream.partitions); i++ {
+			if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
+				Partition: protoPart,
+			}); e != nil {
+				a.logger.Errorf("api: Failed to resume stream partition %d: %v", i, e.Err())
+				e.Err()
+			}
+		}
+	}
+	return nil
 }
 
 func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, error) {
