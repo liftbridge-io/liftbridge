@@ -45,10 +45,10 @@ clustering:
     fetch.timeout: 3s
   min.insync.replicas: '1'
 
-  activity.stream:
-    enabled: true
-    publication.timeout: 1m
-    publication.ack.policy: leader
+activity.stream:
+  enabled: true
+  publication.timeout: 1m
+  publication.ack.policy: leader
 
 nats:
   servers:
