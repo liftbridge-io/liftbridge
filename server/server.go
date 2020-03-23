@@ -861,9 +861,5 @@ func (s *Server) publishActivityEvent(streamEvent client.ActivityStreamEvent) er
 		data,
 		messageOption,
 	)
-	if err != nil {
-		return errors.Wrap(err, "failed to publish a stream event")
-	}
-
-	return nil
+	return errors.Wrap(err, "failed to publish a stream event")
 }
