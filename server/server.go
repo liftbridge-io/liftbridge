@@ -845,14 +845,16 @@ func (s *Server) publishActivityEvent(streamEvent client.ActivityStreamEvent) er
 	defer cancel()
 
 	var messageOption lift.MessageOption
-	switch s.config.ActivityStream.PublicationAckPolicy {
-	case "none":
-	case "leader":
+	ackPolicy := s.config.ActivityStream.PublicationAckPolicy
+	switch ackPolicy {
+	case client.AckPolicy_LEADER:
 		messageOption = lift.AckPolicyLeader()
-	case "all":
+	case client.AckPolicy_ALL:
 		messageOption = lift.AckPolicyAll()
+	case client.AckPolicy_NONE:
+		messageOption = lift.AckPolicyNone()
 	default:
-		return fmt.Errorf("Unknown activity stream publication ack policy %q", s.config.ActivityStream.PublicationAckPolicy)
+		return fmt.Errorf("Unknown ack policy: %v", ackPolicy)
 	}
 
 	_, err = s.activityStreamClient.Publish(

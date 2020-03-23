@@ -1334,7 +1334,7 @@ func TestActivityStreamCreatePartition(t *testing.T) {
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.ActivityStream.Enabled = true
 	s1Config.ActivityStream.PublicationTimeout = time.Second
-	s1Config.ActivityStream.PublicationAckPolicy = "leader"
+	s1Config.ActivityStream.PublicationAckPolicy = liftApi.AckPolicy_LEADER
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 

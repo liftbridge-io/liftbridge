@@ -14,6 +14,8 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+
+	client "github.com/liftbridge-io/liftbridge-api/go"
 )
 
 const (
@@ -43,7 +45,7 @@ const (
 	defaultMaxSegmentBytes                    = 1024 * 1024 * 256 // 256MB
 	defaultMaxSegmentAge                      = defaultRetentionMaxAge
 	defaultActivityStreamPublicationTimeout   = 5 * time.Second
-	defaultActivityStreamPublicationAckPolicy = "all"
+	defaultActivityStreamPublicationAckPolicy = client.AckPolicy_ALL
 )
 
 // Config setting key names.
@@ -198,7 +200,7 @@ type ClusteringConfig struct {
 type ActivityStreamConfig struct {
 	Enabled              bool
 	PublicationTimeout   time.Duration
-	PublicationAckPolicy string
+	PublicationAckPolicy client.AckPolicy
 }
 
 // Config contains all settings for a Liftbridge Server.
@@ -585,14 +587,16 @@ func parseListen(v *viper.Viper) (*HostPort, error) {
 
 // parseAckPolicy will parse the activity stream's `ack.policy` option
 // containing the ack policy to use when publishing activity events.
-func parseAckPolicy(v *viper.Viper) (string, error) {
+func parseAckPolicy(v *viper.Viper) (client.AckPolicy, error) {
 	ackPolicy := v.GetString(configActivityStreamPublicationAckPolicy)
 	switch ackPolicy {
 	case "none":
+		return client.AckPolicy_NONE, nil
 	case "leader":
+		return client.AckPolicy_LEADER, nil
 	case "all":
+		return client.AckPolicy_ALL, nil
 	default:
-		return "", fmt.Errorf("Unknown activity stream publication ack policy %q", ackPolicy)
+		return defaultActivityStreamPublicationAckPolicy, fmt.Errorf("Unknown activity stream publication ack policy %q", ackPolicy)
 	}
-	return ackPolicy, nil
 }
