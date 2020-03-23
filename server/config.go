@@ -196,9 +196,6 @@ type ActivityStreamConfig struct {
 	Enabled              bool
 	PublicationTimeout   time.Duration
 	PublicationAckPolicy string
-	Group                string
-	ReplicationFactor    int32
-	Partitions           int32
 }
 
 // Config contains all settings for a Liftbridge Server.

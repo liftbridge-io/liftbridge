@@ -511,16 +511,9 @@ func (s *Server) createActivityStream() error {
 		return errors.Wrap(err, "failed to connect the activity stream client")
 	}
 
-	options := []lift.StreamOption{
-		lift.Group(s.config.ActivityStream.Group),
-		lift.ReplicationFactor(s.config.ActivityStream.ReplicationFactor),
-		lift.Partitions(s.config.ActivityStream.Partitions),
-	}
-
 	err = s.activityStreamClient.CreateStream(context.Background(),
 		activitySubject,
 		activityStream,
-		options...,
 	)
 	if err != nil && err != lift.ErrStreamExists {
 		return errors.Wrap(err, "failed to create an activity stream")
@@ -546,7 +539,6 @@ func (s *Server) leadershipAcquired() error {
 	s.leaderSub = sub
 
 	atomic.StoreInt64(&(s.getRaft().leader), 1)
-
 }
 
 // leadershipLost should be called when this node loses leadership.
