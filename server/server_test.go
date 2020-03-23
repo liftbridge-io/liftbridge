@@ -1351,22 +1351,14 @@ func TestStreamPausing(t *testing.T) {
 	err = client.PauseStream(context.Background(), name)
 	require.NoError(t, err)
 
-	// Publish some messages.
-	num := 1
-	for i := 0; i < num; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, err = client.Publish(ctx, name, []byte("hello"))
-		require.NoError(t, err)
-	}
+	// Publish a message.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, []byte("hello"))
+	require.NoError(t, err)
 
-	// Force log clean.
-	forceLogClean(t, subject, name, s1)
-
-	// The first message read back should be the creation of the activity stream
-	// partition.
 	msgs := make(chan lift.Message, 1)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel = context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, name, func(msg lift.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
