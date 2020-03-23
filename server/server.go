@@ -32,13 +32,12 @@ import (
 const stateFile = "liftbridge"
 
 const (
-	streamsSubject     = "streams"
-	activitySubject    = "activity"
-	activityStream     = activitySubject + "_stream"
-	raftSubject        = "raft"
-	replicationSubject = "replication"
-	acksSubject        = "acks"
-	publishesSubject   = "publishes"
+	streamsConnName     = "streams"
+	raftConnName        = "raft"
+	replicationConnName = "replication"
+	acksConnName        = "acks"
+	publishesConnName   = "publishes"
+	activityStream      = "__activity"
 )
 
 // Server is the main Liftbridge object. Create it by calling New or
@@ -274,35 +273,35 @@ func (s *Server) recoverAndPersistState() error {
 // publishes.
 func (s *Server) createNATSConns() error {
 	// NATS connection used for stream data.
-	nc, err := s.createNATSConn(streamsSubject)
+	nc, err := s.createNATSConn(streamsConnName)
 	if err != nil {
 		return err
 	}
 	s.nc = nc
 
 	// NATS connection used for Raft metadata replication.
-	ncr, err := s.createNATSConn(raftSubject)
+	ncr, err := s.createNATSConn(raftConnName)
 	if err != nil {
 		return err
 	}
 	s.ncRaft = ncr
 
 	// NATS connection used for stream replication.
-	ncRepl, err := s.createNATSConn(replicationSubject)
+	ncRepl, err := s.createNATSConn(replicationConnName)
 	if err != nil {
 		return err
 	}
 	s.ncRepl = ncRepl
 
 	// NATS connection used for sending acks.
-	ncAcks, err := s.createNATSConn(acksSubject)
+	ncAcks, err := s.createNATSConn(acksConnName)
 	if err != nil {
 		return err
 	}
 	s.ncAcks = ncAcks
 
 	// NATS connection used for publishing messages.
-	ncPublishes, err := s.createNATSConn(publishesSubject)
+	ncPublishes, err := s.createNATSConn(publishesConnName)
 	if err != nil {
 		return err
 	}
@@ -512,7 +511,7 @@ func (s *Server) createActivityStream() error {
 	}
 
 	err = s.activityStreamClient.CreateStream(context.Background(),
-		activitySubject,
+		s.getActivityStreamSubject(),
 		activityStream,
 	)
 	if err != nil && err != lift.ErrStreamExists {
@@ -811,6 +810,12 @@ func (s *Server) getPartitionStatusInbox(id string) string {
 // the follower is idle.
 func (s *Server) getPartitionNotificationInbox(id string) string {
 	return fmt.Sprintf("%s.notify.%s", s.config.Clustering.Namespace, id)
+}
+
+// getActivityStreamSubject returns the NATS subject used for publishing
+// activity stream events.
+func (s *Server) getActivityStreamSubject() string {
+	return fmt.Sprintf("%s.activity", s.config.Clustering.Namespace)
 }
 
 // startGoroutine starts a goroutine which is managed by the server. This adds
