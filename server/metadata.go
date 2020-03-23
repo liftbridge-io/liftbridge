@@ -333,7 +333,7 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 	// Wait for leader to create partition (best effort).
 	m.waitForPartitionLeader(ctx, req.Partition.Stream, leader, req.Partition.Id)
 
-	err := m.Server.publishActivityEvent(client.ActivityStreamEvent{
+	err := m.publishActivityEvent(client.ActivityStreamEvent{
 		Op:        client.ActivityOp_CREATE_PARTITION,
 		Stream:    req.Partition.Stream,
 		Partition: req.Partition.Id,
