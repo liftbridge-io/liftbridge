@@ -18,13 +18,27 @@ func (p *stream) Close() error {
 	return nil
 }
 
-// Pause the stream by pausing each of its partitions.
-func (p *stream) Pause() error {
-	for _, partition := range p.partitions {
-		if err := partition.Pause(); err != nil {
-			return err
+// Pause some or all the partitions of this stream.
+func (p *stream) Pause(partitionIndices []int32, resumeAllAtOnce bool) error {
+	if partitionIndices == nil {
+		for _, partition := range p.partitions {
+			if err := partition.Pause(resumeAllAtOnce); err != nil {
+				return err
+			}
+		}
+	} else {
+		for _, partitionIdx := range partitionIndices {
+			partition, ok := p.partitions[partitionIdx]
+			if !ok {
+				return ErrStreamNotFound
+			}
+
+			if err := partition.Pause(resumeAllAtOnce); err != nil {
+				return err
+			}
 		}
 	}
+
 	return nil
 }
 

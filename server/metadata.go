@@ -30,7 +30,7 @@ const (
 var ErrPartitionExists = errors.New("partition already exists")
 
 // ErrStreamNotFound is returned by DeleteStream/PauseStream when attempting to
-// delete/pause a stream that does not exists.
+// delete/pause a stream or partition that does not exists.
 var ErrStreamNotFound = errors.New("stream does not exist")
 
 // leaderReport tracks witnesses for a partition leader. Witnesses are replicas

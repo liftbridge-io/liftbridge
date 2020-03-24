@@ -179,9 +179,11 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		}
 	case proto.Op_PAUSE_STREAM:
 		var (
-			stream = log.PauseStreamOp.Stream
+			stream           = log.PauseStreamOp.Stream
+			partitionIndices = log.PauseStreamOp.PartitionIndices
+			resumeAllAtOnce  = log.PauseStreamOp.ResumeAllAtOnce
 		)
-		err := s.applyPauseStream(stream)
+		err := s.applyPauseStream(stream, partitionIndices, resumeAllAtOnce)
 		// If err is ErrStreamNotFound, we want to return this value back to the
 		// caller.
 		if err == ErrStreamNotFound {
@@ -442,14 +444,17 @@ func (s *Server) applyDeleteStream(streamName string) error {
 }
 
 // applyPauseStream pauses the given stream partition.
-func (s *Server) applyPauseStream(streamName string) error {
+func (s *Server) applyPauseStream(streamName string, partitionIndices []int32, resumeAllAtOnce bool) error {
 	stream := s.metadata.GetStream(streamName)
 	if stream == nil {
 		return ErrStreamNotFound
 	}
 
-	err := stream.Pause()
+	err := stream.Pause(partitionIndices, resumeAllAtOnce)
 	if err != nil {
+		if err == ErrStreamNotFound {
+			return err
+		}
 		return errors.Wrap(err, "failed to pause stream")
 	}
 

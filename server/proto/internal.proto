@@ -51,7 +51,9 @@ message DeleteStreamOp {
 }
 
 message PauseStreamOp {
-    string stream       = 1;
+    string stream                   = 1;
+    repeated int32 partitionIndices = 2;
+    bool resumeAllAtOnce            = 3;
 }
 
 message ReportLeaderOp {

@@ -85,6 +85,7 @@ type partition struct {
 	pause           bool // Pause replication on the leader (for unit testing)
 	shutdown        sync.WaitGroup
 	paused          bool
+	resumeAllAtOnce bool
 }
 
 // newPartition creates a new stream partition. If the partition is recovered,
@@ -170,11 +171,12 @@ func (p *partition) Close() error {
 
 // Pause stops the partition if it is running, closes the commit log and sets
 // the paused flag.
-func (p *partition) Pause() error {
+func (p *partition) Pause(resumeAllAtOnce bool) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.paused = true
+	p.resumeAllAtOnce = resumeAllAtOnce
 
 	return p.close()
 }

@@ -99,7 +99,9 @@ func (a *apiServer) PauseStream(ctx context.Context, req *client.PauseStreamRequ
 		req.Name)
 
 	if e := a.metadata.PauseStream(ctx, &proto.PauseStreamOp{
-		Stream: req.Name,
+		Stream:           req.Name,
+		PartitionIndices: req.PartitionIndices,
+		ResumeAllAtOnce:  req.ResumeAllAtOnce,
 	}); e != nil {
 		a.logger.Errorf("api: Failed to pause stream %v: %v", req.Name, e.Err())
 		return nil, e.Err()
@@ -239,20 +241,29 @@ func (a *apiServer) resumeStream(ctx context.Context, req *client.PublishRequest
 	if stream == nil {
 		status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
 	}
-	firstPart, ok := stream.partitions[0] // Only check the first partition for now
+	firstPartition, ok := stream.partitions[0] // Only check the first partition for now
 	if !ok {
 		status.Error(codes.NotFound, fmt.Sprintf("No partition in stream: %s", req.Stream))
 	}
-	if firstPart.paused {
-		// This partition (and thus, this stream) is paused.
-		// We need to re-create the stream before being able to use it.
-		for i, partition := range stream.partitions {
-			if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
-				Partition: partition.Partition,
-			}); e != nil {
-				a.logger.Errorf("api: Failed to resume stream partition %d: %v", i, e.Err())
-				return e.Err()
-			}
+	// resumeAllAtOnce should be set on all partitions, so we check for its
+	// value on the first partition only.
+	resumeAllAtOnce := firstPartition.resumeAllAtOnce
+	for partitionIdx, partition := range stream.partitions {
+		// Do not try to resume an unpaused partition.
+		if !partition.paused {
+			continue
+		}
+		// If we are not resuming all partitions and the current partition is
+		// not the one we are publishing to, skip.
+		if !resumeAllAtOnce && req.Partition != partitionIdx {
+			continue
+		}
+		// This partition is paused. We need to re-create it.
+		if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
+			Partition: partition.Partition,
+		}); e != nil {
+			a.logger.Errorf("api: Failed to resume stream partition %d: %v", partitionIdx, e.Err())
+			return e.Err()
 		}
 	}
 	return nil
