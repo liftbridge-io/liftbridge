@@ -141,6 +141,7 @@ workflows:
             tags:
               only: /^v.*/
       - build-and-push-release-image:
+          context: docker-push
           filters:
             branches:
               ignore: /.*/
