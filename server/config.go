@@ -94,52 +94,52 @@ const (
 	configClusteringReplicaFetchTimeout     = "clustering.replica.fetch.timeout"
 	configClusteringMinInsyncReplicas       = "clustering.min.insync.replicas"
 
-	configActivityStreamEnabled              = "activity.stream.enabled"
-	configActivityStreamPublicationTimeout   = "activity.stream.publication.timeout"
-	configActivityStreamPublicationAckPolicy = "activity.stream.publication.ack.policy"
+	configActivityStreamEnabled          = "activity.stream.enabled"
+	configActivityStreamPublishTimeout   = "activity.stream.publish.timeout"
+	configActivityStreamPublishAckPolicy = "activity.stream.publish.ack.policy"
 )
 
 var configKeys = map[string]struct{}{
-	configListen:                             {},
-	configHost:                               {},
-	configPort:                               {},
-	configDataDir:                            {},
-	configMetadataCacheMaxAge:                {},
-	configLoggingLevel:                       {},
-	configLoggingRecovery:                    {},
-	configLoggingRaft:                        {},
-	configBatchMaxMessages:                   {},
-	configBatchMaxTime:                       {},
-	configTLSKey:                             {},
-	configTLSCert:                            {},
-	configTLSClientAuthEnabled:               {},
-	configTLSClientAuthCA:                    {},
-	configNATSServers:                        {},
-	configNATSUser:                           {},
-	configNATSPassword:                       {},
-	configStreamsRetentionMaxBytes:           {},
-	configStreamsRetentionMaxMessages:        {},
-	configStreamsRetentionMaxAge:             {},
-	configStreamsCleanerInterval:             {},
-	configStreamsSegmentMaxBytes:             {},
-	configStreamsSegmentMaxAge:               {},
-	configStreamsCompactEnabled:              {},
-	configStreamsCompactMaxGoroutines:        {},
-	configClusteringServerID:                 {},
-	configClusteringNamespace:                {},
-	configClusteringRaftSnapshotRetain:       {},
-	configClusteringRaftSnapshotThreshold:    {},
-	configClusteringRaftCacheSize:            {},
-	configClusteringRaftBootstrapSeed:        {},
-	configClusteringRaftBootstrapPeers:       {},
-	configClusteringReplicaMaxLagTime:        {},
-	configClusteringReplicaMaxLeaderTimeout:  {},
-	configClusteringReplicaMaxIdleWait:       {},
-	configClusteringReplicaFetchTimeout:      {},
-	configClusteringMinInsyncReplicas:        {},
-	configActivityStreamEnabled:              {},
-	configActivityStreamPublicationTimeout:   {},
-	configActivityStreamPublicationAckPolicy: {},
+	configListen:                            {},
+	configHost:                              {},
+	configPort:                              {},
+	configDataDir:                           {},
+	configMetadataCacheMaxAge:               {},
+	configLoggingLevel:                      {},
+	configLoggingRecovery:                   {},
+	configLoggingRaft:                       {},
+	configBatchMaxMessages:                  {},
+	configBatchMaxTime:                      {},
+	configTLSKey:                            {},
+	configTLSCert:                           {},
+	configTLSClientAuthEnabled:              {},
+	configTLSClientAuthCA:                   {},
+	configNATSServers:                       {},
+	configNATSUser:                          {},
+	configNATSPassword:                      {},
+	configStreamsRetentionMaxBytes:          {},
+	configStreamsRetentionMaxMessages:       {},
+	configStreamsRetentionMaxAge:            {},
+	configStreamsCleanerInterval:            {},
+	configStreamsSegmentMaxBytes:            {},
+	configStreamsSegmentMaxAge:              {},
+	configStreamsCompactEnabled:             {},
+	configStreamsCompactMaxGoroutines:       {},
+	configClusteringServerID:                {},
+	configClusteringNamespace:               {},
+	configClusteringRaftSnapshotRetain:      {},
+	configClusteringRaftSnapshotThreshold:   {},
+	configClusteringRaftCacheSize:           {},
+	configClusteringRaftBootstrapSeed:       {},
+	configClusteringRaftBootstrapPeers:      {},
+	configClusteringReplicaMaxLagTime:       {},
+	configClusteringReplicaMaxLeaderTimeout: {},
+	configClusteringReplicaMaxIdleWait:      {},
+	configClusteringReplicaFetchTimeout:     {},
+	configClusteringMinInsyncReplicas:       {},
+	configActivityStreamEnabled:             {},
+	configActivityStreamPublishTimeout:      {},
+	configActivityStreamPublishAckPolicy:    {},
 }
 
 // StreamsConfig contains settings for controlling the message log for streams.
@@ -541,11 +541,11 @@ func parseActivityStreamConfig(config *Config, v *viper.Viper) error { // nolint
 		config.ActivityStream.Enabled = v.GetBool(configActivityStreamEnabled)
 	}
 
-	if v.IsSet(configActivityStreamPublicationTimeout) {
-		config.ActivityStream.PublicationTimeout = v.GetDuration(configActivityStreamPublicationTimeout)
+	if v.IsSet(configActivityStreamPublishTimeout) {
+		config.ActivityStream.PublicationTimeout = v.GetDuration(configActivityStreamPublishTimeout)
 	}
 
-	if v.IsSet(configActivityStreamPublicationAckPolicy) {
+	if v.IsSet(configActivityStreamPublishAckPolicy) {
 		ackPolicy, err := parseAckPolicy(v)
 		if err != nil {
 			return err
@@ -588,7 +588,7 @@ func parseListen(v *viper.Viper) (*HostPort, error) {
 // parseAckPolicy will parse the activity stream's `ack.policy` option
 // containing the ack policy to use when publishing activity events.
 func parseAckPolicy(v *viper.Viper) (client.AckPolicy, error) {
-	ackPolicy := v.GetString(configActivityStreamPublicationAckPolicy)
+	ackPolicy := v.GetString(configActivityStreamPublishAckPolicy)
 	switch ackPolicy {
 	case "none":
 		return client.AckPolicy_NONE, nil

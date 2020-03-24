@@ -47,8 +47,8 @@ clustering:
 
 activity.stream:
   enabled: true
-  publication.timeout: 1m
-  publication.ack.policy: leader
+  publish.timeout: 1m
+  publish.ack.policy: leader
 
 nats:
   servers:
