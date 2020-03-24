@@ -239,20 +239,19 @@ func (a *apiServer) resumeStream(ctx context.Context, req *client.PublishRequest
 	if stream == nil {
 		status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
 	}
-	partition, ok := stream.partitions[0] // Only check the first partition for now
+	firstPart, ok := stream.partitions[0] // Only check the first partition for now
 	if !ok {
 		status.Error(codes.NotFound, fmt.Sprintf("No partition in stream: %s", req.Stream))
 	}
-	if partition.paused {
+	if firstPart.paused {
 		// This partition (and thus, this stream) is paused.
 		// We need to re-create the stream before being able to use it.
-		protoPart := partition.Partition
-		for i := 0; i < len(stream.partitions); i++ {
+		for i, partition := range stream.partitions {
 			if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
-				Partition: protoPart,
+				Partition: partition.Partition,
 			}); e != nil {
 				a.logger.Errorf("api: Failed to resume stream partition %d: %v", i, e.Err())
-				e.Err()
+				return e.Err()
 			}
 		}
 	}
