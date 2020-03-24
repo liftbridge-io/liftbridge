@@ -72,8 +72,7 @@ jobs:
       - image: circleci/buildpack-deps:stretch
     steps:
       - setup_remote_docker
-      - attach_workspace:
-          at: ~/project
+      - checkout
       - run:
           name: Set image version
           command: |
@@ -129,7 +128,10 @@ workflows:
   version: 2
   build-test-and-deploy:
     jobs:
-      - build-dev
+      - build-dev:
+          filters:
+            tags:
+              only: /^v.*/
       - test
       - build-and-push-standalone-dev-image:
           context: docker-push
