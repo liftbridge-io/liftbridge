@@ -1362,9 +1362,9 @@ func TestActivityStreamCreatePartition(t *testing.T) {
 		var se liftApi.ActivityStreamEvent
 		err = se.Unmarshal(msg.Value())
 		require.NoError(t, err)
-		require.Equal(t, liftApi.ActivityOp_CREATE_PARTITION, se.GetOp())
-		require.Equal(t, activityStream, se.GetStream())
-		require.Equal(t, int32(0), se.GetPartition())
+		require.Equal(t, liftApi.ActivityStreamOp_CREATE_PARTITION, se.GetOp())
+		require.Equal(t, activityStream, se.CreatePartitionOp.GetStream())
+		require.Equal(t, int32(0), se.CreatePartitionOp.GetPartition())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}

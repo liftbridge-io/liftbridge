@@ -334,9 +334,11 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 	m.waitForPartitionLeader(ctx, req.Partition.Stream, leader, req.Partition.Id)
 
 	err := m.publishActivityEvent(client.ActivityStreamEvent{
-		Op:        client.ActivityOp_CREATE_PARTITION,
-		Stream:    req.Partition.Stream,
-		Partition: req.Partition.Id,
+		Op: client.ActivityStreamOp_CREATE_PARTITION,
+		CreatePartitionOp: &client.CreatePartitionOp{
+			Stream:    req.Partition.Stream,
+			Partition: req.Partition.Id,
+		},
 	})
 	if err != nil {
 		return status.Newf(codes.Internal, "Failed to publish on the activity stream: %v", err.Error())
@@ -385,8 +387,10 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 	}
 
 	err := m.publishActivityEvent(client.ActivityStreamEvent{
-		Op:     client.ActivityOp_DELETE_STREAM,
-		Stream: req.Stream,
+		Op: client.ActivityStreamOp_DELETE_STREAM,
+		DeleteStreamOp: &client.DeleteStreamOp{
+			Stream: req.Stream,
+		},
 	})
 	if err != nil {
 		return status.Newf(codes.Internal, "Failed to publish on the activity stream: %v", err.Error())
