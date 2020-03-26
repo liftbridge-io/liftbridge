@@ -105,6 +105,16 @@ func waitForNoMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Se
 	stackFatalf(t, "Metadata leader found")
 }
 
+func checkPartitionPaused(t *testing.T, stream string, partitionID int32, paused bool, server *Server) {
+	partition := server.metadata.GetPartition(stream, partitionID)
+	if partition == nil {
+		stackFatalf(t, "Partition not found")
+	}
+	if isPaused := partition.IsPaused(); isPaused != paused {
+		stackFatalf(t, "Expected partition paused %v, got %v", paused, isPaused)
+	}
+}
+
 func getPartitionLeader(t *testing.T, timeout time.Duration, name string, partitionID int32, servers ...*Server) *Server {
 	var (
 		leader   *Server
@@ -1323,8 +1333,9 @@ func TestPropagatedShrinkExpandISR(t *testing.T) {
 
 // Test stream pausing and resuming. A paused stream should re-activate itself
 // when a message is published using the Liftbridge API. This test pauses all
-// partitions.
-func TestStreamPausingAllPartitions(t *testing.T) {
+// partitions and checks that only the partition that is published to gets
+// resumed.
+func TestPauseStreamAllPartitions(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Use a central NATS server.
@@ -1346,17 +1357,22 @@ func TestStreamPausingAllPartitions(t *testing.T) {
 	// Create stream.
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name)
+	err = client.CreateStream(context.Background(), subject, name, lift.Partitions(2))
 	require.NoError(t, err)
 
 	// Try to pause a non-existing stream.
 	err = client.PauseStream(context.Background(), "bar")
 	require.Error(t, err)
 
+	// Pause all partitions.
 	err = client.PauseStream(context.Background(), name)
 	require.NoError(t, err)
 
-	// Publish a message.
+	// Check that both partitions are paused.
+	checkPartitionPaused(t, name, 0, true, s1)
+	checkPartitionPaused(t, name, 1, true, s1)
+
+	// Publish a message to partition 0.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err = client.Publish(ctx, name, []byte("hello"))
@@ -1378,12 +1394,16 @@ func TestStreamPausingAllPartitions(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
+
+	// Check that partition 0 was resumed but partition 1 is still paused.
+	checkPartitionPaused(t, name, 0, false, s1)
+	checkPartitionPaused(t, name, 1, true, s1)
 }
 
 // Test stream pausing and resuming. A paused stream should re-activate itself
 // when a message is published using the Liftbridge API. This test pauses some
 // partitions only.
-func TestStreamPausingSomePartitions(t *testing.T) {
+func TestPauseStreamSomePartitions(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Use a central NATS server.
@@ -1409,16 +1429,22 @@ func TestStreamPausingSomePartitions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to pause a non-existing partition.
-	err = client.PauseStream(context.Background(), name, lift.PartitionIndices(99))
+	err = client.PauseStream(context.Background(), name, lift.PausePartitions(99))
 	require.Error(t, err)
 
-	err = client.PauseStream(context.Background(), name, lift.PartitionIndices(0))
+	// Pause partition 0 but set ResumeAll.
+	err = client.PauseStream(context.Background(), name, lift.PausePartitions(0), lift.ResumeAll())
 	require.NoError(t, err)
 
-	// Publish a message.
+	// Check that only partition 0 is paused.
+	checkPartitionPaused(t, name, 0, true, s1)
+	checkPartitionPaused(t, name, 1, false, s1)
+
+	// Publish a message to the non-paused partition, which should resume the
+	// paused partition since ResumeAll was enabled.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = client.Publish(ctx, name, []byte("hello"))
+	_, err = client.Publish(ctx, name, []byte("hello"), lift.ToPartition(1))
 	require.NoError(t, err)
 
 	msgs := make(chan lift.Message, 1)
@@ -1427,7 +1453,7 @@ func TestStreamPausingSomePartitions(t *testing.T) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
-	}, lift.StartAtEarliestReceived())
+	}, lift.StartAtEarliestReceived(), lift.Partition(1))
 	require.NoError(t, err)
 
 	// Wait to get the new message.
@@ -1437,4 +1463,62 @@ func TestStreamPausingSomePartitions(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
+
+	// Check that both partitions are resumed.
+	checkPartitionPaused(t, name, 0, false, s1)
+	checkPartitionPaused(t, name, 1, false, s1)
+}
+
+// Ensure publishing to a non-existent stream returns an error.
+func TestPublishNoSuchStream(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	_, err = client.Publish(context.Background(), "foo", []byte("hello"))
+	require.Error(t, err)
+}
+
+// Ensure publishing to a non-existent stream partition returns an error.
+func TestPublishNoSuchPartition(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
+	require.NoError(t, err)
+
+	_, err = client.Publish(context.Background(), name, []byte("hello"), lift.ToPartition(42))
+	require.Error(t, err)
 }
