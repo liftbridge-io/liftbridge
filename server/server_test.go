@@ -1469,6 +1469,39 @@ func TestPauseStreamSomePartitions(t *testing.T) {
 	checkPartitionPaused(t, name, 1, false, s1)
 }
 
+// Ensure pausing a stream works when we send the request to the metadata
+// follower.
+func TestPauseStreamPropagate(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 0)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5050)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Connect and send the request to the follower.
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, "foo", "foo")
+	require.NoError(t, err)
+
+	err = client.PauseStream(context.Background(), "foo")
+	require.NoError(t, err)
+}
+
 // Ensure publishing to a non-existent stream returns an error.
 func TestPublishNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
