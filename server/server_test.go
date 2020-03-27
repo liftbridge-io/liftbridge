@@ -1368,6 +1368,10 @@ func TestPauseStreamAllPartitions(t *testing.T) {
 	err = client.PauseStream(context.Background(), name)
 	require.NoError(t, err)
 
+	// Make sure pause is idempotent.
+	err = client.PauseStream(context.Background(), name)
+	require.NoError(t, err)
+
 	// Check that both partitions are paused.
 	checkPartitionPaused(t, name, 0, true, s1)
 	checkPartitionPaused(t, name, 1, true, s1)
