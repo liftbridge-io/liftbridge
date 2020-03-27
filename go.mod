@@ -9,8 +9,8 @@ require (
 	github.com/hako/durafmt v0.0.0-20191009132224-3f39dc1ed9f4
 	github.com/hashicorp/raft v1.1.2
 	github.com/hashicorp/raft-boltdb v0.0.0-20191021154308-4207f1bf0617
-	github.com/liftbridge-io/go-liftbridge v1.0.0-beta.0.20200313173700-9ff0d5810d33
-	github.com/liftbridge-io/liftbridge-api v1.0.0-beta.0.20200312161101-bf413bcbd765
+	github.com/liftbridge-io/go-liftbridge v1.0.0-beta.0.20200326225148-69c47c098aea
+	github.com/liftbridge-io/liftbridge-api v1.0.0-beta.0.20200326224922-0afea69beb86
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200303015016-68120bc11e03
 	github.com/natefinch/atomic v0.0.0-20150920032501-a62ce929ffcc
 	github.com/nats-io/nats-server/v2 v2.1.4
