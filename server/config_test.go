@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	client "github.com/liftbridge-io/liftbridge-api/go"
 )
 
 // Ensure NewConfig properly parses config files.
@@ -44,6 +46,10 @@ func TestNewConfigFromFile(t *testing.T) {
 	require.Equal(t, 2*time.Second, config.Clustering.ReplicaMaxIdleWait)
 	require.Equal(t, 3*time.Second, config.Clustering.ReplicaFetchTimeout)
 	require.Equal(t, 1, config.Clustering.MinISR)
+
+	require.Equal(t, true, config.ActivityStream.Enabled)
+	require.Equal(t, time.Minute, config.ActivityStream.PublishTimeout)
+	require.Equal(t, client.AckPolicy_LEADER, config.ActivityStream.PublishAckPolicy)
 
 	require.Equal(t, []string{"nats://localhost:4222"}, config.NATS.Servers)
 	require.Equal(t, "user", config.NATS.User)

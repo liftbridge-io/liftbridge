@@ -1,4 +1,3 @@
----
 listen: localhost:9293
 host: 0.0.0.0
 port: 5050
@@ -45,6 +44,11 @@ clustering:
       idle.wait: 2s
     fetch.timeout: 3s
   min.insync.replicas: '1'
+
+activity.stream:
+  enabled: true
+  publish.timeout: 1m
+  publish.ack.policy: leader
 
 nats:
   servers:

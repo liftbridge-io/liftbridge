@@ -14,6 +14,8 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+
+	client "github.com/liftbridge-io/liftbridge-api/go"
 )
 
 const (
@@ -27,21 +29,23 @@ const (
 
 // Config setting defaults.
 const (
-	defaultListenAddress           = "0.0.0.0"
-	defaultConnectionAddress       = "localhost"
-	defaultReplicaMaxLagTime       = 15 * time.Second
-	defaultReplicaMaxLeaderTimeout = 15 * time.Second
-	defaultReplicaMaxIdleWait      = 10 * time.Second
-	defaultRaftSnapshots           = 2
-	defaultRaftCacheSize           = 512
-	defaultMetadataCacheMaxAge     = 2 * time.Minute
-	defaultBatchMaxMessages        = 1024
-	defaultReplicaFetchTimeout     = 3 * time.Second
-	defaultMinInsyncReplicas       = 1
-	defaultRetentionMaxAge         = 7 * 24 * time.Hour
-	defaultCleanerInterval         = 5 * time.Minute
-	defaultMaxSegmentBytes         = 1024 * 1024 * 256 // 256MB
-	defaultMaxSegmentAge           = defaultRetentionMaxAge
+	defaultListenAddress                  = "0.0.0.0"
+	defaultConnectionAddress              = "localhost"
+	defaultReplicaMaxLagTime              = 15 * time.Second
+	defaultReplicaMaxLeaderTimeout        = 15 * time.Second
+	defaultReplicaMaxIdleWait             = 10 * time.Second
+	defaultRaftSnapshots                  = 2
+	defaultRaftCacheSize                  = 512
+	defaultMetadataCacheMaxAge            = 2 * time.Minute
+	defaultBatchMaxMessages               = 1024
+	defaultReplicaFetchTimeout            = 3 * time.Second
+	defaultMinInsyncReplicas              = 1
+	defaultRetentionMaxAge                = 7 * 24 * time.Hour
+	defaultCleanerInterval                = 5 * time.Minute
+	defaultMaxSegmentBytes                = 1024 * 1024 * 256 // 256MB
+	defaultMaxSegmentAge                  = defaultRetentionMaxAge
+	defaultActivityStreamPublishTimeout   = 5 * time.Second
+	defaultActivityStreamPublishAckPolicy = client.AckPolicy_ALL
 )
 
 // Config setting key names.
@@ -89,6 +93,10 @@ const (
 	configClusteringReplicaMaxIdleWait      = "clustering.replica.max.idle.wait"
 	configClusteringReplicaFetchTimeout     = "clustering.replica.fetch.timeout"
 	configClusteringMinInsyncReplicas       = "clustering.min.insync.replicas"
+
+	configActivityStreamEnabled          = "activity.stream.enabled"
+	configActivityStreamPublishTimeout   = "activity.stream.publish.timeout"
+	configActivityStreamPublishAckPolicy = "activity.stream.publish.ack.policy"
 )
 
 var configKeys = map[string]struct{}{
@@ -129,6 +137,9 @@ var configKeys = map[string]struct{}{
 	configClusteringReplicaMaxIdleWait:      {},
 	configClusteringReplicaFetchTimeout:     {},
 	configClusteringMinInsyncReplicas:       {},
+	configActivityStreamEnabled:             {},
+	configActivityStreamPublishTimeout:      {},
+	configActivityStreamPublishAckPolicy:    {},
 }
 
 // StreamsConfig contains settings for controlling the message log for streams.
@@ -184,6 +195,14 @@ type ClusteringConfig struct {
 	MinISR                  int
 }
 
+// ActivityStreamConfig contains settings for controlling activity stream
+// behavior.
+type ActivityStreamConfig struct {
+	Enabled          bool
+	PublishTimeout   time.Duration
+	PublishAckPolicy client.AckPolicy
+}
+
 // Config contains all settings for a Liftbridge Server.
 type Config struct {
 	Listen              HostPort
@@ -204,6 +223,7 @@ type Config struct {
 	NATS                nats.Options
 	Streams             StreamsConfig
 	Clustering          ClusteringConfig
+	ActivityStream      ActivityStreamConfig
 }
 
 // NewDefaultConfig creates a new Config with default settings.
@@ -228,6 +248,8 @@ func NewDefaultConfig() *Config {
 	config.Streams.SegmentMaxAge = defaultMaxSegmentAge
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
 	config.Streams.CleanerInterval = defaultCleanerInterval
+	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
+	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	return config
 }
 
@@ -391,6 +413,7 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	parseNATSConfig(&config.NATS, v)
 	parseStreamsConfig(config, v)
 	parseClusteringConfig(config, v)
+	parseActivityStreamConfig(config, v)
 
 	// If SegmentMaxAge is not set, default it to the retention time.
 	if config.Streams.SegmentMaxAge == 0 {
@@ -511,6 +534,29 @@ func parseClusteringConfig(config *Config, v *viper.Viper) error { // nolint: go
 	return nil
 }
 
+// parseActivityStreamConfig parses the `activitystream` section of a config
+// file and populates the given Config.
+func parseActivityStreamConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
+	if v.IsSet(configActivityStreamEnabled) {
+		config.ActivityStream.Enabled = v.GetBool(configActivityStreamEnabled)
+	}
+
+	if v.IsSet(configActivityStreamPublishTimeout) {
+		config.ActivityStream.PublishTimeout = v.GetDuration(configActivityStreamPublishTimeout)
+	}
+
+	if v.IsSet(configActivityStreamPublishAckPolicy) {
+		ackPolicy, err := parseAckPolicy(v)
+		if err != nil {
+			return err
+		}
+
+		config.ActivityStream.PublishAckPolicy = ackPolicy
+	}
+
+	return nil
+}
+
 // HostPort is simple struct to hold parsed listen/addr strings.
 type HostPort struct {
 	Host string
@@ -537,4 +583,20 @@ func parseListen(v *viper.Viper) (*HostPort, error) {
 		hp.Host = host
 	}
 	return hp, nil
+}
+
+// parseAckPolicy will parse the activity stream's `ack.policy` option
+// containing the ack policy to use when publishing activity events.
+func parseAckPolicy(v *viper.Viper) (client.AckPolicy, error) {
+	ackPolicy := v.GetString(configActivityStreamPublishAckPolicy)
+	switch ackPolicy {
+	case "none":
+		return client.AckPolicy_NONE, nil
+	case "leader":
+		return client.AckPolicy_LEADER, nil
+	case "all":
+		return client.AckPolicy_ALL, nil
+	default:
+		return defaultActivityStreamPublishAckPolicy, fmt.Errorf("Unknown activity stream publish ack policy %q", ackPolicy)
+	}
 }

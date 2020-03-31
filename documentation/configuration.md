@@ -76,6 +76,7 @@ An example configuration file is shown below.
 ---
 listen: localhost:9293
 data.dir: /tmp/liftbridge/server-2
+activity.stream.enabled: true
 
 # Configure logging.
 logging:
@@ -125,6 +126,7 @@ the setting in the configuration file and the CLI flag if it exists.
 | nats | | NATS configuration. | map | | [See below](#nats-configuration-settings) |
 | streams | | Write-ahead log configuration for message streams. | map | | [See below](#streams-configuration-settings) |
 | clustering | | Broker cluster configuration. | map | | [See below](#clustering-configuration-settings) |
+| activity | | Meta activity event stream configuration. | map | | [See below](#activity-configuration-settings) |
 
 ### NATS Configuration Settings
 
@@ -172,3 +174,15 @@ the configuration file.
 | replica.max.idle.wait | | The maximum amount of time a follower will wait before making a replication request once the follower is caught up with the leader. This value should always be less than `replica.max.lag.time` to avoid frequent shrinking of ISR for low-throughput streams. | duration | 10s | |
 | replica.fetch.timeout | | Timeout duration for follower replication requests. | duration | 3s | |
 | min.insync.replicas | | Specifies the minimum number of replicas that must acknowledge a stream write before it can be committed. If the ISR drops below this size, messages cannot be committed. | int | 1 | [1,...] |
+
+### Activity Configuration Settings
+
+Below is the list of the configuration settings for the `activity` part of
+the configuration file.
+
+| Name | Flag | Description | Type | Default | Valid Values |
+|:----|:----|:----|:----|:----|:----|
+| stream.enabled | | Enables the activity stream. This will create an internal stream called `__activity` which events will be published to. | bool | false | |
+| stream.publish.timeout | | The timeout for publishes to the activity stream. This is the time to wait for an ack from the activity stream, which means it's related to `stream.publish.ack.policy`. If the ack policy is `none`, this has no effect.  | duration | 5s | |
+| stream.publish.ack.policy | | The ack policy to use for publishes to the activity stream. The value `none` means publishes will not wait for an ack, `leader` means publishes will wait for the ack sent when the leader has committed the event, and `all` means publishes will wait for the ack sent when all replicas have committed the event. | string | all | [none, leader, all] |
+

@@ -15,7 +15,7 @@ import (
 
 	"github.com/liftbridge-io/nats-on-a-log"
 
-	"github.com/liftbridge-io/liftbridge/server/proto"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 const (

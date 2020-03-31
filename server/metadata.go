@@ -17,7 +17,7 @@ import (
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
 
-	"github.com/liftbridge-io/liftbridge/server/proto"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 const (
@@ -339,6 +339,17 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 	// Wait for leader to create partition (best effort).
 	m.waitForPartitionLeader(ctx, req.Partition.Stream, leader, req.Partition.Id)
 
+	err := m.publishActivityEvent(client.ActivityStreamEvent{
+		Op: client.ActivityStreamOp_CREATE_PARTITION,
+		CreatePartitionOp: &client.CreatePartitionOp{
+			Stream:    req.Partition.Stream,
+			Partition: req.Partition.Id,
+		},
+	})
+	if err != nil {
+		return status.Newf(codes.Internal, "Failed to publish on the activity stream: %v", err.Error())
+	}
+
 	return nil
 }
 
@@ -379,6 +390,16 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 			code = codes.NotFound
 		}
 		return status.New(code, err.Error())
+	}
+
+	err := m.publishActivityEvent(client.ActivityStreamEvent{
+		Op: client.ActivityStreamOp_DELETE_STREAM,
+		DeleteStreamOp: &client.DeleteStreamOp{
+			Stream: req.Stream,
+		},
+	})
+	if err != nil {
+		return status.Newf(codes.Internal, "Failed to publish on the activity stream: %v", err.Error())
 	}
 
 	return nil

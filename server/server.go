@@ -22,37 +22,49 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	lift "github.com/liftbridge-io/go-liftbridge"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/health"
 	"github.com/liftbridge-io/liftbridge/server/logger"
-	"github.com/liftbridge-io/liftbridge/server/proto"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 const stateFile = "liftbridge"
 
+const (
+	streamsConnName     = "streams"
+	raftConnName        = "raft"
+	replicationConnName = "replication"
+	acksConnName        = "acks"
+	publishesConnName   = "publishes"
+	activityStream      = "__activity"
+)
+
 // Server is the main Liftbridge object. Create it by calling New or
 // RunServerWithConfig.
 type Server struct {
-	config             *Config
-	listener           net.Listener
-	nc                 *nats.Conn
-	ncRaft             *nats.Conn
-	ncRepl             *nats.Conn
-	ncAcks             *nats.Conn
-	ncPublishes        *nats.Conn
-	logger             logger.Logger
-	loggerOut          io.Writer
-	api                *grpc.Server
-	metadata           *metadataAPI
-	shutdownCh         chan struct{}
-	raft               atomic.Value
-	leaderSub          *nats.Subscription
-	recoveryStarted    bool
-	latestRecoveredLog *raft.Log
-	mu                 sync.RWMutex
-	shutdown           bool
-	running            bool
-	goroutineWait      sync.WaitGroup
+	config               *Config
+	listener             net.Listener
+	port                 int
+	nc                   *nats.Conn
+	ncRaft               *nats.Conn
+	ncRepl               *nats.Conn
+	ncAcks               *nats.Conn
+	ncPublishes          *nats.Conn
+	logger               logger.Logger
+	loggerOut            io.Writer
+	api                  *grpc.Server
+	metadata             *metadataAPI
+	shutdownCh           chan struct{}
+	raft                 atomic.Value
+	leaderSub            *nats.Subscription
+	recoveryStarted      bool
+	latestRecoveredLog   *raft.Log
+	mu                   sync.RWMutex
+	shutdown             bool
+	running              bool
+	goroutineWait        sync.WaitGroup
+	activityStreamClient lift.Client
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -126,13 +138,14 @@ func (s *Server) Start() (err error) {
 		return errors.Wrap(err, "failed starting listener")
 	}
 	s.listener = l
+	s.port = l.Addr().(*net.TCPAddr).Port
 
 	s.logger.Infof("Liftbridge Version: %s", Version)
 	s.logger.Infof("Server ID:          %s", s.config.Clustering.ServerID)
 	s.logger.Infof("Namespace:          %s", s.config.Clustering.Namespace)
 	s.logger.Infof("Retention Policy:   %s", s.config.Streams.RetentionString())
 	s.logger.Infof("Starting server on %s...",
-		net.JoinHostPort(listenAddress.Host, strconv.Itoa(l.Addr().(*net.TCPAddr).Port)))
+		net.JoinHostPort(listenAddress.Host, strconv.Itoa(s.port)))
 
 	// Set a lower bound of one second for SegmentMaxAge to avoid frequent log
 	// rolls which will cause performance problems. This is mainly here because
@@ -201,6 +214,10 @@ func (s *Server) Stop() error {
 		}
 	}
 
+	if s.activityStreamClient != nil {
+		s.activityStreamClient.Close()
+	}
+
 	s.closeNATSConns()
 	s.running = false
 	s.shutdown = true
@@ -256,39 +273,40 @@ func (s *Server) recoverAndPersistState() error {
 // publishes.
 func (s *Server) createNATSConns() error {
 	// NATS connection used for stream data.
-	nc, err := s.createNATSConn("streams")
+	nc, err := s.createNATSConn(streamsConnName)
 	if err != nil {
 		return err
 	}
 	s.nc = nc
 
 	// NATS connection used for Raft metadata replication.
-	ncr, err := s.createNATSConn("raft")
+	ncr, err := s.createNATSConn(raftConnName)
 	if err != nil {
 		return err
 	}
 	s.ncRaft = ncr
 
 	// NATS connection used for stream replication.
-	ncRepl, err := s.createNATSConn("replication")
+	ncRepl, err := s.createNATSConn(replicationConnName)
 	if err != nil {
 		return err
 	}
 	s.ncRepl = ncRepl
 
 	// NATS connection used for sending acks.
-	ncAcks, err := s.createNATSConn("acks")
+	ncAcks, err := s.createNATSConn(acksConnName)
 	if err != nil {
 		return err
 	}
 	s.ncAcks = ncAcks
 
 	// NATS connection used for publishing messages.
-	ncPublishes, err := s.createNATSConn("publishes")
+	ncPublishes, err := s.createNATSConn(publishesConnName)
 	if err != nil {
 		return err
 	}
 	s.ncPublishes = ncPublishes
+
 	return nil
 }
 
@@ -439,8 +457,12 @@ func (s *Server) startMetadataRaft() error {
 							// Node lost leadership, continue loop.
 							continue
 						default:
-							// TODO: probably step down as leader?
-							panic(err)
+							// Step down as leader.
+							s.logger.Warn("Stepping down as metadata leader")
+							if future := node.LeadershipTransfer(); future.Error() != nil {
+								panic(errors.Wrap(future.Error(), "error on metadata leadership step down"))
+							}
+							continue
 						}
 					}
 				} else {
@@ -471,6 +493,34 @@ func (s *Server) getRaft() *raftNode {
 	return r.(*raftNode)
 }
 
+// createActivityStream creates the activity stream and connects a local client
+// that will be subscribed to it.
+func (s *Server) createActivityStream() error {
+	if !s.config.ActivityStream.Enabled {
+		return nil
+	}
+
+	// Connect a local client that will be used to publish on the activity
+	// stream
+	listenAddress := s.config.GetListenAddress()
+	addrs := []string{listenAddress.Host + ":" + strconv.Itoa(s.port)}
+	var err error
+	s.activityStreamClient, err = lift.Connect(addrs)
+	if err != nil {
+		return errors.Wrap(err, "failed to connect the activity stream client")
+	}
+
+	err = s.activityStreamClient.CreateStream(context.Background(),
+		s.getActivityStreamSubject(),
+		activityStream,
+	)
+	if err != nil && err != lift.ErrStreamExists {
+		return errors.Wrap(err, "failed to create an activity stream")
+	}
+
+	return nil
+}
+
 // leadershipAcquired should be called when this node is elected leader.
 func (s *Server) leadershipAcquired() error {
 	s.logger.Infof("Server became metadata leader, performing leader promotion actions")
@@ -486,6 +536,10 @@ func (s *Server) leadershipAcquired() error {
 		return err
 	}
 	s.leaderSub = sub
+
+	if err := s.createActivityStream(); err != nil {
+		return err
+	}
 
 	atomic.StoreInt64(&(s.getRaft().leader), 1)
 	return nil
@@ -504,6 +558,13 @@ func (s *Server) leadershipLost() error {
 	}
 
 	s.metadata.LostLeadership()
+
+	// Close any activity stream client
+	if s.activityStreamClient != nil {
+		s.activityStreamClient.Close()
+		s.activityStreamClient = nil
+	}
+
 	atomic.StoreInt64(&(s.getRaft().leader), 0)
 	return nil
 }
@@ -766,6 +827,12 @@ func (s *Server) getPartitionNotificationInbox(id string) string {
 	return fmt.Sprintf("%s.notify.%s", s.config.Clustering.Namespace, id)
 }
 
+// getActivityStreamSubject returns the NATS subject used for publishing
+// activity stream events.
+func (s *Server) getActivityStreamSubject() string {
+	return fmt.Sprintf("%s.activity", s.config.Clustering.Namespace)
+}
+
 // startGoroutine starts a goroutine which is managed by the server. This adds
 // the goroutine to a WaitGroup so that the server can wait for all running
 // goroutines to stop on shutdown. This should be used instead of a "naked"
@@ -781,4 +848,40 @@ func (s *Server) startGoroutine(f func()) {
 		f()
 		s.goroutineWait.Done()
 	}()
+}
+
+// publishActivityEvent publishes an event on the activity stream.
+func (s *Server) publishActivityEvent(streamEvent client.ActivityStreamEvent) error {
+	if !s.config.ActivityStream.Enabled {
+		return nil
+	}
+
+	data, err := streamEvent.Marshal()
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal a stream event")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.config.ActivityStream.PublishTimeout)
+	defer cancel()
+
+	var messageOption lift.MessageOption
+	ackPolicy := s.config.ActivityStream.PublishAckPolicy
+	switch ackPolicy {
+	case client.AckPolicy_LEADER:
+		messageOption = lift.AckPolicyLeader()
+	case client.AckPolicy_ALL:
+		messageOption = lift.AckPolicyAll()
+	case client.AckPolicy_NONE:
+		messageOption = lift.AckPolicyNone()
+	default:
+		return fmt.Errorf("Unknown ack policy: %v", ackPolicy)
+	}
+
+	_, err = s.activityStreamClient.Publish(
+		ctx,
+		activityStream,
+		data,
+		messageOption,
+	)
+	return errors.Wrap(err, "failed to publish a stream event")
 }
