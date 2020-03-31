@@ -29,23 +29,23 @@ const (
 
 // Config setting defaults.
 const (
-	defaultListenAddress                      = "0.0.0.0"
-	defaultConnectionAddress                  = "localhost"
-	defaultReplicaMaxLagTime                  = 15 * time.Second
-	defaultReplicaMaxLeaderTimeout            = 15 * time.Second
-	defaultReplicaMaxIdleWait                 = 10 * time.Second
-	defaultRaftSnapshots                      = 2
-	defaultRaftCacheSize                      = 512
-	defaultMetadataCacheMaxAge                = 2 * time.Minute
-	defaultBatchMaxMessages                   = 1024
-	defaultReplicaFetchTimeout                = 3 * time.Second
-	defaultMinInsyncReplicas                  = 1
-	defaultRetentionMaxAge                    = 7 * 24 * time.Hour
-	defaultCleanerInterval                    = 5 * time.Minute
-	defaultMaxSegmentBytes                    = 1024 * 1024 * 256 // 256MB
-	defaultMaxSegmentAge                      = defaultRetentionMaxAge
-	defaultActivityStreamPublicationTimeout   = 5 * time.Second
-	defaultActivityStreamPublicationAckPolicy = client.AckPolicy_ALL
+	defaultListenAddress                  = "0.0.0.0"
+	defaultConnectionAddress              = "localhost"
+	defaultReplicaMaxLagTime              = 15 * time.Second
+	defaultReplicaMaxLeaderTimeout        = 15 * time.Second
+	defaultReplicaMaxIdleWait             = 10 * time.Second
+	defaultRaftSnapshots                  = 2
+	defaultRaftCacheSize                  = 512
+	defaultMetadataCacheMaxAge            = 2 * time.Minute
+	defaultBatchMaxMessages               = 1024
+	defaultReplicaFetchTimeout            = 3 * time.Second
+	defaultMinInsyncReplicas              = 1
+	defaultRetentionMaxAge                = 7 * 24 * time.Hour
+	defaultCleanerInterval                = 5 * time.Minute
+	defaultMaxSegmentBytes                = 1024 * 1024 * 256 // 256MB
+	defaultMaxSegmentAge                  = defaultRetentionMaxAge
+	defaultActivityStreamPublishTimeout   = 5 * time.Second
+	defaultActivityStreamPublishAckPolicy = client.AckPolicy_ALL
 )
 
 // Config setting key names.
@@ -198,9 +198,9 @@ type ClusteringConfig struct {
 // ActivityStreamConfig contains settings for controlling activity stream
 // behavior.
 type ActivityStreamConfig struct {
-	Enabled              bool
-	PublicationTimeout   time.Duration
-	PublicationAckPolicy client.AckPolicy
+	Enabled          bool
+	PublishTimeout   time.Duration
+	PublishAckPolicy client.AckPolicy
 }
 
 // Config contains all settings for a Liftbridge Server.
@@ -248,8 +248,8 @@ func NewDefaultConfig() *Config {
 	config.Streams.SegmentMaxAge = defaultMaxSegmentAge
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
 	config.Streams.CleanerInterval = defaultCleanerInterval
-	config.ActivityStream.PublicationTimeout = defaultActivityStreamPublicationTimeout
-	config.ActivityStream.PublicationAckPolicy = defaultActivityStreamPublicationAckPolicy
+	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
+	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	return config
 }
 
@@ -542,7 +542,7 @@ func parseActivityStreamConfig(config *Config, v *viper.Viper) error { // nolint
 	}
 
 	if v.IsSet(configActivityStreamPublishTimeout) {
-		config.ActivityStream.PublicationTimeout = v.GetDuration(configActivityStreamPublishTimeout)
+		config.ActivityStream.PublishTimeout = v.GetDuration(configActivityStreamPublishTimeout)
 	}
 
 	if v.IsSet(configActivityStreamPublishAckPolicy) {
@@ -551,7 +551,7 @@ func parseActivityStreamConfig(config *Config, v *viper.Viper) error { // nolint
 			return err
 		}
 
-		config.ActivityStream.PublicationAckPolicy = ackPolicy
+		config.ActivityStream.PublishAckPolicy = ackPolicy
 	}
 
 	return nil
@@ -597,6 +597,6 @@ func parseAckPolicy(v *viper.Viper) (client.AckPolicy, error) {
 	case "all":
 		return client.AckPolicy_ALL, nil
 	default:
-		return defaultActivityStreamPublicationAckPolicy, fmt.Errorf("Unknown activity stream publication ack policy %q", ackPolicy)
+		return defaultActivityStreamPublishAckPolicy, fmt.Errorf("Unknown activity stream publish ack policy %q", ackPolicy)
 	}
 }

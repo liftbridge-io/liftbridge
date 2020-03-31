@@ -861,11 +861,11 @@ func (s *Server) publishActivityEvent(streamEvent client.ActivityStreamEvent) er
 		return errors.Wrap(err, "failed to marshal a stream event")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.ActivityStream.PublicationTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), s.config.ActivityStream.PublishTimeout)
 	defer cancel()
 
 	var messageOption lift.MessageOption
-	ackPolicy := s.config.ActivityStream.PublicationAckPolicy
+	ackPolicy := s.config.ActivityStream.PublishAckPolicy
 	switch ackPolicy {
 	case client.AckPolicy_LEADER:
 		messageOption = lift.AckPolicyLeader()
