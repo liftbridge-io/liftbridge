@@ -537,9 +537,12 @@ func (s *Server) leadershipAcquired() error {
 	}
 	s.leaderSub = sub
 
-	atomic.StoreInt64(&(s.getRaft().leader), 1)
+	if err := s.createActivityStream(); err != nil {
+		return err
+	}
 
-	return s.createActivityStream()
+	atomic.StoreInt64(&(s.getRaft().leader), 1)
+	return nil
 }
 
 // leadershipLost should be called when this node loses leadership.
@@ -555,7 +558,6 @@ func (s *Server) leadershipLost() error {
 	}
 
 	s.metadata.LostLeadership()
-	atomic.StoreInt64(&(s.getRaft().leader), 0)
 
 	// Close any activity stream client
 	if s.activityStreamClient != nil {
@@ -563,6 +565,7 @@ func (s *Server) leadershipLost() error {
 		s.activityStreamClient = nil
 	}
 
+	atomic.StoreInt64(&(s.getRaft().leader), 0)
 	return nil
 }
 
