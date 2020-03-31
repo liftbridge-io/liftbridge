@@ -72,6 +72,7 @@ type partition struct {
 	srv             *Server
 	isLeading       bool
 	isFollowing     bool
+	isClosed        bool
 	replicas        map[string]struct{}
 	isr             map[string]*replica
 	replicators     map[string]*replicator
@@ -84,6 +85,7 @@ type partition struct {
 	belowMinISR     bool
 	pause           bool // Pause replication on the leader (for unit testing)
 	shutdown        sync.WaitGroup
+	paused          bool
 }
 
 // newPartition creates a new stream partition. If the partition is recovered,
@@ -151,16 +153,47 @@ func (p *partition) String() string {
 	return fmt.Sprintf("[subject=%s, stream=%s, partition=%d]", p.Subject, p.Stream, p.Id)
 }
 
-// Close stops the partition if it is running and closes the commit log.
-func (p *partition) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *partition) close() error {
+	if p.isClosed {
+		return nil
+	}
 
 	if err := p.log.Close(); err != nil {
 		return err
 	}
 
-	return p.stopLeadingOrFollowing()
+	if err := p.stopLeadingOrFollowing(); err != nil {
+		return err
+	}
+
+	p.isClosed = true
+	return nil
+}
+
+// Close stops the partition if it is running and closes the commit log.
+func (p *partition) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.close()
+}
+
+// Pause stops the partition if it is running, closes the commit log and sets
+// the paused flag.
+func (p *partition) Pause() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.paused = true
+
+	return p.close()
+}
+
+// IsPaused indicates if the partition is currently paused.
+func (p *partition) IsPaused() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.paused
 }
 
 // Delete stops the partition if it is running, closes, and deletes the commit
@@ -221,12 +254,16 @@ func (p *partition) SetLeader(leader string, epoch uint64) error {
 
 // StartRecovered starts the partition as a leader or follower, if applicable,
 // if it's in recovery mode. This should be called for each partition after the
-// recovery process completes.
+// recovery process completes. If the partition is paused, this will be a
+// no-op.
 func (p *partition) StartRecovered() (bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.recovered {
 		return false, nil
+	}
+	if p.paused {
+		return true, nil
 	}
 	if err := p.startLeadingOrFollowing(); err != nil {
 		return false, err
@@ -380,6 +417,7 @@ func (p *partition) stopLeading() error {
 
 	p.commitQueue.Dispose()
 	p.isLeading = false
+	p.recvChan = nil // Nil this out since it's a non-trivial amount of memory
 
 	return nil
 }

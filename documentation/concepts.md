@@ -36,7 +36,9 @@ to a different NATS subject derived from the stream subject. For example, if a
 stream with three partitions is attached to the subject "foo", the partitions
 will map to the subjects "foo", "foo.1", and "foo.2", respectively.
 
-Each partition has its own message log, leader, and set of followers.
+Each partition has its own message log, leader, and set of followers. To reduce
+resource consumption, partitions can be paused. Paused partitions are
+subsequently resumed once they are published to.
 
 ### Write-Ahead Log
 

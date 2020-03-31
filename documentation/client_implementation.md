@@ -30,11 +30,13 @@ to implementing a high-level client.
 
 A high-level client has several operations:
 
-- [`CreateStream`](#createstream): creates a new stream attached to a NATS subject (or group of
-  related NATS subjects if partitioned)
+- [`CreateStream`](#createstream): creates a new stream attached to a NATS
+  subject (or group of related NATS subjects if partitioned)
 - [`DeleteStream`](#deletestream): deletes a stream and all of its partitions
-- [`Subscribe`](#subscribe): creates an ephemeral subscription for a given stream that
-  messages are received on
+- [`PauseStream`](#pausestream): pauses some or all of a stream's partitions
+  until they are published to
+- [`Subscribe`](#subscribe): creates an ephemeral subscription for a given
+  stream that messages are received on
 - [`Publish`](#publish): publishes a new message to a Liftbridge stream
 - [`PublishToSubject`](#publishtosubject): publishes a new message to a NATS
   subject
@@ -60,6 +62,14 @@ type Client interface {
 	// DeleteStream deletes a stream and all of its partitions. Name is the
 	// stream identifier, globally unique.
 	DeleteStream(ctx context.Context, name string) error
+
+    // PauseStream pauses a stream and some or all of its partitions. Name is
+	// the stream identifier, globally unique. It returns an ErrNoSuchPartition
+	// if the given stream or partition does not exist. By default, this will
+	// pause all partitions. A partition is resumed when it is published to via
+	// the Liftbridge Publish API or ResumeAll is enabled and another partition
+	// in the stream is published to.
+	PauseStream(ctx context.Context, name string, opts ...PauseOption) error
 
 	// Subscribe creates an ephemeral subscription for the given stream. It
 	// begins receiving messages starting at the configured position and waits
@@ -159,8 +169,8 @@ configure a stream. Supported options are:
 func (c *client) DeleteStream(ctx context.Context, name string) error
 ```
 
-`DeleteStream` deletes a stream and all of its partitions. If the deletion
-fails or the stream does not exist, it returns/throws an error.
+`DeleteStream` deletes a stream and all of its partitions. This will remove any
+data stored on disk for the stream and all of its partitions.
 
 In the Go client example above, `DeleteStream` takes two arguments:
 
@@ -173,6 +183,54 @@ In the Go client example above, `DeleteStream` takes two arguments:
 `ErrNoSuchStream` if the stream doesn't exist.
 
 [Implementation Guidance](#deletestream-implementation)
+
+### PauseStream
+
+```go
+// PauseStream pauses a stream and some or all of its partitions. Name is the
+// stream identifier, globally unique. It returns an ErrNoSuchPartition if the
+// given stream or partition does not exist. By default, this will pause all
+// partitions. A partition is resumed when it is published to via the
+// Liftbridge Publish API or ResumeAll is enabled and another partition in the
+// stream is published to.
+func (c *client) PauseStream(ctx context.Context, name string, options ...PauseOption)
+```
+
+`PauseStream` pauses some or all of a stream's partitions. In effect, thie
+means closing NATS subscriptions, stopping replication, closing any associated
+file handles, and generally releasing any resources used in maintaining a
+partition. This can be done selectively on partitions or the entirety of a
+stream.
+
+A partition is paused until it is published to via the Liftbridge
+[`Publish`](#publish) API or `ResumeAll` is enabled and another partition in
+the stream is published to.
+
+Different sets of partitions can be paused independently with subsequent
+`PauseStream` requests to the same stream, and pausing partitions is an
+idempotent operation. However, note that the stream will be updated with the
+latest `ResumeAll` value specified on the request.
+
+In the Go client example above, `PauseStream` takes three arguments:
+
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
+| name | string | The name of the stream to pause partitions for. | yes |
+| options | pause options | Zero or more pause options. These are used to pass in optional settings for pausing the stream. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis) for implementing extensible APIs. In other languages, this might be replaced with a builder pattern or optional named arguments. These `PauseStream` options are described below. | language-dependent |
+
+The pause options are the equivalent of optional named arguments used to
+configure stream pausing. Supported options are:
+
+| Option | Type | Description | Default |
+|:----|:----|:----|:----|
+| PausePartitions | list of ints | Specifies the stream partitions to pause. If not set, all partitions will be paused. | |
+| ResumeAll | bool | Resume all partitions in the stream if any are published to instead of resuming only the partition published to. | false |
+
+`PauseStream` returns/throws an error if the operation fails, specifically
+`ErrNoSuchPartition` if the stream or partition(s) do not exist.
+
+[Implementation Guidance](#pausestream-implementation)
 
 ### Subscribe
 
@@ -551,6 +609,7 @@ idempotency reasons. This resilient RPC method can be used for RPCs such as:
 
 - `CreateStream`
 - `DeleteStream`
+- `PauseStream`
 - `Publish`
 - `PublishToSubject`
 - `FetchMetadata`
@@ -699,6 +758,44 @@ func (c *client) DeleteStream(ctx context.Context, name string) error {
 	})
 	if status.Code(err) == codes.NotFound {
 		return ErrNoSuchStream
+	}
+	return err
+}
+```
+
+### PauseStream Implementation
+
+The `PauseStream` implementation simply constructs a gRPC request and executes
+it using the [resilient RPC method](#rpcs) described above. If the `NotFound`
+gRPC error is returned, an `ErrNoSuchPartition` error/exception is thrown.
+Otherwise, any other error/exception is thrown if the operation failed.
+
+```go
+// PauseStream pauses a stream and some or all of its partitions. Name is the
+// stream identifier, globally unique. It returns an ErrNoSuchPartition if the
+// given stream or partition does not exist. By default, this will pause all
+// partitions. A partition is resumed when it is published to via the
+// Liftbridge Publish API or ResumeAll is enabled and another partition in the
+// stream is published to.
+func (c *client) PauseStream(ctx context.Context, name string, options ...PauseOption) error {
+	opts := &PauseOptions{}
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return err
+		}
+	}
+
+	req := &proto.PauseStreamRequest{
+		Name:       name,
+		Partitions: opts.Partitions,
+		ResumeAll:  opts.ResumeAll,
+	}
+	err := c.doResilientRPC(func(client proto.APIClient) error {
+		_, err := client.PauseStream(ctx, req)
+		return err
+	})
+	if status.Code(err) == codes.NotFound {
+		return ErrNoSuchPartition
 	}
 	return err
 }

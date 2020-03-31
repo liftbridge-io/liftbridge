@@ -25,13 +25,19 @@ const (
 	maxReplicationFactor    int32 = -1
 )
 
-// ErrPartitionExists is returned by CreatePartition when attempting to create
-// a stream partition that already exists.
-var ErrPartitionExists = errors.New("partition already exists")
+var (
+	// ErrPartitionExists is returned by CreatePartition when attempting to
+	// create a stream partition that already exists.
+	ErrPartitionExists = errors.New("partition already exists")
 
-// ErrStreamNotFound is returned by DeleteStream when attempting to delete a
-// stream that does not exists.
-var ErrStreamNotFound = errors.New("stream does not exists")
+	// ErrStreamNotFound is returned by DeleteStream/PauseStream when
+	// attempting to delete/pause a stream that does not exist.
+	ErrStreamNotFound = errors.New("stream does not exist")
+
+	// ErrPartitionNotFound is returned by PauseStream when attempting to pause
+	// a stream partition that does not exist.
+	ErrPartitionNotFound = errors.New("partition does not exist")
+)
 
 // leaderReport tracks witnesses for a partition leader. Witnesses are replicas
 // which have reported the leader as unresponsive. If a quorum of replicas
@@ -240,7 +246,7 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 	// If no stream names were provided, fetch metadata for all streams.
 	if len(streams) == 0 {
 		for _, stream := range m.GetStreams() {
-			streams = append(streams, stream.name)
+			streams = append(streams, stream.GetName())
 		}
 	}
 
@@ -256,7 +262,7 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 			}
 		} else {
 			partitions := make(map[int32]*client.PartitionMetadata)
-			for id, partition := range stream.partitions {
+			for id, partition := range stream.GetPartitions() {
 				leader, _ := partition.GetLeader()
 				partitions[id] = &client.PartitionMetadata{
 					Id:       id,
@@ -267,7 +273,7 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 			}
 			metadata[i] = &client.StreamMetadata{
 				Name:       name,
-				Subject:    stream.subject,
+				Subject:    stream.GetSubject(),
 				Partitions: partitions,
 			}
 		}
@@ -394,6 +400,49 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 	})
 	if err != nil {
 		return status.Newf(codes.Internal, "Failed to publish on the activity stream: %v", err.Error())
+	}
+
+	return nil
+}
+
+// PauseStream pauses a stream if this server is the metadata leader. If it is
+// not, it will forward the request to the leader and return the response. This
+// operation is replicated by Raft. If successful, this will return once the
+// stream has been paused.
+func (m *metadataAPI) PauseStream(ctx context.Context, req *proto.PauseStreamOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagatePauseStream(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Replicate stream pausing through Raft.
+	op := &proto.RaftLog{
+		Op:            proto.Op_PAUSE_STREAM,
+		PauseStreamOp: req,
+	}
+
+	// Wait on result of pausing.
+	future := m.applyRaftOperation(op)
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to pause stream: %v", err.Error())
+	}
+
+	// If there is a response, it's an error (most likely ErrStreamNotFound or
+	// ErrPartitionNotFound).
+	if resp := future.Response(); resp != nil {
+		err := resp.(error)
+		code := codes.Internal
+		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
+			code = codes.NotFound
+		}
+		return status.New(code, err.Error())
 	}
 
 	return nil
@@ -549,7 +598,7 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 func (m *metadataAPI) AddPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	partition, err := m.addPartition(protoPartition, recovered, m.newPartition)
+	partition, err := m.addPartition(protoPartition, recovered)
 	if err != nil {
 		return nil, err
 	}
@@ -560,29 +609,23 @@ func (m *metadataAPI) AddPartition(protoPartition *proto.Partition, recovered bo
 	return partition, err
 }
 
-func (m *metadataAPI) addPartition(protoPartition *proto.Partition, recovered bool,
-	newPartition func(*proto.Partition, bool) (*partition, error)) (*partition, error) {
-
+func (m *metadataAPI) addPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
 	st, ok := m.streams[protoPartition.Stream]
 	if !ok {
-		st = &stream{
-			name:       protoPartition.Stream,
-			subject:    protoPartition.Subject,
-			partitions: make(map[int32]*partition),
-		}
+		st = newStream(protoPartition.Stream, protoPartition.Subject)
 		m.streams[protoPartition.Stream] = st
 	}
-	if _, ok := st.partitions[protoPartition.Id]; ok {
+	if p := st.GetPartition(protoPartition.Id); p != nil && !p.paused {
 		// Partition already exists for stream.
 		return nil, ErrPartitionExists
 	}
 
 	// This will initialize/recover the durable commit log.
-	partition, err := newPartition(protoPartition, recovered)
+	partition, err := m.newPartition(protoPartition, recovered)
 	if err != nil {
 		return nil, err
 	}
-	st.partitions[protoPartition.Id] = partition
+	st.SetPartition(protoPartition.Id, partition)
 	return partition, nil
 }
 
@@ -610,7 +653,7 @@ func (m *metadataAPI) GetPartition(streamName string, id int32) *partition {
 	if !ok {
 		return nil
 	}
-	return stream.partitions[id]
+	return stream.GetPartition(id)
 }
 
 // Reset closes all streams and clears all existing state in the metadata
@@ -643,15 +686,15 @@ func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
 	}
 
 	// Remove the (now empty) stream data directory
-	streamDataDir := filepath.Join(m.Server.config.DataDir, "streams", stream.name)
+	streamDataDir := filepath.Join(m.Server.config.DataDir, "streams", stream.GetName())
 	err = os.Remove(streamDataDir)
 	if err != nil {
 		return errors.Wrap(err, "failed to delete stream data directory")
 	}
 
-	delete(m.streams, stream.name)
+	delete(m.streams, stream.GetName())
 
-	for _, partition := range stream.partitions {
+	for _, partition := range stream.GetPartitions() {
 		report, ok := m.leaderReports[partition]
 		if ok {
 			report.cancel()
@@ -789,6 +832,18 @@ func (m *metadataAPI) propagateDeleteStream(ctx context.Context, req *proto.Dele
 	propagate := &proto.PropagatedRequest{
 		Op:             proto.Op_DELETE_STREAM,
 		DeleteStreamOp: req,
+	}
+	return m.propagateRequest(ctx, propagate)
+}
+
+// propagatePauseStream forwards a PauseStream request to the metadata
+// leader. The bool indicates if this server has since become leader and the
+// request should be performed locally. A Status is returned if the propagated
+// request failed.
+func (m *metadataAPI) propagatePauseStream(ctx context.Context, req *proto.PauseStreamOp) (bool, *status.Status) {
+	propagate := &proto.PropagatedRequest{
+		Op:            proto.Op_PAUSE_STREAM,
+		PauseStreamOp: req,
 	}
 	return m.propagateRequest(ctx, propagate)
 }

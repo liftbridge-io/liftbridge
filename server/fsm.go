@@ -177,6 +177,21 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		if err != nil {
 			return nil, err
 		}
+	case proto.Op_PAUSE_STREAM:
+		var (
+			stream     = log.PauseStreamOp.Stream
+			partitions = log.PauseStreamOp.Partitions
+			resumeAll  = log.PauseStreamOp.ResumeAll
+		)
+		err := s.applyPauseStream(stream, partitions, resumeAll)
+		// If err is ErrStreamNotFound or ErrPartitionNotFound, we want to
+		// return this value back to the caller.
+		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
+			return err, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("Unknown Raft operation: %s", log.Op)
 	}
@@ -206,13 +221,13 @@ func (s *Server) finishedRecovery() (int, error) {
 	}
 	recoveredStreams := make(map[string]struct{})
 	for _, stream := range s.metadata.GetStreams() {
-		for _, partition := range stream.partitions {
+		for _, partition := range stream.GetPartitions() {
 			recovered, err := partition.StartRecovered()
 			if err != nil {
 				return 0, err
 			}
 			if recovered {
-				recoveredStreams[stream.name] = struct{}{}
+				recoveredStreams[stream.GetName()] = struct{}{}
 			}
 		}
 	}
@@ -271,7 +286,7 @@ func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 		partitions = make([]*proto.Partition, 0, len(streams))
 	)
 	for _, stream := range streams {
-		for _, partition := range stream.partitions {
+		for _, partition := range stream.GetPartitions() {
 			partitions = append(partitions, partition.Partition)
 		}
 	}
@@ -425,5 +440,24 @@ func (s *Server) applyDeleteStream(streamName string) error {
 	}
 
 	s.logger.Debugf("fsm: Deleted stream %s", streamName)
+	return nil
+}
+
+// applyPauseStream pauses the given stream partitions.
+func (s *Server) applyPauseStream(streamName string, partitions []int32, resumeAll bool) error {
+	stream := s.metadata.GetStream(streamName)
+	if stream == nil {
+		return ErrStreamNotFound
+	}
+
+	err := stream.Pause(partitions, resumeAll)
+	if err != nil {
+		if err == ErrPartitionNotFound {
+			return err
+		}
+		return errors.Wrap(err, "failed to pause stream")
+	}
+
+	s.logger.Debugf("fsm: Paused stream %s", streamName)
 	return nil
 }

@@ -246,6 +246,39 @@ func TestDeleteStream(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Ensure deleting a stream works when we send the request to the metadata
+// follower.
+func TestDeleteStreamPropagate(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 0)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 5050)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Connect and send the request to the follower.
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, "foo", "foo")
+	require.NoError(t, err)
+
+	err = client.DeleteStream(context.Background(), "foo")
+	require.NoError(t, err)
+}
+
 // Ensure sending a subscribe request to a server that is not the stream leader
 // returns an error.
 func TestSubscribeStreamNotLeader(t *testing.T) {
