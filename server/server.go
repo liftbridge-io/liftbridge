@@ -26,7 +26,7 @@ import (
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/health"
 	"github.com/liftbridge-io/liftbridge/server/logger"
-	"github.com/liftbridge-io/liftbridge/server/proto"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 const stateFile = "liftbridge"

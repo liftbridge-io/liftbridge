@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	lift "github.com/liftbridge-io/go-liftbridge"
-	"github.com/liftbridge-io/liftbridge/server/proto"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 func waitForHW(t *testing.T, timeout time.Duration, name string, partitionID int32, hw int64, servers ...*Server) {

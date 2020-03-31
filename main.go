@@ -1,4 +1,4 @@
-//go:generate protoc -I=. -I=$GOPATH/src --gofast_out=. ./server/proto/internal.proto
+//go:generate protoc -I=. -I=$GOPATH/src --gofast_out=. ./server/protocol/internal.proto
 
 package main
 

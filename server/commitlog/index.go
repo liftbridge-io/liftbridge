@@ -11,7 +11,7 @@ import (
 	"github.com/nsip/gommap"
 	"github.com/pkg/errors"
 
-	"github.com/liftbridge-io/liftbridge/server/proto"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 var errIndexCorrupt = errors.New("corrupt index file")
