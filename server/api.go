@@ -235,6 +235,25 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	return resp, err
 }
 
+func (a *apiServer) sendResumeActivityEvent(streamName string, resumedPartitions []int32) error {
+	if resumedPartitions == nil {
+		return nil
+	}
+
+	err := a.metadata.publishActivityEvent(client.ActivityStreamEvent{
+		Op: client.ActivityStreamOp_RESUME_PARTITIONS,
+		ResumePartitionsOp: &client.ResumePartitionsOp{
+			Stream:     streamName,
+			Partitions: resumedPartitions,
+		},
+	})
+	if err != nil {
+		return status.Error(codes.Internal, fmt.Sprintf("Failed to publish on the activity stream: %v", err.Error()))
+	}
+
+	return nil
+}
+
 func (a *apiServer) resumeStream(ctx context.Context, streamName string, partitionID int32) error {
 	if streamName == "" {
 		return nil
@@ -243,6 +262,7 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 	if stream == nil {
 		return status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", streamName))
 	}
+	var resumedPartitions []int32
 	if !stream.GetResumeAll() {
 		// Just resume the partition being published to if it's paused.
 		partition := stream.GetPartition(partitionID)
@@ -254,8 +274,9 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 				a.logger.Errorf("api: Failed to resume stream partition %d: %v", partitionID, e.Err())
 				return e.Err()
 			}
+			resumedPartitions = append(resumedPartitions, partitionID)
 		}
-		return nil
+		return a.sendResumeActivityEvent(streamName, resumedPartitions)
 	}
 
 	// If ResumeAll is enabled, resume any paused partitions in the stream.
@@ -268,10 +289,12 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 			a.logger.Errorf("api: Failed to resume stream partition %d: %v", partitionID, e.Err())
 			return e.Err()
 		}
+		resumedPartitions = append(resumedPartitions, partitionID)
 	}
 	// Reset the ResumeAll flag on the stream.
 	stream.SetResumeAll(false)
-	return nil
+
+	return a.sendResumeActivityEvent(streamName, resumedPartitions)
 }
 
 func (a *apiServer) unpausePartition(ctx context.Context, partition *proto.Partition) *status.Status {

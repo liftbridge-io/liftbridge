@@ -445,6 +445,17 @@ func (m *metadataAPI) PauseStream(ctx context.Context, req *proto.PauseStreamOp)
 		return status.New(code, err.Error())
 	}
 
+	err := m.publishActivityEvent(client.ActivityStreamEvent{
+		Op: client.ActivityStreamOp_PAUSE_PARTITIONS,
+		PausePartitionsOp: &client.PausePartitionsOp{
+			Stream:     req.Stream,
+			Partitions: req.Partitions,
+		},
+	})
+	if err != nil {
+		return status.Newf(codes.Internal, "Failed to publish on the activity stream: %v", err.Error())
+	}
+
 	return nil
 }
 

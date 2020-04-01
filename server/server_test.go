@@ -1555,6 +1555,256 @@ func TestPauseStreamPropagate(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Ensure a pause activity event is sent when all partitions are paused.
+func TestActivityStreamPauseAllPartitions(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.ActivityStream.Enabled = true
+	s1Config.ActivityStream.PublishTimeout = time.Second
+	s1Config.ActivityStream.PublishAckPolicy = liftApi.AckPolicy_LEADER
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.Partitions(2))
+	require.NoError(t, err)
+
+	// Wait until we get a pause partitions message.
+	eventsChan := make(chan liftApi.ActivityStreamEvent, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
+		require.NoError(t, err)
+		var event liftApi.ActivityStreamEvent
+		err = event.Unmarshal(msg.Value())
+		require.NoError(t, err)
+		if event.GetOp() == liftApi.ActivityStreamOp_PAUSE_PARTITIONS {
+			eventsChan <- event
+			cancel()
+		}
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Pause the stream.
+	err = client.PauseStream(context.Background(), name)
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case event := <-eventsChan:
+		require.Equal(t, liftApi.ActivityStreamOp_PAUSE_PARTITIONS, event.GetOp())
+		require.Equal(t, name, event.PausePartitionsOp.GetStream())
+		// Ensure the partition's slice length is 0 (all partitions have been
+		// paused).
+		require.Len(t, event.PausePartitionsOp.GetPartitions(), 0)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure a pause activity event is sent when one partition is paused.
+func TestActivityStreamPauseOnePartition(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.ActivityStream.Enabled = true
+	s1Config.ActivityStream.PublishTimeout = time.Second
+	s1Config.ActivityStream.PublishAckPolicy = liftApi.AckPolicy_LEADER
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.Partitions(2))
+	require.NoError(t, err)
+
+	// Wait until we get a pause partitions message.
+	eventsChan := make(chan liftApi.ActivityStreamEvent, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
+		require.NoError(t, err)
+		var event liftApi.ActivityStreamEvent
+		err = event.Unmarshal(msg.Value())
+		require.NoError(t, err)
+		if event.GetOp() == liftApi.ActivityStreamOp_PAUSE_PARTITIONS {
+			eventsChan <- event
+			cancel()
+		}
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Pause one partition.
+	err = client.PauseStream(context.Background(), name, lift.PausePartitions(1))
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case event := <-eventsChan:
+		require.Equal(t, liftApi.ActivityStreamOp_PAUSE_PARTITIONS, event.GetOp())
+		require.Equal(t, name, event.PausePartitionsOp.GetStream())
+		require.ElementsMatch(t, []int32{1}, event.PausePartitionsOp.GetPartitions())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure a resume activity event is sent when one partitions is resumed.
+func TestActivityStreamResumeOnePartition(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.ActivityStream.Enabled = true
+	s1Config.ActivityStream.PublishTimeout = time.Second
+	s1Config.ActivityStream.PublishAckPolicy = liftApi.AckPolicy_LEADER
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.Partitions(2))
+	require.NoError(t, err)
+
+	// Wait until we get a pause partitions message.
+	eventsChan := make(chan liftApi.ActivityStreamEvent, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
+		require.NoError(t, err)
+		var event liftApi.ActivityStreamEvent
+		err = event.Unmarshal(msg.Value())
+		require.NoError(t, err)
+		if event.GetOp() == liftApi.ActivityStreamOp_RESUME_PARTITIONS {
+			eventsChan <- event
+			cancel()
+		}
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Pause the stream.
+	err = client.PauseStream(context.Background(), name)
+	require.NoError(t, err)
+
+	// Publish to partition 1.
+	_, err = client.Publish(context.Background(), name, []byte("hello"), lift.ToPartition(1))
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case event := <-eventsChan:
+		require.Equal(t, liftApi.ActivityStreamOp_RESUME_PARTITIONS, event.GetOp())
+		require.Equal(t, name, event.ResumePartitionsOp.GetStream())
+		// Only the partition that has been published to should be resumed.
+		require.ElementsMatch(t, []int32{1}, event.ResumePartitionsOp.GetPartitions())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure a resume activity event is sent when all partitions are resumed.
+func TestActivityStreamResumeAllPartitions(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.ActivityStream.Enabled = true
+	s1Config.ActivityStream.PublishTimeout = time.Second
+	s1Config.ActivityStream.PublishAckPolicy = liftApi.AckPolicy_LEADER
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.Partitions(2))
+	require.NoError(t, err)
+
+	// Wait until we get a pause partitions message.
+	eventsChan := make(chan liftApi.ActivityStreamEvent, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
+		require.NoError(t, err)
+		var event liftApi.ActivityStreamEvent
+		err = event.Unmarshal(msg.Value())
+		require.NoError(t, err)
+		if event.GetOp() == liftApi.ActivityStreamOp_RESUME_PARTITIONS {
+			eventsChan <- event
+			cancel()
+		}
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Pause with the ResumeAll option.
+	err = client.PauseStream(context.Background(), name, lift.ResumeAll())
+	require.NoError(t, err)
+
+	// Publish to partition 1.
+	_, err = client.Publish(context.Background(), name, []byte("hello"), lift.ToPartition(1))
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case event := <-eventsChan:
+		require.Equal(t, liftApi.ActivityStreamOp_RESUME_PARTITIONS, event.GetOp())
+		require.Equal(t, name, event.ResumePartitionsOp.GetStream())
+		// All partitions should have been resumed, not only partition 1.
+		require.ElementsMatch(t, []int32{0, 1}, event.ResumePartitionsOp.GetPartitions())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
 // Ensure publishing to a non-existent stream returns an error.
 func TestPublishNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
