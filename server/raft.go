@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ const (
 	defaultJoinRaftGroupTimeout       = time.Second
 	defaultRaftJoinAttempts           = 30
 	defaultBootstrapMisconfigInterval = 10 * time.Second
+	raftApplyTimeout                  = 30 * time.Second
 )
 
 var (
@@ -40,6 +42,26 @@ type raftNode struct {
 	logInput  io.WriteCloser
 	joinSub   *nats.Subscription
 	notifyCh  <-chan bool
+}
+
+// applyOperation proposes the given operation to the Raft cluster. This should
+// only be called when the server is metadata leader. However, if the server
+// has lost leadership, the returned future will yield an error.
+func (r *raftNode) applyOperation(op *proto.RaftLog) raft.ApplyFuture {
+	data, err := op.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return r.Apply(data, raftApplyTimeout)
+}
+
+// getCommitIndex returns the latest committed Raft index.
+func (r *raftNode) getCommitIndex() uint64 {
+	idx, err := strconv.ParseUint(r.Stats()["commit_index"], 10, 64)
+	if err != nil {
+		panic(err)
+	}
+	return idx
 }
 
 // shutdown attempts to stop the Raft node.

@@ -14,6 +14,7 @@ enum Op {
     EXPAND_ISR       = 4;
     DELETE_STREAM    = 5;
     PAUSE_STREAM     = 6;
+    PUBLISH_ACTIVITY = 7;
 }
 
 message RaftLog {
@@ -24,6 +25,7 @@ message RaftLog {
     ExpandISROp       expandISROp       = 5;
     DeleteStreamOp    deleteStreamOp    = 6;
     PauseStreamOp     pauseStreamOp     = 7;
+    PublishActivityOp publishActivityOp = 8;
 }
 
 message CreatePartitionOp {
@@ -68,6 +70,10 @@ message ChangeLeaderOp {
     string stream    = 1;
     int32  partition = 2;
     string leader    = 3;
+}
+
+message PublishActivityOp {
+    uint64 raftIndex = 1;
 }
 
 message Partition {

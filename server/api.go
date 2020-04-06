@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
@@ -14,8 +13,6 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
-
-const raftApplyTimeout = 30 * time.Second
 
 // apiServer implements the gRPC server interface clients interact with.
 type apiServer struct {

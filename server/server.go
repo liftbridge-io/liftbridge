@@ -22,7 +22,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	lift "github.com/liftbridge-io/go-liftbridge"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/health"
 	"github.com/liftbridge-io/liftbridge/server/logger"
@@ -43,28 +42,28 @@ const (
 // Server is the main Liftbridge object. Create it by calling New or
 // RunServerWithConfig.
 type Server struct {
-	config               *Config
-	listener             net.Listener
-	port                 int
-	nc                   *nats.Conn
-	ncRaft               *nats.Conn
-	ncRepl               *nats.Conn
-	ncAcks               *nats.Conn
-	ncPublishes          *nats.Conn
-	logger               logger.Logger
-	loggerOut            io.Writer
-	api                  *grpc.Server
-	metadata             *metadataAPI
-	shutdownCh           chan struct{}
-	raft                 atomic.Value
-	leaderSub            *nats.Subscription
-	recoveryStarted      bool
-	latestRecoveredLog   *raft.Log
-	mu                   sync.RWMutex
-	shutdown             bool
-	running              bool
-	goroutineWait        sync.WaitGroup
-	activityStreamClient lift.Client
+	config             *Config
+	listener           net.Listener
+	port               int
+	nc                 *nats.Conn
+	ncRaft             *nats.Conn
+	ncRepl             *nats.Conn
+	ncAcks             *nats.Conn
+	ncPublishes        *nats.Conn
+	logger             logger.Logger
+	loggerOut          io.Writer
+	api                *grpc.Server
+	metadata           *metadataAPI
+	shutdownCh         chan struct{}
+	raft               atomic.Value
+	leaderSub          *nats.Subscription
+	recoveryStarted    bool
+	latestRecoveredLog *raft.Log
+	mu                 sync.RWMutex
+	shutdown           bool
+	running            bool
+	goroutineWait      sync.WaitGroup
+	activity           *activityManager
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -92,6 +91,7 @@ func New(config *Config) *Server {
 		shutdownCh: make(chan struct{}),
 	}
 	s.metadata = newMetadataAPI(s)
+	s.activity = newActivityManager(s)
 	return s
 }
 
@@ -214,8 +214,11 @@ func (s *Server) Stop() error {
 		}
 	}
 
-	if s.activityStreamClient != nil {
-		s.activityStreamClient.Close()
+	if s.activity != nil {
+		if err := s.activity.Close(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
 	}
 
 	s.closeNATSConns()
@@ -493,34 +496,6 @@ func (s *Server) getRaft() *raftNode {
 	return r.(*raftNode)
 }
 
-// createActivityStream creates the activity stream and connects a local client
-// that will be subscribed to it.
-func (s *Server) createActivityStream() error {
-	if !s.config.ActivityStream.Enabled {
-		return nil
-	}
-
-	// Connect a local client that will be used to publish on the activity
-	// stream
-	listenAddress := s.config.GetListenAddress()
-	addrs := []string{listenAddress.Host + ":" + strconv.Itoa(s.port)}
-	var err error
-	s.activityStreamClient, err = lift.Connect(addrs)
-	if err != nil {
-		return errors.Wrap(err, "failed to connect the activity stream client")
-	}
-
-	err = s.activityStreamClient.CreateStream(context.Background(),
-		s.getActivityStreamSubject(),
-		activityStream,
-	)
-	if err != nil && err != lift.ErrStreamExists {
-		return errors.Wrap(err, "failed to create an activity stream")
-	}
-
-	return nil
-}
-
 // leadershipAcquired should be called when this node is elected leader.
 func (s *Server) leadershipAcquired() error {
 	s.logger.Infof("Server became metadata leader, performing leader promotion actions")
@@ -537,7 +512,7 @@ func (s *Server) leadershipAcquired() error {
 	}
 	s.leaderSub = sub
 
-	if err := s.createActivityStream(); err != nil {
+	if err := s.activity.BecomeLeader(); err != nil {
 		return err
 	}
 
@@ -559,10 +534,8 @@ func (s *Server) leadershipLost() error {
 
 	s.metadata.LostLeadership()
 
-	// Close any activity stream client
-	if s.activityStreamClient != nil {
-		s.activityStreamClient.Close()
-		s.activityStreamClient = nil
+	if err := s.activity.BecomeFollower(); err != nil {
+		return err
 	}
 
 	atomic.StoreInt64(&(s.getRaft().leader), 0)
@@ -848,40 +821,4 @@ func (s *Server) startGoroutine(f func()) {
 		f()
 		s.goroutineWait.Done()
 	}()
-}
-
-// publishActivityEvent publishes an event on the activity stream.
-func (s *Server) publishActivityEvent(streamEvent client.ActivityStreamEvent) error {
-	if !s.config.ActivityStream.Enabled {
-		return nil
-	}
-
-	data, err := streamEvent.Marshal()
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal a stream event")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.ActivityStream.PublishTimeout)
-	defer cancel()
-
-	var messageOption lift.MessageOption
-	ackPolicy := s.config.ActivityStream.PublishAckPolicy
-	switch ackPolicy {
-	case client.AckPolicy_LEADER:
-		messageOption = lift.AckPolicyLeader()
-	case client.AckPolicy_ALL:
-		messageOption = lift.AckPolicyAll()
-	case client.AckPolicy_NONE:
-		messageOption = lift.AckPolicyNone()
-	default:
-		return fmt.Errorf("Unknown ack policy: %v", ackPolicy)
-	}
-
-	_, err = s.activityStreamClient.Publish(
-		ctx,
-		activityStream,
-		data,
-		messageOption,
-	)
-	return errors.Wrap(err, "failed to publish a stream event")
 }

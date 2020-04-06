@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/raft"
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
@@ -321,7 +320,7 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 	}
 
 	// Wait on result of replication.
-	future := m.applyRaftOperation(op)
+	future := m.getRaft().applyOperation(op)
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to replicate partition: %v", err.Error())
 	}
@@ -338,17 +337,6 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 
 	// Wait for leader to create partition (best effort).
 	m.waitForPartitionLeader(ctx, req.Partition.Stream, leader, req.Partition.Id)
-
-	err := m.publishActivityEvent(client.ActivityStreamEvent{
-		Op: client.ActivityStreamOp_CREATE_PARTITION,
-		CreatePartitionOp: &client.CreatePartitionOp{
-			Stream:    req.Partition.Stream,
-			Partition: req.Partition.Id,
-		},
-	})
-	if err != nil {
-		return status.Newf(codes.Internal, "Failed to publish on the activity stream: %v", err.Error())
-	}
 
 	return nil
 }
@@ -377,7 +365,7 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 	}
 
 	// Wait on result of deletion.
-	future := m.applyRaftOperation(op)
+	future := m.getRaft().applyOperation(op)
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to delete stream: %v", err.Error())
 	}
@@ -390,16 +378,6 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 			code = codes.NotFound
 		}
 		return status.New(code, err.Error())
-	}
-
-	err := m.publishActivityEvent(client.ActivityStreamEvent{
-		Op: client.ActivityStreamOp_DELETE_STREAM,
-		DeleteStreamOp: &client.DeleteStreamOp{
-			Stream: req.Stream,
-		},
-	})
-	if err != nil {
-		return status.Newf(codes.Internal, "Failed to publish on the activity stream: %v", err.Error())
 	}
 
 	return nil
@@ -429,7 +407,7 @@ func (m *metadataAPI) PauseStream(ctx context.Context, req *proto.PauseStreamOp)
 	}
 
 	// Wait on result of pausing.
-	future := m.applyRaftOperation(op)
+	future := m.getRaft().applyOperation(op)
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to pause stream: %v", err.Error())
 	}
@@ -488,7 +466,7 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 	}
 
 	// Wait on result of replication.
-	if err := m.applyRaftOperation(op).Error(); err != nil {
+	if err := m.getRaft().applyOperation(op).Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to shrink ISR: %v", err.Error())
 	}
 
@@ -535,7 +513,7 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 	}
 
 	// Wait on result of replication.
-	if err := m.applyRaftOperation(op).Error(); err != nil {
+	if err := m.getRaft().applyOperation(op).Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to expand ISR: %v", err.Error())
 	}
 
@@ -805,7 +783,7 @@ func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Stat
 	}
 
 	// Wait on result of replication.
-	if err := m.applyRaftOperation(op).Error(); err != nil {
+	if err := m.getRaft().applyOperation(op).Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to replicate leader change: %v", err.Error())
 	}
 
@@ -993,17 +971,6 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, stream, leader
 		}
 		break
 	}
-}
-
-// applyRaftOperation proposes the given operation to the Raft cluster. This
-// should only be called when the server is metadata leader. However, if the
-// server has lost leadership, the returned future will yield an error.
-func (m *metadataAPI) applyRaftOperation(op *proto.RaftLog) raft.ApplyFuture {
-	data, err := op.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	return m.getRaft().Apply(data, raftApplyTimeout)
 }
 
 // selectRandomReplica selects a random replica from the list of replicas.

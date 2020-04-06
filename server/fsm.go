@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"strconv"
 
 	"github.com/dustin/go-humanize/english"
 	"github.com/hashicorp/raft"
@@ -17,12 +16,11 @@ import (
 // recoverLatestCommittedFSMLog returns the last committed Raft FSM log entry.
 // It returns nil if there are no entries in the Raft log.
 func (s *Server) recoverLatestCommittedFSMLog(applyIndex uint64) (*raft.Log, error) {
-	raftNode := s.getRaft()
-	commitIndex, err := strconv.ParseUint(raftNode.Stats()["commit_index"], 10, 64)
-	if err != nil {
-		return nil, err
-	}
-	firstIndex, err := raftNode.store.FirstIndex()
+	var (
+		raftNode        = s.getRaft()
+		commitIndex     = raftNode.getCommitIndex()
+		firstIndex, err = raftNode.store.FirstIndex()
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +110,7 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		}
 		panic(err)
 	}
+	s.activity.SignalCommit()
 	return value
 }
 
@@ -192,6 +191,8 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		if err != nil {
 			return nil, err
 		}
+	case proto.Op_PUBLISH_ACTIVITY:
+		s.activity.SetLastPublishedRaftIndex(log.PublishActivityOp.RaftIndex)
 	default:
 		return nil, fmt.Errorf("Unknown Raft operation: %s", log.Op)
 	}
