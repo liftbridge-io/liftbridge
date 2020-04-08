@@ -93,10 +93,11 @@ func (a *activityManager) catchUp() {
 		// TODO: Should we instead pass the commit index from FSM apply?
 		if index > raftNode.getCommitIndex() {
 			// We are caught up with the Raft log, so wait for new commits.
-			// TODO: Add close signal
 			select {
 			case <-a.commitCh:
 				continue
+			case <-a.shutdownCh:
+				return
 			}
 		}
 		log := new(raft.Log)
@@ -110,9 +111,13 @@ func (a *activityManager) catchUp() {
 	RETRY:
 		if err := a.handleRaftLog(log); err != nil {
 			a.logger.Errorf("Failed to publish activity event: %v", err)
-			// TODO: add cancelation on shutdown and probably some kind of backoff
-			<-time.After(2 * time.Second)
-			goto RETRY
+			// TODO: add some kind of backoff
+			select {
+			case <-time.After(2 * time.Second):
+				goto RETRY
+			case <-a.shutdownCh:
+				return
+			}
 		}
 		index++
 	}
@@ -207,7 +212,11 @@ func (a *activityManager) publishActivityEvent(event *client.ActivityStreamEvent
 				RaftIndex: event.Id,
 			},
 		}
-		err = a.getRaft().applyOperation(op).Error()
+		future, err := a.getRaft().applyOperation(ctx, op, nil)
+		if err != nil {
+			return errors.Wrap(err, "failed to update Raft")
+		}
+		err = future.Error()
 	}
 	return errors.Wrap(err, "failed to publish a stream event")
 }

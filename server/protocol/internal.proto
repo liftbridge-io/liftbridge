@@ -14,7 +14,8 @@ enum Op {
     EXPAND_ISR       = 4;
     DELETE_STREAM    = 5;
     PAUSE_STREAM     = 6;
-    PUBLISH_ACTIVITY = 7;
+    RESUME_PARTITION = 7;
+    PUBLISH_ACTIVITY = 8;
 }
 
 message RaftLog {
@@ -25,11 +26,13 @@ message RaftLog {
     ExpandISROp       expandISROp       = 5;
     DeleteStreamOp    deleteStreamOp    = 6;
     PauseStreamOp     pauseStreamOp     = 7;
-    PublishActivityOp publishActivityOp = 8;
+    ResumePartitionOp resumePartitionOp = 8;
+    PublishActivityOp publishActivityOp = 9;
 }
 
 message CreatePartitionOp {
     Partition partition = 1;
+    bool      resume    = 2; // Indicates an existing partition is being resumed
 }
 
 message ShrinkISROp {
@@ -56,6 +59,10 @@ message PauseStreamOp {
     string         stream     = 1;
     repeated int32 partitions = 2;
     bool           resumeAll  = 3;
+}
+
+message ResumePartitionOp {
+    Partition partition = 1;
 }
 
 message ReportLeaderOp {
@@ -87,6 +94,7 @@ message Partition {
     repeated string isr               = 8;
     uint64          leaderEpoch       = 9;
     uint64          epoch             = 10;
+    bool            paused            = 11; // Only used for snapshotting.
 }
 
 // RaftJoinRequest is a request to join a Raft group.
@@ -125,6 +133,7 @@ message PropagatedRequest {
     ExpandISROp       expandISROp       = 5;
     DeleteStreamOp    deleteStreamOp    = 6;
     PauseStreamOp     pauseStreamOp     = 7;
+    ResumePartitionOp resumePartitionOp = 8;
 }
 
 message Error {
@@ -141,6 +150,7 @@ message PropagatedResponse {
     // Reserving = 6 for expandISRResp if needed.
     // Reserving = 7 for deleteStreamResp if needed.
     // Reserving = 8 for pauseStreamResp if needed.
+    // Reserving = 9 for resumePartitionResp if needed.
 }
 
 message ServerInfoRequest {

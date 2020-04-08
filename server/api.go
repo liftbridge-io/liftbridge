@@ -247,7 +247,7 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 			return status.Error(codes.NotFound, fmt.Sprintf("No such partition: %d", partitionID))
 		}
 		if partition.IsPaused() {
-			if e := a.unpausePartition(ctx, partition.Partition); e != nil {
+			if e := a.metadata.ResumePartition(ctx, &proto.ResumePartitionOp{Partition: partition.Partition}); e != nil {
 				a.logger.Errorf("api: Failed to resume stream partition %d: %v", partitionID, e.Err())
 				return e.Err()
 			}
@@ -261,7 +261,7 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 		if !partition.IsPaused() {
 			continue
 		}
-		if e := a.unpausePartition(ctx, partition.Partition); e != nil {
+		if e := a.metadata.ResumePartition(ctx, &proto.ResumePartitionOp{Partition: partition.Partition}); e != nil {
 			a.logger.Errorf("api: Failed to resume stream partition %d: %v", partitionID, e.Err())
 			return e.Err()
 		}
@@ -269,11 +269,6 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 	// Reset the ResumeAll flag on the stream.
 	stream.SetResumeAll(false)
 	return nil
-}
-
-func (a *apiServer) unpausePartition(ctx context.Context, partition *proto.Partition) *status.Status {
-	// Unpause a partition by re-creating it.
-	return a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{Partition: partition})
 }
 
 func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, error) {

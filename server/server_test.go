@@ -1332,7 +1332,7 @@ func TestPropagatedShrinkExpandISR(t *testing.T) {
 	waitForISR(t, 10*time.Second, name, 0, 2, s1, s2)
 }
 
-// Ensure activity stream partition creation event occurs
+// Ensure activity stream partition creation event occurs.
 func TestActivityStreamCreatePartition(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -1355,8 +1355,8 @@ func TestActivityStreamCreatePartition(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	// The first message read back should be the creation of the activity stream
-	// partition.
+	// The first message read back should be the creation of the activity
+	// stream partition.
 	msgs := make(chan lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {

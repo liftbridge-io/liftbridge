@@ -127,13 +127,7 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		// Make sure to set the leader epoch on the stream.
 		partition.LeaderEpoch = index
 		partition.Epoch = index
-		err := s.applyCreatePartition(partition, recovered)
-		// If err is ErrPartitionExists, we want to return this value back to
-		// the caller.
-		if err == ErrPartitionExists {
-			return err, nil
-		}
-		if err != nil {
+		if err := s.applyCreatePartition(partition, recovered); err != nil {
 			return nil, err
 		}
 	case proto.Op_SHRINK_ISR:
@@ -167,13 +161,7 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		var (
 			stream = log.DeleteStreamOp.Stream
 		)
-		err := s.applyDeleteStream(stream)
-		// If err is ErrStreamNotFound, we want to return this value back to the
-		// caller.
-		if err == ErrStreamNotFound {
-			return err, nil
-		}
-		if err != nil {
+		if err := s.applyDeleteStream(stream); err != nil {
 			return nil, err
 		}
 	case proto.Op_PAUSE_STREAM:
@@ -182,13 +170,12 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 			partitions = log.PauseStreamOp.Partitions
 			resumeAll  = log.PauseStreamOp.ResumeAll
 		)
-		err := s.applyPauseStream(stream, partitions, resumeAll)
-		// If err is ErrStreamNotFound or ErrPartitionNotFound, we want to
-		// return this value back to the caller.
-		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
-			return err, nil
+		if err := s.applyPauseStream(stream, partitions, resumeAll); err != nil {
+			return nil, err
 		}
-		if err != nil {
+	case proto.Op_RESUME_PARTITION:
+		partition := log.ResumePartitionOp.Partition
+		if err := s.applyResumePartition(partition, recovered); err != nil {
 			return nil, err
 		}
 	case proto.Op_PUBLISH_ACTIVITY:
@@ -288,6 +275,8 @@ func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 	)
 	for _, stream := range streams {
 		for _, partition := range stream.GetPartitions() {
+			// Set paused flag on protobuf since it's only held in memory.
+			partition.Paused = partition.IsPaused()
 			partitions = append(partitions, partition.Partition)
 		}
 	}
@@ -344,9 +333,6 @@ func (s *Server) applyCreatePartition(protoPartition *proto.Partition, recovered
 	// for recovery purposes? There is no need to initialize a commit log for
 	// it.
 	partition, err := s.metadata.AddPartition(protoPartition, recovered)
-	if err == ErrPartitionExists {
-		return err
-	}
 	if err != nil {
 		return errors.Wrap(err, "failed to add partition to metadata store")
 	}
@@ -453,12 +439,26 @@ func (s *Server) applyPauseStream(streamName string, partitions []int32, resumeA
 
 	err := stream.Pause(partitions, resumeAll)
 	if err != nil {
-		if err == ErrPartitionNotFound {
-			return err
-		}
 		return errors.Wrap(err, "failed to pause stream")
 	}
 
 	s.logger.Debugf("fsm: Paused stream %s", streamName)
+	return nil
+}
+
+// applyResumePartition un-pauses the given stream partition in the metadata
+// store. If the partition is being recovered, it will not be started until after the
+// recovery process completes. If it is not being recovered, the partition will
+// be started as a leader or follower if applicable.
+func (s *Server) applyResumePartition(protoPartition *proto.Partition, recovered bool) error {
+	// QUESTION: If this broker is not a replica for the stream, can we just
+	// store a "lightweight" representation of the stream (i.e. the protobuf)
+	// for recovery purposes? There is no need to initialize a commit log for
+	// it.
+	partition, err := s.metadata.UnpausePartition(protoPartition, recovered)
+	if err != nil {
+		return errors.Wrap(err, "failed to resume partition in metadata store")
+	}
+	s.logger.Debugf("fsm: Resumed partition %s", partition)
 	return nil
 }
