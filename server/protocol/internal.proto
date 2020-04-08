@@ -7,32 +7,31 @@ message ServerState {
 }
 
 enum Op {
-    CREATE_PARTITION = 0;
+    CREATE_STREAM    = 0;
     SHRINK_ISR       = 1;
     REPORT_LEADER    = 2;
     CHANGE_LEADER    = 3;
     EXPAND_ISR       = 4;
     DELETE_STREAM    = 5;
     PAUSE_STREAM     = 6;
-    RESUME_PARTITION = 7;
+    RESUME_STREAM    = 7;
     PUBLISH_ACTIVITY = 8;
 }
 
 message RaftLog {
     Op                op                = 1;
-    CreatePartitionOp createPartitionOp = 2;
+    CreateStreamOp    createStreamOp    = 2;
     ShrinkISROp       shrinkISROp       = 3;
     ChangeLeaderOp    changeLeaderOp    = 4;
     ExpandISROp       expandISROp       = 5;
     DeleteStreamOp    deleteStreamOp    = 6;
     PauseStreamOp     pauseStreamOp     = 7;
-    ResumePartitionOp resumePartitionOp = 8;
+    ResumeStreamOp    resumeStreamOp    = 8;
     PublishActivityOp publishActivityOp = 9;
 }
 
-message CreatePartitionOp {
-    Partition partition = 1;
-    bool      resume    = 2; // Indicates an existing partition is being resumed
+message CreateStreamOp {
+    Stream stream = 1;
 }
 
 message ShrinkISROp {
@@ -61,8 +60,9 @@ message PauseStreamOp {
     bool           resumeAll  = 3;
 }
 
-message ResumePartitionOp {
-    Partition partition = 1;
+message ResumeStreamOp {
+    Stream             stream     = 1;
+    repeated Partition partitions = 2;
 }
 
 message ReportLeaderOp {
@@ -81,6 +81,12 @@ message ChangeLeaderOp {
 
 message PublishActivityOp {
     uint64 raftIndex = 1;
+}
+
+message Stream {
+    string             name       = 1;
+    string             subject    = 2;
+    repeated Partition partitions = 3;
 }
 
 message Partition {
@@ -109,7 +115,7 @@ message RaftJoinResponse {
 }
 
 message MetadataSnapshot {
-    repeated Partition partitions = 1;
+    repeated Stream streams = 1;
 }
 
 message ReplicationRequest {
@@ -126,14 +132,14 @@ message LeaderEpochOffsetResponse {
 }
 
 message PropagatedRequest {
-    Op                op                = 1;
-    CreatePartitionOp createPartitionOp = 2;
-    ShrinkISROp       shrinkISROp       = 3;
-    ReportLeaderOp    reportLeaderOp    = 4;
-    ExpandISROp       expandISROp       = 5;
-    DeleteStreamOp    deleteStreamOp    = 6;
-    PauseStreamOp     pauseStreamOp     = 7;
-    ResumePartitionOp resumePartitionOp = 8;
+    Op             op             = 1;
+    CreateStreamOp createStreamOp = 2;
+    ShrinkISROp    shrinkISROp    = 3;
+    ReportLeaderOp reportLeaderOp = 4;
+    ExpandISROp    expandISROp    = 5;
+    DeleteStreamOp deleteStreamOp = 6;
+    PauseStreamOp  pauseStreamOp  = 7;
+    ResumeStreamOp resumeStreamOp = 8;
 }
 
 message Error {
@@ -144,7 +150,7 @@ message Error {
 message PropagatedResponse {
     Op                   op               = 1;
     Error                error            = 2;
-    // Reserving = 3 for createPartitionResp if needed.
+    // Reserving = 3 for createStreamResp if needed.
     // Reserving = 4 for shrinkISRResp if needed.
     // Reserving = 5 for reportLeaderResp if needed.
     // Reserving = 6 for expandISRResp if needed.

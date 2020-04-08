@@ -122,12 +122,13 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 // being applied during the recovery process.
 func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interface{}, error) {
 	switch log.Op {
-	case proto.Op_CREATE_PARTITION:
-		partition := log.CreatePartitionOp.Partition
-		// Make sure to set the leader epoch on the stream.
-		partition.LeaderEpoch = index
-		partition.Epoch = index
-		if err := s.applyCreatePartition(partition, recovered); err != nil {
+	case proto.Op_CREATE_STREAM:
+		// Make sure to set the leader epoch on the partitions.
+		for _, partition := range log.CreateStreamOp.Stream.Partitions {
+			partition.LeaderEpoch = index
+			partition.Epoch = index
+		}
+		if err := s.applyCreateStream(log.CreateStreamOp.Stream, recovered); err != nil {
 			return nil, err
 		}
 	case proto.Op_SHRINK_ISR:
@@ -145,7 +146,7 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 			leader    = log.ChangeLeaderOp.Leader
 			partition = log.ChangeLeaderOp.Partition
 		)
-		if err := s.applyChangeStreamLeader(stream, leader, partition, index); err != nil {
+		if err := s.applyChangePartitionLeader(stream, leader, partition, index); err != nil {
 			return nil, err
 		}
 	case proto.Op_EXPAND_ISR:
@@ -173,9 +174,8 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		if err := s.applyPauseStream(stream, partitions, resumeAll); err != nil {
 			return nil, err
 		}
-	case proto.Op_RESUME_PARTITION:
-		partition := log.ResumePartitionOp.Partition
-		if err := s.applyResumePartition(partition, recovered); err != nil {
+	case proto.Op_RESUME_STREAM:
+		if err := s.applyResumeStream(log.ResumeStreamOp.Partitions, recovered); err != nil {
 			return nil, err
 		}
 	case proto.Op_PUBLISH_ACTIVITY:
@@ -270,17 +270,26 @@ func (f *fsmSnapshot) Release() {}
 // happening.
 func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 	var (
-		streams    = s.metadata.GetStreams()
-		partitions = make([]*proto.Partition, 0, len(streams))
+		streams      = s.metadata.GetStreams()
+		protoStreams = make([]*proto.Stream, len(streams))
 	)
-	for _, stream := range streams {
-		for _, partition := range stream.GetPartitions() {
+	for i, stream := range streams {
+		var (
+			partitions  = stream.GetPartitions()
+			protoStream = &proto.Stream{
+				Name:       stream.GetName(),
+				Subject:    stream.GetSubject(),
+				Partitions: make([]*proto.Partition, len(partitions)),
+			}
+		)
+		for j, partition := range partitions {
 			// Set paused flag on protobuf since it's only held in memory.
 			partition.Paused = partition.IsPaused()
-			partitions = append(partitions, partition.Partition)
+			protoStream.Partitions[j] = partition.Partition
 		}
+		protoStreams[i] = protoStream
 	}
-	return &fsmSnapshot{&proto.MetadataSnapshot{Partitions: partitions}}, nil
+	return &fsmSnapshot{&proto.MetadataSnapshot{Streams: protoStreams}}, nil
 }
 
 // Restore is used to restore an FSM from a snapshot. It is not called
@@ -310,33 +319,32 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 	if err := s.metadata.Reset(); err != nil {
 		return err
 	}
-	recoveredStreams := make(map[string]struct{})
-	for _, partition := range snap.Partitions {
-		if err := s.applyCreatePartition(partition, false); err != nil {
+	for _, stream := range snap.Streams {
+		if err := s.applyCreateStream(stream, false); err != nil {
 			return err
 		}
-		recoveredStreams[partition.Stream] = struct{}{}
 	}
 	s.logger.Debugf("fsm: Finished restoring Raft state from snapshot, recovered %s",
-		english.Plural(len(recoveredStreams), "stream", ""))
+		english.Plural(len(snap.Streams), "stream", ""))
 	return nil
 }
 
-// applyCreatePartition adds the given stream partition to the metadata store.
-// If the partition is being recovered, it will not be started until after the
-// recovery process completes. If it is not being recovered, the partition will
-// be started as a leader or follower if applicable. ErrPartitionExists is
-// returned if the partition already exists.
-func (s *Server) applyCreatePartition(protoPartition *proto.Partition, recovered bool) error {
+// applyCreateStream adds the given stream and its partitions to the metadata
+// store. If the stream is being recovered, its partitions will not be started
+// until after the recovery process completes. If it is not being recovered,
+// the partitions will be started as a leader or follower if applicable. An
+// error is returned if the stream or any of its partitions already exist.
+func (s *Server) applyCreateStream(protoStream *proto.Stream, recovered bool) error {
 	// QUESTION: If this broker is not a replica for the stream, can we just
 	// store a "lightweight" representation of the stream (i.e. the protobuf)
 	// for recovery purposes? There is no need to initialize a commit log for
 	// it.
-	partition, err := s.metadata.AddPartition(protoPartition, recovered)
+
+	stream, err := s.metadata.AddStream(protoStream, recovered)
 	if err != nil {
-		return errors.Wrap(err, "failed to add partition to metadata store")
+		return errors.Wrap(err, "failed to add stream to metadata store")
 	}
-	s.logger.Debugf("fsm: Created partition %s", partition)
+	s.logger.Debugf("fsm: Created stream %s", stream)
 	return nil
 }
 
@@ -390,10 +398,10 @@ func (s *Server) applyExpandISR(stream, replica string, partitionID int32, epoch
 	return nil
 }
 
-// applyChangeStreamLeader sets the partition's leader to the given replica and
-// updates the partition epoch. If the partition epoch is greater than or equal
-// to the specified epoch, this does nothing.
-func (s *Server) applyChangeStreamLeader(stream, leader string, partitionID int32, epoch uint64) error {
+// applyChangePartitionLeader sets the partition's leader to the given replica
+// and updates the partition epoch. If the partition epoch is greater than or
+// equal to the specified epoch, this does nothing.
+func (s *Server) applyChangePartitionLeader(stream, leader string, partitionID int32, epoch uint64) error {
 	partition := s.metadata.GetPartition(stream, partitionID)
 	if partition == nil {
 		return fmt.Errorf("No such partition [stream=%s, partition=%d]", stream, partitionID)
@@ -446,19 +454,17 @@ func (s *Server) applyPauseStream(streamName string, partitions []int32, resumeA
 	return nil
 }
 
-// applyResumePartition un-pauses the given stream partition in the metadata
-// store. If the partition is being recovered, it will not be started until after the
-// recovery process completes. If it is not being recovered, the partition will
-// be started as a leader or follower if applicable.
-func (s *Server) applyResumePartition(protoPartition *proto.Partition, recovered bool) error {
-	// QUESTION: If this broker is not a replica for the stream, can we just
-	// store a "lightweight" representation of the stream (i.e. the protobuf)
-	// for recovery purposes? There is no need to initialize a commit log for
-	// it.
-	partition, err := s.metadata.UnpausePartition(protoPartition, recovered)
-	if err != nil {
-		return errors.Wrap(err, "failed to resume partition in metadata store")
+// applyResumeStream unpauses the given stream partitions in the metadata
+// store.  If the partitions are being recovered, they will not be started
+// until after the recovery process completes. If they are not being recovered,
+// the partitions will be started as a leader or follower if applicable.
+func (s *Server) applyResumeStream(toResume []*proto.Partition, recovered bool) error {
+	for _, p := range toResume {
+		partition, err := s.metadata.ResumePartition(p, recovered)
+		if err != nil {
+			return errors.Wrap(err, "failed to resume partition in metadata store")
+		}
+		s.logger.Debugf("fsm: Resumed partition %s", partition)
 	}
-	s.logger.Debugf("fsm: Resumed partition %s", partition)
 	return nil
 }

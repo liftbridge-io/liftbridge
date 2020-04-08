@@ -45,28 +45,31 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		return nil, status.Error(codes.InvalidArgument, "Subject cannot be empty")
 	}
 
-	var err error
+	partitions := make([]*proto.Partition, req.Partitions)
 	for i := int32(0); i < req.Partitions; i++ {
-		if e := a.metadata.CreatePartition(ctx, &proto.CreatePartitionOp{
-			Partition: &proto.Partition{
-				Subject:           req.Subject,
-				Stream:            req.Name,
-				Group:             req.Group,
-				ReplicationFactor: req.ReplicationFactor,
-				Id:                i,
-			},
-		}); e != nil {
-			// In the case of partial failure, let the caller retry.
-			if e.Code() == codes.AlreadyExists {
-				err = e.Err()
-			} else {
-				a.logger.Errorf("api: Failed to create stream partition %d: %v", i, e.Err())
-				return nil, e.Err()
-			}
+		partitions[i] = &proto.Partition{
+			Subject:           req.Subject,
+			Stream:            req.Name,
+			Group:             req.Group,
+			ReplicationFactor: req.ReplicationFactor,
+			Id:                i,
 		}
 	}
 
-	return resp, err
+	stream := &proto.Stream{
+		Name:       req.Name,
+		Subject:    req.Subject,
+		Partitions: partitions,
+	}
+
+	if e := a.metadata.CreateStream(ctx, &proto.CreateStreamOp{Stream: stream}); e != nil {
+		if e.Code() != codes.AlreadyExists {
+			a.logger.Errorf("api: Failed to create stream %s: %v", req.Name, e.Err())
+		}
+		return nil, e.Err()
+	}
+
+	return resp, nil
 }
 
 // DeleteStream deletes a stream attached to a NATS subject.
@@ -240,32 +243,42 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 	if stream == nil {
 		return status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", streamName))
 	}
-	if !stream.GetResumeAll() {
-		// Just resume the partition being published to if it's paused.
+	var toResume []*proto.Partition
+	if stream.GetResumeAll() {
+		// If ResumeAll is enabled, resume any paused partitions in the stream.
+		partitions := stream.GetPartitions()
+		toResume = make([]*proto.Partition, 0, len(partitions))
+		for _, partition := range partitions {
+			if !partition.IsPaused() {
+				continue
+			}
+			toResume = append(toResume, partition.Partition)
+		}
+	} else {
+		// Otherwise just resume the partition being published to if it's
+		// paused.
 		partition := stream.GetPartition(partitionID)
 		if partition == nil {
 			return status.Error(codes.NotFound, fmt.Sprintf("No such partition: %d", partitionID))
 		}
 		if partition.IsPaused() {
-			if e := a.metadata.ResumePartition(ctx, &proto.ResumePartitionOp{Partition: partition.Partition}); e != nil {
-				a.logger.Errorf("api: Failed to resume stream partition %d: %v", partitionID, e.Err())
-				return e.Err()
-			}
+			toResume = []*proto.Partition{partition.Partition}
 		}
+	}
+
+	if len(toResume) == 0 {
 		return nil
 	}
 
-	// If ResumeAll is enabled, resume any paused partitions in the stream.
-	for partitionID, partition := range stream.GetPartitions() {
-		// Do not try to resume an unpaused partition.
-		if !partition.IsPaused() {
-			continue
-		}
-		if e := a.metadata.ResumePartition(ctx, &proto.ResumePartitionOp{Partition: partition.Partition}); e != nil {
-			a.logger.Errorf("api: Failed to resume stream partition %d: %v", partitionID, e.Err())
-			return e.Err()
-		}
+	req := &proto.ResumeStreamOp{
+		Stream:     &proto.Stream{Name: stream.GetName(), Subject: stream.GetSubject()},
+		Partitions: toResume,
 	}
+	if e := a.metadata.ResumeStream(ctx, req); e != nil {
+		a.logger.Errorf("api: Failed to resume stream: %v", e.Err())
+		return e.Err()
+	}
+
 	// Reset the ResumeAll flag on the stream.
 	stream.SetResumeAll(false)
 	return nil

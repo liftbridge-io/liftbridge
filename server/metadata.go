@@ -25,9 +25,9 @@ const (
 )
 
 var (
-	// ErrPartitionExists is returned by CreatePartition when attempting to
-	// create a stream partition that already exists.
-	ErrPartitionExists = errors.New("partition already exists")
+	// ErrStreamExists is returned by CreateStream when attempting to create a
+	// stream that already exists.
+	ErrStreamExists = errors.New("stream already exists")
 
 	// ErrStreamNotFound is returned by DeleteStream/PauseStream when
 	// attempting to delete/pause a stream that does not exist.
@@ -36,10 +36,6 @@ var (
 	// ErrPartitionNotFound is returned by PauseStream when attempting to pause
 	// a stream partition that does not exist.
 	ErrPartitionNotFound = errors.New("partition does not exist")
-
-	// ErrPartitionNotPaused is returned by ResumePartition when attempting to
-	// resume a stream partition that is not paused.
-	ErrPartitionNotPaused = errors.New("partition is not paused")
 )
 
 // leaderReport tracks witnesses for a partition leader. Witnesses are replicas
@@ -285,16 +281,16 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 	return &client.FetchMetadataResponse{Metadata: metadata}
 }
 
-// CreatePartition creates a new stream partition if this server is the
-// metadata leader. If it is not, it will forward the request to the leader and
-// return the response. This operation is replicated by Raft. The metadata
-// leader will select replicationFactor nodes to participate in the partition
-// and a leader. If successful, this will return once the partition has been
-// replicated to the cluster and the partition leader has started.
-func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePartitionOp) *status.Status {
+// CreateStream creates a new stream if this server is the metadata leader. If
+// it is not, it will forward the request to the leader and return the
+// response. This operation is replicated by Raft. The metadata leader will
+// select replicationFactor nodes to participate and a leader for each
+// partition.  If successful, this will return once the partitions have been
+// replicated to the cluster and the partition leaders have started.
+func (m *metadataAPI) CreateStream(ctx context.Context, req *proto.CreateStreamOp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.IsLeader() {
-		isLeader, st := m.propagateCreatePartition(ctx, req)
+		isLeader, st := m.propagateCreateStream(ctx, req)
 		if st != nil {
 			return st
 		}
@@ -304,30 +300,36 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 		}
 	}
 
-	// Select replicationFactor nodes to participate in the partition.
-	replicas, st := m.getPartitionReplicas(req.Partition.ReplicationFactor)
-	if st != nil {
-		return st
+	if len(req.Stream.Partitions) == 0 {
+		return status.New(codes.InvalidArgument, "no partitions provided")
 	}
 
-	// Select a leader at random.
-	leader := selectRandomReplica(replicas)
+	for _, partition := range req.Stream.Partitions {
+		// Select replicationFactor nodes to participate in the partition.
+		replicas, st := m.getPartitionReplicas(partition.ReplicationFactor)
+		if st != nil {
+			return st
+		}
 
-	req.Partition.Replicas = replicas
-	req.Partition.Isr = replicas
-	req.Partition.Leader = leader
+		// Select a leader at random.
+		leader := selectRandomReplica(replicas)
 
-	// Replicate partition create through Raft.
+		partition.Replicas = replicas
+		partition.Isr = replicas
+		partition.Leader = leader
+	}
+
+	// Replicate stream create through Raft.
 	op := &proto.RaftLog{
-		Op:                proto.Op_CREATE_PARTITION,
-		CreatePartitionOp: req,
+		Op:             proto.Op_CREATE_STREAM,
+		CreateStreamOp: req,
 	}
 
 	// Wait on result of replication.
-	future, err := m.getRaft().applyOperation(ctx, op, m.checkCreatePartitionPreconditions)
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkCreateStreamPreconditions)
 	if err != nil {
 		code := codes.FailedPrecondition
-		if err == ErrPartitionExists {
+		if err == ErrStreamExists {
 			code = codes.AlreadyExists
 		}
 		return status.Newf(code, err.Error())
@@ -336,8 +338,16 @@ func (m *metadataAPI) CreatePartition(ctx context.Context, req *proto.CreatePart
 		return status.Newf(codes.Internal, "Failed to replicate partition: %v", err.Error())
 	}
 
-	// Wait for leader to create partition (best effort).
-	m.waitForPartitionLeader(ctx, req.Partition.Stream, leader, req.Partition.Id)
+	// Wait for leaders to create partitions (best effort).
+	var wg sync.WaitGroup
+	wg.Add(len(req.Stream.Partitions))
+	for _, partition := range req.Stream.Partitions {
+		m.startGoroutine(func() {
+			m.waitForPartitionLeader(ctx, partition)
+			wg.Done()
+		})
+	}
+	wg.Wait()
 
 	return nil
 }
@@ -420,15 +430,16 @@ func (m *metadataAPI) PauseStream(ctx context.Context, req *proto.PauseStreamOp)
 	return nil
 }
 
-// ResumePartition unpauses a stream partition if this server is the metadata
-// leader. If it is not, it will forward the request to the leader and
-// return the response. This operation is replicated by Raft. Resume is
-// intended to be idempotent. If the partition is already resumed when this is
-// called, this will return nil.
-func (m *metadataAPI) ResumePartition(ctx context.Context, req *proto.ResumePartitionOp) *status.Status {
+// ResumeStream unpauses a stream partition(s) if this server is the metadata
+// leader. If it is not, it will forward the request to the leader and return
+// the response. This operation is replicated by Raft. Resume is intended to
+// be idempotent. If the partition is already resumed when this is called, this
+// will return nil. If the partition to resume is not specified on the request,
+// this will resume all paused partitions in the stream.
+func (m *metadataAPI) ResumeStream(ctx context.Context, req *proto.ResumeStreamOp) *status.Status {
 	// Forward the request if we're not the leader.
 	if !m.IsLeader() {
-		isLeader, st := m.propagateResumePartition(ctx, req)
+		isLeader, st := m.propagateResumeStream(ctx, req)
 		if st != nil {
 			return st
 		}
@@ -438,31 +449,35 @@ func (m *metadataAPI) ResumePartition(ctx context.Context, req *proto.ResumePart
 		}
 	}
 
-	// Replicate partition create through Raft.
+	// Replicate stream resume through Raft.
 	op := &proto.RaftLog{
-		Op:                proto.Op_RESUME_PARTITION,
-		ResumePartitionOp: req,
+		Op:             proto.Op_RESUME_STREAM,
+		ResumeStreamOp: req,
 	}
 
 	// Wait on result of replication.
-	future, err := m.getRaft().applyOperation(ctx, op, m.checkResumePartitionPreconditions)
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkResumeStreamPreconditions)
 	if err != nil {
-		// If the partition is not paused, return nil to indicate success.
-		if err == ErrPartitionNotPaused {
-			return nil
-		}
 		code := codes.FailedPrecondition
-		if err == ErrPartitionNotFound {
+		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
 			code = codes.NotFound
 		}
 		return status.Newf(code, err.Error())
 	}
 	if err := future.Error(); err != nil {
-		return status.Newf(codes.Internal, "Failed to resume partition: %v", err.Error())
+		return status.Newf(codes.Internal, "Failed to resume stream: %v", err.Error())
 	}
 
-	// Wait for leader to resume partition (best effort).
-	m.waitForPartitionLeader(ctx, req.Partition.Stream, req.Partition.Leader, req.Partition.Id)
+	// Wait for leader to resume partition(s) (best effort).
+	var wg sync.WaitGroup
+	wg.Add(len(req.Partitions))
+	for _, partition := range req.Partitions {
+		m.startGoroutine(func() {
+			m.waitForPartitionLeader(ctx, partition)
+			wg.Done()
+		})
+	}
+	wg.Wait()
 
 	return nil
 }
@@ -618,43 +633,90 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	return reported.addWitness(req.Replica)
 }
 
-// AddPartition adds the given stream partition to the metadata store. It
-// returns ErrPartitionExists if there already exists a partition with the same
-// ID for the stream. If the partition is recovered, this will not start the
-// partition until recovery completes. The partition will also not be started
-// if it is currently paused.
-func (m *metadataAPI) AddPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
+// AddStream adds the given stream and its partitions to the metadata store. It
+// returns an error if a stream with the same name or any partitions with the
+// same ID for the stream already exist. If the stream is recovered, this will
+// not start the partitions until recovery completes. Partitions will also not
+// be started if they are currently paused.
+func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+	if len(protoStream.Partitions) == 0 {
+		return nil, errors.New("stream has no partitions")
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	partition, err := m.addPartition(protoPartition, recovered)
-	if err != nil {
-		return nil, err
+
+	_, ok := m.streams[protoStream.Name]
+	if ok {
+		return nil, ErrStreamExists
 	}
+
+	stream := newStream(protoStream.Name, protoStream.Subject)
+	m.streams[protoStream.Name] = stream
+
+	for _, partition := range protoStream.Partitions {
+		if err := m.addPartition(stream, partition, recovered); err != nil {
+			delete(m.streams, protoStream.Name)
+			return nil, err
+		}
+	}
+	return stream, nil
+}
+
+func (m *metadataAPI) addPartition(stream *stream, protoPartition *proto.Partition, recovered bool) error {
+	if p := stream.GetPartition(protoPartition.Id); p != nil {
+		// Partition already exists for stream.
+		return fmt.Errorf("partition %d already exists for stream %s",
+			protoPartition.Id, protoPartition.Stream)
+	}
+
+	// This will initialize/recover the durable commit log.
+	partition, err := m.newPartition(protoPartition, recovered)
+	if err != nil {
+		return err
+	}
+	stream.SetPartition(protoPartition.Id, partition)
 
 	// If we're loading a partition that was paused, we need to re-pause it.
 	if protoPartition.Paused {
 		if err := partition.Pause(); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	// Start leader/follower loop if necessary.
 	leader, epoch := partition.GetLeader()
-	err = partition.SetLeader(leader, epoch)
-	return partition, err
+	return partition.SetLeader(leader, epoch)
 }
 
-// UnpausePartition resumes the given stream partition in the metadata store.
+// ResumePartition unpauses the given stream partition in the metadata store.
 // It returns ErrPartitionNotFound if there is no partition with the ID for the
 // stream. If the partition is recovered, this will not start the partition
 // until recovery completes.
-func (m *metadataAPI) UnpausePartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
+func (m *metadataAPI) ResumePartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	partition, err := m.resumePartition(protoPartition, recovered)
+
+	stream, ok := m.streams[protoPartition.Stream]
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+	partition := stream.GetPartition(protoPartition.Id)
+	if partition == nil {
+		return nil, ErrPartitionNotFound
+	}
+
+	// If it's not paused, do nothing.
+	if !partition.IsPaused() {
+		return partition, nil
+	}
+
+	// Resume the partition by replacing it.
+	partition, err := m.newPartition(protoPartition, recovered)
 	if err != nil {
 		return nil, err
 	}
+	stream.SetPartition(protoPartition.Id, partition)
 
 	// Start leader/follower loop if necessary.
 	leader, epoch := partition.GetLeader()
@@ -756,44 +818,6 @@ func (m *metadataAPI) getStreams() []*stream {
 	return streams
 }
 
-func (m *metadataAPI) addPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
-	st, ok := m.streams[protoPartition.Stream]
-	if !ok {
-		st = newStream(protoPartition.Stream, protoPartition.Subject)
-		m.streams[protoPartition.Stream] = st
-	}
-	if p := st.GetPartition(protoPartition.Id); p != nil {
-		// Partition already exists for stream.
-		return nil, ErrPartitionExists
-	}
-
-	// This will initialize/recover the durable commit log.
-	partition, err := m.newPartition(protoPartition, recovered)
-	if err != nil {
-		return nil, err
-	}
-	st.SetPartition(protoPartition.Id, partition)
-	return partition, nil
-}
-
-func (m *metadataAPI) resumePartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
-	st, ok := m.streams[protoPartition.Stream]
-	if !ok {
-		return nil, ErrPartitionNotFound
-	}
-	if p := st.GetPartition(protoPartition.Id); p == nil {
-		return nil, ErrPartitionNotFound
-	}
-
-	// Resume the partition by replacing it.
-	partition, err := m.newPartition(protoPartition, recovered)
-	if err != nil {
-		return nil, err
-	}
-	st.SetPartition(protoPartition.Id, partition)
-	return partition, nil
-}
-
 // getPartitionReplicas selects replicationFactor replicas to participate in
 // the stream partition.
 func (m *metadataAPI) getPartitionReplicas(replicationFactor int32) ([]string, *status.Status) {
@@ -887,14 +911,14 @@ func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Stat
 	return nil
 }
 
-// propagateCreatePartition forwards a CreatePartition request to the metadata
+// propagateCreateStream forwards a CreateStream request to the metadata
 // leader. The bool indicates if this server has since become leader and the
 // request should be performed locally. A Status is returned if the propagated
 // request failed.
-func (m *metadataAPI) propagateCreatePartition(ctx context.Context, req *proto.CreatePartitionOp) (bool, *status.Status) {
+func (m *metadataAPI) propagateCreateStream(ctx context.Context, req *proto.CreateStreamOp) (bool, *status.Status) {
 	propagate := &proto.PropagatedRequest{
-		Op:                proto.Op_CREATE_PARTITION,
-		CreatePartitionOp: req,
+		Op:             proto.Op_CREATE_STREAM,
+		CreateStreamOp: req,
 	}
 	return m.propagateRequest(ctx, propagate)
 }
@@ -923,14 +947,14 @@ func (m *metadataAPI) propagatePauseStream(ctx context.Context, req *proto.Pause
 	return m.propagateRequest(ctx, propagate)
 }
 
-// propagateResumePartition forwards a ResumePartition request to the metadata
+// propagateResumeStream forwards a ResumeStream request to the metadata
 // leader. The bool indicates if this server has since become leader and the
 // request should be performed locally. A Status is returned if the propagated
 // request failed.
-func (m *metadataAPI) propagateResumePartition(ctx context.Context, req *proto.ResumePartitionOp) (bool, *status.Status) {
+func (m *metadataAPI) propagateResumeStream(ctx context.Context, req *proto.ResumeStreamOp) (bool, *status.Status) {
 	propagate := &proto.PropagatedRequest{
-		Op:                proto.Op_RESUME_PARTITION,
-		ResumePartitionOp: req,
+		Op:             proto.Op_RESUME_STREAM,
+		ResumeStreamOp: req,
 	}
 	return m.propagateRequest(ctx, propagate)
 }
@@ -1037,8 +1061,8 @@ func (m *metadataAPI) waitForMetadataLeader(ctx context.Context) (bool, error) {
 
 // waitForPartitionLeader does a best-effort wait for the leader of the given
 // partition to create and start the partition.
-func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, stream, leader string, partition int32) {
-	if leader == m.config.Clustering.ServerID {
+func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, partition *proto.Partition) {
+	if partition.Leader == m.config.Clustering.ServerID {
 		// If we're the partition leader, there's no need to make a status
 		// request. We can just apply a Raft barrier since the FSM is local.
 		// TODO: Use context deadline
@@ -1049,27 +1073,27 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, stream, leader
 	}
 
 	req, err := proto.MarshalPartitionStatusRequest(&proto.PartitionStatusRequest{
-		Stream:    stream,
-		Partition: partition,
+		Stream:    partition.Stream,
+		Partition: partition.Id,
 	})
 	if err != nil {
 		panic(err)
 	}
-	inbox := m.getPartitionStatusInbox(leader)
+	inbox := m.getPartitionStatusInbox(partition.Leader)
 	for i := 0; i < 5; i++ {
 		resp, err := m.ncRaft.RequestWithContext(ctx, inbox, req)
 		if err != nil {
 			m.logger.Warnf(
-				"Failed to get status for partition [stream=%s, partition=%d] from leader %s: %v",
-				stream, partition, leader, err)
+				"Failed to get status for partition %s from leader %s: %v",
+				partition, partition.Leader, err)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 		statusResp, err := proto.UnmarshalPartitionStatusResponse(resp.Data)
 		if err != nil {
 			m.logger.Warnf(
-				"Invalid status response for partition [stream=%s, partition=%d] from leader %s: %v",
-				stream, partition, leader, err)
+				"Invalid status response for partition %s from leader %s: %v",
+				partition, partition.Leader, err)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
@@ -1083,16 +1107,12 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, stream, leader
 	}
 }
 
-// checkCreatePartitionPreconditions checks if the partition to be created
-// already exists. If it does, it returns ErrPartitionExists. Otherwise, it
-// returns nil.
-func (m *metadataAPI) checkCreatePartitionPreconditions(op *proto.RaftLog) error {
-	var (
-		partition = op.CreatePartitionOp.Partition
-		existing  = m.GetPartition(partition.Stream, partition.Id)
-	)
-	if existing != nil {
-		return ErrPartitionExists
+// checkCreateStreamPreconditions checks if the stream to be created already
+// exists. If it does, it returns ErrStreamExists. Otherwise, it returns nil.
+func (m *metadataAPI) checkCreateStreamPreconditions(op *proto.RaftLog) error {
+	partitions := op.CreateStreamOp.Stream.Partitions
+	if stream := m.GetStream(partitions[0].Stream); stream != nil {
+		return ErrStreamExists
 	}
 	return nil
 }
@@ -1123,20 +1143,19 @@ func (m *metadataAPI) checkPauseStreamPreconditions(op *proto.RaftLog) error {
 	return nil
 }
 
-// checkResumePartitionPreconditions checks if the partition to be resumed
-// exists and is paused. If it does not, it returns ErrPartitionNotFound. If it
-// exists but is not paused, it returns ErrPartitionNotPaused. Otherwise, it
-// returns nil.
-func (m *metadataAPI) checkResumePartitionPreconditions(op *proto.RaftLog) error {
-	var (
-		partition = op.ResumePartitionOp.Partition
-		existing  = m.GetPartition(partition.Stream, partition.Id)
-	)
-	if partition == nil {
-		return ErrPartitionNotFound
+// checkResumeStreamPreconditions checks if the stream and partitions to be
+// resumed exist. If the stream does not exist, it returns ErrStreamNotFound.
+// If any partitions do not exist, it returns ErrPartitionNotFound. Otherwise,
+// it returns nil.
+func (m *metadataAPI) checkResumeStreamPreconditions(op *proto.RaftLog) error {
+	stream := m.GetStream(op.ResumeStreamOp.Stream.Name)
+	if stream == nil {
+		return ErrStreamNotFound
 	}
-	if !existing.IsPaused() {
-		return errors.New("partition is not paused")
+	for _, toResume := range op.ResumeStreamOp.Partitions {
+		if partition := stream.GetPartition(toResume.Id); partition == nil {
+			return ErrPartitionNotFound
+		}
 	}
 	return nil
 }

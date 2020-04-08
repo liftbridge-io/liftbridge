@@ -564,8 +564,8 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		return
 	}
 	switch req.Op {
-	case proto.Op_CREATE_PARTITION:
-		resp = s.handleCreatePartition(req)
+	case proto.Op_CREATE_STREAM:
+		resp = s.handleCreateStream(req)
 	case proto.Op_SHRINK_ISR:
 		resp = s.handleShrinkISR(req)
 	case proto.Op_EXPAND_ISR:
@@ -589,11 +589,11 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 	}
 }
 
-func (s *Server) handleCreatePartition(req *proto.PropagatedRequest) *proto.PropagatedResponse {
+func (s *Server) handleCreateStream(req *proto.PropagatedRequest) *proto.PropagatedResponse {
 	resp := &proto.PropagatedResponse{
 		Op: req.Op,
 	}
-	if err := s.metadata.CreatePartition(context.Background(), req.CreatePartitionOp); err != nil {
+	if err := s.metadata.CreateStream(context.Background(), req.CreateStreamOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
 	return resp

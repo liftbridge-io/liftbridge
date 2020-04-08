@@ -130,12 +130,16 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 	}
 	var event *client.ActivityStreamEvent
 	switch log.Op {
-	case proto.Op_CREATE_PARTITION:
+	case proto.Op_CREATE_STREAM:
+		partitions := make([]int32, len(log.CreateStreamOp.Stream.Partitions))
+		for i, partition := range log.CreateStreamOp.Stream.Partitions {
+			partitions[i] = partition.Id
+		}
 		event = &client.ActivityStreamEvent{
-			Op: client.ActivityStreamOp_CREATE_PARTITION,
-			CreatePartitionOp: &client.CreatePartitionOp{
-				Stream:    log.CreatePartitionOp.Partition.Stream,
-				Partition: log.CreatePartitionOp.Partition.Id,
+			Op: client.ActivityStreamOp_CREATE_STREAM,
+			CreateStreamOp: &client.CreateStreamOp{
+				Stream:     log.CreateStreamOp.Stream.Name,
+				Partitions: partitions,
 			},
 		}
 	case proto.Op_DELETE_STREAM:
