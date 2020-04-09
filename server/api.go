@@ -100,6 +100,16 @@ func (a *apiServer) PauseStream(ctx context.Context, req *client.PauseStreamRequ
 	a.logger.Debugf("api: PauseStream [name=%s, partitions=%v, resumeAll=%v]",
 		req.Name, req.Partitions, req.ResumeAll)
 
+	if len(req.Partitions) == 0 {
+		stream := a.metadata.GetStream(req.Name)
+		if stream == nil {
+			return nil, status.Error(codes.NotFound, "stream not found")
+		}
+		for _, partition := range stream.GetPartitions() {
+			req.Partitions = append(req.Partitions, partition.Id)
+		}
+	}
+
 	if e := a.metadata.PauseStream(ctx, &proto.PauseStreamOp{
 		Stream:     req.Name,
 		Partitions: req.Partitions,
@@ -243,16 +253,16 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 	if stream == nil {
 		return status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", streamName))
 	}
-	var toResume []*proto.Partition
+	var toResume []int32
 	if stream.GetResumeAll() {
 		// If ResumeAll is enabled, resume any paused partitions in the stream.
 		partitions := stream.GetPartitions()
-		toResume = make([]*proto.Partition, 0, len(partitions))
+		toResume = make([]int32, 0, len(partitions))
 		for _, partition := range partitions {
 			if !partition.IsPaused() {
 				continue
 			}
-			toResume = append(toResume, partition.Partition)
+			toResume = append(toResume, partition.Id)
 		}
 	} else {
 		// Otherwise just resume the partition being published to if it's
@@ -262,7 +272,7 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 			return status.Error(codes.NotFound, fmt.Sprintf("No such partition: %d", partitionID))
 		}
 		if partition.IsPaused() {
-			toResume = []*proto.Partition{partition.Partition}
+			toResume = []int32{partition.Id}
 		}
 	}
 
@@ -271,7 +281,7 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 	}
 
 	req := &proto.ResumeStreamOp{
-		Stream:     &proto.Stream{Name: stream.GetName(), Subject: stream.GetSubject()},
+		Stream:     stream.GetName(),
 		Partitions: toResume,
 	}
 	if e := a.metadata.ResumeStream(ctx, req); e != nil {

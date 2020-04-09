@@ -12,7 +12,6 @@ import (
 	"time"
 
 	lift "github.com/liftbridge-io/go-liftbridge"
-	liftApi "github.com/liftbridge-io/liftbridge-api/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -1330,55 +1329,6 @@ func TestPropagatedShrinkExpandISR(t *testing.T) {
 
 	// Wait for ISR to expand.
 	waitForISR(t, 10*time.Second, name, 0, 2, s1, s2)
-}
-
-// Ensure activity stream creation event occurs.
-func TestActivityStreamCreateStream(t *testing.T) {
-	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
-	// Configure server.
-	s1Config := getTestConfig("a", true, 5050)
-	s1Config.ActivityStream.Enabled = true
-	s1Config.ActivityStream.PublishTimeout = time.Second
-	s1Config.ActivityStream.PublishAckPolicy = liftApi.AckPolicy_LEADER
-	s1 := runServerWithConfig(t, s1Config)
-	defer s1.Stop()
-
-	// Wait for server to elect itself leader.
-	getMetadataLeader(t, 10*time.Second, s1)
-
-	client, err := lift.Connect([]string{"localhost:5050"})
-	require.NoError(t, err)
-	defer client.Close()
-
-	// The first message read back should be the creation of the activity
-	// stream partition.
-	msgs := make(chan lift.Message, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
-		require.NoError(t, err)
-		msgs <- msg
-		cancel()
-	}, lift.StartAtEarliestReceived())
-	require.NoError(t, err)
-
-	// Wait to get the new message.
-	select {
-	case msg := <-msgs:
-		var se liftApi.ActivityStreamEvent
-		err = se.Unmarshal(msg.Value())
-		require.NoError(t, err)
-		require.Equal(t, liftApi.ActivityStreamOp_CREATE_STREAM, se.GetOp())
-		require.Equal(t, activityStream, se.CreateStreamOp.GetStream())
-		require.Equal(t, 1, len(se.CreateStreamOp.GetPartitions()))
-		require.Equal(t, int32(0), se.CreateStreamOp.GetPartitions()[0])
-	case <-time.After(5 * time.Second):
-		t.Fatal("Did not receive expected message")
-	}
 }
 
 // Test stream pausing and resuming. A paused stream should re-activate itself

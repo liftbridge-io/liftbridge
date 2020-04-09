@@ -51,7 +51,7 @@ message ExpandISROp {
 }
 
 message DeleteStreamOp {
-    string stream       = 1;
+    string stream = 1;
 }
 
 message PauseStreamOp {
@@ -61,8 +61,8 @@ message PauseStreamOp {
 }
 
 message ResumeStreamOp {
-    Stream             stream     = 1;
-    repeated Partition partitions = 2;
+    string         stream     = 1;
+    repeated int32 partitions = 2;
 }
 
 message ReportLeaderOp {

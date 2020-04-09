@@ -471,11 +471,12 @@ func (m *metadataAPI) ResumeStream(ctx context.Context, req *proto.ResumeStreamO
 	// Wait for leader to resume partition(s) (best effort).
 	var wg sync.WaitGroup
 	wg.Add(len(req.Partitions))
-	for _, partition := range req.Partitions {
-		m.startGoroutine(func() {
-			m.waitForPartitionLeader(ctx, partition)
+	for _, partitionID := range req.Partitions {
+		go func(pid int32) {
+			partition := m.GetPartition(req.Stream, pid)
+			m.waitForPartitionLeader(ctx, partition.Partition)
 			wg.Done()
-		})
+		}(partitionID)
 	}
 	wg.Wait()
 
@@ -693,15 +694,15 @@ func (m *metadataAPI) addPartition(stream *stream, protoPartition *proto.Partiti
 // It returns ErrPartitionNotFound if there is no partition with the ID for the
 // stream. If the partition is recovered, this will not start the partition
 // until recovery completes.
-func (m *metadataAPI) ResumePartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
+func (m *metadataAPI) ResumePartition(streamName string, id int32, recovered bool) (*partition, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	stream, ok := m.streams[protoPartition.Stream]
+	stream, ok := m.streams[streamName]
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
-	partition := stream.GetPartition(protoPartition.Id)
+	partition := stream.GetPartition(id)
 	if partition == nil {
 		return nil, ErrPartitionNotFound
 	}
@@ -712,11 +713,11 @@ func (m *metadataAPI) ResumePartition(protoPartition *proto.Partition, recovered
 	}
 
 	// Resume the partition by replacing it.
-	partition, err := m.newPartition(protoPartition, recovered)
+	partition, err := m.newPartition(partition.Partition, recovered)
 	if err != nil {
 		return nil, err
 	}
-	stream.SetPartition(protoPartition.Id, partition)
+	stream.SetPartition(id, partition)
 
 	// Start leader/follower loop if necessary.
 	leader, epoch := partition.GetLeader()
@@ -1148,12 +1149,12 @@ func (m *metadataAPI) checkPauseStreamPreconditions(op *proto.RaftLog) error {
 // If any partitions do not exist, it returns ErrPartitionNotFound. Otherwise,
 // it returns nil.
 func (m *metadataAPI) checkResumeStreamPreconditions(op *proto.RaftLog) error {
-	stream := m.GetStream(op.ResumeStreamOp.Stream.Name)
+	stream := m.GetStream(op.ResumeStreamOp.Stream)
 	if stream == nil {
 		return ErrStreamNotFound
 	}
-	for _, toResume := range op.ResumeStreamOp.Partitions {
-		if partition := stream.GetPartition(toResume.Id); partition == nil {
+	for _, id := range op.ResumeStreamOp.Partitions {
+		if partition := stream.GetPartition(id); partition == nil {
 			return ErrPartitionNotFound
 		}
 	}

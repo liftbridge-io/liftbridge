@@ -16,12 +16,13 @@ import (
 
 // activityManager ensures that activity events get published to the activity
 // stream. This ensures that events are published at least once and in the
-// order in which they occur.
+// order in which they occur with respect to the Raft log.
 type activityManager struct {
 	*Server
 	lastPublishedRaftIndex uint64
 	client                 lift.Client
 	commitCh               chan struct{}
+	leadershipLostCh       chan struct{}
 	mu                     sync.RWMutex
 }
 
@@ -32,28 +33,35 @@ func newActivityManager(s *Server) *activityManager {
 	}
 }
 
+// Close the activity manager and any resources associated with it.
 func (a *activityManager) Close() error {
 	if a.client != nil {
 		if err := a.client.Close(); err != nil {
 			return err
 		}
-		a.client = nil
 	}
 	return nil
 }
 
+// SetLastPublishedRaftIndex sets the Raft index of the latest event published
+// to the activity stream. This is used to determine where to begin publishing
+// events from in the log in the case of failovers or restarts.
 func (a *activityManager) SetLastPublishedRaftIndex(index uint64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.lastPublishedRaftIndex = index
 }
 
+// LastPublishedRaftIndex returns the Raft index of the latest event published
+// to the activity stream. This is used to determine where to begin publishing
+// events from in the log in the case of failovers or restarts.
 func (a *activityManager) LastPublishedRaftIndex() uint64 {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.lastPublishedRaftIndex
 }
 
+// SignalCommit indicates a new event was committed to the Raft log.
 func (a *activityManager) SignalCommit() {
 	select {
 	case a.commitCh <- struct{}{}:
@@ -73,7 +81,8 @@ func (a *activityManager) BecomeLeader() error {
 	if err := a.createActivityStream(); err != nil {
 		return err
 	}
-	a.startGoroutine(a.catchUp)
+	a.leadershipLostCh = make(chan struct{})
+	a.startGoroutine(a.dispatch)
 	return nil
 }
 
@@ -81,21 +90,41 @@ func (a *activityManager) BecomeLeader() error {
 // This will close the loopback Liftbridge client if it exists. This should be
 // called on the same goroutine as BecomeLeader.
 func (a *activityManager) BecomeFollower() error {
-	return a.Close()
+	if !a.config.ActivityStream.Enabled {
+		return nil
+	}
+	if err := a.Close(); err != nil {
+		return err
+	}
+
+	close(a.leadershipLostCh)
+	return nil
 }
 
-func (a *activityManager) catchUp() {
+// dispatch is a long-running goroutine that runs while the server is the
+// metadata leader. It handles publishing events to the activity stream as they
+// are committed to the Raft log. Events are always published in the order in
+// which they were committed to the log.
+func (a *activityManager) dispatch() {
 	var (
 		raftNode = a.getRaft()
 		index    = a.LastPublishedRaftIndex() + 1
 	)
 	for {
+		select {
+		case <-a.leadershipLostCh:
+			return
+		default:
+		}
+
 		// TODO: Should we instead pass the commit index from FSM apply?
 		if index > raftNode.getCommitIndex() {
 			// We are caught up with the Raft log, so wait for new commits.
 			select {
 			case <-a.commitCh:
 				continue
+			case <-a.leadershipLostCh:
+				return
 			case <-a.shutdownCh:
 				return
 			}
@@ -115,6 +144,8 @@ func (a *activityManager) catchUp() {
 			select {
 			case <-time.After(2 * time.Second):
 				goto RETRY
+			case <-a.leadershipLostCh:
+				return
 			case <-a.shutdownCh:
 				return
 			}
@@ -123,6 +154,8 @@ func (a *activityManager) catchUp() {
 	}
 }
 
+// handleRaftLog unmarshals the Raft log into an operation and, if applicable,
+// publishes an event to the activity stream.
 func (a *activityManager) handleRaftLog(l *raft.Log) error {
 	log := new(proto.RaftLog)
 	if err := log.Unmarshal(l.Data); err != nil {
@@ -149,6 +182,23 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 				Stream: log.DeleteStreamOp.Stream,
 			},
 		}
+	case proto.Op_PAUSE_STREAM:
+		event = &client.ActivityStreamEvent{
+			Op: client.ActivityStreamOp_PAUSE_STREAM,
+			PauseStreamOp: &client.PauseStreamOp{
+				Stream:     log.PauseStreamOp.Stream,
+				Partitions: log.PauseStreamOp.Partitions,
+				ResumeAll:  log.PauseStreamOp.ResumeAll,
+			},
+		}
+	case proto.Op_RESUME_STREAM:
+		event = &client.ActivityStreamEvent{
+			Op: client.ActivityStreamOp_RESUME_STREAM,
+			ResumeStreamOp: &client.ResumeStreamOp{
+				Stream:     log.ResumeStreamOp.Stream,
+				Partitions: log.ResumeStreamOp.Partitions,
+			},
+		}
 	default:
 		return nil
 	}
@@ -171,6 +221,7 @@ func (a *activityManager) createActivityStream() error {
 	err = a.client.CreateStream(context.Background(),
 		a.getActivityStreamSubject(),
 		activityStream,
+		lift.MaxReplication(),
 	)
 	if err != nil && err != lift.ErrStreamExists {
 		return errors.Wrap(err, "failed to create an activity stream")
@@ -208,19 +259,22 @@ func (a *activityManager) publishActivityEvent(event *client.ActivityStreamEvent
 		data,
 		messageOption,
 	)
+	if err != nil {
+		return errors.Wrap(err, "failed to publish event to stream")
+	}
+
+	a.logger.Debugf("Published %s event to activity stream", event.Op)
+
+	// Update last published index in Raft.
+	op := &proto.RaftLog{
+		Op: proto.Op_PUBLISH_ACTIVITY,
+		PublishActivityOp: &proto.PublishActivityOp{
+			RaftIndex: event.Id,
+		},
+	}
+	future, err := a.getRaft().applyOperation(ctx, op, nil)
 	if err == nil {
-		// Update last published index in Raft.
-		op := &proto.RaftLog{
-			Op: proto.Op_PUBLISH_ACTIVITY,
-			PublishActivityOp: &proto.PublishActivityOp{
-				RaftIndex: event.Id,
-			},
-		}
-		future, err := a.getRaft().applyOperation(ctx, op, nil)
-		if err != nil {
-			return errors.Wrap(err, "failed to update Raft")
-		}
 		err = future.Error()
 	}
-	return errors.Wrap(err, "failed to publish a stream event")
+	return errors.Wrap(err, "failed to update Raft")
 }

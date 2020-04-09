@@ -175,7 +175,11 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 			return nil, err
 		}
 	case proto.Op_RESUME_STREAM:
-		if err := s.applyResumeStream(log.ResumeStreamOp.Partitions, recovered); err != nil {
+		var (
+			stream     = log.ResumeStreamOp.Stream
+			partitions = log.ResumeStreamOp.Partitions
+		)
+		if err := s.applyResumeStream(stream, partitions, recovered); err != nil {
 			return nil, err
 		}
 	case proto.Op_PUBLISH_ACTIVITY:
@@ -458,9 +462,9 @@ func (s *Server) applyPauseStream(streamName string, partitions []int32, resumeA
 // store.  If the partitions are being recovered, they will not be started
 // until after the recovery process completes. If they are not being recovered,
 // the partitions will be started as a leader or follower if applicable.
-func (s *Server) applyResumeStream(toResume []*proto.Partition, recovered bool) error {
-	for _, p := range toResume {
-		partition, err := s.metadata.ResumePartition(p, recovered)
+func (s *Server) applyResumeStream(streamName string, partitionIDs []int32, recovered bool) error {
+	for _, id := range partitionIDs {
+		partition, err := s.metadata.ResumePartition(streamName, id, recovered)
 		if err != nil {
 			return errors.Wrap(err, "failed to resume partition in metadata store")
 		}
