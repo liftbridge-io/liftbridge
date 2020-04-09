@@ -1,6 +1,9 @@
 package server
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // stream is a message stream consisting of one or more partitions. Each
 // partition maps to a NATS subject and is the unit of replication.
@@ -20,6 +23,14 @@ func newStream(name, subject string) *stream {
 		subject:    subject,
 		partitions: make(map[int32]*partition),
 	}
+}
+
+// String returns a human-readable representation of the stream.
+func (s *stream) String() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return fmt.Sprintf("[name=%s, subject=%s, partitions=%d]",
+		s.name, s.subject, len(s.partitions))
 }
 
 // GetName returns the stream's globally unique name.

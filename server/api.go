@@ -32,8 +32,8 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 	if req.Partitions == 0 {
 		req.Partitions = 1
 	}
-	a.logger.Debugf("api: CreateStream [subject=%s, name=%s, partitions=%d, replicationFactor=%d]",
-		req.Subject, req.Name, req.Partitions, req.ReplicationFactor)
+	a.logger.Debugf("api: CreateStream [name=%s, subject=%s, partitions=%d, replicationFactor=%d]",
+		req.Name, req.Subject, req.Partitions, req.ReplicationFactor)
 
 	if req.Name == "" {
 		a.logger.Errorf("api: Failed to create stream: name cannot be empty")
