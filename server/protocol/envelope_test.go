@@ -90,12 +90,16 @@ func TestMarshalUnmarshalServerInfoResponse(t *testing.T) {
 // Ensure we can marshal a PropagatedRequest and then unmarshal it.
 func TestMarshalUnmarshalPropagatedRequest(t *testing.T) {
 	req := &PropagatedRequest{
-		Op: Op_CREATE_PARTITION,
-		CreatePartitionOp: &CreatePartitionOp{
-			Partition: &Partition{
-				Subject:           "foo",
-				Stream:            "foo",
-				ReplicationFactor: 3,
+		Op: Op_CREATE_STREAM,
+		CreateStreamOp: &CreateStreamOp{
+			Stream: &Stream{
+				Name:    "foo",
+				Subject: "foo",
+				Partitions: []*Partition{{
+					Subject:           "foo",
+					Stream:            "foo",
+					ReplicationFactor: 3,
+				}},
 			},
 		},
 	}
@@ -110,9 +114,7 @@ func TestMarshalUnmarshalPropagatedRequest(t *testing.T) {
 
 // Ensure we can marshal a PropagatedResponse and then unmarshal it.
 func TestMarshalUnmarshalPropagatedResponse(t *testing.T) {
-	req := &PropagatedResponse{
-		Op: Op_CREATE_PARTITION,
-	}
+	req := &PropagatedResponse{Op: Op_CREATE_STREAM}
 	envelope, err := MarshalPropagatedResponse(req)
 	require.NoError(t, err)
 
