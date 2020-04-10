@@ -280,7 +280,7 @@ func TestDeleteStreamPropagate(t *testing.T) {
 }
 
 // Ensure sending a subscribe request to a server that is not the stream leader
-// with an explication opt-in to requestion from stream replica only
+// with an explication opt-in to requestion from a random ISR replica
 func TestSubscribeStreamNotLeader(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -335,12 +335,12 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 		func(msg lift.Message, err error) {
 			require.NoError(t, err)
 			fmt.Println("no")
-		}, lift.ReadReplica(true))
+		}, lift.ReadISRReplica())
 	require.NoError(t, err)
 }
 
 // Ensure sending a subscribe request to a server that is not the stream leader
-// returns an error. By default, do not take subscription to stream's replica
+// returns an error. By default, do not take subscription to stream's replica.
 func TestSubscribeStreamNotLeaderDefaultBehavior(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -399,7 +399,8 @@ func TestSubscribeStreamNotLeaderDefaultBehavior(t *testing.T) {
 
 }
 
-// Ensure publishing and receiving messages on a stream works.
+// Ensure publishing and receiving messages on a stream works,
+// given that the subscription request was binded to a random ISR
 func TestStreamReceiveMsgFromReplica(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -465,7 +466,7 @@ func TestStreamReceiveMsgFromReplica(t *testing.T) {
 		if i == num+5 {
 			close(ch2)
 		}
-	}, lift.ReadReplica(true))
+	}, lift.ReadISRReplica())
 	require.NoError(t, err)
 
 	// Publish messages.
