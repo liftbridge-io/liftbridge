@@ -501,6 +501,9 @@ func (p *partition) handleReplicationRequest(msg *nats.Msg) {
 		// node was somehow partitioned from the rest of the ISR) or the
 		// follower is still trying to replicate from a previous leader. In
 		// either case, drop the request.
+		p.srv.logger.Warnf("Received replication request for partition %s from replica %s "+
+			"in leader epoch %d, but current leader epoch is %d",
+			p, req.ReplicaID, req.LeaderEpoch, p.LeaderEpoch)
 		return
 	}
 	if _, ok := p.replicas[req.ReplicaID]; !ok {
