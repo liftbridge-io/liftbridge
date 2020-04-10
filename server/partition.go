@@ -492,21 +492,26 @@ func (p *partition) handleReplicationRequest(msg *nats.Msg) {
 		return
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.pause {
-		p.mu.Unlock()
+		return
+	}
+	if req.LeaderEpoch != 0 && req.LeaderEpoch != p.LeaderEpoch {
+		// This could indicate either another leader was elected (e.g. if this
+		// node was somehow partitioned from the rest of the ISR) or the
+		// follower is still trying to replicate from a previous leader. In
+		// either case, drop the request.
 		return
 	}
 	if _, ok := p.replicas[req.ReplicaID]; !ok {
 		p.srv.logger.Warnf("Received replication request for partition %s from non-replica %s",
 			p, req.ReplicaID)
-		p.mu.Unlock()
 		return
 	}
 	replicator, ok := p.replicators[req.ReplicaID]
 	if !ok {
 		panic(fmt.Sprintf("No replicator for partition %s and replica %s", p, req.ReplicaID))
 	}
-	p.mu.Unlock()
 	replicator.request(replicationRequest{req, msg, received})
 }
 
@@ -789,7 +794,7 @@ func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop <-c
 		default:
 		}
 
-		replicated, err := p.sendReplicationRequest()
+		replicated, err := p.sendReplicationRequest(epoch)
 		if err != nil {
 			p.srv.logger.Errorf(
 				"Error sending replication request for partition %s: %v", p, err)
@@ -855,10 +860,11 @@ func (p *partition) computeReplicaFetchSleep() time.Duration {
 // and processes the response. It returns an int indicating the number of
 // messages that were replicated. Zero (without an error) indicates the
 // follower is caught up with the leader.
-func (p *partition) sendReplicationRequest() (int, error) {
+func (p *partition) sendReplicationRequest(leaderEpoch uint64) (int, error) {
 	data, err := proto.MarshalReplicationRequest(&proto.ReplicationRequest{
-		ReplicaID: p.srv.config.Clustering.ServerID,
-		Offset:    p.log.NewestOffset(),
+		ReplicaID:   p.srv.config.Clustering.ServerID,
+		Offset:      p.log.NewestOffset(),
+		LeaderEpoch: leaderEpoch,
 	})
 	if err != nil {
 		panic(err)
