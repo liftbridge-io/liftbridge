@@ -18,27 +18,56 @@ is then exposed to subscribers. Specifically, Liftbridge centers around the
 concept of a *stream*, which is a durable message stream attached to a NATS
 subject. A stream consists of one or more *partitions*, which are ordered,
 replicated, and durably stored on disk and serve as the unit of storage and
-parallelism in Liftbridge.
+parallelism in Liftbridge. [@tyler Pls elaborate on where the log is stored exactly.
+This is important since users will probably want attach a k8s storage to the volume->dir, eg. s3 bucket or SSDs. This will enable statefulness when using stateful sets in k8s.]
+
+[@Tyler The dependency on NATS also means that future changes to the NATS project will impact the Liftbridge project. This problem will be remediated by versioning of stable releases of Liftbridge pointing to a stable release of NATS?]
 
 Streams have a few key properties: a subject, which is the corresponding NATS
 subject, a name, which is a human-readable identifier for the stream, and a
 replication factor, which is the number of nodes the stream's partitions should
 be replicated to for redundancy. Optionally, there is a group which is the name
 of a load-balance group for the stream to join. When there are multiple streams
-in the same group, messages will be balanced among them.
+in the same group, messages will be balanced among them. 
+
+```
+Use case note:
+The usual use case is as follows. A typical subject is the command subject (compare kafka topic) of the CQRS pattern. The corresponding log created by this
+subject is the implementation of the event sourcing pattern. The response of a command being put on a subject is a microservice worker reading that command 
+off the and subject executing the command. Subsequently, the result of this activity is then posted on another subject, perhaps for down streams analytical 
+reporting purposes etc. This enables the Query in the CQRS patterns. A careful reader saw the above remark of replication factor, redundancy and groups. 
+These choices will impact this example with microservice workers, since the order of messages and guarantees on replication will be affected by these chioces. More on that later.
+
+For further info on CQRS and event sourceing pls
+see https://martinfowler.com/bliki/CQRS.html
+and https://martinfowler.com/eaaDev/EventSourcing.html
+respectively. 
+```
 
 There can be multiple streams attached to the same NATS subject, but stream
-names must be unique within a cluster.
+names must be unique within a cluster. 
+
+[@Tyler Please describe if this is intended architecture or just happened due to dependecy towards NATS. If the latter we need to advice on usage. If the former, we need to descibe the use case. ]
+```
+This means that the concept of stream name is now defined as being the least common denominator, not the NATS subject as when using NATS alone without Liftbridge.
+```
 
 By default, streams have a single partition. This partition maps directly to
 the stream's NATS subject. If a stream has multiple partitions, each one maps
 to a different NATS subject derived from the stream subject. For example, if a
 stream with three partitions is attached to the subject "foo", the partitions
-will map to the subjects "foo", "foo.1", and "foo.2", respectively.
+will map to the subjects "foo", "foo.1", and "foo.2", respectively. (Please note the naming convention on these subjects linked to partitions.)
 
 Each partition has its own message log, leader, and set of followers. To reduce
 resource consumption, partitions can be paused. Paused partitions are
 subsequently resumed once they are published to.
+
+```
+Use case note:
+Since each partition has its own message log, it means that to meet a data linege requirement one could point all these logs to a general log like a linux system log by subscribing to * or concatenating the logs on the storage device attached. Aggregated or not, these logs could then be consumed by a supervisor system, e.g logstash, jaeger, zipkin etc for DevOps reasons. Or just stored on an s3 bucket for persistance like a ledger of what has been communicated as events.
+
+Please note, the pausing capability can free up cloud resources needed elsewhere when we have many subjects on Liftbridge. 
+```
 
 ### Write-Ahead Log
 
@@ -48,12 +77,19 @@ cluster [controller](#controller). The leader sequences each message in the
 partition and sends back an acknowledgement to publishers upon committing a
 message to the log. A message is committed to the log once it has been
 replicated to the partition's
-[in-sync replica set (ISR)](#in-sync-replica-set-isr).
+[in-sync replica set (ISR)](#in-sync-replica-set-isr). [@Tyler: what happens when 
+replication fails? Do we loose the event?] 
 
 Consumers read committed messages from the log through a subscription on the
 partition. They can read back from the log at any arbitrary position, or
 *offset*. Additionally, consumers can wait for new messages to be appended
 to the log.
+
+```
+Use case note:
+And the interested reader now identifies a typical consumer to be a stateless micro service worker. The *offset* parameter is of special interest should one
+have consumers with different and independent purposes. This, since a reporting consumer could have less priority when loads are high and an operational consumer have high priority resulting in different offsets on the same topic. Also, a paused or starved consumer, potentially a pod in kubernetes, like the potential reporting consumer, could easily pick up where it left off when things slow down.
+```
 
 ### Scalability
 
@@ -68,6 +104,8 @@ As mentioned above, there can exist multiple streams attached to the same NATS
 subject or even subjects that are semantically equivalent e.g. "foo.bar" and
 "foo.*". Each of these streams will receive a copy of the message as NATS
 handles this fan-out.
+
+[@Tyler - pls descibe use case or advise set up on architecture impementatiob for user]
 
 With this in mind, we can scale linearly by adding more nodes to the Liftbridge
 cluster and creating more streams which will be distributed amongst the
@@ -84,12 +122,18 @@ To accommodate this, streams are partitioned. By default, a stream consists of
 just a single partition, but multiple partitions can be created for increased
 parallelism. Messages can then be delivered to partitions based on their key,
 in a round-robin fashion, randomly, or with some other partitioning strategy
-on the client.
+on the client. 
 
+```
+Use case note:
+Please note that ordering within the partion is upheld but not over partitions. This means that the partioning strategy is of high importance, since an aggregated state cannot be achieved for a path dependend consumer subscribing to many streams (but perhaps on the same NATS subject). I.e. a consumer needing correct order of events can only subscribe to many streams if and only if the events are uncorrelated/independend between the partitions (and thus have order within a partition.) An architect would pay particular interest in making sure of independend and stateless workers when applying DDD. Link of interest: https://dddcommunity.org/book/evans_2003/
+```
 Additionally, streams can join a named load-balance group, which load balances
 messages on a NATS subject amongst the streams in the group. Load-balance
 groups do not affect message delivery to other streams not participating in
 the group.
+
+[@Tyler - pls descibe use case or advise set up on architecture impementatiob for user]
 
 Currently, replicas in Liftbridge act only as a mechanism for high availability
 and not scalability. However, there may be work in the future to allow them to
@@ -152,6 +196,11 @@ be aware. Note that this might be an area for future improvement to increase
 usability. However, this is akin to other similar systems, like Kafka, where
 you must first create a topic and then you publish to that topic.
 
+
+```
+The typcal use case for a producer not caring if the ack is returned or not is a IoT device or a sensor. This means that for the sensor it is not important to know if Liftbridge indeed get to record the event. For a more regulated system, one could "assume" acknowledgements are important to the producer since the recorded truth now resides within Liftbridge, ref event sourcing.
+```
+
 ### Subscription
 
 Subscriptions are how Liftbridge streams are consumed. A client subscribes to a
@@ -169,6 +218,10 @@ consumer groups will be coming in the near future which will allow a consumer
 to pick up where it left off and provide fault-tolerant consumption of
 streams.
 
+```
+This ties back to the reporting worker starved to death, but clinging on to an *offset* to the bitter end not to loose probable state. When stateful consumer groups are implemented the reporting worker need not to be restarted with no state, but only to be initiated with it's state and it can resume from there.
+```
+
 ### Stream Retention and Compaction
 
 Streams support multiple log-retention rules: age-based, message-based, and
@@ -179,6 +232,10 @@ Additionally, Liftbridge supports log *compaction*. Publishers can, optionally,
 set a *key* on a [message envelope](#message-envelope). A stream can be
 configured to compact by key. In this case, it retains only the last message
 for each unique key. Messages that do not have a key are always retained.
+
+```
+From an archtectual point of view, the choice here is to compacts as much as possible without loosing state (aggregation of events). Lineage is taken care of by the log stream is stored on an e.g. s3 bucket as noted above
+```
 
 ## Controller
 
@@ -194,6 +251,8 @@ the brokers must be running.
 
 Controller is also referred to as "metadata leader" in some contexts.
 
+[@taylor - guidance is needed on the number of deployed constrollers and possibly the on where they are deployed]
+
 ## Message Envelope
 
 Liftbridge extends NATS by allowing regular NATS messages to flow into durable
@@ -202,3 +261,9 @@ allows publishers to *enhance* messages by providing additional metadata and
 serializing their messages into [*envelopes*](./envelope_protocol.md). An
 envelope allows publishers to set things like the `AckInbox`, `Key`, `Headers`,
 and other pieces of metadata.
+
+```
+Do not underestimate the need for meta data on your processes. Proper enrichment of meta data will enable future business models served as new products to new
+consumers, e.g. consumer behaviour etc.
+```
+A final note is to read "Designing Event-Driven Systems" by Ben Stopford that can be found on confluent.io for downloading
