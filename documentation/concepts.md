@@ -34,7 +34,7 @@ in the same group, messages will be balanced among them.
 Use case note:
 The usual use case is as follows. A typical subject is the command subject (compare kafka topic) of the CQRS pattern. The corresponding log created by this
 subject is the implementation of the event sourcing pattern. The response of a command being put on a subject is a microservice worker reading that command 
-off the and subject executing the command. Subsequently, the result of this activity is then posted on another subject, perhaps for down streams analytical 
+off the subject and executing the command. Subsequently, the result of this activity is then posted on another subject, perhaps for down streams analytical 
 reporting purposes etc. This enables the Query in the CQRS patterns. A careful reader saw the above remark of replication factor, redundancy and groups. 
 These choices will impact this example with microservice workers, since the order of messages and guarantees on replication will be affected by these chioces. More on that later.
 
