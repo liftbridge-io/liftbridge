@@ -126,7 +126,7 @@ on the client.
 
 ```
 Use case note:
-Please note that ordering within the partion is upheld but not over partitions. This means that the partioning strategy is of high importance, since an aggregated state cannot be achieved for a path dependend consumer subscribing to many streams (but perhaps on the same NATS subject). I.e. a consumer needing correct order of events can only subscribe to many streams if and only if the events are uncorrelated/independend between the partitions (and thus have order within a partition.) An architect would pay particular interest in making sure of independend and stateless workers when applying DDD. Link of interest: https://dddcommunity.org/book/evans_2003/
+Please note that ordering within the partition is upheld but not across partitions. This means that the partitioning strategy is of high importance, since an aggregated state cannot be achieved for a path dependent consumer subscribing to many streams (but perhaps on the same NATS subject). I.e. a consumer needing correct order of events can only subscribe to many streams if and only if the events are uncorrelated/independent between the partitions (and thus have order within a partition.) An architect would pay particular interest in making sure of independent and stateless workers when applying DDD. Link of interest: https://dddcommunity.org/book/evans_2003/
 ```
 Additionally, streams can join a named load-balance group, which load balances
 messages on a NATS subject amongst the streams in the group. Load-balance
