@@ -105,7 +105,7 @@ subject or even subjects that are semantically equivalent e.g. "foo.bar" and
 "foo.*". Each of these streams will receive a copy of the message as NATS
 handles this fan-out.
 
-[@Tyler - pls descibe use case or advise set up on architecture impementatiob for user]
+[@Tyler - pls describe use case or advise on architectural implementation for the user]
 
 With this in mind, we can scale linearly by adding more nodes to the Liftbridge
 cluster and creating more streams which will be distributed amongst the
