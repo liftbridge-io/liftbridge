@@ -234,7 +234,7 @@ configured to compact by key. In this case, it retains only the last message
 for each unique key. Messages that do not have a key are always retained.
 
 ```
-From an archtectual point of view, the choice here is to compacts as much as possible without loosing state (aggregation of events). Lineage is taken care of by the log stream is stored on an e.g. s3 bucket as noted above
+From an architectural point of view, the choice here is to compact as much as possible without losing state (aggregation of events). Lineage is taken care of by the log stream if stored in e.g. an S3 bucket as noted above.
 ```
 
 ## Controller
