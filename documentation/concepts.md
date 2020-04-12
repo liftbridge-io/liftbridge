@@ -219,7 +219,7 @@ to pick up where it left off and provide fault-tolerant consumption of
 streams.
 
 ```
-This ties back to the reporting worker starved to death, but clinging on to an *offset* to the bitter end not to loose probable state. When stateful consumer groups are implemented the reporting worker need not to be restarted with no state, but only to be initiated with it's state and it can resume from there.
+This ties back to the reporting worker starved to death, but clinging on to an *offset* to the bitter end so as not to lose probable state. When stateful consumer groups are implemented the reporting worker will not be restarted without state, but can resume from where it left off.
 ```
 
 ### Stream Retention and Compaction
