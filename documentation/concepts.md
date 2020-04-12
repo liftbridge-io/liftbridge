@@ -78,7 +78,7 @@ partition and sends back an acknowledgement to publishers upon committing a
 message to the log. A message is committed to the log once it has been
 replicated to the partition's
 [in-sync replica set (ISR)](#in-sync-replica-set-isr). [@Tyler: what happens when 
-replication fails? Do we loose the event?] 
+replication fails? Do we lose the event?] 
 
 Consumers read committed messages from the log through a subscription on the
 partition. They can read back from the log at any arbitrary position, or
