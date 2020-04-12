@@ -64,7 +64,7 @@ subsequently resumed once they are published to.
 
 ```
 Use case note:
-Since each partition has its own message log, it means that to meet a data linege requirement one could point all these logs to a general log like a linux system log by subscribing to * or concatenating the logs on the storage device attached. Aggregated or not, these logs could then be consumed by a supervisor system, e.g logstash, jaeger, zipkin etc for DevOps reasons. Or just stored on an s3 bucket for persistance like a ledger of what has been communicated as events.
+Since each partition has its own message log, it means that to meet a data lineage requirement one could point all these logs to a general log like a Linux system log by subscribing to * or concatenating the logs on the storage device attached. Aggregated or not, these logs could then be consumed by a supervisor system, e.g Logstash, Jaeger, Zipkin etc for DevOps reasons. Or just stored in an S3 bucket for persistence like a ledger of what has been communicated as events.
 
 Please note, the pausing capability can free up cloud resources needed elsewhere when we have many subjects on Liftbridge. 
 ```
