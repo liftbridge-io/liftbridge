@@ -198,7 +198,7 @@ you must first create a topic and then you publish to that topic.
 
 
 ```
-The typcal use case for a producer not caring if the ack is returned or not is a IoT device or a sensor. This means that for the sensor it is not important to know if Liftbridge indeed get to record the event. For a more regulated system, one could "assume" acknowledgements are important to the producer since the recorded truth now resides within Liftbridge, ref event sourcing.
+The typical use case for a producer not caring if the ACK is returned or not is an IoT device or a sensor. This means that for the sensor it is not important to know if Liftbridge indeed got to record the event. For a more regulated system, one could "assume" acknowledgements are important to the producer since the recorded truth now resides within Liftbridge, ref event sourcing.
 ```
 
 ### Subscription
