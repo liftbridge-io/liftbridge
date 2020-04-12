@@ -88,7 +88,7 @@ to the log.
 ```
 Use case note:
 And the interested reader now identifies a typical consumer to be a stateless micro service worker. The *offset* parameter is of special interest should one
-have consumers with different and independent purposes. This, since a reporting consumer could have less priority when loads are high and an operational consumer have high priority resulting in different offsets on the same topic. Also, a paused or starved consumer, potentially a pod in kubernetes, like the potential reporting consumer, could easily pick up where it left off when things slow down.
+have consumers with different and independent purposes. This, since a reporting consumer could have less priority when loads are high and an operational consumer have high priority resulting in different offsets on the same topic. Also, a paused or starved consumer, potentially a Pod in Kubernetes, like the potential reporting consumer, could easily pick up where it left off when things slow down.
 ```
 
 ### Scalability
