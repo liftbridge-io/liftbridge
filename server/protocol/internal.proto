@@ -119,8 +119,9 @@ message MetadataSnapshot {
 }
 
 message ReplicationRequest {
-    string replicaID = 1;
-    int64  offset    = 2;
+    string replicaID   = 1;
+    int64  offset      = 2;
+    uint64 leaderEpoch = 3;
 }
 
 message LeaderEpochOffsetRequest {
