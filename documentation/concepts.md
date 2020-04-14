@@ -33,19 +33,11 @@ be replicated to for redundancy. Optionally, there is a group which is the name
 of a load-balance group for the stream to join. When there are multiple streams
 in the same group, messages will be balanced among them. 
 
-```
-Use case note:
-The usual use case is as follows. A typical subject is the command subject (compare kafka topic) of the CQRS pattern. The corresponding log created by this
-subject is the implementation of the event sourcing pattern. The response of a command being put on a subject is a microservice worker reading that command 
-off the subject and executing the command. Subsequently, the result of this activity is then posted on another subject, perhaps for down streams analytical 
-reporting purposes etc. This enables the Query in the CQRS patterns. A careful reader saw the above remark of replication factor, redundancy and groups. 
-These choices will impact this example with microservice workers, since the order of messages and guarantees on replication will be affected by these chioces. More on that later.
-
-For further info on CQRS and event sourceing pls
-see https://martinfowler.com/bliki/CQRS.html
-and https://martinfowler.com/eaaDev/EventSourcing.html
-respectively. 
-```
+> **Use Case Note**
+>
+> The usual use case is as follows. A typical subject is the command subject (comparable to a Kafka topic) of the CQRS pattern. The corresponding log created by this subject is the implementation of the event-sourcing pattern. The response of a command being put on a subject is a microservice worker reading that command off the subject and executing the command. Subsequently, the result of this activity is then posted on another subject, perhaps for downstream analytical reporting purposes. This enables the Query in the CQRS patterns. A careful reader saw the above remark of replication factor, redundancy, and groups. These choices will impact this example with microservice workers, since the order of messages and guarantees on replication will be affected by these choices. More on that later.
+>
+> For further info on CQRS and event sourcing, please see [https://martinfowler.com/bliki/CQRS.html](https://martinfowler.com/bliki/CQRS.html) and [https://martinfowler.com/eaaDev/EventSourcing.html](https://martinfowler.com/eaaDev/EventSourcing.html) respectively. 
 
 There can be multiple streams attached to the same NATS subject, but stream
 names must be unique within a cluster. 
