@@ -18,8 +18,11 @@ is then exposed to subscribers. Specifically, Liftbridge centers around the
 concept of a *stream*, which is a durable message stream attached to a NATS
 subject. A stream consists of one or more *partitions*, which are ordered,
 replicated, and durably stored on disk and serve as the unit of storage and
-parallelism in Liftbridge. [@tyler Pls elaborate on where the log is stored exactly.
-This is important since users will probably want attach a k8s storage to the volume->dir, eg. s3 bucket or SSDs. This will enable statefulness when using stateful sets in k8s.]
+parallelism in Liftbridge.
+
+Liftbridge relies heavily on the filesystem for storing and caching stream messages. While disks are generally perceived as slow, they are actually quite fast in the case of linear reads and writes which is how Liftbridge operates. As shown in this [ACM Queue article](https://queue.acm.org/detail.cfm?id=1563874), [sequential disk access can be faster than random memory access](https://deliveryimages.acm.org/10.1145/1570000/1563874/jacobs3.jpg). Liftbridge also uses memory mapping for message indexing to allow for efficient lookups.
+
+By default, partition data is stored in the `/tmp/liftbridge/<namespace>` directory where `namespace` is the cluster namespace used to implement multi-tenancy for Liftbridge clusters sharing the same NATS cluster. The default namespace is `liftbridge-default`. It can be changed with the [`clustering.namespace` configuration](./configuration.md#clustering-configuration-settings). Additionally, the full data directory can be overridden with the [`data.dir` configuration](./configuration.md#configuration-settings).
 
 [@Tyler The dependency on NATS also means that future changes to the NATS project will impact the Liftbridge project. This problem will be remediated by versioning of stable releases of Liftbridge pointing to a stable release of NATS?]
 
