@@ -402,6 +402,11 @@ func (l *commitLog) activeSegment() *segment {
 }
 
 func (l *commitLog) close() error {
+	select {
+	case <-l.closed:
+		return nil
+	default:
+	}
 	if err := l.checkpointHW(); err != nil {
 		return err
 	}
