@@ -334,7 +334,7 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 	err = client2.Subscribe(context.Background(), name,
 		func(msg lift.Message, err error) {
 			require.NoError(t, err)
-			fmt.Println("no")
+			fmt.Println("receiving msg")
 		}, lift.ReadISRReplica())
 	require.NoError(t, err)
 }
