@@ -268,7 +268,7 @@ type Handler func(msg Message, err error)
 
 The subscription options are the equivalent of optional named arguments used to
 configure a subscription. 
-By default, the client automatically binds to partition's leader for subscribe a request. However, it is also possible to bind a subscribe request to one of the ISR replica with an additional opt-in. An ISR may have commited log but not available for consumption, thus there are maybe inconsitency with a subscription from partition's leader.
+By default, the client automatically binds to partition's leader for a subscribe request. However, it is also possible to bind a subscribe request to one of the ISR replica with an additional opt-in. An ISR may have commited log but not available for consumption, thus there are maybe inconsistency with a subscription from partition's leader.
 
 Supported options are:
 
@@ -280,7 +280,7 @@ Supported options are:
 | StartAtOffset | int | Sets the subscription start position to the first message with an offset greater than or equal to the given offset. | |
 | StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
 | StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
-| ReadISRReplica |  | Sets the subscription to one of the random ISR instead of subscribing to partition's leader | |
+| ReadISRReplica |  | Sets the subscription to one of a random ISR instead of subscribing to partition's leader | |
 
 Currently, `Subscribe` can only subscribe to a single partition. In the future,
 there will be functionality for consuming all partitions.
