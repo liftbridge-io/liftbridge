@@ -267,7 +267,10 @@ type Handler func(msg Message, err error)
 ```
 
 The subscription options are the equivalent of optional named arguments used to
-configure a subscription. Supported options are:
+configure a subscription. 
+By default, the client automatically binds to partition's leader for subscribe a request. However, it is also possible to bind a subscribe request to one of the ISR replica with an additional opt-in. An ISR may have commited log but not available for consumption, thus there are maybe inconsitency with a subscription from partition's leader.
+
+Supported options are:
 
 | Option | Type | Description | Default |
 |:----|:----|:----|:----|
@@ -277,6 +280,7 @@ configure a subscription. Supported options are:
 | StartAtOffset | int | Sets the subscription start position to the first message with an offset greater than or equal to the given offset. | |
 | StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
 | StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
+| ReadISRReplica |  | Sets the subscription to one of the random ISR instead of subscribing to partition's leader | |
 
 Currently, `Subscribe` can only subscribe to a single partition. In the future,
 there will be functionality for consuming all partitions.
@@ -837,8 +841,9 @@ func (c *client) Subscribe(ctx context.Context, streamName string, handler Handl
 }
 ```
 
-The `Subscribe` RPC must be sent to the leader of the stream partition being
-subscribed to. This should be determined by [fetching the
+The `Subscribe` RPC can be sent to either the leader or a random ISR replica of the stream the client wants to subscribe to. By default, it should subscribe to the leader. A `ReadISRReplica` option must be enabeld on the subscribe request in order to subscribe to an ISR replica.
+
+Either subscribing to leader (by default) or ISR replica, the address  should be determined by [fetching the
 metadata](#fetchmetadata) from the cluster. This metadata can (and should) be
 cached in the client. It's recommended `Subscribe` use [connection
 pooling](#connection-pooling) since each `Subscribe` call will involve a
