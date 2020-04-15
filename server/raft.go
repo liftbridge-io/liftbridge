@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -62,6 +63,20 @@ type raftNode struct {
 	logInput  io.WriteCloser
 	joinSub   *nats.Subscription
 	notifyCh  <-chan bool
+}
+
+// isLeader indicates if the Raft node is currently the leader.
+func (r *raftNode) isLeader() bool {
+	return atomic.LoadInt64(&(r.leader)) == 1
+}
+
+// setLeader sets the Raft node as the current leader or as a follower.
+func (r *raftNode) setLeader(leader bool) {
+	var flag int64
+	if leader {
+		flag = 1
+	}
+	atomic.StoreInt64(&(r.leader), flag)
 }
 
 // applyOperation proposes the given operation to the Raft cluster. This should

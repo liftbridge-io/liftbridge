@@ -238,7 +238,7 @@ func (s *Server) Stop() error {
 // it's leader when it's not, the operation it proposes to the Raft cluster
 // will fail.
 func (s *Server) IsLeader() bool {
-	return atomic.LoadInt64(&(s.getRaft().leader)) == 1
+	return s.getRaft().isLeader()
 }
 
 // IsRunning indicates if the server is currently running or has been stopped.
@@ -516,7 +516,7 @@ func (s *Server) leadershipAcquired() error {
 		return err
 	}
 
-	atomic.StoreInt64(&(s.getRaft().leader), 1)
+	s.getRaft().setLeader(true)
 	return nil
 }
 
@@ -538,7 +538,7 @@ func (s *Server) leadershipLost() error {
 		return err
 	}
 
-	atomic.StoreInt64(&(s.getRaft().leader), 0)
+	s.getRaft().setLeader(false)
 	return nil
 }
 
