@@ -70,6 +70,12 @@ LOOP:
 	stackFatalf(t, "Cluster did not reach ISR size %d for [name=%s, partition=%d]", isrSize, name, partitionID)
 }
 
+func stopFollowing(t *testing.T, p *partition) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	require.NoError(t, p.stopFollowing())
+}
+
 // Ensure messages are replicated and the stream leader fails over when the
 // leader dies.
 func TestStreamLeaderFailover(t *testing.T) {
@@ -540,13 +546,13 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	// Stop first follower's replication and reset HW.
 	partition1 := follower1.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition1)
-	require.NoError(t, partition1.stopFollowing())
+	stopFollowing(t, partition1)
 	partition1.log.OverrideHighWatermark(0)
 
 	// Stop second follower's replication and reset HW.
 	partition2 := follower2.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition2)
-	require.NoError(t, partition2.stopFollowing())
+	stopFollowing(t, partition2)
 	partition2.log.OverrideHighWatermark(0)
 
 	var (
@@ -674,18 +680,14 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	// Stop first follower's replication and reset HW.
 	partition1 := follower1.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition1)
-	partition1.mu.Lock()
-	require.NoError(t, partition1.stopFollowing())
-	partition1.mu.Unlock()
+	stopFollowing(t, partition1)
 	partition1.log.OverrideHighWatermark(0)
 	partition1.truncateToHW()
 
 	// Stop second follower's replication and reset HW.
 	partition2 := follower2.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition2)
-	partition2.mu.Lock()
-	require.NoError(t, partition2.stopFollowing())
-	partition2.mu.Unlock()
+	stopFollowing(t, partition2)
 	partition2.log.OverrideHighWatermark(0)
 	partition2.truncateToHW()
 
