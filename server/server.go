@@ -822,3 +822,20 @@ func (s *Server) startGoroutine(f func()) {
 		s.goroutineWait.Done()
 	}()
 }
+
+// startGoroutineWithArgs starts a goroutine which is managed by the server and
+// is passed the provided arguments. This adds the goroutine to a WaitGroup so
+// that the server can wait for all running goroutines to stop on shutdown.
+// This should be used instead of a "naked" goroutine.
+func (s *Server) startGoroutineWithArgs(f func(...interface{}), args ...interface{}) {
+	select {
+	case <-s.shutdownCh:
+		return
+	default:
+	}
+	s.goroutineWait.Add(1)
+	go func() {
+		f(args...)
+		s.goroutineWait.Done()
+	}()
+}

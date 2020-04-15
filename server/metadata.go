@@ -342,10 +342,10 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *proto.CreateStreamO
 	var wg sync.WaitGroup
 	wg.Add(len(req.Stream.Partitions))
 	for _, partition := range req.Stream.Partitions {
-		m.startGoroutine(func() {
-			m.waitForPartitionLeader(ctx, partition)
+		m.startGoroutineWithArgs(func(args ...interface{}) {
+			m.waitForPartitionLeader(ctx, args[0].(*proto.Partition))
 			wg.Done()
-		})
+		}, partition)
 	}
 	wg.Wait()
 
@@ -472,11 +472,11 @@ func (m *metadataAPI) ResumeStream(ctx context.Context, req *proto.ResumeStreamO
 	var wg sync.WaitGroup
 	wg.Add(len(req.Partitions))
 	for _, partitionID := range req.Partitions {
-		go func(pid int32) {
-			partition := m.GetPartition(req.Stream, pid)
-			m.waitForPartitionLeader(ctx, partition.Partition)
+		partition := m.GetPartition(req.Stream, partitionID)
+		m.startGoroutineWithArgs(func(args ...interface{}) {
+			m.waitForPartitionLeader(ctx, args[0].(*proto.Partition))
 			wg.Done()
-		}(partitionID)
+		}, partition.Partition)
 	}
 	wg.Wait()
 
