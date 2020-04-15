@@ -507,7 +507,7 @@ func TestStreamReceiveMsgFromReplica(t *testing.T) {
 	// Make sure we can play back the log.
 	client3, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
-	defer client2.Close()
+	defer client3.Close()
 	i = num
 	ch1 = make(chan struct{})
 	err = client3.Subscribe(context.Background(), name,
