@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	"github.com/hashicorp/raft-boltdb"
+	"github.com/liftbridge-io/raft-boltdb"
 	"github.com/nats-io/nats.go"
 	pkgErrors "github.com/pkg/errors"
 
