@@ -380,7 +380,15 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			if err != nil {
 				var s *status.Status
 				if err == commitlog.ErrCommitLogDeleted {
+					// Partition was deleted while subscribed.
 					s = status.New(codes.NotFound, err.Error())
+				} else if err == commitlog.ErrCommitLogClosed {
+					// Partition was closed while subscribed (likely paused).
+					code := codes.Internal
+					if partition.IsPaused() {
+						code = codes.FailedPrecondition
+					}
+					s = status.New(code, err.Error())
 				} else {
 					s = status.Convert(err)
 				}

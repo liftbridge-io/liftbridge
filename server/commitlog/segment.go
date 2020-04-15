@@ -38,9 +38,13 @@ var (
 	// new segment.
 	ErrSegmentReplaced = errors.New("segment was replaced")
 
-	// ErrCommitLogDeleted is returned when attempting to read from a commit log
-	// that has been deleted.
+	// ErrCommitLogDeleted is returned when attempting to read from a commit
+	// log that has been deleted.
 	ErrCommitLogDeleted = errors.New("commit log was deleted")
+
+	// ErrCommitLogClosed is returned when attempting to read from a commit
+	// log that has been closed.
+	ErrCommitLogClosed = errors.New("commit log was closed")
 
 	// timestamp returns the current time in Unix nanoseconds. This function
 	// exists for mocking purposes.

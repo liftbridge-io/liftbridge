@@ -449,6 +449,19 @@ func (l *commitLog) IsDeleted() bool {
 	return l.deleted
 }
 
+// IsClosed returns true if the commit log was closed.
+func (l *commitLog) IsClosed() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	select {
+	case <-l.closed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Truncate removes all messages from the log starting at the given offset.
 func (l *commitLog) Truncate(offset int64) error {
 	l.mu.Lock()

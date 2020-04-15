@@ -58,7 +58,11 @@ RETRY:
 	msg, offset, timestamp, leaderEpoch, err := readMessage(ctx, r.ctxReader, headersBuf)
 	if err != nil {
 		if r.log.IsDeleted() {
+			// The log was deleted while we were trying to read.
 			return nil, 0, 0, 0, ErrCommitLogDeleted
+		} else if r.log.IsClosed() {
+			// The log was closed while we were trying to read.
+			return nil, 0, 0, 0, ErrCommitLogClosed
 		} else if pkgErrors.Cause(err) == ErrSegmentReplaced {
 			// ErrSegmentReplaced indicates we attempted to read from a log
 			// segment that was replaced due to compaction, so reinitialize the
