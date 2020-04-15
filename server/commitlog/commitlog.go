@@ -451,9 +451,6 @@ func (l *commitLog) IsDeleted() bool {
 
 // IsClosed returns true if the commit log was closed.
 func (l *commitLog) IsClosed() bool {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
 	select {
 	case <-l.closed:
 		return true
