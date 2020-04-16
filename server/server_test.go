@@ -105,14 +105,24 @@ func waitForNoMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Se
 	stackFatalf(t, "Metadata leader found")
 }
 
-func checkPartitionPaused(t *testing.T, stream string, partitionID int32, paused bool, server *Server) {
+func checkPartitionPaused(t *testing.T, timeout time.Duration, stream string,
+	partitionID int32, paused bool, server *Server) {
+
 	partition := server.metadata.GetPartition(stream, partitionID)
 	if partition == nil {
 		stackFatalf(t, "Partition not found")
 	}
-	if isPaused := partition.IsPaused(); isPaused != paused {
-		stackFatalf(t, "Expected partition paused %v, got %v", paused, isPaused)
+	var (
+		deadline = time.Now().Add(timeout)
+		isPaused bool
+	)
+	for time.Now().Before(deadline) {
+		isPaused = partition.IsPaused()
+		if isPaused == paused {
+			return
+		}
 	}
+	stackFatalf(t, "Expected partition paused %v, got %v", paused, isPaused)
 }
 
 func getPartitionLeader(t *testing.T, timeout time.Duration, name string, partitionID int32, servers ...*Server) *Server {
@@ -1373,8 +1383,8 @@ func TestPauseStreamAllPartitions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check that both partitions are paused.
-	checkPartitionPaused(t, name, 0, true, s1)
-	checkPartitionPaused(t, name, 1, true, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 0, true, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 1, true, s1)
 
 	// Publish a message to partition 0.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1400,8 +1410,8 @@ func TestPauseStreamAllPartitions(t *testing.T) {
 	}
 
 	// Check that partition 0 was resumed but partition 1 is still paused.
-	checkPartitionPaused(t, name, 0, false, s1)
-	checkPartitionPaused(t, name, 1, true, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 0, false, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 1, true, s1)
 }
 
 // Test stream pausing and resuming. A paused stream should re-activate itself
@@ -1441,8 +1451,8 @@ func TestPauseStreamSomePartitions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check that only partition 0 is paused.
-	checkPartitionPaused(t, name, 0, true, s1)
-	checkPartitionPaused(t, name, 1, false, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 0, true, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 1, false, s1)
 
 	// Publish a message to the non-paused partition, which should resume the
 	// paused partition since ResumeAll was enabled.
@@ -1469,12 +1479,13 @@ func TestPauseStreamSomePartitions(t *testing.T) {
 	}
 
 	// Check that both partitions are resumed.
-	checkPartitionPaused(t, name, 0, false, s1)
-	checkPartitionPaused(t, name, 1, false, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 0, false, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 1, false, s1)
 }
 
 // Ensure pausing a stream works when we send the request to the metadata
-// follower.
+// follower and resuming the stream works when the resuming publish is sent to
+// the follower.
 func TestPauseStreamPropagate(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -1499,11 +1510,25 @@ func TestPauseStreamPropagate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	err = client.CreateStream(ctx, "foo", "foo")
+	name := "foo"
+	err = client.CreateStream(ctx, "foo", name)
 	require.NoError(t, err)
 
-	err = client.PauseStream(context.Background(), "foo")
+	// Pause stream on follower.
+	err = client.PauseStream(context.Background(), name)
 	require.NoError(t, err)
+
+	checkPartitionPaused(t, 5*time.Second, name, 0, true, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 0, true, s2)
+
+	// Resume stream by publishing to follower.
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, []byte("hello"))
+	require.NoError(t, err)
+
+	checkPartitionPaused(t, 5*time.Second, name, 0, false, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 0, false, s2)
 }
 
 // Ensure publishing to a non-existent stream returns an error.
