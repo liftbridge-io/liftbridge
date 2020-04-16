@@ -17,6 +17,7 @@ func TestMetadataCreateStreamNoPartitions(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 	raft := new(raftNode)
 	raft.setLeader(true)
 	server.setRaft(raft)
@@ -34,6 +35,7 @@ func TestMetadataAddStreamNoPartitions(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	_, err := metadata.AddStream(new(proto.Stream), false)
 	require.Error(t, err)
@@ -45,6 +47,7 @@ func TestMetadataAddStreamAlreadyExists(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	_, err := metadata.AddStream(&proto.Stream{
 		Name:    "foo",
@@ -79,6 +82,7 @@ func TestMetadataAddPartitionAlreadyExists(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	stream, err := metadata.AddStream(&proto.Stream{
 		Name:    "foo",
@@ -108,6 +112,7 @@ func TestMetadataResumePartitionStreamNotFound(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	_, err := metadata.ResumePartition("foo", 0, false)
 	require.Equal(t, ErrStreamNotFound, err)
@@ -120,6 +125,7 @@ func TestMetadataResumePartitionPartitionNotFound(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	_, err := metadata.AddStream(&proto.Stream{
 		Name:    "foo",
@@ -145,6 +151,7 @@ func TestMetadataCheckPauseStreamPreconditionsStreamNotFound(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	err := metadata.checkPauseStreamPreconditions(&proto.RaftLog{
 		Op:            proto.Op_PAUSE_STREAM,
@@ -160,6 +167,7 @@ func TestMetadataCheckResumeStreamPreconditionsStreamNotFound(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	err := metadata.checkResumeStreamPreconditions(&proto.RaftLog{
 		Op:             proto.Op_RESUME_STREAM,
@@ -175,6 +183,7 @@ func TestMetadataCheckResumeStreamPreconditionsPartitionNotFound(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	_, err := metadata.AddStream(&proto.Stream{
 		Name:    "foo",
@@ -203,6 +212,7 @@ func TestMetadataPartitionExistsPartitionNotFound(t *testing.T) {
 
 	server := New(getTestConfig("a", true, 0))
 	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
 
 	_, err := metadata.AddStream(&proto.Stream{
 		Name:    "foo",
