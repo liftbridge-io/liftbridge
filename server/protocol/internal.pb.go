@@ -10,13 +10,16 @@
 	It has these top-level messages:
 		ServerState
 		RaftLog
-		CreatePartitionOp
+		CreateStreamOp
 		ShrinkISROp
 		ExpandISROp
 		DeleteStreamOp
 		PauseStreamOp
+		ResumeStreamOp
 		ReportLeaderOp
 		ChangeLeaderOp
+		PublishActivityOp
+		Stream
 		Partition
 		RaftJoinRequest
 		RaftJoinResponse
@@ -55,32 +58,38 @@ const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 type Op int32
 
 const (
-	Op_CREATE_PARTITION Op = 0
+	Op_CREATE_STREAM    Op = 0
 	Op_SHRINK_ISR       Op = 1
 	Op_REPORT_LEADER    Op = 2
 	Op_CHANGE_LEADER    Op = 3
 	Op_EXPAND_ISR       Op = 4
 	Op_DELETE_STREAM    Op = 5
 	Op_PAUSE_STREAM     Op = 6
+	Op_RESUME_STREAM    Op = 7
+	Op_PUBLISH_ACTIVITY Op = 8
 )
 
 var Op_name = map[int32]string{
-	0: "CREATE_PARTITION",
+	0: "CREATE_STREAM",
 	1: "SHRINK_ISR",
 	2: "REPORT_LEADER",
 	3: "CHANGE_LEADER",
 	4: "EXPAND_ISR",
 	5: "DELETE_STREAM",
 	6: "PAUSE_STREAM",
+	7: "RESUME_STREAM",
+	8: "PUBLISH_ACTIVITY",
 }
 var Op_value = map[string]int32{
-	"CREATE_PARTITION": 0,
+	"CREATE_STREAM":    0,
 	"SHRINK_ISR":       1,
 	"REPORT_LEADER":    2,
 	"CHANGE_LEADER":    3,
 	"EXPAND_ISR":       4,
 	"DELETE_STREAM":    5,
 	"PAUSE_STREAM":     6,
+	"RESUME_STREAM":    7,
+	"PUBLISH_ACTIVITY": 8,
 }
 
 func (x Op) String() string {
@@ -106,12 +115,14 @@ func (m *ServerState) GetServerID() string {
 
 type RaftLog struct {
 	Op                Op                 `protobuf:"varint,1,opt,name=op,proto3,enum=protocol.Op" json:"op,omitempty"`
-	CreatePartitionOp *CreatePartitionOp `protobuf:"bytes,2,opt,name=createPartitionOp" json:"createPartitionOp,omitempty"`
+	CreateStreamOp    *CreateStreamOp    `protobuf:"bytes,2,opt,name=createStreamOp" json:"createStreamOp,omitempty"`
 	ShrinkISROp       *ShrinkISROp       `protobuf:"bytes,3,opt,name=shrinkISROp" json:"shrinkISROp,omitempty"`
 	ChangeLeaderOp    *ChangeLeaderOp    `protobuf:"bytes,4,opt,name=changeLeaderOp" json:"changeLeaderOp,omitempty"`
 	ExpandISROp       *ExpandISROp       `protobuf:"bytes,5,opt,name=expandISROp" json:"expandISROp,omitempty"`
 	DeleteStreamOp    *DeleteStreamOp    `protobuf:"bytes,6,opt,name=deleteStreamOp" json:"deleteStreamOp,omitempty"`
 	PauseStreamOp     *PauseStreamOp     `protobuf:"bytes,7,opt,name=pauseStreamOp" json:"pauseStreamOp,omitempty"`
+	ResumeStreamOp    *ResumeStreamOp    `protobuf:"bytes,8,opt,name=resumeStreamOp" json:"resumeStreamOp,omitempty"`
+	PublishActivityOp *PublishActivityOp `protobuf:"bytes,9,opt,name=publishActivityOp" json:"publishActivityOp,omitempty"`
 }
 
 func (m *RaftLog) Reset()                    { *m = RaftLog{} }
@@ -123,12 +134,12 @@ func (m *RaftLog) GetOp() Op {
 	if m != nil {
 		return m.Op
 	}
-	return Op_CREATE_PARTITION
+	return Op_CREATE_STREAM
 }
 
-func (m *RaftLog) GetCreatePartitionOp() *CreatePartitionOp {
+func (m *RaftLog) GetCreateStreamOp() *CreateStreamOp {
 	if m != nil {
-		return m.CreatePartitionOp
+		return m.CreateStreamOp
 	}
 	return nil
 }
@@ -168,18 +179,32 @@ func (m *RaftLog) GetPauseStreamOp() *PauseStreamOp {
 	return nil
 }
 
-type CreatePartitionOp struct {
-	Partition *Partition `protobuf:"bytes,1,opt,name=partition" json:"partition,omitempty"`
+func (m *RaftLog) GetResumeStreamOp() *ResumeStreamOp {
+	if m != nil {
+		return m.ResumeStreamOp
+	}
+	return nil
 }
 
-func (m *CreatePartitionOp) Reset()                    { *m = CreatePartitionOp{} }
-func (m *CreatePartitionOp) String() string            { return proto.CompactTextString(m) }
-func (*CreatePartitionOp) ProtoMessage()               {}
-func (*CreatePartitionOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{2} }
-
-func (m *CreatePartitionOp) GetPartition() *Partition {
+func (m *RaftLog) GetPublishActivityOp() *PublishActivityOp {
 	if m != nil {
-		return m.Partition
+		return m.PublishActivityOp
+	}
+	return nil
+}
+
+type CreateStreamOp struct {
+	Stream *Stream `protobuf:"bytes,1,opt,name=stream" json:"stream,omitempty"`
+}
+
+func (m *CreateStreamOp) Reset()                    { *m = CreateStreamOp{} }
+func (m *CreateStreamOp) String() string            { return proto.CompactTextString(m) }
+func (*CreateStreamOp) ProtoMessage()               {}
+func (*CreateStreamOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{2} }
+
+func (m *CreateStreamOp) GetStream() *Stream {
+	if m != nil {
+		return m.Stream
 	}
 	return nil
 }
@@ -328,6 +353,30 @@ func (m *PauseStreamOp) GetResumeAll() bool {
 	return false
 }
 
+type ResumeStreamOp struct {
+	Stream     string  `protobuf:"bytes,1,opt,name=stream,proto3" json:"stream,omitempty"`
+	Partitions []int32 `protobuf:"varint,2,rep,packed,name=partitions" json:"partitions,omitempty"`
+}
+
+func (m *ResumeStreamOp) Reset()                    { *m = ResumeStreamOp{} }
+func (m *ResumeStreamOp) String() string            { return proto.CompactTextString(m) }
+func (*ResumeStreamOp) ProtoMessage()               {}
+func (*ResumeStreamOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{7} }
+
+func (m *ResumeStreamOp) GetStream() string {
+	if m != nil {
+		return m.Stream
+	}
+	return ""
+}
+
+func (m *ResumeStreamOp) GetPartitions() []int32 {
+	if m != nil {
+		return m.Partitions
+	}
+	return nil
+}
+
 type ReportLeaderOp struct {
 	Stream      string `protobuf:"bytes,1,opt,name=stream,proto3" json:"stream,omitempty"`
 	Partition   int32  `protobuf:"varint,2,opt,name=partition,proto3" json:"partition,omitempty"`
@@ -339,7 +388,7 @@ type ReportLeaderOp struct {
 func (m *ReportLeaderOp) Reset()                    { *m = ReportLeaderOp{} }
 func (m *ReportLeaderOp) String() string            { return proto.CompactTextString(m) }
 func (*ReportLeaderOp) ProtoMessage()               {}
-func (*ReportLeaderOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{7} }
+func (*ReportLeaderOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{8} }
 
 func (m *ReportLeaderOp) GetStream() string {
 	if m != nil {
@@ -385,7 +434,7 @@ type ChangeLeaderOp struct {
 func (m *ChangeLeaderOp) Reset()                    { *m = ChangeLeaderOp{} }
 func (m *ChangeLeaderOp) String() string            { return proto.CompactTextString(m) }
 func (*ChangeLeaderOp) ProtoMessage()               {}
-func (*ChangeLeaderOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{8} }
+func (*ChangeLeaderOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{9} }
 
 func (m *ChangeLeaderOp) GetStream() string {
 	if m != nil {
@@ -408,6 +457,54 @@ func (m *ChangeLeaderOp) GetLeader() string {
 	return ""
 }
 
+type PublishActivityOp struct {
+	RaftIndex uint64 `protobuf:"varint,1,opt,name=raftIndex,proto3" json:"raftIndex,omitempty"`
+}
+
+func (m *PublishActivityOp) Reset()                    { *m = PublishActivityOp{} }
+func (m *PublishActivityOp) String() string            { return proto.CompactTextString(m) }
+func (*PublishActivityOp) ProtoMessage()               {}
+func (*PublishActivityOp) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{10} }
+
+func (m *PublishActivityOp) GetRaftIndex() uint64 {
+	if m != nil {
+		return m.RaftIndex
+	}
+	return 0
+}
+
+type Stream struct {
+	Name       string       `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Subject    string       `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"`
+	Partitions []*Partition `protobuf:"bytes,3,rep,name=partitions" json:"partitions,omitempty"`
+}
+
+func (m *Stream) Reset()                    { *m = Stream{} }
+func (m *Stream) String() string            { return proto.CompactTextString(m) }
+func (*Stream) ProtoMessage()               {}
+func (*Stream) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{11} }
+
+func (m *Stream) GetName() string {
+	if m != nil {
+		return m.Name
+	}
+	return ""
+}
+
+func (m *Stream) GetSubject() string {
+	if m != nil {
+		return m.Subject
+	}
+	return ""
+}
+
+func (m *Stream) GetPartitions() []*Partition {
+	if m != nil {
+		return m.Partitions
+	}
+	return nil
+}
+
 type Partition struct {
 	Subject           string   `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
 	Stream            string   `protobuf:"bytes,2,opt,name=stream,proto3" json:"stream,omitempty"`
@@ -419,12 +516,13 @@ type Partition struct {
 	Isr               []string `protobuf:"bytes,8,rep,name=isr" json:"isr,omitempty"`
 	LeaderEpoch       uint64   `protobuf:"varint,9,opt,name=leaderEpoch,proto3" json:"leaderEpoch,omitempty"`
 	Epoch             uint64   `protobuf:"varint,10,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	Paused            bool     `protobuf:"varint,11,opt,name=paused,proto3" json:"paused,omitempty"`
 }
 
 func (m *Partition) Reset()                    { *m = Partition{} }
 func (m *Partition) String() string            { return proto.CompactTextString(m) }
 func (*Partition) ProtoMessage()               {}
-func (*Partition) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{9} }
+func (*Partition) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{12} }
 
 func (m *Partition) GetSubject() string {
 	if m != nil {
@@ -496,6 +594,13 @@ func (m *Partition) GetEpoch() uint64 {
 	return 0
 }
 
+func (m *Partition) GetPaused() bool {
+	if m != nil {
+		return m.Paused
+	}
+	return false
+}
+
 // RaftJoinRequest is a request to join a Raft group.
 type RaftJoinRequest struct {
 	NodeID   string `protobuf:"bytes,1,opt,name=nodeID,proto3" json:"nodeID,omitempty"`
@@ -505,7 +610,7 @@ type RaftJoinRequest struct {
 func (m *RaftJoinRequest) Reset()                    { *m = RaftJoinRequest{} }
 func (m *RaftJoinRequest) String() string            { return proto.CompactTextString(m) }
 func (*RaftJoinRequest) ProtoMessage()               {}
-func (*RaftJoinRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{10} }
+func (*RaftJoinRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{13} }
 
 func (m *RaftJoinRequest) GetNodeID() string {
 	if m != nil {
@@ -529,7 +634,7 @@ type RaftJoinResponse struct {
 func (m *RaftJoinResponse) Reset()                    { *m = RaftJoinResponse{} }
 func (m *RaftJoinResponse) String() string            { return proto.CompactTextString(m) }
 func (*RaftJoinResponse) ProtoMessage()               {}
-func (*RaftJoinResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{11} }
+func (*RaftJoinResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{14} }
 
 func (m *RaftJoinResponse) GetError() string {
 	if m != nil {
@@ -539,17 +644,17 @@ func (m *RaftJoinResponse) GetError() string {
 }
 
 type MetadataSnapshot struct {
-	Partitions []*Partition `protobuf:"bytes,1,rep,name=partitions" json:"partitions,omitempty"`
+	Streams []*Stream `protobuf:"bytes,1,rep,name=streams" json:"streams,omitempty"`
 }
 
 func (m *MetadataSnapshot) Reset()                    { *m = MetadataSnapshot{} }
 func (m *MetadataSnapshot) String() string            { return proto.CompactTextString(m) }
 func (*MetadataSnapshot) ProtoMessage()               {}
-func (*MetadataSnapshot) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{12} }
+func (*MetadataSnapshot) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{15} }
 
-func (m *MetadataSnapshot) GetPartitions() []*Partition {
+func (m *MetadataSnapshot) GetStreams() []*Stream {
 	if m != nil {
-		return m.Partitions
+		return m.Streams
 	}
 	return nil
 }
@@ -563,7 +668,7 @@ type ReplicationRequest struct {
 func (m *ReplicationRequest) Reset()                    { *m = ReplicationRequest{} }
 func (m *ReplicationRequest) String() string            { return proto.CompactTextString(m) }
 func (*ReplicationRequest) ProtoMessage()               {}
-func (*ReplicationRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{13} }
+func (*ReplicationRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{16} }
 
 func (m *ReplicationRequest) GetReplicaID() string {
 	if m != nil {
@@ -594,7 +699,7 @@ func (m *LeaderEpochOffsetRequest) Reset()         { *m = LeaderEpochOffsetReque
 func (m *LeaderEpochOffsetRequest) String() string { return proto.CompactTextString(m) }
 func (*LeaderEpochOffsetRequest) ProtoMessage()    {}
 func (*LeaderEpochOffsetRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptorInternal, []int{14}
+	return fileDescriptorInternal, []int{17}
 }
 
 func (m *LeaderEpochOffsetRequest) GetLeaderEpoch() uint64 {
@@ -612,7 +717,7 @@ func (m *LeaderEpochOffsetResponse) Reset()         { *m = LeaderEpochOffsetResp
 func (m *LeaderEpochOffsetResponse) String() string { return proto.CompactTextString(m) }
 func (*LeaderEpochOffsetResponse) ProtoMessage()    {}
 func (*LeaderEpochOffsetResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptorInternal, []int{15}
+	return fileDescriptorInternal, []int{18}
 }
 
 func (m *LeaderEpochOffsetResponse) GetEndOffset() int64 {
@@ -623,30 +728,31 @@ func (m *LeaderEpochOffsetResponse) GetEndOffset() int64 {
 }
 
 type PropagatedRequest struct {
-	Op                Op                 `protobuf:"varint,1,opt,name=op,proto3,enum=protocol.Op" json:"op,omitempty"`
-	CreatePartitionOp *CreatePartitionOp `protobuf:"bytes,2,opt,name=createPartitionOp" json:"createPartitionOp,omitempty"`
-	ShrinkISROp       *ShrinkISROp       `protobuf:"bytes,3,opt,name=shrinkISROp" json:"shrinkISROp,omitempty"`
-	ReportLeaderOp    *ReportLeaderOp    `protobuf:"bytes,4,opt,name=reportLeaderOp" json:"reportLeaderOp,omitempty"`
-	ExpandISROp       *ExpandISROp       `protobuf:"bytes,5,opt,name=expandISROp" json:"expandISROp,omitempty"`
-	DeleteStreamOp    *DeleteStreamOp    `protobuf:"bytes,6,opt,name=deleteStreamOp" json:"deleteStreamOp,omitempty"`
-	PauseStreamOp     *PauseStreamOp     `protobuf:"bytes,7,opt,name=pauseStreamOp" json:"pauseStreamOp,omitempty"`
+	Op             Op              `protobuf:"varint,1,opt,name=op,proto3,enum=protocol.Op" json:"op,omitempty"`
+	CreateStreamOp *CreateStreamOp `protobuf:"bytes,2,opt,name=createStreamOp" json:"createStreamOp,omitempty"`
+	ShrinkISROp    *ShrinkISROp    `protobuf:"bytes,3,opt,name=shrinkISROp" json:"shrinkISROp,omitempty"`
+	ReportLeaderOp *ReportLeaderOp `protobuf:"bytes,4,opt,name=reportLeaderOp" json:"reportLeaderOp,omitempty"`
+	ExpandISROp    *ExpandISROp    `protobuf:"bytes,5,opt,name=expandISROp" json:"expandISROp,omitempty"`
+	DeleteStreamOp *DeleteStreamOp `protobuf:"bytes,6,opt,name=deleteStreamOp" json:"deleteStreamOp,omitempty"`
+	PauseStreamOp  *PauseStreamOp  `protobuf:"bytes,7,opt,name=pauseStreamOp" json:"pauseStreamOp,omitempty"`
+	ResumeStreamOp *ResumeStreamOp `protobuf:"bytes,8,opt,name=resumeStreamOp" json:"resumeStreamOp,omitempty"`
 }
 
 func (m *PropagatedRequest) Reset()                    { *m = PropagatedRequest{} }
 func (m *PropagatedRequest) String() string            { return proto.CompactTextString(m) }
 func (*PropagatedRequest) ProtoMessage()               {}
-func (*PropagatedRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{16} }
+func (*PropagatedRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{19} }
 
 func (m *PropagatedRequest) GetOp() Op {
 	if m != nil {
 		return m.Op
 	}
-	return Op_CREATE_PARTITION
+	return Op_CREATE_STREAM
 }
 
-func (m *PropagatedRequest) GetCreatePartitionOp() *CreatePartitionOp {
+func (m *PropagatedRequest) GetCreateStreamOp() *CreateStreamOp {
 	if m != nil {
-		return m.CreatePartitionOp
+		return m.CreateStreamOp
 	}
 	return nil
 }
@@ -686,6 +792,13 @@ func (m *PropagatedRequest) GetPauseStreamOp() *PauseStreamOp {
 	return nil
 }
 
+func (m *PropagatedRequest) GetResumeStreamOp() *ResumeStreamOp {
+	if m != nil {
+		return m.ResumeStreamOp
+	}
+	return nil
+}
+
 type Error struct {
 	Code uint32 `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
 	Msg  string `protobuf:"bytes,2,opt,name=msg,proto3" json:"msg,omitempty"`
@@ -694,7 +807,7 @@ type Error struct {
 func (m *Error) Reset()                    { *m = Error{} }
 func (m *Error) String() string            { return proto.CompactTextString(m) }
 func (*Error) ProtoMessage()               {}
-func (*Error) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{17} }
+func (*Error) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{20} }
 
 func (m *Error) GetCode() uint32 {
 	if m != nil {
@@ -718,13 +831,13 @@ type PropagatedResponse struct {
 func (m *PropagatedResponse) Reset()                    { *m = PropagatedResponse{} }
 func (m *PropagatedResponse) String() string            { return proto.CompactTextString(m) }
 func (*PropagatedResponse) ProtoMessage()               {}
-func (*PropagatedResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{18} }
+func (*PropagatedResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{21} }
 
 func (m *PropagatedResponse) GetOp() Op {
 	if m != nil {
 		return m.Op
 	}
-	return Op_CREATE_PARTITION
+	return Op_CREATE_STREAM
 }
 
 func (m *PropagatedResponse) GetError() *Error {
@@ -741,7 +854,7 @@ type ServerInfoRequest struct {
 func (m *ServerInfoRequest) Reset()                    { *m = ServerInfoRequest{} }
 func (m *ServerInfoRequest) String() string            { return proto.CompactTextString(m) }
 func (*ServerInfoRequest) ProtoMessage()               {}
-func (*ServerInfoRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{19} }
+func (*ServerInfoRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{22} }
 
 func (m *ServerInfoRequest) GetId() string {
 	if m != nil {
@@ -759,7 +872,7 @@ type ServerInfoResponse struct {
 func (m *ServerInfoResponse) Reset()                    { *m = ServerInfoResponse{} }
 func (m *ServerInfoResponse) String() string            { return proto.CompactTextString(m) }
 func (*ServerInfoResponse) ProtoMessage()               {}
-func (*ServerInfoResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{20} }
+func (*ServerInfoResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{23} }
 
 func (m *ServerInfoResponse) GetId() string {
 	if m != nil {
@@ -790,7 +903,7 @@ type PartitionStatusRequest struct {
 func (m *PartitionStatusRequest) Reset()                    { *m = PartitionStatusRequest{} }
 func (m *PartitionStatusRequest) String() string            { return proto.CompactTextString(m) }
 func (*PartitionStatusRequest) ProtoMessage()               {}
-func (*PartitionStatusRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{21} }
+func (*PartitionStatusRequest) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{24} }
 
 func (m *PartitionStatusRequest) GetStream() string {
 	if m != nil {
@@ -814,7 +927,7 @@ type PartitionStatusResponse struct {
 func (m *PartitionStatusResponse) Reset()                    { *m = PartitionStatusResponse{} }
 func (m *PartitionStatusResponse) String() string            { return proto.CompactTextString(m) }
 func (*PartitionStatusResponse) ProtoMessage()               {}
-func (*PartitionStatusResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{22} }
+func (*PartitionStatusResponse) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{25} }
 
 func (m *PartitionStatusResponse) GetExists() bool {
 	if m != nil {
@@ -838,7 +951,7 @@ type PartitionNotification struct {
 func (m *PartitionNotification) Reset()                    { *m = PartitionNotification{} }
 func (m *PartitionNotification) String() string            { return proto.CompactTextString(m) }
 func (*PartitionNotification) ProtoMessage()               {}
-func (*PartitionNotification) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{23} }
+func (*PartitionNotification) Descriptor() ([]byte, []int) { return fileDescriptorInternal, []int{26} }
 
 func (m *PartitionNotification) GetStream() string {
 	if m != nil {
@@ -857,13 +970,16 @@ func (m *PartitionNotification) GetPartition() int32 {
 func init() {
 	proto.RegisterType((*ServerState)(nil), "protocol.ServerState")
 	proto.RegisterType((*RaftLog)(nil), "protocol.RaftLog")
-	proto.RegisterType((*CreatePartitionOp)(nil), "protocol.CreatePartitionOp")
+	proto.RegisterType((*CreateStreamOp)(nil), "protocol.CreateStreamOp")
 	proto.RegisterType((*ShrinkISROp)(nil), "protocol.ShrinkISROp")
 	proto.RegisterType((*ExpandISROp)(nil), "protocol.ExpandISROp")
 	proto.RegisterType((*DeleteStreamOp)(nil), "protocol.DeleteStreamOp")
 	proto.RegisterType((*PauseStreamOp)(nil), "protocol.PauseStreamOp")
+	proto.RegisterType((*ResumeStreamOp)(nil), "protocol.ResumeStreamOp")
 	proto.RegisterType((*ReportLeaderOp)(nil), "protocol.ReportLeaderOp")
 	proto.RegisterType((*ChangeLeaderOp)(nil), "protocol.ChangeLeaderOp")
+	proto.RegisterType((*PublishActivityOp)(nil), "protocol.PublishActivityOp")
+	proto.RegisterType((*Stream)(nil), "protocol.Stream")
 	proto.RegisterType((*Partition)(nil), "protocol.Partition")
 	proto.RegisterType((*RaftJoinRequest)(nil), "protocol.RaftJoinRequest")
 	proto.RegisterType((*RaftJoinResponse)(nil), "protocol.RaftJoinResponse")
@@ -925,11 +1041,11 @@ func (m *RaftLog) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.Op))
 	}
-	if m.CreatePartitionOp != nil {
+	if m.CreateStreamOp != nil {
 		dAtA[i] = 0x12
 		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.CreatePartitionOp.Size()))
-		n1, err := m.CreatePartitionOp.MarshalTo(dAtA[i:])
+		i = encodeVarintInternal(dAtA, i, uint64(m.CreateStreamOp.Size()))
+		n1, err := m.CreateStreamOp.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
@@ -985,10 +1101,30 @@ func (m *RaftLog) MarshalTo(dAtA []byte) (int, error) {
 		}
 		i += n6
 	}
+	if m.ResumeStreamOp != nil {
+		dAtA[i] = 0x42
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.ResumeStreamOp.Size()))
+		n7, err := m.ResumeStreamOp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n7
+	}
+	if m.PublishActivityOp != nil {
+		dAtA[i] = 0x4a
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.PublishActivityOp.Size()))
+		n8, err := m.PublishActivityOp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n8
+	}
 	return i, nil
 }
 
-func (m *CreatePartitionOp) Marshal() (dAtA []byte, err error) {
+func (m *CreateStreamOp) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalTo(dAtA)
@@ -998,20 +1134,20 @@ func (m *CreatePartitionOp) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *CreatePartitionOp) MarshalTo(dAtA []byte) (int, error) {
+func (m *CreateStreamOp) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
 	_ = l
-	if m.Partition != nil {
+	if m.Stream != nil {
 		dAtA[i] = 0xa
 		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.Partition.Size()))
-		n7, err := m.Partition.MarshalTo(dAtA[i:])
+		i = encodeVarintInternal(dAtA, i, uint64(m.Stream.Size()))
+		n9, err := m.Stream.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n7
+		i += n9
 	}
 	return i, nil
 }
@@ -1154,22 +1290,22 @@ func (m *PauseStreamOp) MarshalTo(dAtA []byte) (int, error) {
 		i += copy(dAtA[i:], m.Stream)
 	}
 	if len(m.Partitions) > 0 {
-		dAtA9 := make([]byte, len(m.Partitions)*10)
-		var j8 int
+		dAtA11 := make([]byte, len(m.Partitions)*10)
+		var j10 int
 		for _, num1 := range m.Partitions {
 			num := uint64(num1)
 			for num >= 1<<7 {
-				dAtA9[j8] = uint8(uint64(num)&0x7f | 0x80)
+				dAtA11[j10] = uint8(uint64(num)&0x7f | 0x80)
 				num >>= 7
-				j8++
+				j10++
 			}
-			dAtA9[j8] = uint8(num)
-			j8++
+			dAtA11[j10] = uint8(num)
+			j10++
 		}
 		dAtA[i] = 0x12
 		i++
-		i = encodeVarintInternal(dAtA, i, uint64(j8))
-		i += copy(dAtA[i:], dAtA9[:j8])
+		i = encodeVarintInternal(dAtA, i, uint64(j10))
+		i += copy(dAtA[i:], dAtA11[:j10])
 	}
 	if m.ResumeAll {
 		dAtA[i] = 0x18
@@ -1180,6 +1316,48 @@ func (m *PauseStreamOp) MarshalTo(dAtA []byte) (int, error) {
 			dAtA[i] = 0
 		}
 		i++
+	}
+	return i, nil
+}
+
+func (m *ResumeStreamOp) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ResumeStreamOp) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Stream) > 0 {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(len(m.Stream)))
+		i += copy(dAtA[i:], m.Stream)
+	}
+	if len(m.Partitions) > 0 {
+		dAtA13 := make([]byte, len(m.Partitions)*10)
+		var j12 int
+		for _, num1 := range m.Partitions {
+			num := uint64(num1)
+			for num >= 1<<7 {
+				dAtA13[j12] = uint8(uint64(num)&0x7f | 0x80)
+				num >>= 7
+				j12++
+			}
+			dAtA13[j12] = uint8(num)
+			j12++
+		}
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(j12))
+		i += copy(dAtA[i:], dAtA13[:j12])
 	}
 	return i, nil
 }
@@ -1261,6 +1439,71 @@ func (m *ChangeLeaderOp) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(len(m.Leader)))
 		i += copy(dAtA[i:], m.Leader)
+	}
+	return i, nil
+}
+
+func (m *PublishActivityOp) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PublishActivityOp) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.RaftIndex != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.RaftIndex))
+	}
+	return i, nil
+}
+
+func (m *Stream) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Stream) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Name) > 0 {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(len(m.Name)))
+		i += copy(dAtA[i:], m.Name)
+	}
+	if len(m.Subject) > 0 {
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(len(m.Subject)))
+		i += copy(dAtA[i:], m.Subject)
+	}
+	if len(m.Partitions) > 0 {
+		for _, msg := range m.Partitions {
+			dAtA[i] = 0x1a
+			i++
+			i = encodeVarintInternal(dAtA, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
+		}
 	}
 	return i, nil
 }
@@ -1354,6 +1597,16 @@ func (m *Partition) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.Epoch))
 	}
+	if m.Paused {
+		dAtA[i] = 0x58
+		i++
+		if m.Paused {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i++
+	}
 	return i, nil
 }
 
@@ -1426,8 +1679,8 @@ func (m *MetadataSnapshot) MarshalTo(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.Partitions) > 0 {
-		for _, msg := range m.Partitions {
+	if len(m.Streams) > 0 {
+		for _, msg := range m.Streams {
 			dAtA[i] = 0xa
 			i++
 			i = encodeVarintInternal(dAtA, i, uint64(msg.Size()))
@@ -1541,65 +1794,75 @@ func (m *PropagatedRequest) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.Op))
 	}
-	if m.CreatePartitionOp != nil {
+	if m.CreateStreamOp != nil {
 		dAtA[i] = 0x12
 		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.CreatePartitionOp.Size()))
-		n10, err := m.CreatePartitionOp.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n10
-	}
-	if m.ShrinkISROp != nil {
-		dAtA[i] = 0x1a
-		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.ShrinkISROp.Size()))
-		n11, err := m.ShrinkISROp.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n11
-	}
-	if m.ReportLeaderOp != nil {
-		dAtA[i] = 0x22
-		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.ReportLeaderOp.Size()))
-		n12, err := m.ReportLeaderOp.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n12
-	}
-	if m.ExpandISROp != nil {
-		dAtA[i] = 0x2a
-		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.ExpandISROp.Size()))
-		n13, err := m.ExpandISROp.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n13
-	}
-	if m.DeleteStreamOp != nil {
-		dAtA[i] = 0x32
-		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.DeleteStreamOp.Size()))
-		n14, err := m.DeleteStreamOp.MarshalTo(dAtA[i:])
+		i = encodeVarintInternal(dAtA, i, uint64(m.CreateStreamOp.Size()))
+		n14, err := m.CreateStreamOp.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
 		i += n14
 	}
-	if m.PauseStreamOp != nil {
-		dAtA[i] = 0x3a
+	if m.ShrinkISROp != nil {
+		dAtA[i] = 0x1a
 		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.PauseStreamOp.Size()))
-		n15, err := m.PauseStreamOp.MarshalTo(dAtA[i:])
+		i = encodeVarintInternal(dAtA, i, uint64(m.ShrinkISROp.Size()))
+		n15, err := m.ShrinkISROp.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
 		i += n15
+	}
+	if m.ReportLeaderOp != nil {
+		dAtA[i] = 0x22
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.ReportLeaderOp.Size()))
+		n16, err := m.ReportLeaderOp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n16
+	}
+	if m.ExpandISROp != nil {
+		dAtA[i] = 0x2a
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.ExpandISROp.Size()))
+		n17, err := m.ExpandISROp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n17
+	}
+	if m.DeleteStreamOp != nil {
+		dAtA[i] = 0x32
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.DeleteStreamOp.Size()))
+		n18, err := m.DeleteStreamOp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n18
+	}
+	if m.PauseStreamOp != nil {
+		dAtA[i] = 0x3a
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.PauseStreamOp.Size()))
+		n19, err := m.PauseStreamOp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n19
+	}
+	if m.ResumeStreamOp != nil {
+		dAtA[i] = 0x42
+		i++
+		i = encodeVarintInternal(dAtA, i, uint64(m.ResumeStreamOp.Size()))
+		n20, err := m.ResumeStreamOp.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n20
 	}
 	return i, nil
 }
@@ -1657,11 +1920,11 @@ func (m *PropagatedResponse) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintInternal(dAtA, i, uint64(m.Error.Size()))
-		n16, err := m.Error.MarshalTo(dAtA[i:])
+		n21, err := m.Error.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n16
+		i += n21
 	}
 	return i, nil
 }
@@ -1846,8 +2109,8 @@ func (m *RaftLog) Size() (n int) {
 	if m.Op != 0 {
 		n += 1 + sovInternal(uint64(m.Op))
 	}
-	if m.CreatePartitionOp != nil {
-		l = m.CreatePartitionOp.Size()
+	if m.CreateStreamOp != nil {
+		l = m.CreateStreamOp.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
 	if m.ShrinkISROp != nil {
@@ -1870,14 +2133,22 @@ func (m *RaftLog) Size() (n int) {
 		l = m.PauseStreamOp.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
+	if m.ResumeStreamOp != nil {
+		l = m.ResumeStreamOp.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	if m.PublishActivityOp != nil {
+		l = m.PublishActivityOp.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
 	return n
 }
 
-func (m *CreatePartitionOp) Size() (n int) {
+func (m *CreateStreamOp) Size() (n int) {
 	var l int
 	_ = l
-	if m.Partition != nil {
-		l = m.Partition.Size()
+	if m.Stream != nil {
+		l = m.Stream.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
 	return n
@@ -1961,6 +2232,23 @@ func (m *PauseStreamOp) Size() (n int) {
 	return n
 }
 
+func (m *ResumeStreamOp) Size() (n int) {
+	var l int
+	_ = l
+	l = len(m.Stream)
+	if l > 0 {
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	if len(m.Partitions) > 0 {
+		l = 0
+		for _, e := range m.Partitions {
+			l += sovInternal(uint64(e))
+		}
+		n += 1 + sovInternal(uint64(l)) + l
+	}
+	return n
+}
+
 func (m *ReportLeaderOp) Size() (n int) {
 	var l int
 	_ = l
@@ -1998,6 +2286,35 @@ func (m *ChangeLeaderOp) Size() (n int) {
 	l = len(m.Leader)
 	if l > 0 {
 		n += 1 + l + sovInternal(uint64(l))
+	}
+	return n
+}
+
+func (m *PublishActivityOp) Size() (n int) {
+	var l int
+	_ = l
+	if m.RaftIndex != 0 {
+		n += 1 + sovInternal(uint64(m.RaftIndex))
+	}
+	return n
+}
+
+func (m *Stream) Size() (n int) {
+	var l int
+	_ = l
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	l = len(m.Subject)
+	if l > 0 {
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	if len(m.Partitions) > 0 {
+		for _, e := range m.Partitions {
+			l = e.Size()
+			n += 1 + l + sovInternal(uint64(l))
+		}
 	}
 	return n
 }
@@ -2045,6 +2362,9 @@ func (m *Partition) Size() (n int) {
 	if m.Epoch != 0 {
 		n += 1 + sovInternal(uint64(m.Epoch))
 	}
+	if m.Paused {
+		n += 2
+	}
 	return n
 }
 
@@ -2075,8 +2395,8 @@ func (m *RaftJoinResponse) Size() (n int) {
 func (m *MetadataSnapshot) Size() (n int) {
 	var l int
 	_ = l
-	if len(m.Partitions) > 0 {
-		for _, e := range m.Partitions {
+	if len(m.Streams) > 0 {
+		for _, e := range m.Streams {
 			l = e.Size()
 			n += 1 + l + sovInternal(uint64(l))
 		}
@@ -2124,8 +2444,8 @@ func (m *PropagatedRequest) Size() (n int) {
 	if m.Op != 0 {
 		n += 1 + sovInternal(uint64(m.Op))
 	}
-	if m.CreatePartitionOp != nil {
-		l = m.CreatePartitionOp.Size()
+	if m.CreateStreamOp != nil {
+		l = m.CreateStreamOp.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
 	if m.ShrinkISROp != nil {
@@ -2146,6 +2466,10 @@ func (m *PropagatedRequest) Size() (n int) {
 	}
 	if m.PauseStreamOp != nil {
 		l = m.PauseStreamOp.Size()
+		n += 1 + l + sovInternal(uint64(l))
+	}
+	if m.ResumeStreamOp != nil {
+		l = m.ResumeStreamOp.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
 	return n
@@ -2384,7 +2708,7 @@ func (m *RaftLog) Unmarshal(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CreatePartitionOp", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field CreateStreamOp", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -2408,10 +2732,10 @@ func (m *RaftLog) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.CreatePartitionOp == nil {
-				m.CreatePartitionOp = &CreatePartitionOp{}
+			if m.CreateStreamOp == nil {
+				m.CreateStreamOp = &CreateStreamOp{}
 			}
-			if err := m.CreatePartitionOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.CreateStreamOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -2580,59 +2904,9 @@ func (m *RaftLog) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipInternal(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthInternal
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *CreatePartitionOp) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowInternal
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: CreatePartitionOp: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: CreatePartitionOp: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
+		case 8:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Partition", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ResumeStreamOp", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -2656,10 +2930,126 @@ func (m *CreatePartitionOp) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Partition == nil {
-				m.Partition = &Partition{}
+			if m.ResumeStreamOp == nil {
+				m.ResumeStreamOp = &ResumeStreamOp{}
 			}
-			if err := m.Partition.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.ResumeStreamOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PublishActivityOp", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.PublishActivityOp == nil {
+				m.PublishActivityOp = &PublishActivityOp{}
+			}
+			if err := m.PublishActivityOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipInternal(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthInternal
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *CreateStreamOp) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowInternal
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: CreateStreamOp: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: CreateStreamOp: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Stream", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Stream == nil {
+				m.Stream = &Stream{}
+			}
+			if err := m.Stream.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -3274,6 +3664,147 @@ func (m *PauseStreamOp) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *ResumeStreamOp) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowInternal
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ResumeStreamOp: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ResumeStreamOp: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Stream", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Stream = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType == 0 {
+				var v int32
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowInternal
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					v |= (int32(b) & 0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				m.Partitions = append(m.Partitions, v)
+			} else if wireType == 2 {
+				var packedLen int
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowInternal
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					packedLen |= (int(b) & 0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				if packedLen < 0 {
+					return ErrInvalidLengthInternal
+				}
+				postIndex := iNdEx + packedLen
+				if postIndex > l {
+					return io.ErrUnexpectedEOF
+				}
+				for iNdEx < postIndex {
+					var v int32
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowInternal
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						v |= (int32(b) & 0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					m.Partitions = append(m.Partitions, v)
+				}
+			} else {
+				return fmt.Errorf("proto: wrong wireType = %d for field Partitions", wireType)
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipInternal(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthInternal
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *ReportLeaderOp) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3576,6 +4107,214 @@ func (m *ChangeLeaderOp) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *PublishActivityOp) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowInternal
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PublishActivityOp: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PublishActivityOp: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RaftIndex", wireType)
+			}
+			m.RaftIndex = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RaftIndex |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipInternal(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthInternal
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Stream) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowInternal
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Stream: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Stream: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Subject", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Subject = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Partitions", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Partitions = append(m.Partitions, &Partition{})
+			if err := m.Partitions[len(m.Partitions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipInternal(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthInternal
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *Partition) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3855,6 +4594,26 @@ func (m *Partition) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		case 11:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Paused", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Paused = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipInternal(dAtA[iNdEx:])
@@ -4094,7 +4853,7 @@ func (m *MetadataSnapshot) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Partitions", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Streams", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -4118,8 +4877,8 @@ func (m *MetadataSnapshot) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Partitions = append(m.Partitions, &Partition{})
-			if err := m.Partitions[len(m.Partitions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			m.Streams = append(m.Streams, &Stream{})
+			if err := m.Streams[len(m.Streams)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -4449,7 +5208,7 @@ func (m *PropagatedRequest) Unmarshal(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CreatePartitionOp", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field CreateStreamOp", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -4473,10 +5232,10 @@ func (m *PropagatedRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.CreatePartitionOp == nil {
-				m.CreatePartitionOp = &CreatePartitionOp{}
+			if m.CreateStreamOp == nil {
+				m.CreateStreamOp = &CreateStreamOp{}
 			}
-			if err := m.CreatePartitionOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.CreateStreamOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -4642,6 +5401,39 @@ func (m *PropagatedRequest) Unmarshal(dAtA []byte) error {
 				m.PauseStreamOp = &PauseStreamOp{}
 			}
 			if err := m.PauseStreamOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResumeStreamOp", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowInternal
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthInternal
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ResumeStreamOp == nil {
+				m.ResumeStreamOp = &ResumeStreamOp{}
+			}
+			if err := m.ResumeStreamOp.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -5466,70 +6258,78 @@ var (
 func init() { proto.RegisterFile("server/protocol/internal.proto", fileDescriptorInternal) }
 
 var fileDescriptorInternal = []byte{
-	// 1035 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xd4, 0x56, 0x4f, 0x6f, 0xe3, 0x44,
-	0x14, 0x5f, 0xdb, 0x4d, 0x9a, 0xbc, 0x6c, 0xd3, 0x64, 0xd8, 0xed, 0x1a, 0xa8, 0xa2, 0xc8, 0x08,
-	0x29, 0x20, 0xe8, 0x8a, 0xee, 0x01, 0x21, 0x81, 0x44, 0x68, 0xbd, 0xbb, 0x81, 0x34, 0x89, 0x26,
-	0x41, 0x82, 0x0b, 0x95, 0x37, 0x9e, 0x36, 0x86, 0xd4, 0x63, 0x66, 0x26, 0xab, 0xfd, 0x02, 0x9c,
-	0xb9, 0x22, 0x6e, 0x9c, 0xf6, 0xcc, 0xb7, 0xe0, 0xc8, 0x47, 0x40, 0xe5, 0x8b, 0xa0, 0x19, 0x8f,
-	0xed, 0xb1, 0x43, 0x91, 0xe8, 0x9e, 0xf6, 0x36, 0xef, 0xcd, 0x7b, 0xbf, 0xf7, 0x7b, 0x7f, 0xe6,
-	0xd9, 0xd0, 0xe3, 0x84, 0x3d, 0x27, 0xec, 0x61, 0xc2, 0xa8, 0xa0, 0x4b, 0xba, 0x7e, 0x18, 0xc5,
-	0x82, 0xb0, 0x38, 0x58, 0x1f, 0x29, 0x0d, 0x6a, 0x64, 0x17, 0xde, 0x7b, 0xd0, 0x9a, 0x2b, 0xdb,
-	0xb9, 0x08, 0x04, 0x41, 0x6f, 0x41, 0x23, 0x75, 0x1d, 0x9d, 0xba, 0x56, 0xdf, 0x1a, 0x34, 0x71,
-	0x2e, 0x7b, 0x2f, 0x1d, 0xd8, 0xc5, 0xc1, 0x85, 0x18, 0xd3, 0x4b, 0x74, 0x08, 0x36, 0x4d, 0x94,
-	0x45, 0xfb, 0xf8, 0xee, 0x51, 0x86, 0x76, 0x34, 0x4d, 0xb0, 0x4d, 0x13, 0x34, 0x82, 0xee, 0x92,
-	0x91, 0x40, 0x90, 0x59, 0xc0, 0x44, 0x24, 0x22, 0x1a, 0x4f, 0x13, 0xd7, 0xee, 0x5b, 0x83, 0xd6,
-	0xf1, 0xdb, 0x85, 0xf1, 0x49, 0xd5, 0x04, 0x6f, 0x7b, 0xa1, 0x8f, 0xa1, 0xc5, 0x57, 0x2c, 0x8a,
-	0x7f, 0x18, 0xcd, 0xf1, 0x34, 0x71, 0x1d, 0x05, 0x72, 0xbf, 0x00, 0x99, 0x17, 0x97, 0xd8, 0xb4,
-	0x44, 0x9f, 0x43, 0x7b, 0xb9, 0x0a, 0xe2, 0x4b, 0x32, 0x26, 0x41, 0x48, 0xd8, 0x34, 0x71, 0x77,
-	0x94, 0xaf, 0x6b, 0x10, 0x28, 0xdd, 0xe3, 0x8a, 0xbd, 0x0c, 0x4d, 0x5e, 0x24, 0x41, 0x1c, 0xa6,
-	0xa1, 0x6b, 0xd5, 0xd0, 0x7e, 0x71, 0x89, 0x4d, 0x4b, 0x19, 0x3a, 0x24, 0x6b, 0x22, 0xc8, 0x5c,
-	0x30, 0x12, 0x5c, 0x4d, 0x13, 0xb7, 0x5e, 0x0d, 0x7d, 0x5a, 0xba, 0xc7, 0x15, 0x7b, 0xf4, 0x19,
-	0xec, 0x25, 0xc1, 0x86, 0x17, 0x00, 0xbb, 0x0a, 0xe0, 0x41, 0x01, 0x30, 0x33, 0xaf, 0x71, 0xd9,
-	0xda, 0x7b, 0x0c, 0xdd, 0xad, 0xe2, 0xa2, 0x8f, 0xa0, 0x99, 0x64, 0xa2, 0xea, 0x5c, 0xeb, 0xf8,
-	0x0d, 0x13, 0x4f, 0x5f, 0xe1, 0xc2, 0xca, 0x7b, 0x69, 0x41, 0xcb, 0x28, 0x30, 0x3a, 0x80, 0x3a,
-	0x57, 0x31, 0xf4, 0x6c, 0x68, 0x09, 0x1d, 0x9a, 0xd0, 0xb2, 0xcf, 0x35, 0x03, 0x05, 0x0d, 0x60,
-	0x9f, 0x91, 0x64, 0x1d, 0x2d, 0x83, 0x05, 0xc5, 0xe4, 0x8a, 0x3e, 0x27, 0xaa, 0x8d, 0x4d, 0x5c,
-	0x55, 0x4b, 0xfc, 0xb5, 0xaa, 0xbe, 0xea, 0x55, 0x13, 0x6b, 0x09, 0xf5, 0xa1, 0x95, 0x9e, 0xfc,
-	0x84, 0x2e, 0x57, 0xaa, 0x13, 0x3b, 0xd8, 0x54, 0x79, 0xbf, 0x59, 0xd0, 0x32, 0xfa, 0x71, 0x4b,
-	0xa6, 0x1e, 0xdc, 0xcd, 0x29, 0x0d, 0xc3, 0x50, 0xd3, 0x2c, 0xe9, 0x5e, 0x81, 0xe3, 0x00, 0xda,
-	0xe5, 0xb6, 0xdf, 0xc4, 0xd2, 0x23, 0xb0, 0x57, 0xea, 0xef, 0x8d, 0xe9, 0xf4, 0x00, 0x72, 0xf6,
-	0xdc, 0xb5, 0xfb, 0xce, 0xa0, 0x86, 0x0d, 0x8d, 0x4c, 0x97, 0x11, 0xbe, 0xb9, 0x22, 0xc3, 0xf5,
-	0x5a, 0x65, 0xd3, 0xc0, 0x85, 0xc2, 0xfb, 0xd5, 0x82, 0x36, 0x26, 0x09, 0x65, 0x22, 0x9f, 0xf9,
-	0xdb, 0xd5, 0xcd, 0x85, 0x5d, 0x5d, 0x23, 0x5d, 0xb2, 0x4c, 0x7c, 0x85, 0x6a, 0x7d, 0x07, 0xed,
-	0xf2, 0xfb, 0xbc, 0x25, 0xb7, 0x82, 0x81, 0x63, 0x32, 0xf0, 0x7e, 0xb6, 0xa1, 0x39, 0x33, 0x33,
-	0xe0, 0x9b, 0x67, 0xdf, 0x93, 0xa5, 0xd0, 0xe0, 0x99, 0x68, 0x44, 0xb5, 0x4b, 0x51, 0xdb, 0x60,
-	0x47, 0xe9, 0x84, 0xd4, 0xb0, 0x1d, 0x85, 0xe8, 0x1e, 0xd4, 0x2e, 0x19, 0xdd, 0x24, 0x3a, 0xd1,
-	0x54, 0x40, 0x1f, 0x40, 0x57, 0x97, 0x42, 0x86, 0x79, 0x1c, 0x2c, 0x05, 0x65, 0x2a, 0xdb, 0x1a,
-	0xde, 0xbe, 0x90, 0xdb, 0x57, 0x2b, 0xb9, 0x5b, 0xef, 0x3b, 0x72, 0xfb, 0x66, 0xb2, 0x91, 0xc7,
-	0x6e, 0xa9, 0x92, 0x1d, 0x70, 0x22, 0xce, 0xdc, 0x86, 0x32, 0x97, 0xc7, 0x6a, 0x6d, 0x9b, 0x5b,
-	0xb5, 0x95, 0x5c, 0x89, 0xba, 0x03, 0x75, 0x97, 0x0a, 0x9e, 0x0f, 0xfb, 0x72, 0xbd, 0x7f, 0x49,
-	0xa3, 0x18, 0x93, 0x1f, 0x37, 0x84, 0xab, 0xe4, 0x63, 0x1a, 0x92, 0xfc, 0x63, 0xa0, 0x25, 0x49,
-	0x54, 0x9e, 0x86, 0x61, 0xc8, 0x74, 0x59, 0x72, 0xd9, 0x1b, 0x40, 0xa7, 0x80, 0xe1, 0x09, 0x8d,
-	0x39, 0x51, 0x01, 0x19, 0xa3, 0x4c, 0xc3, 0xa4, 0x82, 0xf7, 0x04, 0x3a, 0x67, 0x44, 0x04, 0x61,
-	0x20, 0x82, 0x79, 0x1c, 0x24, 0x7c, 0x45, 0x05, 0x7a, 0x54, 0x9a, 0x68, 0xab, 0xef, 0xdc, 0xb4,
-	0xa6, 0x0c, 0x33, 0x6f, 0x0d, 0x08, 0x17, 0xc5, 0xcc, 0xc8, 0xab, 0xe1, 0x57, 0xda, 0x9c, 0x7f,
-	0xa1, 0x90, 0xa9, 0xd1, 0x8b, 0x0b, 0x4e, 0x84, 0x4a, 0xc0, 0xc1, 0x5a, 0xaa, 0x56, 0xcf, 0xd9,
-	0x9e, 0xcc, 0x4f, 0xc1, 0x1d, 0x17, 0xe2, 0x54, 0xb9, 0x65, 0x31, 0x2b, 0xde, 0xd6, 0xb6, 0xf7,
-	0x27, 0xf0, 0xe6, 0xbf, 0x78, 0xeb, 0x3a, 0x1d, 0x42, 0x93, 0xc4, 0x61, 0xaa, 0x54, 0xce, 0x0e,
-	0x2e, 0x14, 0xde, 0xef, 0x0e, 0x74, 0x67, 0x8c, 0x26, 0xc1, 0x65, 0x20, 0x48, 0x58, 0xa4, 0xf9,
-	0x1a, 0x7c, 0x8a, 0x59, 0x69, 0xcd, 0x6c, 0x7f, 0x8a, 0xcb, 0x6b, 0x08, 0x57, 0xec, 0x5f, 0xe3,
-	0x4f, 0xf1, 0x87, 0x50, 0xf3, 0xe5, 0xb0, 0x23, 0x04, 0x3b, 0x4b, 0x1a, 0x12, 0xd5, 0xa8, 0x3d,
-	0xac, 0xce, 0xf2, 0xed, 0x5e, 0xf1, 0x4b, 0xfd, 0x82, 0xe4, 0xd1, 0xfb, 0x16, 0x90, 0xd9, 0xe1,
-	0x7c, 0x2c, 0xfe, 0xab, 0xc5, 0xef, 0x66, 0x8f, 0x2b, 0x6d, 0xeb, 0xbe, 0x51, 0x16, 0xa9, 0xce,
-	0x5e, 0xdb, 0x3b, 0xd0, 0x4d, 0xff, 0xf4, 0x46, 0xf1, 0x05, 0xcd, 0x86, 0x27, 0xdd, 0x62, 0xe9,
-	0xe3, 0xb0, 0xa3, 0xd0, 0x1b, 0x03, 0x32, 0x8d, 0x74, 0xfc, 0x8a, 0x95, 0xcc, 0x65, 0x45, 0xb9,
-	0xd0, 0xc4, 0xd5, 0x59, 0xea, 0x64, 0xcb, 0xf4, 0x46, 0x54, 0x67, 0x6f, 0x02, 0x07, 0xf9, 0x00,
-	0xc9, 0xff, 0xcb, 0x0d, 0x37, 0x16, 0xcb, 0xff, 0xdf, 0xe5, 0xde, 0x19, 0x3c, 0xd8, 0xc2, 0xd3,
-	0x14, 0x0f, 0xa0, 0x4e, 0x5e, 0x44, 0x5c, 0x70, 0x05, 0xd8, 0xc0, 0x5a, 0x92, 0x9b, 0x2a, 0xe2,
-	0xe9, 0x1c, 0x29, 0xbc, 0x06, 0xce, 0x65, 0xef, 0x0c, 0xee, 0xe7, 0x70, 0x13, 0x2a, 0xa2, 0x0b,
-	0xbd, 0x40, 0x6e, 0xc7, 0xee, 0xfd, 0x9f, 0x2c, 0xb0, 0xa7, 0x09, 0xba, 0x07, 0x9d, 0x13, 0xec,
-	0x0f, 0x17, 0xfe, 0xf9, 0x6c, 0x88, 0x17, 0xa3, 0xc5, 0x68, 0x3a, 0xe9, 0xdc, 0x41, 0x6d, 0x80,
-	0xf9, 0x53, 0x3c, 0x9a, 0x7c, 0x75, 0x3e, 0x9a, 0xe3, 0x8e, 0x85, 0xba, 0xb0, 0x87, 0xfd, 0xd9,
-	0x14, 0x2f, 0xce, 0xc7, 0xfe, 0xf0, 0xd4, 0xc7, 0x1d, 0x5b, 0xaa, 0x4e, 0x9e, 0x0e, 0x27, 0x4f,
-	0xfc, 0x4c, 0xe5, 0x48, 0x2f, 0xff, 0x9b, 0xd9, 0x70, 0x72, 0xaa, 0xbc, 0x76, 0xa4, 0xc9, 0xa9,
-	0x3f, 0xf6, 0x17, 0xfe, 0xf9, 0x7c, 0x81, 0xfd, 0xe1, 0x59, 0xa7, 0x86, 0x3a, 0x70, 0x77, 0x36,
-	0xfc, 0x7a, 0x9e, 0x6b, 0xea, 0x5f, 0x74, 0xfe, 0xb8, 0xee, 0x59, 0x7f, 0x5e, 0xf7, 0xac, 0xbf,
-	0xae, 0x7b, 0xd6, 0x2f, 0x7f, 0xf7, 0xee, 0x3c, 0xab, 0xab, 0x89, 0x78, 0xf4, 0x4f, 0x00, 0x00,
-	0x00, 0xff, 0xff, 0xc9, 0x13, 0x6c, 0x92, 0x17, 0x0c, 0x00, 0x00,
+	// 1160 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe4, 0x57, 0x4d, 0x6f, 0xe3, 0xc4,
+	0x1b, 0x5f, 0xc7, 0x79, 0x7d, 0xd2, 0xa6, 0xc9, 0xfc, 0x77, 0xbb, 0xfe, 0x43, 0x15, 0x45, 0x83,
+	0x90, 0xc2, 0x0a, 0xba, 0xa2, 0x7b, 0x40, 0x20, 0x40, 0x78, 0x5b, 0x43, 0x03, 0x69, 0x13, 0x8d,
+	0x53, 0xc4, 0x5e, 0xa8, 0xdc, 0x78, 0xd2, 0x98, 0x4d, 0x3d, 0xc6, 0xe3, 0x54, 0xe5, 0x9b, 0x20,
+	0x6e, 0x9c, 0xf6, 0xb0, 0x5f, 0x84, 0x23, 0x1f, 0x01, 0x95, 0x1b, 0x9f, 0x02, 0xcd, 0x78, 0xfc,
+	0x1a, 0x16, 0x89, 0xee, 0x05, 0x89, 0xdb, 0x3c, 0xef, 0xbf, 0x79, 0xde, 0xc6, 0x86, 0x3e, 0xa7,
+	0xe1, 0x35, 0x0d, 0x1f, 0x07, 0x21, 0x8b, 0xd8, 0x9c, 0xad, 0x1e, 0x7b, 0x7e, 0x44, 0x43, 0xdf,
+	0x59, 0xed, 0x4b, 0x0e, 0x6a, 0x26, 0x02, 0xfc, 0x0e, 0xb4, 0x6d, 0xa9, 0x6b, 0x47, 0x4e, 0x44,
+	0xd1, 0x1b, 0xd0, 0x8c, 0x4d, 0x47, 0x47, 0x86, 0x36, 0xd0, 0x86, 0x2d, 0x92, 0xd2, 0xf8, 0x65,
+	0x15, 0x1a, 0xc4, 0x59, 0x44, 0x63, 0x76, 0x89, 0xf6, 0xa0, 0xc2, 0x02, 0xa9, 0xd1, 0x39, 0xd8,
+	0xda, 0x4f, 0xbc, 0xed, 0x4f, 0x02, 0x52, 0x61, 0x01, 0xfa, 0x0c, 0x3a, 0xf3, 0x90, 0x3a, 0x11,
+	0xb5, 0xa3, 0x90, 0x3a, 0x57, 0x93, 0xc0, 0xa8, 0x0c, 0xb4, 0x61, 0xfb, 0xc0, 0xc8, 0x34, 0x0f,
+	0x0b, 0x72, 0x52, 0xd2, 0x47, 0x1f, 0x40, 0x9b, 0x2f, 0x43, 0xcf, 0x7f, 0x3e, 0xb2, 0xc9, 0x24,
+	0x30, 0x74, 0x69, 0xfe, 0x20, 0x33, 0xb7, 0x33, 0x21, 0xc9, 0x6b, 0xca, 0xd0, 0x4b, 0xc7, 0xbf,
+	0xa4, 0x63, 0xea, 0xb8, 0x34, 0x9c, 0x04, 0x46, 0x75, 0x23, 0x74, 0x41, 0x4e, 0x4a, 0xfa, 0x22,
+	0x34, 0xbd, 0x09, 0x1c, 0xdf, 0x8d, 0x43, 0xd7, 0xca, 0xa1, 0xad, 0x4c, 0x48, 0xf2, 0x9a, 0x22,
+	0xb4, 0x4b, 0x57, 0x34, 0x77, 0xeb, 0x7a, 0x39, 0xf4, 0x51, 0x41, 0x4e, 0x4a, 0xfa, 0xe8, 0x13,
+	0xd8, 0x0e, 0x9c, 0x35, 0xcf, 0x1c, 0x34, 0xa4, 0x83, 0x87, 0x99, 0x83, 0x69, 0x5e, 0x4c, 0x8a,
+	0xda, 0x02, 0x40, 0x48, 0xf9, 0xfa, 0x2a, 0xb3, 0x6f, 0x96, 0x01, 0x90, 0x82, 0x9c, 0x94, 0xf4,
+	0xd1, 0x08, 0x7a, 0xc1, 0xfa, 0x62, 0xe5, 0xf1, 0xa5, 0x39, 0x8f, 0xbc, 0x6b, 0x2f, 0xfa, 0x61,
+	0x12, 0x18, 0x2d, 0xe9, 0xe4, 0xcd, 0x1c, 0x88, 0xb2, 0x0a, 0xd9, 0xb4, 0xc2, 0x1f, 0x41, 0xa7,
+	0x58, 0x63, 0x34, 0x84, 0x3a, 0x97, 0x67, 0xd9, 0x37, 0xed, 0x83, 0x6e, 0xae, 0x9c, 0x92, 0x4f,
+	0x94, 0x1c, 0xbf, 0xd0, 0xa0, 0x9d, 0xab, 0x30, 0xda, 0x2d, 0x58, 0xb6, 0x12, 0x3d, 0xb4, 0x07,
+	0xad, 0xc0, 0x09, 0x23, 0x2f, 0xf2, 0x98, 0x2f, 0x5b, 0xac, 0x46, 0x32, 0x06, 0x1a, 0xc2, 0x4e,
+	0x48, 0x83, 0x95, 0x37, 0x77, 0x66, 0x8c, 0xd0, 0x2b, 0x76, 0x4d, 0x65, 0x1f, 0xb5, 0x48, 0x99,
+	0x2d, 0xfc, 0xaf, 0x64, 0xf9, 0x65, 0xb3, 0xb4, 0x88, 0xa2, 0xd0, 0x00, 0xda, 0xf1, 0xc9, 0x0a,
+	0xd8, 0x7c, 0x29, 0x5b, 0xa1, 0x4a, 0xf2, 0x2c, 0xfc, 0xb3, 0x06, 0xed, 0x5c, 0x43, 0xdc, 0x11,
+	0x29, 0x86, 0xad, 0x14, 0x92, 0xe9, 0xba, 0x0a, 0x66, 0x81, 0xf7, 0x1a, 0x18, 0x87, 0xd0, 0x29,
+	0xf6, 0xdd, 0xab, 0x50, 0x62, 0x0a, 0xdb, 0x85, 0x06, 0x7b, 0xe5, 0x75, 0xfa, 0x00, 0x29, 0x7a,
+	0x6e, 0x54, 0x06, 0xfa, 0xb0, 0x46, 0x72, 0x1c, 0x71, 0xdd, 0xb8, 0xb3, 0xcc, 0xd5, 0x4a, 0xde,
+	0xa6, 0x49, 0x32, 0x06, 0x3e, 0x86, 0x4e, 0xb1, 0x0f, 0xef, 0x1a, 0x07, 0xff, 0xa4, 0x09, 0x57,
+	0x01, 0x0b, 0xa3, 0x74, 0x7c, 0xef, 0x56, 0x01, 0x03, 0x1a, 0x2a, 0xdb, 0x2a, 0xf9, 0x09, 0xf9,
+	0x1a, 0x79, 0xff, 0x16, 0x3a, 0xc5, 0x55, 0x73, 0x47, 0x6c, 0x19, 0x02, 0x3d, 0x8f, 0x00, 0xbf,
+	0x0f, 0xbd, 0x8d, 0x49, 0x94, 0x99, 0x77, 0x16, 0xd1, 0xc8, 0x77, 0xe9, 0x8d, 0x8c, 0x52, 0x25,
+	0x19, 0x03, 0x3f, 0x87, 0x7a, 0x9c, 0x73, 0x84, 0xa0, 0xea, 0x3b, 0x57, 0x54, 0x01, 0x91, 0x67,
+	0x91, 0x04, 0xbe, 0xbe, 0xf8, 0x8e, 0xce, 0x23, 0x09, 0xa2, 0x45, 0x12, 0x12, 0x3d, 0x29, 0xd4,
+	0x41, 0x1f, 0xe8, 0xc3, 0xf6, 0xc1, 0xff, 0xf2, 0x5b, 0x49, 0xc9, 0x0a, 0xc5, 0x79, 0x51, 0x81,
+	0xd6, 0x34, 0x9f, 0xe1, 0xc4, 0xb9, 0x56, 0x74, 0x9e, 0x65, 0xa5, 0x52, 0xc8, 0x4a, 0x07, 0x2a,
+	0x5e, 0x3c, 0x0b, 0x35, 0x52, 0xf1, 0x5c, 0x74, 0x1f, 0x6a, 0x97, 0x21, 0x5b, 0x07, 0xaa, 0x10,
+	0x31, 0x81, 0xde, 0x85, 0x9e, 0x2a, 0x95, 0x08, 0xf3, 0xb9, 0x33, 0x8f, 0x58, 0x28, 0xab, 0x51,
+	0x23, 0x9b, 0x02, 0xf1, 0xbe, 0x29, 0x26, 0x37, 0xea, 0x03, 0x5d, 0xbc, 0x6f, 0x09, 0x9d, 0xcb,
+	0x73, 0xa3, 0x50, 0xe9, 0x2e, 0xe8, 0x1e, 0x0f, 0x8d, 0xa6, 0x54, 0x17, 0xc7, 0x72, 0xed, 0x5b,
+	0x1b, 0xb5, 0x17, 0x58, 0xa9, 0x94, 0x81, 0x94, 0xc5, 0x84, 0x88, 0x20, 0x37, 0xb6, 0x6b, 0xb4,
+	0xe5, 0x4c, 0x28, 0x0a, 0x5b, 0xb0, 0x23, 0x1e, 0xd6, 0x2f, 0x99, 0xe7, 0x13, 0xfa, 0xfd, 0x9a,
+	0x72, 0x99, 0x14, 0x9f, 0xb9, 0x34, 0x7d, 0x86, 0x15, 0x25, 0x2e, 0x20, 0x4e, 0xa6, 0xeb, 0x86,
+	0x2a, 0x5d, 0x29, 0x8d, 0x87, 0xd0, 0xcd, 0xdc, 0xf0, 0x80, 0xf9, 0x9c, 0x4a, 0x20, 0x61, 0xc8,
+	0x42, 0xe5, 0x26, 0x26, 0xf0, 0xa7, 0xd0, 0x3d, 0xa1, 0x91, 0xe3, 0x3a, 0x91, 0x63, 0xfb, 0x4e,
+	0xc0, 0x97, 0x2c, 0x42, 0x8f, 0xa0, 0x11, 0x27, 0x9e, 0x1b, 0x9a, 0x2c, 0xf0, 0xe6, 0x7e, 0x4e,
+	0x14, 0xf0, 0x0a, 0x10, 0xc9, 0x72, 0x9b, 0x60, 0x96, 0x53, 0x2f, 0xb9, 0x29, 0xec, 0x8c, 0x21,
+	0x6e, 0xc4, 0x16, 0x0b, 0x4e, 0xe3, 0xe6, 0xd2, 0x89, 0xa2, 0xca, 0xc9, 0xd4, 0x37, 0x07, 0xe9,
+	0x63, 0x30, 0xc6, 0x19, 0x39, 0x91, 0x66, 0x49, 0xcc, 0x92, 0xb5, 0xb6, 0x69, 0xfd, 0x21, 0xfc,
+	0xff, 0x2f, 0xac, 0x55, 0x7a, 0xf6, 0xa0, 0x45, 0x7d, 0x37, 0x66, 0x4a, 0x63, 0x9d, 0x64, 0x0c,
+	0xfc, 0x87, 0x0e, 0xbd, 0x69, 0xc8, 0x02, 0xe7, 0xd2, 0x89, 0xa8, 0x9b, 0x5d, 0xf3, 0xdf, 0xfb,
+	0xed, 0x13, 0x16, 0x96, 0xe1, 0xe6, 0xb7, 0x4f, 0x71, 0x59, 0x92, 0x92, 0xfe, 0x7f, 0xf9, 0xdb,
+	0x07, 0xbf, 0x07, 0x35, 0x4b, 0x0c, 0x87, 0x58, 0x8d, 0x73, 0xe6, 0xc6, 0xab, 0x71, 0x9b, 0xc8,
+	0xb3, 0xd8, 0x01, 0x57, 0xfc, 0x52, 0x4d, 0x9c, 0x38, 0xe2, 0x67, 0x80, 0xf2, 0xad, 0x91, 0xf6,
+	0xd3, 0xdf, 0xf5, 0xc6, 0xdb, 0xc9, 0x30, 0xc6, 0x2d, 0xb1, 0x93, 0x4b, 0xac, 0x60, 0x27, 0xd3,
+	0xf9, 0x16, 0xf4, 0xe2, 0x6f, 0xf2, 0x91, 0xbf, 0x60, 0x49, 0xd7, 0xc5, 0xdb, 0x30, 0x9e, 0xaa,
+	0x8a, 0xe7, 0xe2, 0x31, 0xa0, 0xbc, 0x92, 0x8a, 0x5f, 0xd2, 0x12, 0x77, 0x59, 0x32, 0x9e, 0xec,
+	0x73, 0x79, 0x16, 0x3c, 0x51, 0x74, 0xb5, 0x59, 0xe5, 0x19, 0x9f, 0xc2, 0x6e, 0xba, 0xaa, 0xc5,
+	0x9f, 0xc0, 0x9a, 0xe7, 0x16, 0xd1, 0x3f, 0x7f, 0xb3, 0xf0, 0x09, 0x3c, 0xdc, 0xf0, 0xa7, 0x20,
+	0xee, 0x42, 0x9d, 0xde, 0x78, 0x3c, 0xe2, 0xd2, 0x61, 0x93, 0x28, 0x4a, 0x6c, 0x36, 0x8f, 0xc7,
+	0x9d, 0x28, 0xfd, 0x35, 0x49, 0x4a, 0xe3, 0x13, 0x78, 0x90, 0xba, 0x3b, 0x65, 0x91, 0xb7, 0x50,
+	0x9b, 0xe7, 0x6e, 0xe8, 0x1e, 0xbd, 0xd4, 0xa0, 0x32, 0x09, 0x50, 0x0f, 0xb6, 0x0f, 0x89, 0x65,
+	0xce, 0xac, 0x73, 0x7b, 0x46, 0x2c, 0xf3, 0xa4, 0x7b, 0x0f, 0x75, 0x00, 0xec, 0x63, 0x32, 0x3a,
+	0xfd, 0xea, 0x7c, 0x64, 0x93, 0xae, 0x26, 0x54, 0x88, 0x35, 0x9d, 0x90, 0xd9, 0xf9, 0xd8, 0x32,
+	0x8f, 0x2c, 0xd2, 0xad, 0x48, 0xab, 0x63, 0xf3, 0xf4, 0x0b, 0x2b, 0x61, 0xe9, 0xc2, 0xca, 0xfa,
+	0x66, 0x6a, 0x9e, 0x1e, 0x49, 0xab, 0xaa, 0x50, 0x39, 0xb2, 0xc6, 0x56, 0xe6, 0xb8, 0x86, 0xba,
+	0xb0, 0x35, 0x35, 0xcf, 0xec, 0x94, 0x53, 0x8f, 0x5d, 0xdb, 0x67, 0x27, 0x29, 0xab, 0x81, 0xee,
+	0x43, 0x77, 0x7a, 0xf6, 0x74, 0x3c, 0xb2, 0x8f, 0xcf, 0xcd, 0xc3, 0xd9, 0xe8, 0xeb, 0xd1, 0xec,
+	0x59, 0xb7, 0xf9, 0xb4, 0xfb, 0xcb, 0x6d, 0x5f, 0xfb, 0xf5, 0xb6, 0xaf, 0xfd, 0x76, 0xdb, 0xd7,
+	0x7e, 0xfc, 0xbd, 0x7f, 0xef, 0xa2, 0x2e, 0xfb, 0xe6, 0xc9, 0x9f, 0x01, 0x00, 0x00, 0xff, 0xff,
+	0x4c, 0x49, 0xc3, 0xbb, 0xe7, 0x0d, 0x00, 0x00,
 }

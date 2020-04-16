@@ -477,6 +477,49 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 	compareMessages(t, msg2, m)
 }
 
+// Ensure ReadMessage returns ErrCommitLogDeleted when the commit log is
+// deleted.
+func TestReaderLogDeleted(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 10,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	r, err := l.NewReader(0, false)
+	require.NoError(t, err)
+
+	go func() {
+		require.NoError(t, l.Delete())
+	}()
+
+	headers := make([]byte, 28)
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.Equal(t, ErrCommitLogDeleted, err)
+}
+
+// Ensure ReadMessage returns ErrCommitLogClosed when the commit log is closed.
+func TestReaderLogClosed(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 10,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	r, err := l.NewReader(0, false)
+	require.NoError(t, err)
+
+	go func() {
+		require.NoError(t, l.Close())
+	}()
+
+	headers := make([]byte, 28)
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.Equal(t, ErrCommitLogClosed, err)
+}
+
 func compareMessages(t *testing.T, exp *Message, act SerializedMessage) {
 	// TODO: check timestamp
 	require.Equal(t, exp.MagicByte, act.MagicByte())

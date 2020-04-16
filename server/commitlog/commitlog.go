@@ -402,6 +402,11 @@ func (l *commitLog) activeSegment() *segment {
 }
 
 func (l *commitLog) close() error {
+	select {
+	case <-l.closed:
+		return nil
+	default:
+	}
 	if err := l.checkpointHW(); err != nil {
 		return err
 	}
@@ -442,6 +447,16 @@ func (l *commitLog) IsDeleted() bool {
 	defer l.mu.RUnlock()
 
 	return l.deleted
+}
+
+// IsClosed returns true if the commit log was closed.
+func (l *commitLog) IsClosed() bool {
+	select {
+	case <-l.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 // Truncate removes all messages from the log starting at the given offset.

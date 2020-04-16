@@ -15,6 +15,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	proto "github.com/liftbridge-io/liftbridge-api/go"
+
+	"github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 type message struct {
@@ -636,5 +638,105 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	case <-ch1:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Did not receive all expected messages")
+	}
+}
+
+// Ensure subscribe sends a NotFound error when the partition is deleted.
+func TestSubscribePartitionDeleted(t *testing.T) {
+	defer cleanupStorage(t)
+
+	server := New(getTestConfig("a", true, 0))
+	api := &apiServer{server}
+	streamProto := &protocol.Stream{
+		Name:    "foo",
+		Subject: "foo",
+		Partitions: []*protocol.Partition{
+			{
+				Stream: "foo",
+				Id:     0,
+			},
+		},
+	}
+	stream, err := server.metadata.AddStream(streamProto, true)
+	require.NoError(t, err)
+
+	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
+	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	require.Nil(t, status)
+
+	require.NoError(t, stream.Delete())
+
+	select {
+	case status := <-statusCh:
+		require.Equal(t, codes.NotFound, status.Code())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected status")
+	}
+}
+
+// Ensure subscribe sends a FailedPrecondition error when the partition is
+// paused.
+func TestSubscribePartitionPaused(t *testing.T) {
+	defer cleanupStorage(t)
+
+	server := New(getTestConfig("a", true, 0))
+	api := &apiServer{server}
+	streamProto := &protocol.Stream{
+		Name:    "foo",
+		Subject: "foo",
+		Partitions: []*protocol.Partition{
+			{
+				Stream: "foo",
+				Id:     0,
+			},
+		},
+	}
+	stream, err := server.metadata.AddStream(streamProto, true)
+	require.NoError(t, err)
+
+	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
+	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	require.Nil(t, status)
+
+	require.NoError(t, stream.Pause(nil, true))
+
+	select {
+	case status := <-statusCh:
+		require.Equal(t, codes.FailedPrecondition, status.Code())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected status")
+	}
+}
+
+// Ensure subscribe sends an Internal error when the partition is closed.
+func TestSubscribePartitionClosed(t *testing.T) {
+	defer cleanupStorage(t)
+
+	server := New(getTestConfig("a", true, 0))
+	api := &apiServer{server}
+	streamProto := &protocol.Stream{
+		Name:    "foo",
+		Subject: "foo",
+		Partitions: []*protocol.Partition{
+			{
+				Stream: "foo",
+				Id:     0,
+			},
+		},
+	}
+	stream, err := server.metadata.AddStream(streamProto, true)
+	require.NoError(t, err)
+
+	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
+	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	require.Nil(t, status)
+
+	require.NoError(t, stream.Close())
+
+	select {
+	case status := <-statusCh:
+		require.Equal(t, codes.Internal, status.Code())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected status")
 	}
 }

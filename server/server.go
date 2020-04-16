@@ -22,7 +22,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	lift "github.com/liftbridge-io/go-liftbridge"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/health"
 	"github.com/liftbridge-io/liftbridge/server/logger"
@@ -43,28 +42,28 @@ const (
 // Server is the main Liftbridge object. Create it by calling New or
 // RunServerWithConfig.
 type Server struct {
-	config               *Config
-	listener             net.Listener
-	port                 int
-	nc                   *nats.Conn
-	ncRaft               *nats.Conn
-	ncRepl               *nats.Conn
-	ncAcks               *nats.Conn
-	ncPublishes          *nats.Conn
-	logger               logger.Logger
-	loggerOut            io.Writer
-	api                  *grpc.Server
-	metadata             *metadataAPI
-	shutdownCh           chan struct{}
-	raft                 atomic.Value
-	leaderSub            *nats.Subscription
-	recoveryStarted      bool
-	latestRecoveredLog   *raft.Log
-	mu                   sync.RWMutex
-	shutdown             bool
-	running              bool
-	goroutineWait        sync.WaitGroup
-	activityStreamClient lift.Client
+	config             *Config
+	listener           net.Listener
+	port               int
+	nc                 *nats.Conn
+	ncRaft             *nats.Conn
+	ncRepl             *nats.Conn
+	ncAcks             *nats.Conn
+	ncPublishes        *nats.Conn
+	logger             logger.Logger
+	loggerOut          io.Writer
+	api                *grpc.Server
+	metadata           *metadataAPI
+	shutdownCh         chan struct{}
+	raft               atomic.Value
+	leaderSub          *nats.Subscription
+	recoveryStarted    bool
+	latestRecoveredLog *raft.Log
+	mu                 sync.RWMutex
+	shutdown           bool
+	running            bool
+	goroutineWait      sync.WaitGroup
+	activity           *activityManager
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -92,6 +91,7 @@ func New(config *Config) *Server {
 		shutdownCh: make(chan struct{}),
 	}
 	s.metadata = newMetadataAPI(s)
+	s.activity = newActivityManager(s)
 	return s
 }
 
@@ -214,8 +214,11 @@ func (s *Server) Stop() error {
 		}
 	}
 
-	if s.activityStreamClient != nil {
-		s.activityStreamClient.Close()
+	if s.activity != nil {
+		if err := s.activity.Close(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
 	}
 
 	s.closeNATSConns()
@@ -235,7 +238,7 @@ func (s *Server) Stop() error {
 // it's leader when it's not, the operation it proposes to the Raft cluster
 // will fail.
 func (s *Server) IsLeader() bool {
-	return atomic.LoadInt64(&(s.getRaft().leader)) == 1
+	return s.getRaft().isLeader()
 }
 
 // IsRunning indicates if the server is currently running or has been stopped.
@@ -493,34 +496,6 @@ func (s *Server) getRaft() *raftNode {
 	return r.(*raftNode)
 }
 
-// createActivityStream creates the activity stream and connects a local client
-// that will be subscribed to it.
-func (s *Server) createActivityStream() error {
-	if !s.config.ActivityStream.Enabled {
-		return nil
-	}
-
-	// Connect a local client that will be used to publish on the activity
-	// stream
-	listenAddress := s.config.GetListenAddress()
-	addrs := []string{listenAddress.Host + ":" + strconv.Itoa(s.port)}
-	var err error
-	s.activityStreamClient, err = lift.Connect(addrs)
-	if err != nil {
-		return errors.Wrap(err, "failed to connect the activity stream client")
-	}
-
-	err = s.activityStreamClient.CreateStream(context.Background(),
-		s.getActivityStreamSubject(),
-		activityStream,
-	)
-	if err != nil && err != lift.ErrStreamExists {
-		return errors.Wrap(err, "failed to create an activity stream")
-	}
-
-	return nil
-}
-
 // leadershipAcquired should be called when this node is elected leader.
 func (s *Server) leadershipAcquired() error {
 	s.logger.Infof("Server became metadata leader, performing leader promotion actions")
@@ -537,11 +512,11 @@ func (s *Server) leadershipAcquired() error {
 	}
 	s.leaderSub = sub
 
-	if err := s.createActivityStream(); err != nil {
+	if err := s.activity.BecomeLeader(); err != nil {
 		return err
 	}
 
-	atomic.StoreInt64(&(s.getRaft().leader), 1)
+	s.getRaft().setLeader(true)
 	return nil
 }
 
@@ -559,13 +534,11 @@ func (s *Server) leadershipLost() error {
 
 	s.metadata.LostLeadership()
 
-	// Close any activity stream client
-	if s.activityStreamClient != nil {
-		s.activityStreamClient.Close()
-		s.activityStreamClient = nil
+	if err := s.activity.BecomeFollower(); err != nil {
+		return err
 	}
 
-	atomic.StoreInt64(&(s.getRaft().leader), 0)
+	s.getRaft().setLeader(false)
 	return nil
 }
 
@@ -591,8 +564,8 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		return
 	}
 	switch req.Op {
-	case proto.Op_CREATE_PARTITION:
-		resp = s.handleCreatePartition(req)
+	case proto.Op_CREATE_STREAM:
+		resp = s.handleCreateStream(req)
 	case proto.Op_SHRINK_ISR:
 		resp = s.handleShrinkISR(req)
 	case proto.Op_EXPAND_ISR:
@@ -603,6 +576,8 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		resp = s.handleDeleteStream(req)
 	case proto.Op_PAUSE_STREAM:
 		resp = s.handlePauseStream(req)
+	case proto.Op_RESUME_STREAM:
+		resp = s.handleResumeStream(req)
 	default:
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
 		return
@@ -616,11 +591,11 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 	}
 }
 
-func (s *Server) handleCreatePartition(req *proto.PropagatedRequest) *proto.PropagatedResponse {
+func (s *Server) handleCreateStream(req *proto.PropagatedRequest) *proto.PropagatedResponse {
 	resp := &proto.PropagatedResponse{
 		Op: req.Op,
 	}
-	if err := s.metadata.CreatePartition(context.Background(), req.CreatePartitionOp); err != nil {
+	if err := s.metadata.CreateStream(context.Background(), req.CreateStreamOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
 	return resp
@@ -671,6 +646,16 @@ func (s *Server) handlePauseStream(req *proto.PropagatedRequest) *proto.Propagat
 		Op: req.Op,
 	}
 	if err := s.metadata.PauseStream(context.Background(), req.PauseStreamOp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	return resp
+}
+
+func (s *Server) handleResumeStream(req *proto.PropagatedRequest) *proto.PropagatedResponse {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.ResumeStream(context.Background(), req.ResumeStreamOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
 	return resp
@@ -850,38 +835,19 @@ func (s *Server) startGoroutine(f func()) {
 	}()
 }
 
-// publishActivityEvent publishes an event on the activity stream.
-func (s *Server) publishActivityEvent(streamEvent client.ActivityStreamEvent) error {
-	if !s.config.ActivityStream.Enabled {
-		return nil
-	}
-
-	data, err := streamEvent.Marshal()
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal a stream event")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.ActivityStream.PublishTimeout)
-	defer cancel()
-
-	var messageOption lift.MessageOption
-	ackPolicy := s.config.ActivityStream.PublishAckPolicy
-	switch ackPolicy {
-	case client.AckPolicy_LEADER:
-		messageOption = lift.AckPolicyLeader()
-	case client.AckPolicy_ALL:
-		messageOption = lift.AckPolicyAll()
-	case client.AckPolicy_NONE:
-		messageOption = lift.AckPolicyNone()
+// startGoroutineWithArgs starts a goroutine which is managed by the server and
+// is passed the provided arguments. This adds the goroutine to a WaitGroup so
+// that the server can wait for all running goroutines to stop on shutdown.
+// This should be used instead of a "naked" goroutine.
+func (s *Server) startGoroutineWithArgs(f func(...interface{}), args ...interface{}) {
+	select {
+	case <-s.shutdownCh:
+		return
 	default:
-		return fmt.Errorf("Unknown ack policy: %v", ackPolicy)
 	}
-
-	_, err = s.activityStreamClient.Publish(
-		ctx,
-		activityStream,
-		data,
-		messageOption,
-	)
-	return errors.Wrap(err, "failed to publish a stream event")
+	s.goroutineWait.Add(1)
+	go func() {
+		f(args...)
+		s.goroutineWait.Done()
+	}()
 }

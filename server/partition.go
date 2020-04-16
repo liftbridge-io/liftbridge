@@ -231,7 +231,8 @@ func (p *partition) Notify() {
 // SetLeader sets the leader for the partition to the given replica and leader
 // epoch. If the partition's current leader epoch is greater than the given
 // epoch, this returns an error. This will also start the partition as a leader
-// or follower, if applicable, unless the partition is in recovery mode.
+// or follower, if applicable, unless the partition is in recovery mode or
+// paused.
 func (p *partition) SetLeader(leader string, epoch uint64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -243,9 +244,10 @@ func (p *partition) SetLeader(leader string, epoch uint64) error {
 	p.Leader = leader
 	p.LeaderEpoch = epoch
 
-	if p.recovered {
+	if p.recovered || p.paused {
 		// If this partition is being recovered, we will start the
-		// leader/follower loop later.
+		// leader/follower loop later. If it's paused, we won't start it til
+		// it's resumed.
 		return nil
 	}
 

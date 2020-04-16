@@ -2,16 +2,20 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/raft"
-	"github.com/hashicorp/raft-boltdb"
+	"github.com/liftbridge-io/raft-boltdb"
 	"github.com/nats-io/nats.go"
+	pkgErrors "github.com/pkg/errors"
 
 	"github.com/liftbridge-io/nats-on-a-log"
 
@@ -22,12 +26,31 @@ const (
 	defaultJoinRaftGroupTimeout       = time.Second
 	defaultRaftJoinAttempts           = 30
 	defaultBootstrapMisconfigInterval = 10 * time.Second
+	defaultRaftApplyTimeout           = 5 * time.Second
 )
 
 var (
 	raftJoinAttempts           = defaultRaftJoinAttempts
 	bootstrapMisconfigInterval = defaultBootstrapMisconfigInterval
 )
+
+// errorFuture implements raft.ApplyFuture and is used to return a static
+// error.
+type errorFuture struct {
+	err error
+}
+
+func (e errorFuture) Error() error {
+	return e.err
+}
+
+func (e errorFuture) Response() interface{} {
+	return nil
+}
+
+func (e errorFuture) Index() uint64 {
+	return 0
+}
 
 // raftNode is a handle to a member in a Raft consensus group.
 type raftNode struct {
@@ -40,6 +63,66 @@ type raftNode struct {
 	logInput  io.WriteCloser
 	joinSub   *nats.Subscription
 	notifyCh  <-chan bool
+}
+
+// isLeader indicates if the Raft node is currently the leader.
+func (r *raftNode) isLeader() bool {
+	return atomic.LoadInt64(&(r.leader)) == 1
+}
+
+// setLeader sets the Raft node as the current leader or as a follower.
+func (r *raftNode) setLeader(leader bool) {
+	var flag int64
+	if leader {
+		flag = 1
+	}
+	atomic.StoreInt64(&(r.leader), flag)
+}
+
+// applyOperation proposes the given operation to the Raft cluster. This should
+// only be called when the server is metadata leader. However, if the server
+// has lost leadership, the returned future will yield an error. This will use
+// the deadline provided on the context and check for preconditions using the
+// supplied function, if provided. This will only return an error if
+// preconditions have failed, indicating the operation was not proposed to the
+// Raft cluster.
+func (r *raftNode) applyOperation(ctx context.Context, op *proto.RaftLog,
+	checkPreconditions func(*proto.RaftLog) error) (raft.ApplyFuture, error) {
+
+	data, err := op.Marshal()
+	if err != nil {
+		panic(err)
+	}
+
+	// We will acquire the mutex to prevent Raft operations from interleaving
+	// such that preconditions can be validated.
+	r.Lock()
+	defer r.Unlock()
+
+	if checkPreconditions != nil {
+		// Ensure the FSM is up to date by issuing a barrier.
+		if err := r.Barrier(computeTimeout(ctx)).Error(); err != nil {
+			return &errorFuture{pkgErrors.Wrap(err, "failed to perform Raft barrier")}, nil
+		}
+
+		// Check that the FSM preconditions are valid before performing the
+		// Raft operation.
+		if err := checkPreconditions(op); err != nil {
+			return nil, err
+		}
+	}
+
+	// Apply the Raft Operation.
+	return r.Apply(data, computeTimeout(ctx)), nil
+}
+
+// getCommitIndex returns the latest committed Raft index.
+func (r *raftNode) getCommitIndex() uint64 {
+	idx, err := strconv.ParseUint(r.Stats()["commit_index"], 10, 64)
+	if err != nil {
+		panic(err)
+	}
+	return idx
 }
 
 // shutdown attempts to stop the Raft node.
@@ -366,4 +449,15 @@ func (s *Server) createRaftNode() (bool, error) {
 // operations.
 func (s *Server) baseMetadataRaftSubject() string {
 	return fmt.Sprintf("%s.raft.metadata", s.config.Clustering.Namespace)
+}
+
+func computeTimeout(ctx context.Context) time.Duration {
+	var (
+		timeout      = defaultRaftApplyTimeout
+		deadline, ok = ctx.Deadline()
+	)
+	if ok {
+		timeout = time.Until(deadline)
+	}
+	return timeout
 }
