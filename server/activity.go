@@ -14,6 +14,8 @@ import (
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
+const maxActivityPublishBackoff = 10 * time.Second
+
 // activityManager ensures that activity events get published to the activity
 // stream. This ensures that events are published at least once and in the
 // order in which they occur with respect to the Raft log.
@@ -137,12 +139,14 @@ func (a *activityManager) dispatch() {
 			index++
 			continue
 		}
+
+		var backoff time.Duration
 	RETRY:
 		if err := a.handleRaftLog(log); err != nil {
 			a.logger.Errorf("Failed to publish activity event: %v", err)
-			// TODO: add some kind of backoff
+			backoff = computeActivityPublishBackoff(backoff)
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(backoff):
 				goto RETRY
 			case <-a.leadershipLostCh:
 				return
@@ -277,4 +281,15 @@ func (a *activityManager) publishActivityEvent(event *client.ActivityStreamEvent
 		err = future.Error()
 	}
 	return errors.Wrap(err, "failed to update Raft")
+}
+
+func computeActivityPublishBackoff(previousBackoff time.Duration) time.Duration {
+	if previousBackoff == 0 {
+		return time.Second
+	}
+	backoff := previousBackoff * 2
+	if backoff > maxActivityPublishBackoff {
+		backoff = maxActivityPublishBackoff
+	}
+	return backoff
 }

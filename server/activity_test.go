@@ -225,3 +225,21 @@ func TestActivityStreamResumeStream(t *testing.T) {
 		t.Fatal("Did not receive expected message")
 	}
 }
+
+// Ensure computeActivityPublishBackoff doubles the backoff time and caps it at
+// the max backoff.
+func TestComputeActivityPublishBackoff(t *testing.T) {
+	var backoff time.Duration
+	backoff = computeActivityPublishBackoff(backoff)
+	require.Equal(t, time.Second, backoff)
+	backoff = computeActivityPublishBackoff(backoff)
+	require.Equal(t, 2*time.Second, backoff)
+	backoff = computeActivityPublishBackoff(backoff)
+	require.Equal(t, 4*time.Second, backoff)
+	backoff = computeActivityPublishBackoff(backoff)
+	require.Equal(t, 8*time.Second, backoff)
+	backoff = computeActivityPublishBackoff(backoff)
+	require.Equal(t, 10*time.Second, backoff)
+	backoff = computeActivityPublishBackoff(backoff)
+	require.Equal(t, 10*time.Second, backoff)
+}
