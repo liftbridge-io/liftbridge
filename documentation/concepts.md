@@ -24,7 +24,7 @@ Liftbridge relies heavily on the filesystem for storing and caching stream messa
 
 By default, partition data is stored in the `/tmp/liftbridge/<namespace>` directory where `namespace` is the cluster namespace used to implement multi-tenancy for Liftbridge clusters sharing the same NATS cluster. The default namespace is `liftbridge-default`. It can be changed with the [`clustering.namespace` configuration](./configuration.md#clustering-configuration-settings). Additionally, the full data directory can be overridden with the [`data.dir` configuration](./configuration.md#configuration-settings).
 
-[@Tyler The dependency on NATS also means that future changes to the NATS project will impact the Liftbridge project. This problem will be remediated by versioning of stable releases of Liftbridge pointing to a stable release of NATS?]
+Regarding versioning: Liftbridge Liftbridge is currently compatible with 1.x.x of the NATS protocol.
 
 Streams have a few key properties: a subject, which is the corresponding NATS
 subject, a name, which is a human-readable identifier for the stream, and a
@@ -57,12 +57,9 @@ Each partition has its own message log, leader, and set of followers. To reduce
 resource consumption, partitions can be paused. Paused partitions are
 subsequently resumed once they are published to.
 
-```
-Use case note:
-Since each partition has its own message log, it means that to meet a data lineage requirement one could point all these logs to a general log like a Linux system log by subscribing to * or concatenating the logs on the storage device attached. Aggregated or not, these logs could then be consumed by a supervisor system, e.g Logstash, Jaeger, Zipkin etc for DevOps reasons. Or just stored in an S3 bucket for persistence like a ledger of what has been communicated as events.
-
-Please note, the pausing capability can free up cloud resources needed elsewhere when we have many subjects on Liftbridge. 
-```
+> **Use case note**
+>
+> Since each partition has its own message log, it means that to meet a data lineage requirement one could point all these logs to a general log like a Linux system log by subscribing to * or concatenating the logs on the storage device attached. Aggregated or not, these logs could then be consumed by a supervisor system, e.g Logstash, Jaeger, Zipkin etc for DevOps reasons. Or just stored in an S3 bucket for persistence like a ledger of what has been communicated as events.Please note, the pausing capability can free up cloud resources needed elsewhere when we have many subjects on Liftbridge. 
 
 ### Write-Ahead Log
 
@@ -72,19 +69,23 @@ cluster [controller](#controller). The leader sequences each message in the
 partition and sends back an acknowledgement to publishers upon committing a
 message to the log. A message is committed to the log once it has been
 replicated to the partition's
-[in-sync replica set (ISR)](#in-sync-replica-set-isr). [@Tyler: what happens when 
-replication fails? Do we lose the event?] 
+[in-sync replica set (ISR)](#in-sync-replica-set-isr). 
+Configuration for high durability and the risk of losing events. If the message is published with the LEADER ack policy (default), an ack is sent back to the client as soon as the leader has stored the message. If the message is published with the ALL ack policy, the ack is sent only after all members of the ISR have stored it. Thus, if the ISR is unavailable, no ack will be sent indicating there's no guarantee the message was committed. A minimum ISR size can also be configured to provide a high level of durability, but this creates a trade-off with availability (see docs [here](https://liftbridge.io/docs/next/ha-and-consistency-configuration.html)).
+
+
+
+
 
 Consumers read committed messages from the log through a subscription on the
 partition. They can read back from the log at any arbitrary position, or
 *offset*. Additionally, consumers can wait for new messages to be appended
 to the log.
 
-```
-Use case note:
-And the interested reader now identifies a typical consumer to be a stateless micro service worker. The *offset* parameter is of special interest should one
-have consumers with different and independent purposes. This, since a reporting consumer could have less priority when loads are high and an operational consumer have high priority resulting in different offsets on the same topic. Also, a paused or starved consumer, potentially a Pod in Kubernetes, like the potential reporting consumer, could easily pick up where it left off when things slow down.
-```
+> **Use Case Note**
+>
+> And the interested reader now identifies a typical consumer to be a stateless micro service worker. The *offset* parameter is of special interest should one
+have consumers with different and independent purposes. This, since a reporting consumer could have less priority when loads are high and an operational consumer have high priority resulting in different offsets on the same topic. Also, a paused or starved consumer, potentially a Pod in Kubernetes, like the potential reporting consumer, could easily pick up where it left off when things slow down. Bear in mind: Consumers need to track their state, i.e. the offset, at least until we provide support for durable consumer groups. This means we cannot support truly stateless microservice workers.
+
 
 ### Scalability
 
@@ -119,16 +120,14 @@ parallelism. Messages can then be delivered to partitions based on their key,
 in a round-robin fashion, randomly, or with some other partitioning strategy
 on the client. 
 
-```
-Use case note:
-Please note that ordering within the partition is upheld but not across partitions. This means that the partitioning strategy is of high importance, since an aggregated state cannot be achieved for a path dependent consumer subscribing to many streams (but perhaps on the same NATS subject). I.e. a consumer needing correct order of events can only subscribe to many streams if and only if the events are uncorrelated/independent between the partitions (and thus have order within a partition.) An architect would pay particular interest in making sure of independent and stateless workers when applying DDD. Link of interest: https://dddcommunity.org/book/evans_2003/
-```
+> **Use Case Note**
+>
+> Please note that ordering within the partition is upheld but not across partitions. This means that the partitioning strategy is of high importance since an aggregated state cannot be achieved for a path-dependent consumer subscribing to many streams (but perhaps on the same NATS subject). I.e. a consumer needing correct order of events can only subscribe to many streams if and only if the events are uncorrelated/independent between the partitions (and thus have order within a partition.) An architect would pay particular interest in making sure of independent and stateless workers when applying [domain-driven design](https://dddcommunity.org/book/evans_2003/).
+
 Additionally, streams can join a named load-balance group, which load balances
 messages on a NATS subject amongst the streams in the group. Load-balance
 groups do not affect message delivery to other streams not participating in
-the group.
-
-[@Tyler - pls descibe use case or advise set up on architecture impementatiob for user]
+the group. Load-balance groups are for distributing messages from a subject amongst a group of streams. Note that this could also be achieved using a partitioned stream with a random or round-robin partitioning strategy. However, partitioning assumes you've already "bought in" to Liftbridge streams as a first-class citizen. But imagine a case where there is a pre-existing NATS subject that Liftbridge-agnostic services are already publishing to, and we want to turn that NATS subject into a durable log that Liftbridge-aware services can consume. We could attach a single stream to the subject, but if it's very high volume, we might need a load-balance group to distribute the load across a set of streams.
 
 Currently, replicas in Liftbridge act only as a mechanism for high availability
 and not scalability. However, there may be work in the future to allow them to
@@ -192,9 +191,9 @@ usability. However, this is akin to other similar systems, like Kafka, where
 you must first create a topic and then you publish to that topic.
 
 
-```
-The typical use case for a producer not caring if the ACK is returned or not is an IoT device or a sensor. This means that for the sensor it is not important to know if Liftbridge indeed got to record the event. For a more regulated system, one could "assume" acknowledgements are important to the producer since the recorded truth now resides within Liftbridge, ref event sourcing.
-```
+> **Use Case Note** 
+>
+> The typical use case for a producer not caring if the ack is returned or not is an IoT device or a sensor. This means that for the sensor, it is not important to know if Liftbridge indeed got to record the event. For a more regulated system, one could assume acknowledgements are important to the producer since the recorded truth now resides within Liftbridge, as is the case in an event-sourced system.
 
 ### Subscription
 
@@ -213,9 +212,9 @@ consumer groups will be coming in the near future which will allow a consumer
 to pick up where it left off and provide fault-tolerant consumption of
 streams.
 
-```
-This ties back to the reporting worker starved to death, but clinging on to an *offset* to the bitter end so as not to lose probable state. When stateful consumer groups are implemented the reporting worker will not be restarted without state, but can resume from where it left off.
-```
+> **Architect's Note**
+>
+> This ties back to the reporting worker starved to death but clinging on to an *offset* to the bitter end so as not to lose probable state described above. When stateful consumer groups are implemented, the reporting worker can be restarted without state but can resume from where it left off due to state stored by the server.
 
 ### Stream Retention and Compaction
 
@@ -228,9 +227,9 @@ set a *key* on a [message envelope](#message-envelope). A stream can be
 configured to compact by key. In this case, it retains only the last message
 for each unique key. Messages that do not have a key are always retained.
 
-```
-From an architectural point of view, the choice here is to compact as much as possible without losing state (aggregation of events). Lineage is taken care of by the log stream if stored in e.g. an S3 bucket as noted above.
-```
+> **Architect's Note**
+>
+> From an architectural point of view, the choice here is to compact as much as possible without losing state (aggregation of events). Lineage is taken care of by the log stream if stored, for example, in an S3 bucket as noted above.
 
 ## Controller
 
@@ -246,7 +245,9 @@ the brokers must be running.
 
 Controller is also referred to as "metadata leader" in some contexts.
 
-[@taylor - guidance is needed on the number of deployed constrollers and possibly the on where they are deployed]
+There is only a single controller (i.e. leader) at a given time which is elected by the Liftbridge cluster. Guidance on cluster size depends, but one important point here is that, currently, all servers in the cluster participate in the Raft consensus group. This has implications on the scalability of the cluster control plane, which there is an issue open to address [here](https://github.com/liftbridge-io/liftbridge/issues/41).
+
+General advice is to run an odd number of servers in the cluster, e.g. 3 or 5, depending on scaling needs. Ideally, cluster members are run in different availability zones or racks for improved fault-tolerance.
 
 ## Message Envelope
 
@@ -257,8 +258,4 @@ serializing their messages into [*envelopes*](./envelope_protocol.md). An
 envelope allows publishers to set things like the `AckInbox`, `Key`, `Headers`,
 and other pieces of metadata.
 
-```
-Do not underestimate the need for meta data on your processes. Proper enrichment of meta data will enable future business models served as new products to new
-consumers, e.g. consumer behaviour etc.
-```
-A final note is to read "Designing Event-Driven Systems" by Ben Stopford that can be found on confluent.io for downloading
+> A final note is to read ["Designing Event-Driven Systems"]( http://www.benstopford.com/2018/04/27/book-designing-event-driven-systems/) by Ben Stopford for inspiration.  
