@@ -506,12 +506,13 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	// Create stream.
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name,
-		lift.ReplicationFactor(3))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
 
 	// Publish two messages.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err = client.Publish(ctx, name, []byte("hello"), lift.AckPolicyAll())
 	require.NoError(t, err)
