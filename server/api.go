@@ -130,8 +130,12 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 
 	leader, _ := partition.GetLeader()
 	if leader != a.config.Clustering.ServerID {
-		a.logger.Errorf("api: Failed to subscribe to partition %s: server not stream leader", partition)
-		return status.Error(codes.FailedPrecondition, "Server not partition leader")
+		if req.ReadISRReplica {
+			a.logger.Info("api: Accepting subscription to partition %s: server not stream leader", partition)
+		} else {
+			a.logger.Errorf("api: Failed to subscribe to partition %s: server not stream leader", partition)
+			return status.Error(codes.FailedPrecondition, "Server not partition leader")
+		}
 	}
 
 	cancel := make(chan struct{})

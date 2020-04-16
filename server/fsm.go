@@ -152,7 +152,7 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 			leader    = log.ChangeLeaderOp.Leader
 			partition = log.ChangeLeaderOp.Partition
 		)
-		if err := s.applyChangeStreamLeader(stream, leader, partition, index); err != nil {
+		if err := s.applyChangePartitionLeader(stream, leader, partition, index); err != nil {
 			return nil, err
 		}
 	case proto.Op_EXPAND_ISR:
@@ -403,10 +403,10 @@ func (s *Server) applyExpandISR(stream, replica string, partitionID int32, epoch
 	return nil
 }
 
-// applyChangeStreamLeader sets the partition's leader to the given replica and
+// applyChangePartitionLeader sets the partition's leader to the given replica and
 // updates the partition epoch. If the partition epoch is greater than or equal
 // to the specified epoch, this does nothing.
-func (s *Server) applyChangeStreamLeader(stream, leader string, partitionID int32, epoch uint64) error {
+func (s *Server) applyChangePartitionLeader(stream, leader string, partitionID int32, epoch uint64) error {
 	partition := s.metadata.GetPartition(stream, partitionID)
 	if partition == nil {
 		return fmt.Errorf("No such partition [stream=%s, partition=%d]", stream, partitionID)
