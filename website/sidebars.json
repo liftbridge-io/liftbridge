@@ -13,6 +13,10 @@
     "Deployment": [
         "deployment"
     ],
+    "Developing With Liftbridge": [
+        "activity",
+        "pausing-streams"
+    ],
     "Technical Deep Dive": [
         "replication-protocol",
         "envelope-protocol"

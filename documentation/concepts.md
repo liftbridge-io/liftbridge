@@ -76,8 +76,8 @@ will map to the subjects "foo", "foo.1", and "foo.2", respectively. Please note
 the naming convention on these subjects linked to partitions.
 
 Each partition has its own message log, leader, and set of followers. To reduce
-resource consumption, partitions can be paused. Paused partitions are
-subsequently resumed once they are published to.
+resource consumption, partitions can be [paused](./pausing_streams.md). Paused
+partitions are subsequently resumed once they are published to.
 
 ### Write-Ahead Log
 
@@ -324,6 +324,14 @@ for each unique key. Messages that do not have a key are always retained.
 > From an architectural point of view, the choice here is to compact as much as
 > possible without losing state (aggregation of events). Lineage is taken care
 > of by the stream log if stored, for example, in an S3 bucket.
+
+## Activity Stream
+
+The activity stream is a Liftbridge stream that exposes internal meta-events
+that have occurred in the cluster such as streams being created, deleted,
+paused, or resumed. This allows clients to dynamically react to changes in
+cluster state. See the activity stream [documentation](./activity.md) for more
+information.
 
 ## Controller
 

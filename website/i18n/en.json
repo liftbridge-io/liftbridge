@@ -5,6 +5,9 @@
     "previous": "Previous",
     "tagline": "Lightweight, fault-tolerant message streams",
     "docs": {
+      "activity": {
+        "title": "Activity Stream"
+      },
       "client-implementation": {
         "title": "Client Implementation Guidance"
       },
@@ -31,6 +34,9 @@
       },
       "overview": {
         "title": "Liftbridge Overview"
+      },
+      "pausing-streams": {
+        "title": "Pausing Streams"
       },
       "quick-start": {
         "title": "Quick Start"
@@ -144,6 +150,7 @@
       "Overview": "Overview",
       "Configuration": "Configuration",
       "Deployment": "Deployment",
+      "Developing With Liftbridge": "Developing With Liftbridge",
       "Technical Deep Dive": "Technical Deep Dive",
       "Client Libraries": "Client Libraries"
     }
