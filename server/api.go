@@ -191,17 +191,18 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 	return resp, nil
 }
 
-// Publish a new message to a subject. If the AckPolicy is not NONE and a
+// Publish a new message to a stream. If the AckPolicy is not NONE and a
 // deadline is provided, this will synchronously block until the ack is
 // received. If the ack is not received in time, a DeadlineExceeded status code
 // is returned.
 func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	*client.PublishResponse, error) {
+	a.logger.Debugf("api: Publish [stream=%s, partition=%d]", req.Stream, req.Partition)
+
 	subject, err := a.getPublishSubject(req)
 	if err != nil {
 		return nil, err
 	}
-	a.logger.Debugf("api: Publish [subject=%s]", subject)
 
 	err = a.resumeStream(ctx, req.Stream, req.Partition)
 	if err != nil {
@@ -212,47 +213,59 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		req.AckInbox = nuid.Next()
 	}
 
-	msg := &client.Message{
-		Key:           req.Key,
-		Value:         req.Value,
-		Stream:        req.Stream,
-		Subject:       subject,
-		ReplySubject:  req.ReplySubject,
-		Headers:       req.Headers,
-		AckInbox:      req.AckInbox,
-		CorrelationId: req.CorrelationId,
-		AckPolicy:     req.AckPolicy,
-	}
-
-	buf, err := proto.MarshalPublish(msg)
-	if err != nil {
-		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
-		return nil, err
-	}
-
-	// If AckPolicy is NONE or a timeout isn't specified, then we will fire and
-	// forget.
 	var (
-		resp           = new(client.PublishResponse)
-		_, hasDeadline = ctx.Deadline()
-	)
-	if req.AckPolicy == client.AckPolicy_NONE || !hasDeadline {
-		if err := a.ncPublishes.Publish(subject, buf); err != nil {
-			a.logger.Errorf("api: Failed to publish message: %v", err)
-			return nil, err
+		msg = &client.Message{
+			Key:           req.Key,
+			Value:         req.Value,
+			Stream:        req.Stream,
+			Subject:       subject,
+			Headers:       req.Headers,
+			AckInbox:      req.AckInbox,
+			CorrelationId: req.CorrelationId,
+			AckPolicy:     req.AckPolicy,
 		}
-		return resp, nil
+		resp = new(client.PublishResponse)
+	)
+
+	ack, err := a.publish(ctx, subject, req.AckInbox, req.AckPolicy, msg)
+	resp.Ack = ack
+
+	return resp, err
+
+}
+
+// Publish a Liftbridge message to a NATS subject. If the AckPolicy is not NONE
+// and a deadline is provided, this will synchronously block until the first
+// ack is received. If an ack is not received in time, a DeadlineExceeded
+// status code is returned.
+func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToSubjectRequest) (
+	*client.PublishToSubjectResponse, error) {
+	a.logger.Debugf("api: PublishToSubject [subject=%s]", req.Subject)
+
+	if req.AckInbox == "" {
+		req.AckInbox = nuid.Next()
 	}
 
-	// Otherwise we need to publish and wait for the ack.
-	resp.Ack, err = a.publishSync(ctx, subject, req.AckInbox, buf)
+	var (
+		msg = &client.Message{
+			Key:           req.Key,
+			Value:         req.Value,
+			Subject:       req.Subject,
+			Headers:       req.Headers,
+			AckInbox:      req.AckInbox,
+			CorrelationId: req.CorrelationId,
+			AckPolicy:     req.AckPolicy,
+		}
+		resp = new(client.PublishToSubjectResponse)
+	)
+
+	ack, err := a.publish(ctx, req.Subject, req.AckInbox, req.AckPolicy, msg)
+	resp.Ack = ack
+
 	return resp, err
 }
 
 func (a *apiServer) resumeStream(ctx context.Context, streamName string, partitionID int32) error {
-	if streamName == "" {
-		return nil
-	}
 	stream := a.metadata.GetStream(streamName)
 	if stream == nil {
 		return status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", streamName))
@@ -299,11 +312,8 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 }
 
 func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, error) {
-	if req.Subject != "" {
-		return req.Subject, nil
-	}
 	if req.Stream == "" {
-		return "", status.Error(codes.InvalidArgument, "No stream or subject provided")
+		return "", status.Error(codes.InvalidArgument, "No stream provided")
 	}
 	stream := a.metadata.GetStream(req.Stream)
 	if stream == nil {
@@ -314,6 +324,30 @@ func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, error
 		subject = fmt.Sprintf("%s.%d", subject, req.Partition)
 	}
 	return subject, nil
+}
+
+func (a *apiServer) publish(ctx context.Context, subject, ackInbox string,
+	ackPolicy client.AckPolicy, msg *client.Message) (*client.Ack, error) {
+
+	buf, err := proto.MarshalPublish(msg)
+	if err != nil {
+		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
+		return nil, err
+	}
+
+	// If AckPolicy is NONE or a timeout isn't specified, then we will fire and
+	// forget.
+	_, hasDeadline := ctx.Deadline()
+	if ackPolicy == client.AckPolicy_NONE || !hasDeadline {
+		if err := a.ncPublishes.Publish(subject, buf); err != nil {
+			a.logger.Errorf("api: Failed to publish message: %v", err)
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	// Otherwise we need to publish and wait for the ack.
+	return a.publishSync(ctx, subject, ackInbox, buf)
 }
 
 func (a *apiServer) publishSync(ctx context.Context, subject,
