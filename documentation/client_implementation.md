@@ -247,6 +247,13 @@ func Subscribe(ctx context.Context, stream string, handler Handler, opts ...Subs
 `Subscribe` is used to consume streams. By default, it begins reading messages
 from the end of the stream and blocks for new messages.
 
+By default, the client automatically binds to the partition's leader for a
+subscribe request. However, it is also possible to bind a subscribe request to
+a random ISR replica, including partition followers, with an additional opt-in
+flag. Like the leader, an ISR follower will only expose committed messages.
+However, there may be some lag behind what is committed on the leader before
+it's committed on a follower.
+
 In the Go client example above, `Subscribe` takes four arguments:
 
 | Argument | Type | Description | Required |
@@ -267,10 +274,7 @@ type Handler func(msg Message, err error)
 ```
 
 The subscription options are the equivalent of optional named arguments used to
-configure a subscription. 
-By default, the client automatically binds to partition's leader for a subscribe request. However, it is also possible to bind a subscribe request to one of the ISR replica with an additional opt-in. An ISR may have commited log but not available for consumption, thus there are maybe inconsistency with a subscription from partition's leader.
-
-Supported options are:
+configure a subscription. Supported options are:
 
 | Option | Type | Description | Default |
 |:----|:----|:----|:----|
@@ -280,7 +284,7 @@ Supported options are:
 | StartAtOffset | int | Sets the subscription start position to the first message with an offset greater than or equal to the given offset. | |
 | StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
 | StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
-| ReadISRReplica |  | Sets the subscription to one of a random ISR instead of subscribing to partition's leader | |
+| ReadISRReplica | bool | Sets the subscription to one of a random ISR replica instead of subscribing to the partition's leader. | false |
 
 Currently, `Subscribe` can only subscribe to a single partition. In the future,
 there will be functionality for consuming all partitions.
@@ -841,13 +845,17 @@ func (c *client) Subscribe(ctx context.Context, streamName string, handler Handl
 }
 ```
 
-The `Subscribe` RPC can be sent to either the leader or a random ISR replica of the stream the client wants to subscribe to. By default, it should subscribe to the leader. A `ReadISRReplica` option must be enabeld on the subscribe request in order to subscribe to an ISR replica.
+The `Subscribe` RPC can be sent to either the leader or a random ISR replica of
+the partition the client wants to subscribe to. By default, it should subscribe
+to the leader. A `ReadISRReplica` option must be enabled on the subscribe
+request in order to subscribe to an ISR replica.
 
-Either subscribing to leader (by default) or ISR replica, the address  should be determined by [fetching the
-metadata](#fetchmetadata) from the cluster. This metadata can (and should) be
-cached in the client. It's recommended `Subscribe` use [connection
-pooling](#connection-pooling) since each `Subscribe` call will involve a
-long-lived gRPC connection to a different server.
+Whether subscribing to the leader (by default) or a random ISR replica, the
+address should be determined by [fetching the metadata](#fetchmetadata) from
+the cluster. This metadata can (and should) be cached in the client. It's
+recommended `Subscribe` use [connection pooling](#connection-pooling) since
+each `Subscribe` call will involve a long-lived gRPC connection to a different
+server.
 
 When the subscription stream is created, the server sends an empty message to
 indicate the subscription was successfully created. Otherwise, an error is sent
