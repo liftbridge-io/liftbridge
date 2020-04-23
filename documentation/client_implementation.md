@@ -92,7 +92,7 @@ type Client interface {
 	// received in time, a DeadlineExceeded status code is returned. If an
 	// AckPolicy and deadline are configured, this returns the Ack on success,
 	// otherwise it returns nil.
-	Publish(ctx context.Context, stream string, value []byte, opts ...MessageOption) (Ack, error)
+	Publish(ctx context.Context, stream string, value []byte, opts ...MessageOption) (*Ack, error)
 
 	// PublishToSubject publishes a new message to the NATS subject. Note that
 	// because this publishes directly to a subject, there may be multiple (or
@@ -105,7 +105,7 @@ type Client interface {
 	// received in time, a DeadlineExceeded status code is returned. If an
 	// AckPolicy and deadline are configured, this returns the first Ack on
 	// success, otherwise it returns nil.
-	PublishToSubject(ctx context.Context, subject string, value []byte, opts ...MessageOption) (Ack, error)
+	PublishToSubject(ctx context.Context, subject string, value []byte, opts ...MessageOption) (*Ack, error)
 
 	// FetchMetadata returns cluster metadata including broker and stream
 	// information.
@@ -267,10 +267,11 @@ The subscribe handler is a callback function that takes a message and an error.
 If the error is not null, the subscription will be terminated and no more
 messages will be received. The Go signature of the handler callback is detailed
 below. In other languages, this might be a stream mechanism instead of a
-callback.
+callback. See [below](#messages-and-acks) for guidance on implementing
+messages.
 
 ```go
-type Handler func(msg Message, err error)
+type Handler func(msg *Message, err error)
 ```
 
 The subscription options are the equivalent of optional named arguments used to
@@ -310,7 +311,7 @@ there will be functionality for consuming all partitions.
 // received in time, a DeadlineExceeded status code is returned. If an
 // AckPolicy and deadline are configured, this returns the Ack on success,
 // otherwise it returns nil.
-func Publish(ctx context.Context, stream string, value []byte, opts ...MessageOption) (Ack, error)
+func Publish(ctx context.Context, stream string, value []byte, opts ...MessageOption) (*Ack, error)
 ```
 
 `Publish` sends a message to a Liftbridge stream. Since Liftbridge streams
@@ -330,7 +331,8 @@ been successfully published. `Publish` can also be configured to block until a
 message acknowledgement (ack) is returned from the cluster. This is useful for
 ensuring a message has been stored and replicated, guaranteeing at-least-once
 delivery. The default ack policy is `LEADER`, meaning the ack is sent once the
-partition leader has stored the message.
+partition leader has stored the message. See [below](#messages-and-acks) for
+guidance on implementing acks.
 
 `Publish` can send messages to particular stream partitions using a
 `Partitioner` or an explicitly provided partition. By default, it publishes to
@@ -393,7 +395,7 @@ type Partitioner interface {
 // received in time, a DeadlineExceeded status code is returned. If an
 // AckPolicy and deadline are configured, this returns the first Ack on
 // success, otherwise it returns nil.
-func PublishToSubject(ctx context.Context, subject string, value []byte, opts ...MessageOption) (Ack, error)
+func PublishToSubject(ctx context.Context, subject string, value []byte, opts ...MessageOption) (*Ack, error)
 ```
 
 `PublishToSubject` sends a message to a NATS subject (and, in turn, any streams
@@ -416,7 +418,8 @@ cluster. This is useful for ensuring a message has been stored and replicated,
 guaranteeing at-least-once delivery. The default ack policy is `LEADER`,
 meaning the ack is sent once the partition leader has stored the message.
 `PublishToSubject` only waits on the first ack received. This is important to
-be aware of since there may be multiple streams attached to a subject.
+be aware of since there may be multiple streams attached to a subject. See
+[below](#messages-and-acks) for guidance on implementing acks.
 
 In the Go client example above, `PublishToSubject` takes four arguments:
 
@@ -509,7 +512,7 @@ message object or indication the data is not actually a message.
 ```go
 // UnmarshalAck deserializes an Ack from the given byte slice. It returns an
 // error if the given data is not actually an Ack.
-func UnmarshalAck(data []byte) (Ack, error)
+func UnmarshalAck(data []byte) (*Ack, error)
 ```
 
 `UnmarshalAck` is used to deserialize a message ack received on a NATS
@@ -600,6 +603,169 @@ the operation fails.
 Below is implementation guidance for the client interface described above. Like
 the interface, specific implementation details may differ depending on the
 programming language.
+
+### Messages and Acks
+
+It's recommended to not expose transport and protocol details to users in
+client library implementations. Currently, Liftbridge relies on gRPC and
+Protocol Buffers, but it's possible that this could change in the future. These
+should be considered implementation details. Thus, it's recommended to provide
+wrapping types around `Message`, `Ack`, `AckPolicy`, and any other API objects.
+Implementations should handle converting protobufs into these wrappers. The Go
+implementation of these is shown below to demonstrate:
+
+```go
+// Message received from a Liftbridge stream.
+type Message struct {
+	offset       int64
+	key          []byte
+	value        []byte
+	partition    int32
+	timestamp    time.Time
+	stream       string
+	subject      string
+	replySubject string
+	headers      map[string][]byte
+}
+
+func messageFromProto(wireMsg *proto.Message) *Message {
+	if wireMsg == nil {
+		return nil
+	}
+	msg := &Message{
+		offset:       wireMsg.GetOffset(),
+		key:          wireMsg.GetKey(),
+		value:        wireMsg.GetValue(),
+		partition:    wireMsg.GetPartition(),
+		timestamp:    time.Unix(0, wireMsg.GetTimestamp()),
+		stream:       wireMsg.GetStream(),
+		subject:      wireMsg.GetSubject(),
+		replySubject: wireMsg.GetReplySubject(),
+		headers:      wireMsg.GetHeaders(),
+	}
+	return msg
+}
+
+// Offset is a monotonic message sequence in the stream partition.
+func (m *Message) Offset() int64 {
+	return m.offset
+}
+
+// Key is an optional label set on a Message, useful for partitioning and
+// stream compaction.
+func (m *Message) Key() []byte {
+	return m.key
+}
+
+// Value is the Message payload.
+func (m *Message) Value() []byte {
+	return m.value
+}
+
+// Timestamp is the time the Message was received by the server.
+func (m *Message) Timestamp() time.Time {
+	return m.timestamp
+}
+
+// Subject is the NATS subject the Message was received on.
+func (m *Message) Subject() string {
+	return m.subject
+}
+
+// ReplySubject is the NATS reply subject on the Message, if any.
+func (m *Message) ReplySubject() string {
+	return m.replySubject
+}
+
+// Headers is a set of key-value pairs.
+func (m *Message) Headers() map[string][]byte {
+	headers := make(map[string][]byte, len(m.headers))
+	for key, value := range m.headers {
+		headers[key] = value
+	}
+	return headers
+}
+
+// Stream the Message was received on.
+func (m *Message) Stream() string {
+	return m.stream
+}
+
+// Partition the Message was received on.
+func (m *Message) Partition() int32 {
+	return m.partition
+}
+
+// AckPolicy controls the behavior of message acknowledgements.
+type AckPolicy int32
+
+func (a AckPolicy) toProto() proto.AckPolicy {
+	return proto.AckPolicy(a)
+}
+
+// Ack represents an acknowledgement that a message was committed to a stream
+// partition.
+type Ack struct {
+	stream           string
+	partitionSubject string
+	messageSubject   string
+	offset           int64
+	ackInbox         string
+	correlationID    string
+	ackPolicy        AckPolicy
+}
+
+func ackFromProto(wireAck *proto.Ack) *Ack {
+	if wireAck == nil {
+		return nil
+	}
+	ack := &Ack{
+		stream:           wireAck.GetStream(),
+		partitionSubject: wireAck.GetPartitionSubject(),
+		messageSubject:   wireAck.GetMsgSubject(),
+		offset:           wireAck.GetOffset(),
+		ackInbox:         wireAck.GetAckInbox(),
+		correlationID:    wireAck.GetCorrelationId(),
+		ackPolicy:        AckPolicy(wireAck.GetAckPolicy()),
+	}
+	return ack
+}
+
+// Stream the Message was received on.
+func (a *Ack) Stream() string {
+	return a.stream
+}
+
+// PartitionSubject is the NATS subject the partition is attached to.
+func (a *Ack) PartitionSubject() string {
+	return a.partitionSubject
+}
+
+// MessageSubject is the NATS subject the message was received on.
+func (a *Ack) MessageSubject() string {
+	return a.messageSubject
+}
+
+// Offset is the partition offset the message was committed to.
+func (a *Ack) Offset() int64 {
+	return a.offset
+}
+
+// AckInbox is the NATS subject the ack was published to.
+func (a *Ack) AckInbox() string {
+	return a.ackInbox
+}
+
+// CorrelationID is the user-supplied value from the message.
+func (a *Ack) CorrelationID() string {
+	return a.correlationID
+}
+
+// AckPolicy sent on the message.
+func (a *Ack) AckPolicy() AckPolicy {
+	return a.ackPolicy
+}
+```
 
 ### RPCs
 
@@ -896,9 +1062,8 @@ of behavior to point out with the dispatching component:
 `Publish` involves constructing a `Message` protobuf, determining the partition
 to publish to, and then making the publish request to the server using the
 [resilient RPC method](#rpcs) described above. The Go implementation of this is
-shown below, including two helper functions, `partition`, which determines the
-partition ID to publish the message to, and `publish`, which performs the
-actual RPC.
+shown below, including a `partition` helper function which determines the
+partition ID to publish the message to.
 
 ```go
 // Publish publishes a new message to the Liftbridge stream. The partition that
@@ -914,7 +1079,7 @@ actual RPC.
 // deadline are configured, this returns the Ack on success, otherwise it
 // returns nil.
 func (c *client) Publish(ctx context.Context, stream string, value []byte,
-	options ...MessageOption) (Ack, error) {
+	options ...MessageOption) (*Ack, error) {
 
 	opts := &MessageOptions{Headers: make(map[string][]byte)}
 	for _, opt := range options {
@@ -937,7 +1102,15 @@ func (c *client) Publish(ctx context.Context, stream string, value []byte,
 		AckPolicy:     opts.AckPolicy.toProto(),
 	}
 
-	return c.publish(ctx, req)
+	var ack *proto.Ack
+	err = c.doResilientRPC(func(client proto.APIClient) error {
+		resp, err := client.Publish(ctx, req)
+		if err == nil {
+			ack = resp.Ack
+		}
+		return err
+	})
+	return ackFromProto(ack), err
 }
 
 // partition determines the partition ID to publish the message to. If a
@@ -960,18 +1133,6 @@ func (c *client) partition(ctx context.Context, stream string, key, value []byte
 		partition = opts.Partitioner.Partition(stream, key, value, metadata)
 	}
 	return partition, nil
-}
-
-func (c *client) publish(ctx context.Context, req *proto.PublishRequest) (Ack, error) {
-	var ack *proto.Ack
-	err := c.doResilientRPC(func(client proto.APIClient) error {
-		resp, err := client.Publish(ctx, req)
-		if err == nil {
-			ack = resp.Ack
-		}
-		return err
-	})
-	return newProtoAck(ack), err
 }
 ```
 
@@ -1057,10 +1218,10 @@ func (r *roundRobinPartitioner) Partition(stream string, key, value []byte, meta
 ### PublishToSubject Implementation
 
 `PublishToSubject` implementation is similar to that of
-[`Publish`](#publish-implementation), but rather than sending a stream and
-partition in the `PublishRequest`, it only sends a subject. It can reuse the
-same publish helper used by `Publish`. The Go implementations of this is shown
-below:
+[`Publish`](#publish-implementation) but instead sends a
+`PublishToSubjectRequest` to the `PublishToSubject` endpoint. This sets the
+publish subject directly rather than computing a partition for a stream. The Go
+implementation of this is shown below:
 
 ```go
 // PublishToSubject publishes a new message to the NATS subject. Note that
@@ -1075,14 +1236,14 @@ below:
 // AckPolicy and deadline are configured, this returns the first Ack on
 // success, otherwise it returns nil.
 func (c *client) PublishToSubject(ctx context.Context, subject string, value []byte,
-	options ...MessageOption) (Ack, error) {
+	options ...MessageOption) (*Ack, error) {
 
 	opts := &MessageOptions{Headers: make(map[string][]byte)}
 	for _, opt := range options {
 		opt(opts)
 	}
 
-	req := &proto.PublishRequest{
+	req := &proto.PublishToSubjectRequest{
 		Subject:       subject,
 		Key:           opts.Key,
 		Value:         value,
@@ -1091,7 +1252,15 @@ func (c *client) PublishToSubject(ctx context.Context, subject string, value []b
 		AckPolicy:     opts.AckPolicy.toProto(),
 	}
 
-	return c.publish(ctx, req)
+	var ack *proto.Ack
+	err := c.doResilientRPC(func(client proto.APIClient) error {
+		resp, err := client.PublishToSubject(ctx, req)
+		if err == nil {
+			ack = resp.Ack
+		}
+		return err
+	})
+	return ackFromProto(ack), err
 }
 ```
 
@@ -1116,10 +1285,6 @@ func (m *Metadata) Addrs() []string {}
 
 // GetStream returns the given stream or nil if unknown.
 func (m *Metadata) GetStream(name string) *StreamInfo {}
-
-// GetStreams returns a map containing all streams with the given subject. This
-// does not match on wildcard subjects, e.g.  "foo.*".
-func (m *Metadata) GetStreams(subject string) []*StreamInfo {}
 
 // PartitionCountForStream returns the number of partitions for the given
 // stream.
