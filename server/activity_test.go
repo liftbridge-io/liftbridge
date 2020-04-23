@@ -36,9 +36,9 @@ func TestActivityStreamCreateStream(t *testing.T) {
 
 	// The first message read back should be the creation of the activity
 	// stream partition.
-	msgs := make(chan lift.Message, 1)
+	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
+	err = client.Subscribe(ctx, activityStream, func(msg *lift.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -91,9 +91,9 @@ func TestActivityStreamDeleteStream(t *testing.T) {
 	require.NoError(t, client.DeleteStream(context.Background(), stream))
 
 	// The first message read back should be the stream deletion.
-	msgs := make(chan lift.Message, 1)
+	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
+	err = client.Subscribe(ctx, activityStream, func(msg *lift.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -144,9 +144,9 @@ func TestActivityStreamPauseStream(t *testing.T) {
 	require.NoError(t, client.PauseStream(context.Background(), stream))
 
 	// The first message read back should be the stream pause.
-	msgs := make(chan lift.Message, 1)
+	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
+	err = client.Subscribe(ctx, activityStream, func(msg *lift.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()
@@ -203,9 +203,9 @@ func TestActivityStreamResumeStream(t *testing.T) {
 	require.NoError(t, err)
 
 	// The first message read back should be the stream resume.
-	msgs := make(chan lift.Message, 1)
+	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	err = client.Subscribe(ctx, activityStream, func(msg lift.Message, err error) {
+	err = client.Subscribe(ctx, activityStream, func(msg *lift.Message, err error) {
 		require.NoError(t, err)
 		msgs <- msg
 		cancel()

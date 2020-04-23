@@ -143,7 +143,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	i := 0
 	ch := make(chan struct{})
 	err = client.Subscribe(context.Background(), name,
-		func(msg lift.Message, err error) {
+		func(msg *lift.Message, err error) {
 			if i == num && err != nil {
 				return
 			}
@@ -184,7 +184,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	i = 0
 	ch = make(chan struct{})
 	err = client.Subscribe(context.Background(), name,
-		func(msg lift.Message, err error) {
+		func(msg *lift.Message, err error) {
 			if i == num && err != nil {
 				return
 			}
@@ -440,7 +440,7 @@ func TestCommitOnRestart(t *testing.T) {
 	i := 0
 	ch := make(chan struct{})
 	err = client.Subscribe(context.Background(), name,
-		func(msg lift.Message, err error) {
+		func(msg *lift.Message, err error) {
 			if i == num*2 && err != nil {
 				return
 			}
