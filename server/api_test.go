@@ -9,6 +9,7 @@ import (
 
 	lift "github.com/liftbridge-io/go-liftbridge"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
+	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -639,6 +640,46 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Did not receive all expected messages")
 	}
+}
+
+// Ensure publishing to a NATS subject works.
+func TestPublishToSubject(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	sub, err := nc.SubscribeSync("foo.bar")
+	require.NoError(t, err)
+
+	// Publish message to subject.
+	_, err = client.PublishToSubject(context.Background(), "foo.bar", []byte("hello"),
+		lift.Key([]byte("key")))
+	require.NoError(t, err)
+
+	msg, err := sub.NextMsg(5 * time.Second)
+	require.NoError(t, err)
+	liftMsg, err := lift.UnmarshalMessage(msg.Data)
+	require.NoError(t, err)
+	require.Equal(t, []byte("hello"), liftMsg.Value())
+	require.Equal(t, []byte("key"), liftMsg.Key())
 }
 
 // Ensure subscribe sends a NotFound error when the partition is deleted.
