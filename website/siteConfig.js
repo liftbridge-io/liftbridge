@@ -33,6 +33,7 @@ const siteConfig = {
   headerLinks: [
     {href: 'https://github.com/liftbridge-io/liftbridge', label: 'GitHub'},
     {doc: 'overview', label: 'Docs'},
+    {href: 'https://github.com/liftbridge-io/liftbridge/releases', label: 'Download'},
     {page: 'help', label: 'Help'},
   ],
 
