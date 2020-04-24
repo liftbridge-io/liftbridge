@@ -1025,7 +1025,8 @@ server.
 
 When the subscription stream is created, the server sends an empty message to
 indicate the subscription was successfully created. Otherwise, an error is sent
-on the stream if the subscribe failed. A gRPC `FailedPrecondition` error
+on the stream if the subscribe failed. This handshake message must be handled
+and should not be exposed to the user. A gRPC `FailedPrecondition` error
 indicates the server is not the partition leader, perhaps because the leader
 has since changed. In this case, the client should refresh the metadata and
 retry. It's recommended retries also wait a bit, e.g. between 10 and 500 ms,
