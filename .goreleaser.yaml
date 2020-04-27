@@ -1,0 +1,27 @@
+before:
+  hooks:
+    - go mod download
+    - go generate ./...
+
+builds:
+- env:
+  - CGO_ENABLED=0
+  goos:
+    - darwin
+    - linux
+    - windows
+  goarch:
+    - amd64
+    - 386
+  ignore:
+    - goos: darwin
+      goarch: 386
+
+changelog:
+  skip: true
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ .Tag }}-next"

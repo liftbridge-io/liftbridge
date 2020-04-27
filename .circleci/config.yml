@@ -93,6 +93,14 @@ jobs:
             docker push "liftbridge/liftbridge:${VERSION}"
             docker push 'liftbridge/liftbridge:latest'
 
+  # Create GitHub release and upload artifacts
+  release:
+    docker:
+      - image: circleci/golang:1.14
+    steps:
+      - checkout
+      - run: curl -sL https://git.io/goreleaser | bash
+
   # Build website artifacts
   build-website:
     docker:
@@ -148,7 +156,14 @@ workflows:
             branches:
               ignore: /.*/
             tags:
-              only: /^v.*/
+              only: /v[0-9]+(\.[0-9]+)*(-.*)*/
+      - release:
+          context: github-push
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /v[0-9]+(\.[0-9]+)*(-.*)*/
       - build-website:
           filters:
             branches:

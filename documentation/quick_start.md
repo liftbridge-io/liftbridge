@@ -3,14 +3,23 @@ id: quick-start
 title: Quick Start
 ---
 
-## Binary from Source
+There are three ways to get started running Liftbridge on your machine:
+[downloading a pre-built binary](#binary), [building from source](#building-from-source),
+or [running a Docker container](#docker-container). There are also several
+options for running a Liftbridge cluster [described below](#running-a-liftbridge-cluster-locally).
 
-Getting a Liftbridge binary currently requires building and installing from
-source using [Go](https://golang.org/doc/install). This will not be required
-once a release is made which will provide pre-built binaries and container
-images, but in the meantime follow the below step to install. Alternatively,
-you can use the [development container](#docker-container) which runs an
-instance of Liftbridge and NATS inside a single Docker container.
+## Binary
+
+A pre-built Liftbridge binary can be downloaded for a specific platform from
+the [releases](https://github.com/liftbridge-io/liftbridge/releases) page. Once
+you have installed the binary, refer to the steps under [Building From
+Source](#building-from-source) for running the server.
+
+## Building From Source
+
+A Liftbridge binary can be built and installed from source using
+[Go](https://golang.org/doc/install). Follow the below step to install from
+source.
 
 ```shell
 $ go get github.com/liftbridge-io/liftbridge
