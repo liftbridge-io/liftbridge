@@ -15,16 +15,18 @@ Liftbridge [overview](overview.md) for more information.
 
 ## Why was it created?
 
-Liftbridge was designed to bridge the gap between sophisticated log-based
-messaging systems like Apacha Kafka and Apache Pulsar and simpler, cloud-native
-systems. There is no ZooKeeper or other unwieldy dependencies, no JVM, no
-complicated API, and client libraries are just [gRPC](https://grpc.io/). More
-importantly, Liftbridge aims to extend NATS with a durable, at-least-once
-delivery mechanism that upholds the NATS tenets of simplicity, performance, and
-scalability. Unlike [NATS
+Liftbridge was designed to bridge the gap between sophisticated but complex
+log-based messaging systems like Apache Kafka and Apache Pulsar and simpler,
+cloud-native solutions. There is no ZooKeeper or other unwieldy dependencies,
+no JVM, no complicated API or configuration, and client libraries are just
+[gRPC](https://grpc.io/). More importantly, Liftbridge aims to extend NATS with
+a durable, at-least-once delivery mechanism that upholds the NATS tenets of
+simplicity, performance, and scalability. Unlike [NATS
 Streaming](https://github.com/nats-io/nats-streaming-server), it uses the core
 NATS protocol with optional extensions. This means it can be added to an
 existing NATS deployment to provide message durability with no code changes.
+The ultimate goal of Liftbridge is to provide a message-streaming solution with
+a focus on simplicity and usability. 
 
 ## Why not NATS Streaming?
 
@@ -75,11 +77,3 @@ will step up to replace it. The replication protocol closely resembles that of
 Kafka, so there is much more nuance to avoid data consistency problems. See the
 [replication protocol documentation](replication_protocol.md)
 for more details.
-
-## What about performance?
-
-*Benchmarks soon to come...*
-
-## Is it production-ready?
-
-No, this project is early and still evolving.
