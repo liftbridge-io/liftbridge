@@ -29,6 +29,9 @@
       "faq": {
         "title": "Frequently Asked Questions"
       },
+      "feature-comparison": {
+        "title": "Feature Comparison"
+      },
       "ha-and-consistency-configuration": {
         "title": "Configuring for High Availability and Consistency"
       },
@@ -144,6 +147,7 @@
     "links": {
       "GitHub": "GitHub",
       "Docs": "Docs",
+      "Download": "Download",
       "Help": "Help"
     },
     "categories": {
