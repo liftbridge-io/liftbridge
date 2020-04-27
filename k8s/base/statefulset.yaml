@@ -28,9 +28,9 @@ spec:
           volumeMounts:
             - name: liftbridge-data
               mountPath: /data
-            - mountPath: /etc/liftbridge.conf
+            - mountPath: /etc/liftbridge.yaml
               name: liftbridge-config
-              subPath: liftbridge.conf
+              subPath: liftbridge.yaml
       volumes:
         - configMap:
             name: config

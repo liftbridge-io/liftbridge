@@ -1,16 +1,13 @@
 apiVersion: v1
 data:
-  liftbridge.conf: |
+  liftbridge.yaml: |
     listen: 0.0.0.0:9292
-    log.level: debug
+    logging.level: debug
 
-    nats {
-      servers: ["nats://nats.liftbridge.svc:4222"]
-    }
+    nats.servers:
+      - "nats://nats.liftbridge.svc:4222"
 
-    clustering {
-      min.insync.replicas: 1
-    }
+    clustering.min.insync.replicas: 1
 kind: ConfigMap
 metadata:
   labels:
