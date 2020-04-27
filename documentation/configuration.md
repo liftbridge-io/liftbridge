@@ -24,22 +24,20 @@ USAGE:
    liftbridge [global options] command [command options] [arguments...]
 
 VERSION:
-   0.0.1
+   v1.0.0
 
 COMMANDS:
-     help, h  Shows a list of commands or help for one command
+   help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
    --config FILE, -c FILE                      load configuration from FILE
    --server-id value, --id value               ID of the server in the cluster if there is no stored ID (default: random ID)
    --namespace value, --ns value               cluster namespace (default: "liftbridge-default")
-   --nats-servers ADDR[,ADDR], -n ADDR[,ADDR]  connect to NATS cluster at ADDR[,ADDR] (default: "nats://localhost:4222")
+   --nats-servers ADDR[,ADDR], -n ADDR[,ADDR]  connect to NATS cluster at ADDR[,ADDR] (default: "nats://127.0.0.1:4222")
    --data-dir DIR, -d DIR                      store data in DIR (default: "/tmp/liftbridge/<namespace>")
    --port value, -p value                      port to bind to (default: 9292)
    --tls-cert value                            server certificate file
    --tls-key value                             private key for server certificate
-   --tls-client-auth value                     enforce client authentication
-   --tls-client-auth-ca value                  CA certificate to use when authenticating clients
    --level value, -l value                     logging level [debug|info|warn|error] (default: "info")
    --raft-bootstrap-seed                       bootstrap the Raft cluster by electing self as leader if there is no existing state
    --raft-bootstrap-peers value                bootstrap the Raft cluster with the provided list of peer IDs if there is no existing state

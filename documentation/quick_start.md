@@ -43,10 +43,12 @@ only be set on one server when bootstrapping a cluster.**
 
 ```shell
 $ liftbridge --raft-bootstrap-seed
-INFO[2018-07-05 16:29:44] Server ID: kn3MGwCL3TKRNyGS9bZLgH
-INFO[2018-07-05 16:29:44] Namespace: liftbridge-default
-INFO[2018-07-05 16:29:44] Starting server on :9292...
-INFO[2018-07-05 16:29:46] Server became metadata leader, performing leader promotion actions
+INFO[2020-04-27 17:20:21] Liftbridge Version: v1.0.0
+INFO[2020-04-27 17:20:21] Server ID:          agTv5PkzvgKygm688EMd4C
+INFO[2020-04-27 17:20:21] Namespace:          liftbridge-default
+INFO[2020-04-27 17:20:21] Retention Policy:   [Age: 1 week, Compact: false]
+INFO[2020-04-27 17:20:21] Starting server on 0.0.0.0:9292...
+INFO[2020-04-27 17:20:23] Server became metadata leader, performing leader promotion actions
 ```
 
 Once a leader has been elected, other servers will automatically join the cluster.
@@ -54,9 +56,11 @@ We set the `--data-dir` and `--port` flags to avoid clobbering the first server.
 
 ```shell
 $ liftbridge --data-dir /tmp/liftbridge/server-2 --port=9293
-INFO[2018-07-05 16:39:21] Server ID: 32CpplyaA031EFEW1DQzx6
-INFO[2018-07-05 16:39:21] Namespace: liftbridge-default
-INFO[2018-07-05 16:39:21] Starting server on :9293...
+INFO[2020-04-27 17:21:10] Liftbridge Version: v1.0.0
+INFO[2020-04-27 17:21:10] Server ID:          OtKIIhwxBztcSkgZD0xXQP
+INFO[2020-04-27 17:21:10] Namespace:          liftbridge-default
+INFO[2020-04-27 17:21:10] Retention Policy:   [Age: 1 week, Compact: false]
+INFO[2020-04-27 17:21:10] Starting server on 0.0.0.0:9293...
 ```
 
 We can also bootstrap a cluster by providing the explicit cluster configuration.
