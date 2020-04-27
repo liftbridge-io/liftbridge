@@ -109,8 +109,3 @@ To tear down your local environment, run:
 ```shell
 $ make kind-down
 ```
-
-## Production
-
-We'll provide guidance on production deployments when a 1.0 release rolls
-around.
