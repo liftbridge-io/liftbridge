@@ -100,6 +100,7 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - run: go get -u github.com/golang/protobuf/protoc-gen-go
       - run: curl -sL https://git.io/goreleaser | bash
 
   # Build website artifacts
