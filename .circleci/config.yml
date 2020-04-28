@@ -99,6 +99,7 @@ jobs:
       - image: circleci/golang:1.14
     steps:
       - checkout
+      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - run: curl -sL https://git.io/goreleaser | bash
 
   # Build website artifacts
