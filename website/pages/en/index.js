@@ -61,6 +61,9 @@ class HomeSplash extends React.Component {
             FAQ
           </a>
           </PromoSection>
+          <h3>
+            <a href="https://docs.google.com/forms/d/e/1FAIpQLSfWWigEE9AxGJG6HvIg1rFeAyuY9Jrosq7UgQTj_Nj15Bq1wQ/viewform">Learn more</a> about available commercial support and consulting services.
+          </h3>
         </div>
       </SplashContainer>
     );
