@@ -84,6 +84,17 @@ func getMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Server) 
 	if leader == nil {
 		stackFatalf(t, "No metadata leader found")
 	}
+
+	// Wait for cluster to agree on leader.
+LOOP:
+	for time.Now().Before(deadline) {
+		for _, s := range servers {
+			if string(s.getRaft().Leader()) != leader.config.Clustering.ServerID {
+				continue LOOP
+			}
+		}
+		break
+	}
 	return leader
 }
 
