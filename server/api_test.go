@@ -116,7 +116,7 @@ func TestCreateStreamNoMetadataLeader(t *testing.T) {
 	// a server and wait for the leader to step down.
 	getMetadataLeader(t, 10*time.Second, s1, s2)
 	s1.Stop()
-	waitForNoMetadataLeader(t, 10*time.Second, s1, s2)
+	waitForNoMetadataLeader(t, 10*time.Second, s2)
 
 	// Connect and send the request to the follower.
 	client, err := lift.Connect([]string{"localhost:5050"})
