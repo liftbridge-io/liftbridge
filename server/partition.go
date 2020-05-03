@@ -95,23 +95,38 @@ type partition struct {
 //
 // A partitioned stream maps to separate NATS subjects: subject, subject.1,
 // subject.2, etc.
-func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool) (*partition, error) {
+func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, protoStreamsConfig *proto.CustomStreamsConfig) (*partition, error) {
+	streamsConfig := &StreamsConfig{
+		SegmentMaxBytes:      s.config.Streams.SegmentMaxBytes,
+		SegmentMaxAge:        s.config.Streams.SegmentMaxAge,
+		RetentionMaxBytes:    s.config.Streams.RetentionMaxBytes,
+		RetentionMaxMessages: s.config.Streams.RetentionMaxMessages,
+		RetentionMaxAge:      s.config.Streams.RetentionMaxAge,
+		CleanerInterval:      s.config.Streams.CleanerInterval,
+		Compact:              s.config.Streams.Compact,
+		CompactMaxGoroutines: s.config.Streams.CompactMaxGoroutines,
+	}
+	ParseCustomStreamsConfig(protoStreamsConfig, streamsConfig)
+	if streamsConfig == nil {
+		fmt.Printf("Custom StreamsConfig undefined. Using default StreamConfiguration")
+	}
 	var (
 		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Stream,
 			strconv.FormatInt(int64(protoPartition.Id), 10))
 		name = fmt.Sprintf("[subject=%s, stream=%s, partition=%d]",
 			protoPartition.Subject, protoPartition.Stream, protoPartition.Id)
+
 		log, err = commitlog.New(commitlog.Options{
 			Name:                 name,
 			Path:                 file,
-			MaxSegmentBytes:      s.config.Streams.SegmentMaxBytes,
-			MaxSegmentAge:        s.config.Streams.SegmentMaxAge,
-			MaxLogBytes:          s.config.Streams.RetentionMaxBytes,
-			MaxLogMessages:       s.config.Streams.RetentionMaxMessages,
-			MaxLogAge:            s.config.Streams.RetentionMaxAge,
-			CleanerInterval:      s.config.Streams.CleanerInterval,
-			Compact:              s.config.Streams.Compact,
-			CompactMaxGoroutines: s.config.Streams.CompactMaxGoroutines,
+			MaxSegmentBytes:      streamsConfig.SegmentMaxBytes,
+			MaxSegmentAge:        streamsConfig.SegmentMaxAge,
+			MaxLogBytes:          streamsConfig.RetentionMaxBytes,
+			MaxLogMessages:       streamsConfig.RetentionMaxMessages,
+			MaxLogAge:            streamsConfig.RetentionMaxAge,
+			CleanerInterval:      streamsConfig.CleanerInterval,
+			Compact:              streamsConfig.Compact,
+			CompactMaxGoroutines: streamsConfig.CompactMaxGoroutines,
 			Logger:               s.logger,
 		})
 	)

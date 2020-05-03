@@ -1,5 +1,6 @@
 syntax = "proto3";
 package protocol;
+import "google/protobuf/duration.proto";
 
     
 message ServerState {
@@ -82,11 +83,21 @@ message ChangeLeaderOp {
 message PublishActivityOp {
     uint64 raftIndex = 1;
 }
-
+message CustomStreamsConfig  {
+	int64                    RetentionMaxBytes     =1;
+	int64                    RetentionMaxMessages  =2;
+	google.protobuf.Duration RetentionMaxAge       =3;  
+	google.protobuf.Duration CleanerInterval       =4;
+	int64                    SegmentMaxBytes       =5;
+	google.protobuf.Duration SegmentMaxAge         =6;
+	bool                     Compact               =7;       
+	int64                    CompactMaxGoroutines  =8;
+}
 message Stream {
     string             name       = 1;
     string             subject    = 2;
     repeated Partition partitions = 3;
+    CustomStreamsConfig customStreamConfig =4;
 }
 
 message Partition {

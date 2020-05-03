@@ -8,14 +8,15 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	ptypes "github.com/golang/protobuf/ptypes"
 	"github.com/hako/durafmt"
+	client "github.com/liftbridge-io/liftbridge-api/go"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-
-	client "github.com/liftbridge-io/liftbridge-api/go"
 )
 
 const (
@@ -177,6 +178,38 @@ func (l StreamsConfig) RetentionString() string {
 	str += fmt.Sprintf(", Compact: %t", l.Compact)
 	str += "]"
 	return str
+}
+
+// ParseCustomStreamsConfig tries to parse streams config from the request
+// to StreamConfig struct
+func ParseCustomStreamsConfig(c *proto.CustomStreamsConfig, defaultconfig *StreamsConfig) {
+	if c == nil {
+		return
+	}
+	retentionMaxAge, err := ptypes.Duration(c.GetRetentionMaxAge())
+	if err != nil {
+		fmt.Println("Error on loading custom stream config", err)
+		return
+	}
+	cleanerInterval, err := ptypes.Duration(c.GetCleanerInterval())
+	if err != nil {
+		fmt.Println("Error on loading custom stream config", err)
+		return
+	}
+	segmentMaxAge, err := ptypes.Duration(c.GetSegmentMaxAge())
+	if err != nil {
+		fmt.Println("Error on loading custom stream config", err)
+		return
+	}
+	defaultconfig.RetentionMaxBytes = c.GetRetentionMaxBytes()
+	defaultconfig.RetentionMaxMessages = c.GetRetentionMaxMessages()
+	defaultconfig.RetentionMaxAge = retentionMaxAge
+	defaultconfig.CleanerInterval = cleanerInterval
+	defaultconfig.SegmentMaxBytes = c.GetSegmentMaxBytes()
+	defaultconfig.SegmentMaxAge = segmentMaxAge
+	defaultconfig.Compact = c.GetCompact()
+	defaultconfig.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines())
+
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.

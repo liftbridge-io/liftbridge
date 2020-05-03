@@ -655,16 +655,21 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 	stream := newStream(protoStream.Name, protoStream.Subject)
 	m.streams[protoStream.Name] = stream
 
+	// Get stream configuration
+
+	customStreamsConfig := protoStream.GetCustomStreamConfig()
+
 	for _, partition := range protoStream.Partitions {
-		if err := m.addPartition(stream, partition, recovered); err != nil {
+		if err := m.addPartition(stream, partition, recovered, customStreamsConfig); err != nil {
 			delete(m.streams, protoStream.Name)
 			return nil, err
 		}
 	}
+
 	return stream, nil
 }
 
-func (m *metadataAPI) addPartition(stream *stream, protoPartition *proto.Partition, recovered bool) error {
+func (m *metadataAPI) addPartition(stream *stream, protoPartition *proto.Partition, recovered bool, protoStreamsConfig *proto.CustomStreamsConfig) error {
 	if p := stream.GetPartition(protoPartition.Id); p != nil {
 		// Partition already exists for stream.
 		return fmt.Errorf("partition %d already exists for stream %s",
@@ -672,7 +677,7 @@ func (m *metadataAPI) addPartition(stream *stream, protoPartition *proto.Partiti
 	}
 
 	// This will initialize/recover the durable commit log.
-	partition, err := m.newPartition(protoPartition, recovered)
+	partition, err := m.newPartition(protoPartition, recovered, protoStreamsConfig)
 	if err != nil {
 		return err
 	}
