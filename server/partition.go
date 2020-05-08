@@ -107,9 +107,6 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, p
 		CompactMaxGoroutines: s.config.Streams.CompactMaxGoroutines,
 	}
 	streamsConfig.ParseCustomStreamsConfig(protoStreamsConfig)
-	if streamsConfig == nil {
-		fmt.Printf("Custom StreamsConfig undefined. Using default StreamConfiguration")
-	}
 	var (
 		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Stream,
 			strconv.FormatInt(int64(protoPartition.Id), 10))

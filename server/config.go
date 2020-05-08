@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	ptypes "github.com/gogo/protobuf/types"
+	"github.com/gogo/protobuf/types"
 	"github.com/hako/durafmt"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
@@ -186,29 +186,36 @@ func (l *StreamsConfig) ParseCustomStreamsConfig(c *proto.CustomStreamsConfig) {
 	if c == nil {
 		return
 	}
-	retentionMaxAge, err := ptypes.DurationFromProto(c.GetRetentionMaxAge())
-	if err != nil {
-		fmt.Println("Error on loading custom stream config", err)
-		return
+	retentionMaxAge, err := types.DurationFromProto(c.GetRetentionMaxAge())
+	if err == nil {
+		l.RetentionMaxAge = retentionMaxAge
 	}
-	cleanerInterval, err := ptypes.DurationFromProto(c.GetCleanerInterval())
-	if err != nil {
-		fmt.Println("Error on loading custom stream config", err)
-		return
+	cleanerInterval, err := types.DurationFromProto(c.GetCleanerInterval())
+	if err == nil {
+		l.CleanerInterval = cleanerInterval
+
 	}
-	segmentMaxAge, err := ptypes.DurationFromProto(c.GetSegmentMaxAge())
-	if err != nil {
-		fmt.Println("Error on loading custom stream config", err)
-		return
+	segmentMaxAge, err := types.DurationFromProto(c.GetSegmentMaxAge())
+	if err == nil {
+		l.SegmentMaxAge = segmentMaxAge
 	}
-	l.RetentionMaxBytes = c.GetRetentionMaxBytes()
-	l.RetentionMaxMessages = c.GetRetentionMaxMessages()
-	l.RetentionMaxAge = retentionMaxAge
-	l.CleanerInterval = cleanerInterval
-	l.SegmentMaxBytes = c.GetSegmentMaxBytes()
-	l.SegmentMaxAge = segmentMaxAge
+	if c.GetRetentionMaxBytes() != 0 {
+		l.RetentionMaxBytes = c.GetRetentionMaxBytes()
+	}
+	if c.GetRetentionMaxMessages() != 0 {
+		l.RetentionMaxMessages = c.GetRetentionMaxMessages()
+	}
+
+	if c.GetSegmentMaxBytes() != 0 {
+		l.SegmentMaxBytes = c.GetSegmentMaxBytes()
+	}
+	// NOTE: Compact given by GetCompact is always false by default
+	// thus, by default it will overwrite this value in the stream configuration
+
 	l.Compact = c.GetCompact()
-	l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines())
+	if c.GetCompactMaxGoroutines() != 0 {
+		l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines())
+	}
 
 }
 

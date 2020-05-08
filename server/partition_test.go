@@ -571,3 +571,23 @@ func TestPartitionReplicationRequestLoopPreempt(t *testing.T) {
 		t.Fatal("Expected replication request")
 	}
 }
+
+//TestPartitionWithCustomConfigNoError ensure that a new partition
+// can be created with custom StreamConfiguration
+func TestPartitionWithCustomConfigNoError(t *testing.T) {
+	defer cleanupStorage(t)
+	server := createServer(false)
+	customStreamConfig := &proto.CustomStreamsConfig{
+		Compact:              true,
+		RetentionMaxMessages: 1000,
+	}
+	p, err := server.newPartition(&proto.Partition{
+		Subject:  "foo",
+		Stream:   "foo",
+		Replicas: []string{"a", "b", "c"},
+		Leader:   "b",
+		Isr:      []string{"a", "b"},
+	}, false, customStreamConfig)
+	require.NoError(t, err)
+	defer p.Close()
+}

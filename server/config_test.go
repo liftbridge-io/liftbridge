@@ -4,9 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gogo/protobuf/types"
 	"github.com/stretchr/testify/require"
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 // Ensure NewConfig properly parses config files.
@@ -121,4 +123,64 @@ func TestNewConfigInvalidClusteringSetting(t *testing.T) {
 func TestNewConfigUnknownSetting(t *testing.T) {
 	_, err := NewConfig("configs/unknown-setting.yaml")
 	require.Error(t, err)
+}
+
+// Ensure SteamConfig can be parsed
+func TestParseCustomStreamConfig(t *testing.T) {
+	// Given custom stream config
+	customStreamConfig := &proto.CustomStreamsConfig{
+		SegmentMaxBytes:      1024,
+		SegmentMaxAge:        &types.Duration{Seconds: 1000},
+		RetentionMaxBytes:    2048,
+		RetentionMaxMessages: 1000,
+		RetentionMaxAge:      &types.Duration{Seconds: 1000},
+		CleanerInterval:      &types.Duration{Seconds: 1000},
+		Compact:              true,
+		CompactMaxGoroutines: 10,
+	}
+	streamConfig := StreamsConfig{}
+
+	streamConfig.ParseCustomStreamsConfig(customStreamConfig)
+
+	s, _ := time.ParseDuration("1000s")
+
+	// Expect custom stream config overwrites default stream config
+	require.Equal(t, int64(1024), streamConfig.SegmentMaxBytes)
+	require.Equal(t, s, streamConfig.SegmentMaxAge)
+	require.Equal(t, int64(1024), streamConfig.SegmentMaxBytes)
+	require.Equal(t, int64(2048), streamConfig.RetentionMaxBytes)
+	require.Equal(t, int64(1000), streamConfig.RetentionMaxMessages)
+	require.Equal(t, s, streamConfig.RetentionMaxAge)
+	require.Equal(t, s, streamConfig.CleanerInterval)
+	require.Equal(t, true, streamConfig.Compact)
+	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
+
+}
+
+// Ensure default stream config is always present
+func TestDefaultCustomStreamConfig(t *testing.T) {
+	s, _ := time.ParseDuration("1000s")
+
+	customStreamConfig := &proto.CustomStreamsConfig{
+		RetentionMaxBytes:    1024,
+		RetentionMaxMessages: 1000,
+		RetentionMaxAge:      &types.Duration{Seconds: 1000},
+		CleanerInterval:      &types.Duration{Seconds: 1000},
+		Compact:              true,
+		CompactMaxGoroutines: 10,
+	}
+	streamConfig := StreamsConfig{SegmentMaxBytes: 2048, SegmentMaxAge: s}
+
+	streamConfig.ParseCustomStreamsConfig(customStreamConfig)
+
+	require.Equal(t, int64(2048), streamConfig.SegmentMaxBytes)
+	require.Equal(t, s, streamConfig.SegmentMaxAge)
+
+	require.Equal(t, int64(1024), streamConfig.RetentionMaxBytes)
+	require.Equal(t, int64(1000), streamConfig.RetentionMaxMessages)
+	require.Equal(t, s, streamConfig.RetentionMaxAge)
+	require.Equal(t, s, streamConfig.CleanerInterval)
+	require.Equal(t, true, streamConfig.Compact)
+	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
+
 }
