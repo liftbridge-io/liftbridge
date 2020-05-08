@@ -106,7 +106,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, p
 		Compact:              s.config.Streams.Compact,
 		CompactMaxGoroutines: s.config.Streams.CompactMaxGoroutines,
 	}
-	ParseCustomStreamsConfig(protoStreamsConfig, streamsConfig)
+	streamsConfig.ParseCustomStreamsConfig(protoStreamsConfig)
 	if streamsConfig == nil {
 		fmt.Printf("Custom StreamsConfig undefined. Using default StreamConfiguration")
 	}

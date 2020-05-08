@@ -42,7 +42,7 @@ package protocol
 import proto "github.com/golang/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import google_protobuf "github.com/golang/protobuf/ptypes/duration"
+import google_protobuf "github.com/gogo/protobuf/types"
 
 import io "io"
 

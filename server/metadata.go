@@ -718,7 +718,7 @@ func (m *metadataAPI) ResumePartition(streamName string, id int32, recovered boo
 	}
 
 	// Resume the partition by replacing it.
-	partition, err := m.newPartition(partition.Partition, recovered)
+	partition, err := m.newPartition(partition.Partition, recovered, nil)
 	if err != nil {
 		return nil, err
 	}

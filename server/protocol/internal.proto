@@ -1,7 +1,7 @@
 syntax = "proto3";
 package protocol;
-import "google/protobuf/duration.proto";
 
+import "google/protobuf/duration.proto";
     
 message ServerState {
     string serverID = 1;

@@ -57,7 +57,7 @@ func TestPartitionCommitLoopCommitNoAck(t *testing.T) {
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	p.commitQueue = queue.New(5)
@@ -125,7 +125,7 @@ func TestPartitionCommitLoopCommitAck(t *testing.T) {
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	p.commitQueue = queue.New(5)
@@ -192,7 +192,7 @@ func TestPartitionCommitLoopEmptyQueue(t *testing.T) {
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	p.commitQueue = queue.New(5)
@@ -255,7 +255,7 @@ func TestPartitionCommitLoopDisposedQueue(t *testing.T) {
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	p.commitQueue = queue.New(5)
@@ -316,7 +316,7 @@ func TestPartitionCommitLoopNoCommitBelowMinISR(t *testing.T) {
 		Replicas: []string{"a", "b"},
 		Leader:   "a",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	p.commitQueue = queue.New(5)
@@ -364,7 +364,7 @@ func TestPartitionRemoveFromISRNotReplica(t *testing.T) {
 	p, err := server.newPartition(&proto.Partition{
 		Subject: "foo",
 		Stream:  "foo",
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	require.Error(t, p.RemoveFromISR("foo"))
@@ -381,7 +381,7 @@ func TestPartitionRemoveFromISRFollower(t *testing.T) {
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b", "c"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	require.NoError(t, p.RemoveFromISR("b"))
@@ -408,7 +408,7 @@ func TestPartitionRemoveFromISRLeader(t *testing.T) {
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "a",
 		Isr:      []string{"a", "b", "c"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	p.isLeading = true
@@ -439,7 +439,7 @@ func TestPartitionRemoveFromISRBelowMin(t *testing.T) {
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b", "c"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	require.NoError(t, p.RemoveFromISR("b"))
@@ -455,7 +455,7 @@ func TestPartitionAddToISRNotReplica(t *testing.T) {
 	p, err := server.newPartition(&proto.Partition{
 		Subject: "foo",
 		Stream:  "foo",
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	require.Error(t, p.AddToISR("foo"))
@@ -471,7 +471,7 @@ func TestPartitionAddToISR(t *testing.T) {
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 
@@ -494,7 +494,7 @@ func TestPartitionAddToISRRecoverMin(t *testing.T) {
 		Replicas: []string{"a", "b", "c"},
 		Leader:   "b",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 	p.belowMinISR = true
@@ -534,7 +534,7 @@ func TestPartitionReplicationRequestLoopPreempt(t *testing.T) {
 		Replicas: []string{"a", "b"},
 		Leader:   "b",
 		Isr:      []string{"a", "b"},
-	}, false)
+	}, false, nil)
 	require.NoError(t, err)
 	defer p.Close()
 

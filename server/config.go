@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	ptypes "github.com/golang/protobuf/ptypes"
+	ptypes "github.com/gogo/protobuf/types"
 	"github.com/hako/durafmt"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
@@ -182,33 +182,33 @@ func (l StreamsConfig) RetentionString() string {
 
 // ParseCustomStreamsConfig tries to parse streams config from the request
 // to StreamConfig struct
-func ParseCustomStreamsConfig(c *proto.CustomStreamsConfig, defaultconfig *StreamsConfig) {
+func (l *StreamsConfig) ParseCustomStreamsConfig(c *proto.CustomStreamsConfig) {
 	if c == nil {
 		return
 	}
-	retentionMaxAge, err := ptypes.Duration(c.GetRetentionMaxAge())
+	retentionMaxAge, err := ptypes.DurationFromProto(c.GetRetentionMaxAge())
 	if err != nil {
 		fmt.Println("Error on loading custom stream config", err)
 		return
 	}
-	cleanerInterval, err := ptypes.Duration(c.GetCleanerInterval())
+	cleanerInterval, err := ptypes.DurationFromProto(c.GetCleanerInterval())
 	if err != nil {
 		fmt.Println("Error on loading custom stream config", err)
 		return
 	}
-	segmentMaxAge, err := ptypes.Duration(c.GetSegmentMaxAge())
+	segmentMaxAge, err := ptypes.DurationFromProto(c.GetSegmentMaxAge())
 	if err != nil {
 		fmt.Println("Error on loading custom stream config", err)
 		return
 	}
-	defaultconfig.RetentionMaxBytes = c.GetRetentionMaxBytes()
-	defaultconfig.RetentionMaxMessages = c.GetRetentionMaxMessages()
-	defaultconfig.RetentionMaxAge = retentionMaxAge
-	defaultconfig.CleanerInterval = cleanerInterval
-	defaultconfig.SegmentMaxBytes = c.GetSegmentMaxBytes()
-	defaultconfig.SegmentMaxAge = segmentMaxAge
-	defaultconfig.Compact = c.GetCompact()
-	defaultconfig.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines())
+	l.RetentionMaxBytes = c.GetRetentionMaxBytes()
+	l.RetentionMaxMessages = c.GetRetentionMaxMessages()
+	l.RetentionMaxAge = retentionMaxAge
+	l.CleanerInterval = cleanerInterval
+	l.SegmentMaxBytes = c.GetSegmentMaxBytes()
+	l.SegmentMaxAge = segmentMaxAge
+	l.Compact = c.GetCompact()
+	l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines())
 
 }
 
