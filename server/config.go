@@ -187,16 +187,16 @@ func (l *StreamsConfig) ParseCustomStreamsConfig(c *proto.CustomStreamsConfig) {
 		return
 	}
 	retentionMaxAge, err := types.DurationFromProto(c.GetRetentionMaxAge())
-	if err == nil {
+	if err == nil && retentionMaxAge != 0 {
 		l.RetentionMaxAge = retentionMaxAge
 	}
 	cleanerInterval, err := types.DurationFromProto(c.GetCleanerInterval())
-	if err == nil {
+	if err == nil && cleanerInterval != 0 {
 		l.CleanerInterval = cleanerInterval
 
 	}
 	segmentMaxAge, err := types.DurationFromProto(c.GetSegmentMaxAge())
-	if err == nil {
+	if err == nil && segmentMaxAge != 0 {
 		l.SegmentMaxAge = segmentMaxAge
 	}
 	if c.GetRetentionMaxBytes() != 0 {

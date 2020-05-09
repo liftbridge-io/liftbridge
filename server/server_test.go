@@ -1624,7 +1624,7 @@ func TestCustomStreamRetentionBytesOnStreamCreated(t *testing.T) {
 	// Create stream.
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxBytes(1000))
+	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxBytes(2000))
 	require.NoError(t, err)
 
 	// Publish some messages.
@@ -1639,7 +1639,7 @@ func TestCustomStreamRetentionBytesOnStreamCreated(t *testing.T) {
 	// Force log clean.
 	forceLogClean(t, subject, name, s1)
 
-	// The first message read back should have offset 87.
+	// The first message read back should have offset 74.
 	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
@@ -1652,7 +1652,136 @@ func TestCustomStreamRetentionBytesOnStreamCreated(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(87), msg.Offset())
+		require.Equal(t, int64(74), msg.Offset())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure the stream max messages retention ensures data is deleted when the number of messages
+// exceed the limit. This configuration is set upon stream creation and shoudl
+// overwrite the default configuration on the broker
+func TestCustomStreamRetentionMessagesOnStreamCreated(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxMessages = 1000
+	s1Config.BatchMaxMessages = 1
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxMessages(2))
+	require.NoError(t, err)
+
+	// Publish some messages.
+	num := 100
+	for i := 0; i < num; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err = client.Publish(ctx, name, []byte("hello"))
+		require.NoError(t, err)
+	}
+
+	// Force log clean.
+	forceLogClean(t, subject, name, s1)
+
+	// The first message read back should have offset 74.
+	msgs := make(chan *lift.Message, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	// We expect that only 2 messages are kept, so the offset should be
+	// 98
+	select {
+	case msg := <-msgs:
+		require.Equal(t, int64(98), msg.Offset())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure the stream max messages retention ensures data is deleted when the age of messages
+// exceed the limit. This configuration is set upon stream creation and shoudl
+// overwrite the default configuration on the broker
+func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxMessages = 1000
+	s1Config.BatchMaxMessages = 1
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxAge(time.Nanosecond))
+	require.NoError(t, err)
+
+	// Publish some messages.
+	num := 100
+	for i := 0; i < num; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err = client.Publish(ctx, name, []byte("hello"))
+		require.NoError(t, err)
+	}
+
+	// Force log clean.
+	forceLogClean(t, subject, name, s1)
+
+	// The first message read back should have offset 74.
+	msgs := make(chan *lift.Message, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	// We expect that only 1 message are kept due to
+	// retention age is nanosecond, so the offset should be
+	// 99
+	select {
+	case msg := <-msgs:
+		require.Equal(t, int64(99), msg.Offset())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
