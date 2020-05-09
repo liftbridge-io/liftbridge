@@ -90,8 +90,7 @@ message CustomStreamsConfig  {
 	google.protobuf.Duration CleanerInterval       =4;
 	int64                    SegmentMaxBytes       =5;
 	google.protobuf.Duration SegmentMaxAge         =6;
-	bool                     Compact               =7;       
-	int64                    CompactMaxGoroutines  =8;
+	int64                    CompactMaxGoroutines  =7;
 }
 message Stream {
     string             name       = 1;
