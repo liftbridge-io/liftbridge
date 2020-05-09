@@ -209,10 +209,12 @@ func (l *StreamsConfig) ParseCustomStreamsConfig(c *proto.CustomStreamsConfig) {
 	if c.GetSegmentMaxBytes() != 0 {
 		l.SegmentMaxBytes = c.GetSegmentMaxBytes()
 	}
-	// NOTE: Compact given by GetCompact is always false by default
-	// thus, by default it will overwrite this value in the stream configuration
+	// NOTE: Compact is not supported by CustomStreamConfig
+	// Reason is that protobuf always set bool value to false
+	// by default if the value is not set explicitly. Thus
+	// it will always overwrite stream's compact configuration
+	// at broker's level. This is potentially a bug
 
-	l.Compact = c.GetCompact()
 	if c.GetCompactMaxGoroutines() != 0 {
 		l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines())
 	}

@@ -135,7 +135,6 @@ func TestParseCustomStreamConfig(t *testing.T) {
 		RetentionMaxMessages: 1000,
 		RetentionMaxAge:      &types.Duration{Seconds: 1000},
 		CleanerInterval:      &types.Duration{Seconds: 1000},
-		Compact:              true,
 		CompactMaxGoroutines: 10,
 	}
 	streamConfig := StreamsConfig{}
@@ -152,35 +151,37 @@ func TestParseCustomStreamConfig(t *testing.T) {
 	require.Equal(t, int64(1000), streamConfig.RetentionMaxMessages)
 	require.Equal(t, s, streamConfig.RetentionMaxAge)
 	require.Equal(t, s, streamConfig.CleanerInterval)
-	require.Equal(t, true, streamConfig.Compact)
 	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
 
 }
 
-// Ensure default stream config is always present
+// Ensure default stream configs are always present
 func TestDefaultCustomStreamConfig(t *testing.T) {
 	s, _ := time.ParseDuration("1000s")
+	// Given a default stream config
+	streamConfig := StreamsConfig{SegmentMaxBytes: 2048, SegmentMaxAge: s}
 
+	// Given custom configs
 	customStreamConfig := &proto.CustomStreamsConfig{
 		RetentionMaxBytes:    1024,
 		RetentionMaxMessages: 1000,
 		RetentionMaxAge:      &types.Duration{Seconds: 1000},
 		CleanerInterval:      &types.Duration{Seconds: 1000},
-		Compact:              true,
 		CompactMaxGoroutines: 10,
 	}
-	streamConfig := StreamsConfig{SegmentMaxBytes: 2048, SegmentMaxAge: s}
 
 	streamConfig.ParseCustomStreamsConfig(customStreamConfig)
 
+	// Ensure that in case of non-overlap values, default configs
+	// remain present
 	require.Equal(t, int64(2048), streamConfig.SegmentMaxBytes)
 	require.Equal(t, s, streamConfig.SegmentMaxAge)
 
+	// Ensure values from custom configs overwrite default configs
 	require.Equal(t, int64(1024), streamConfig.RetentionMaxBytes)
 	require.Equal(t, int64(1000), streamConfig.RetentionMaxMessages)
 	require.Equal(t, s, streamConfig.RetentionMaxAge)
 	require.Equal(t, s, streamConfig.CleanerInterval)
-	require.Equal(t, true, streamConfig.Compact)
 	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
 
 }

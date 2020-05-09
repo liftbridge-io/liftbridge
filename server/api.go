@@ -55,11 +55,20 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 			Id:                i,
 		}
 	}
-
+	streamConfig := &proto.CustomStreamsConfig{
+		RetentionMaxBytes:    req.RetentionMaxBytes,
+		RetentionMaxMessages: req.RetentionMaxMessages,
+		RetentionMaxAge:      req.RetentionMaxAge,
+		CleanerInterval:      req.CleanerInterval,
+		SegmentMaxBytes:      req.SegmentMaxBytes,
+		SegmentMaxAge:        req.SegmentMaxAge,
+		CompactMaxGoroutines: req.CompactMaxGoroutines,
+	}
 	stream := &proto.Stream{
-		Name:       req.Name,
-		Subject:    req.Subject,
-		Partitions: partitions,
+		Name:               req.Name,
+		Subject:            req.Subject,
+		Partitions:         partitions,
+		CustomStreamConfig: streamConfig,
 	}
 
 	if e := a.metadata.CreateStream(ctx, &proto.CreateStreamOp{Stream: stream}); e != nil {

@@ -578,7 +578,6 @@ func TestPartitionWithCustomConfigNoError(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
 	customStreamConfig := &proto.CustomStreamsConfig{
-		Compact:              true,
 		RetentionMaxMessages: 1000,
 	}
 	p, err := server.newPartition(&proto.Partition{

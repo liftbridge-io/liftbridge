@@ -1595,3 +1595,65 @@ func TestPublishNoSuchPartition(t *testing.T) {
 	_, err = client.Publish(context.Background(), name, []byte("hello"), lift.ToPartition(42))
 	require.Error(t, err)
 }
+
+// Ensure the stream bytes retention ensures data is deleted when the log
+// exceeds the limit. This configuration is set upon stream creation and shoudl
+// overwrite the default configuration on the broker
+func TestCustomStreamRetentionBytesOnStreamCreated(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxBytes = 1000
+	s1Config.BatchMaxMessages = 1
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxBytes(1000))
+	require.NoError(t, err)
+
+	// Publish some messages.
+	num := 100
+	for i := 0; i < num; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err = client.Publish(ctx, name, []byte("hello"))
+		require.NoError(t, err)
+	}
+
+	// Force log clean.
+	forceLogClean(t, subject, name, s1)
+
+	// The first message read back should have offset 87.
+	msgs := make(chan *lift.Message, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case msg := <-msgs:
+		require.Equal(t, int64(87), msg.Offset())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
