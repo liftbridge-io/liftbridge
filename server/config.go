@@ -327,6 +327,10 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	v.SetConfigFile(configFile)
 	v.SetConfigType("yaml")
 
+	// Allow overriding config with environment variables
+	v.SetEnvPrefix("LIFTBRIDGE")
+	v.AutomaticEnv()
+
 	// Parse the config file.
 	if err := v.ReadInConfig(); err != nil {
 		return nil, errors.Wrap(err, "Failed to load configuration file")

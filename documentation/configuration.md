@@ -73,6 +73,7 @@ An example configuration file is shown below.
 ```yaml
 ---
 listen: localhost:9293
+host: localhost
 data.dir: /tmp/liftbridge/server-2
 activity.stream.enabled: true
 
@@ -98,6 +99,21 @@ clustering:
   server.id: server-2
   raft.bootstrap.seed: true
   replica.max.lag.time: 20s
+```
+
+## Overriding configuration settings with environment variables
+
+For configuration set in the configuration file the value can be overridden
+with environment variables prefixed with `LIFTBRIDGE_`. The key must exist in
+the config file to be overridden.
+
+For example using the config file from above one could override the host and
+logging level with:
+
+```sh
+env LIFTBRIDGE_HOST=liftbridge.example.com \
+  LIFTBRIDGE_LOGGING_LEVEL=error \
+  liftbridge --config config.yaml
 ```
 
 ## Configuration Settings
