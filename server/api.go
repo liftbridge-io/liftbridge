@@ -55,7 +55,7 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 			Id:                i,
 		}
 	}
-	streamConfig := &proto.CustomStreamsConfig{
+	streamConfig := &proto.CustomStreamConfig{
 		RetentionMaxBytes:    req.RetentionMaxBytes,
 		RetentionMaxMessages: req.RetentionMaxMessages,
 		RetentionMaxAge:      req.RetentionMaxAge,

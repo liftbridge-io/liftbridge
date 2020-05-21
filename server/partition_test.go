@@ -577,7 +577,7 @@ func TestPartitionReplicationRequestLoopPreempt(t *testing.T) {
 func TestPartitionWithCustomConfigNoError(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	customStreamConfig := &proto.CustomStreamsConfig{
+	customStreamConfig := &proto.CustomStreamConfig{
 		RetentionMaxMessages: 1000,
 	}
 	p, err := server.newPartition(&proto.Partition{

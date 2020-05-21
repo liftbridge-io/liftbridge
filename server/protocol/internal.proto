@@ -83,7 +83,7 @@ message ChangeLeaderOp {
 message PublishActivityOp {
     uint64 raftIndex = 1;
 }
-message CustomStreamsConfig  {
+message CustomStreamConfig  {
 	int64                    RetentionMaxBytes     =1;
 	int64                    RetentionMaxMessages  =2;
 	google.protobuf.Duration RetentionMaxAge       =3;  
@@ -96,7 +96,7 @@ message Stream {
     string             name       = 1;
     string             subject    = 2;
     repeated Partition partitions = 3;
-    CustomStreamsConfig customStreamConfig =4;
+    CustomStreamConfig customStreamConfig =4;
 }
 
 message Partition {

@@ -180,9 +180,10 @@ func (l StreamsConfig) RetentionString() string {
 	return str
 }
 
-// ParseCustomStreamsConfig tries to parse streams config from the request
-// to StreamConfig struct
-func (l *StreamsConfig) ParseCustomStreamsConfig(c *proto.CustomStreamsConfig) {
+// ParseCustomStreamConfig tries to parse streams config from the request
+// to StreamConfig struct. If the value is present in the request's config section,
+// it will be set in StreamConfig
+func (l *StreamsConfig) ParseCustomStreamConfig(c *proto.CustomStreamConfig) {
 	if c == nil {
 		return
 	}
@@ -193,7 +194,6 @@ func (l *StreamsConfig) ParseCustomStreamsConfig(c *proto.CustomStreamsConfig) {
 	cleanerInterval, err := types.DurationFromProto(c.GetCleanerInterval())
 	if err == nil && cleanerInterval != 0 {
 		l.CleanerInterval = cleanerInterval
-
 	}
 	segmentMaxAge, err := types.DurationFromProto(c.GetSegmentMaxAge())
 	if err == nil && segmentMaxAge != 0 {

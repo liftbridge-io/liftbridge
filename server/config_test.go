@@ -125,10 +125,12 @@ func TestNewConfigUnknownSetting(t *testing.T) {
 	require.Error(t, err)
 }
 
-// Ensure SteamConfig can be parsed
+// Ensure custom's StreamConfig can be parsed correctly
+// if a given value is present in the custom's StreamConfig
+// it should be set, otherwise, default values should be kept
 func TestParseCustomStreamConfig(t *testing.T) {
 	// Given custom stream config
-	customStreamConfig := &proto.CustomStreamsConfig{
+	customStreamConfig := &proto.CustomStreamConfig{
 		SegmentMaxBytes:      1024,
 		SegmentMaxAge:        &types.Duration{Seconds: 1000},
 		RetentionMaxBytes:    2048,
@@ -139,14 +141,13 @@ func TestParseCustomStreamConfig(t *testing.T) {
 	}
 	streamConfig := StreamsConfig{}
 
-	streamConfig.ParseCustomStreamsConfig(customStreamConfig)
+	streamConfig.ParseCustomStreamConfig(customStreamConfig)
 
 	s, _ := time.ParseDuration("1000s")
 
 	// Expect custom stream config overwrites default stream config
 	require.Equal(t, int64(1024), streamConfig.SegmentMaxBytes)
 	require.Equal(t, s, streamConfig.SegmentMaxAge)
-	require.Equal(t, int64(1024), streamConfig.SegmentMaxBytes)
 	require.Equal(t, int64(2048), streamConfig.RetentionMaxBytes)
 	require.Equal(t, int64(1000), streamConfig.RetentionMaxMessages)
 	require.Equal(t, s, streamConfig.RetentionMaxAge)
@@ -155,14 +156,15 @@ func TestParseCustomStreamConfig(t *testing.T) {
 
 }
 
-// Ensure default stream configs are always present
+// Ensure default stream configs are always present,
+// this should be the case when custom's stream configs are not set
 func TestDefaultCustomStreamConfig(t *testing.T) {
 	s, _ := time.ParseDuration("1000s")
 	// Given a default stream config
 	streamConfig := StreamsConfig{SegmentMaxBytes: 2048, SegmentMaxAge: s}
 
 	// Given custom configs
-	customStreamConfig := &proto.CustomStreamsConfig{
+	customStreamConfig := &proto.CustomStreamConfig{
 		RetentionMaxBytes:    1024,
 		RetentionMaxMessages: 1000,
 		RetentionMaxAge:      &types.Duration{Seconds: 1000},
@@ -170,7 +172,7 @@ func TestDefaultCustomStreamConfig(t *testing.T) {
 		CompactMaxGoroutines: 10,
 	}
 
-	streamConfig.ParseCustomStreamsConfig(customStreamConfig)
+	streamConfig.ParseCustomStreamConfig(customStreamConfig)
 
 	// Ensure that in case of non-overlap values, default configs
 	// remain present

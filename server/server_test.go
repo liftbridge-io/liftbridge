@@ -1597,7 +1597,7 @@ func TestPublishNoSuchPartition(t *testing.T) {
 }
 
 // Ensure the stream bytes retention ensures data is deleted when the log
-// exceeds the limit. This configuration is set upon stream creation and shoudl
+// exceeds the limit. This configuration is set upon stream creation and should
 // overwrite the default configuration on the broker
 func TestCustomStreamRetentionBytesOnStreamCreated(t *testing.T) {
 	defer cleanupStorage(t)
@@ -1621,7 +1621,7 @@ func TestCustomStreamRetentionBytesOnStreamCreated(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	// Create stream.
+	// Create stream with custom RetentionMaxBytes
 	name := "foo"
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxBytes(2000))
@@ -1659,7 +1659,7 @@ func TestCustomStreamRetentionBytesOnStreamCreated(t *testing.T) {
 }
 
 // Ensure the stream max messages retention ensures data is deleted when the number of messages
-// exceed the limit. This configuration is set upon stream creation and shoudl
+// exceed the limit. This configuration is set upon stream creation and should
 // overwrite the default configuration on the broker
 func TestCustomStreamRetentionMessagesOnStreamCreated(t *testing.T) {
 	defer cleanupStorage(t)
@@ -1683,7 +1683,7 @@ func TestCustomStreamRetentionMessagesOnStreamCreated(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	// Create stream.
+	// Create stream with custom RetentionMaxMessages
 	name := "foo"
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxMessages(2))
@@ -1701,7 +1701,7 @@ func TestCustomStreamRetentionMessagesOnStreamCreated(t *testing.T) {
 	// Force log clean.
 	forceLogClean(t, subject, name, s1)
 
-	// The first message read back should have offset 74.
+	// The first message read back should have offset 98.
 	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
@@ -1723,7 +1723,7 @@ func TestCustomStreamRetentionMessagesOnStreamCreated(t *testing.T) {
 }
 
 // Ensure the stream max messages retention ensures data is deleted when the age of messages
-// exceed the limit. This configuration is set upon stream creation and shoudl
+// exceed the limit. This configuration is set upon stream creation and should
 // overwrite the default configuration on the broker
 func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 	defer cleanupStorage(t)
@@ -1747,7 +1747,7 @@ func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	// Create stream.
+	// Create stream with custom RetentionMaxAge
 	name := "foo"
 	subject := "foo"
 	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxAge(time.Nanosecond))
@@ -1765,7 +1765,7 @@ func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 	// Force log clean.
 	forceLogClean(t, subject, name, s1)
 
-	// The first message read back should have offset 74.
+	// The first message read back should have offset 99.
 	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {

@@ -669,7 +669,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 	return stream, nil
 }
 
-func (m *metadataAPI) addPartition(stream *stream, protoPartition *proto.Partition, recovered bool, protoStreamsConfig *proto.CustomStreamsConfig) error {
+func (m *metadataAPI) addPartition(stream *stream, protoPartition *proto.Partition, recovered bool, protoStreamsConfig *proto.CustomStreamConfig) error {
 	if p := stream.GetPartition(protoPartition.Id); p != nil {
 		// Partition already exists for stream.
 		return fmt.Errorf("partition %d already exists for stream %s",
@@ -718,6 +718,9 @@ func (m *metadataAPI) ResumePartition(streamName string, id int32, recovered boo
 	}
 
 	// Resume the partition by replacing it.
+	// nil given as configuration means we do not set
+	// custom stream's configuration. The default broker configuration
+	// will be used.
 	partition, err := m.newPartition(partition.Partition, recovered, nil)
 	if err != nil {
 		return nil, err
