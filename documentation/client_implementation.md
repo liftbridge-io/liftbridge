@@ -155,6 +155,13 @@ configure a stream. Supported options are:
 | MaxReplication | bool | Sets the stream replication factor equal to the current number of servers in the cluster. This means all partitions for the stream will be fully replicated within the cluster. | false |
 | ReplicationFactor | int | Sets the replication factor for the stream. The replication factor controls the number of servers a stream's partitions should be replicated to. For example, a value of 1 would mean only 1 server would have the data, and a value of 3 would mean 3 servers would have it. A value of -1 will signal to the server to set the replication factor equal to the current number of servers in the cluster (i.e. MaxReplication). | 1 |
 | Partitions | int | Sets the number of partitions for the stream. | 1 |
+| RetentionMaxBytes | int64 | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. |  |
+| RetentionMaxMessages | int64 | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. |  |
+| RetentionMaxAge | duration | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL. |  |
+| CleanerInterval | duration |The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled. |  |
+| SegmentMaxBytes | int64 |The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. |  |
+| SegmentMaxAge | duration |The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. |  |
+| CompactMaxGoroutines | int| The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if compact.enabled is true). |  |
 
 `CreateStream` returns/throws an error if the operation fails, specifically
 `ErrStreamExists` if a stream with the given name already exists.
@@ -883,6 +890,21 @@ it using the [resilient RPC method](#rpcs) described above. If the
 `AlreadyExists` gRPC error is returned, an `ErrStreamExists` error/exception is
 thrown. Otherwise, any other error/exception is thrown if the operation failed.
 
+Also, client can set custom configurations for the stream to be created. The exhaustive list of supported stream configuration are:
+
+
+```
+RetentionMaxBytes,
+RetentionMaxMessages,
+RetentionMaxAge,
+CleanerInterval,
+SegmentMaxBytes,
+SegmentMaxAge,
+CompactMaxGoroutines,
+```
+Refer to [Sream Configuration](configuration.md#streams-configuration-settings) for more details
+Note that these opts are optional, if not given, the default configurations of the broker will be used instead.
+
 ```go
 // CreateStream creates a new stream attached to a NATS subject. Subject is the
 // NATS subject the stream is attached to, and name is the stream identifier,
@@ -897,12 +919,22 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 	}
 
 	req := &proto.CreateStreamRequest{
-		Subject:           subject,
-		Name:              name,
-		ReplicationFactor: opts.ReplicationFactor,
-		Group:             opts.Group,
-		Partitions:        opts.Partitions,
+		Subject:              subject,
+		Name:                 name,
+		ReplicationFactor:    opts.ReplicationFactor,
+		Group:                opts.Group,
+		Partitions:           opts.Partitions,
+		// Optional Stream Configuration
+		RetentionMaxBytes:    opts.RetentionMaxBytes,
+		RetentionMaxMessages: opts.RetentionMaxMessages,
+		//"github.com/gogo/protobuf/types"
+		RetentionMaxAge:      types.DurationProto(opts.RetentionMaxAge),
+		CleanerInterval:      types.DurationProto(opts.CleanerInterval),
+		SegmentMaxBytes:      opts.SegmentMaxBytes,
+		SegmentMaxAge:        types.DurationProto(opts.SegmentMaxAge),
+		CompactMaxGoroutines: opts.CompactMaxGoroutines,
 	}
+
 	err := c.doResilientRPC(func(client proto.APIClient) error {
 		_, err := client.CreateStream(ctx, req)
 		return err
