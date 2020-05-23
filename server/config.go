@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/gogo/protobuf/types"
 	"github.com/hako/durafmt"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
@@ -187,15 +186,15 @@ func (l *StreamsConfig) ParseCustomStreamConfig(c *proto.CustomStreamConfig) {
 	if c == nil {
 		return
 	}
-	retentionMaxAge, err := types.DurationFromProto(c.GetRetentionMaxAge())
-	if err == nil && retentionMaxAge != 0 {
+	retentionMaxAge, err := time.ParseDuration(c.GetRetentionMaxAge())
+	if err == nil {
 		l.RetentionMaxAge = retentionMaxAge
 	}
-	cleanerInterval, err := types.DurationFromProto(c.GetCleanerInterval())
+	cleanerInterval, err := time.ParseDuration(c.GetCleanerInterval())
 	if err == nil && cleanerInterval != 0 {
 		l.CleanerInterval = cleanerInterval
 	}
-	segmentMaxAge, err := types.DurationFromProto(c.GetSegmentMaxAge())
+	segmentMaxAge, err := time.ParseDuration(c.GetSegmentMaxAge())
 	if err == nil && segmentMaxAge != 0 {
 		l.SegmentMaxAge = segmentMaxAge
 	}

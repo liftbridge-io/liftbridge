@@ -1,7 +1,6 @@
 syntax = "proto3";
 package protocol;
 
-import "google/protobuf/duration.proto";
     
 message ServerState {
     string serverID = 1;
@@ -86,10 +85,10 @@ message PublishActivityOp {
 message CustomStreamConfig  {
 	int64                    RetentionMaxBytes     =1;
 	int64                    RetentionMaxMessages  =2;
-	google.protobuf.Duration RetentionMaxAge       =3;  
-	google.protobuf.Duration CleanerInterval       =4;
+	string                   RetentionMaxAge       =3;  
+	string                   CleanerInterval       =4;
 	int64                    SegmentMaxBytes       =5;
-	google.protobuf.Duration SegmentMaxAge         =6;
+	string                   SegmentMaxAge         =6;
 	int64                    CompactMaxGoroutines  =7;
 }
 message Stream {

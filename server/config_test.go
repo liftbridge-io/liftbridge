@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogo/protobuf/types"
 	"github.com/stretchr/testify/require"
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
@@ -132,11 +131,11 @@ func TestParseCustomStreamConfig(t *testing.T) {
 	// Given custom stream config
 	customStreamConfig := &proto.CustomStreamConfig{
 		SegmentMaxBytes:      1024,
-		SegmentMaxAge:        &types.Duration{Seconds: 1000},
+		SegmentMaxAge:        "1000s",
 		RetentionMaxBytes:    2048,
 		RetentionMaxMessages: 1000,
-		RetentionMaxAge:      &types.Duration{Seconds: 1000},
-		CleanerInterval:      &types.Duration{Seconds: 1000},
+		RetentionMaxAge:      "1000s",
+		CleanerInterval:      "1000s",
 		CompactMaxGoroutines: 10,
 	}
 	streamConfig := StreamsConfig{}
@@ -167,8 +166,8 @@ func TestDefaultCustomStreamConfig(t *testing.T) {
 	customStreamConfig := &proto.CustomStreamConfig{
 		RetentionMaxBytes:    1024,
 		RetentionMaxMessages: 1000,
-		RetentionMaxAge:      &types.Duration{Seconds: 1000},
-		CleanerInterval:      &types.Duration{Seconds: 1000},
+		RetentionMaxAge:      "1000s",
+		CleanerInterval:      "1000s",
 		CompactMaxGoroutines: 10,
 	}
 
