@@ -178,6 +178,12 @@
       },
       "version-v1.0.0/version-v1.0.0-quick-start": {
         "title": "Quick Start"
+      },
+      "version-v1.1.0/version-v1.1.0-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.1.0/version-v1.1.0-quick-start": {
+        "title": "Quick Start"
       }
     },
     "links": {
