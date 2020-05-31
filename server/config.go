@@ -186,17 +186,18 @@ func (l *StreamsConfig) ParseCustomStreamConfig(c *proto.CustomStreamConfig) {
 	if c == nil {
 		return
 	}
-	retentionMaxAge, err := time.ParseDuration(c.GetRetentionMaxAge())
-	if err == nil {
-		l.RetentionMaxAge = retentionMaxAge
+	// By default, duration configuration a considered as millisecon
+	retentionMaxAge := c.GetRetentionMaxAge()
+	if retentionMaxAge != 0 {
+		l.RetentionMaxAge = time.Duration(retentionMaxAge) * time.Millisecond
 	}
-	cleanerInterval, err := time.ParseDuration(c.GetCleanerInterval())
-	if err == nil && cleanerInterval != 0 {
-		l.CleanerInterval = cleanerInterval
+	cleanerInterval := c.GetCleanerInterval()
+	if cleanerInterval != 0 {
+		l.CleanerInterval = time.Duration(cleanerInterval) * time.Millisecond
 	}
-	segmentMaxAge, err := time.ParseDuration(c.GetSegmentMaxAge())
-	if err == nil && segmentMaxAge != 0 {
-		l.SegmentMaxAge = segmentMaxAge
+	segmentMaxAge := c.GetSegmentMaxAge()
+	if segmentMaxAge != 0 {
+		l.SegmentMaxAge = time.Duration(segmentMaxAge) * time.Millisecond
 	}
 	if c.GetRetentionMaxBytes() != 0 {
 		l.RetentionMaxBytes = c.GetRetentionMaxBytes()

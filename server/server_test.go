@@ -1671,6 +1671,8 @@ func TestCustomStreamRetentionMessagesOnStreamCreated(t *testing.T) {
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Streams.SegmentMaxBytes = 1
+	// This is the default RetentionMaxMessages
+	// should be overwrite later
 	s1Config.Streams.RetentionMaxMessages = 1000
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
@@ -1726,6 +1728,8 @@ func TestCustomStreamRetentionMessagesOnStreamCreated(t *testing.T) {
 // exceed the limit. This configuration is set upon stream creation and should
 // overwrite the default configuration on the broker
 func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
+	// custom RetentionMaxAge
+	var customRetentionMaxAge int64 = 3000
 	defer cleanupStorage(t)
 
 	// Use a central NATS server.
@@ -1750,7 +1754,7 @@ func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 	// Create stream with custom RetentionMaxAge
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxAge(time.Nanosecond))
+	err = client.CreateStream(context.Background(), subject, name, lift.RetentionMaxAge(customRetentionMaxAge))
 	require.NoError(t, err)
 
 	// Publish some messages.
@@ -1762,7 +1766,9 @@ func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Force log clean.
+	// Force log clean, wait a few seconds to ensure RetentionMaxAge is passed
+	waitTime := time.Duration(customRetentionMaxAge) * time.Millisecond
+	time.Sleep(waitTime + 1*time.Second)
 	forceLogClean(t, subject, name, s1)
 
 	// The first message read back should have offset 99.
@@ -1779,6 +1785,7 @@ func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 	// We expect that only 1 message are kept due to
 	// retention age is nanosecond, so the offset should be
 	// 99
+
 	select {
 	case msg := <-msgs:
 		require.Equal(t, int64(99), msg.Offset())

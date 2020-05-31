@@ -924,14 +924,12 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 		ReplicationFactor:    opts.ReplicationFactor,
 		Group:                opts.Group,
 		Partitions:           opts.Partitions,
-		// Optional Stream Configuration
 		RetentionMaxBytes:    opts.RetentionMaxBytes,
 		RetentionMaxMessages: opts.RetentionMaxMessages,
-		//"github.com/gogo/protobuf/types"
-		RetentionMaxAge:      types.DurationProto(opts.RetentionMaxAge),
-		CleanerInterval:      types.DurationProto(opts.CleanerInterval),
+		RetentionMaxAge:      opts.RetentionMaxAge,
+		CleanerInterval:      opts.CleanerInterval,
 		SegmentMaxBytes:      opts.SegmentMaxBytes,
-		SegmentMaxAge:        types.DurationProto(opts.SegmentMaxAge),
+		SegmentMaxAge:        opts.SegmentMaxAge,
 		CompactMaxGoroutines: opts.CompactMaxGoroutines,
 	}
 

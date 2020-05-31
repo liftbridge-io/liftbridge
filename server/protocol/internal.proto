@@ -85,10 +85,10 @@ message PublishActivityOp {
 message CustomStreamConfig  {
 	int64                    RetentionMaxBytes     =1;
 	int64                    RetentionMaxMessages  =2;
-	string                   RetentionMaxAge       =3;  
-	string                   CleanerInterval       =4;
+	int64                    RetentionMaxAge       =3;  
+	int64                    CleanerInterval       =4;
 	int64                    SegmentMaxBytes       =5;
-	string                   SegmentMaxAge         =6;
+	int64                    SegmentMaxAge         =6;
 	int64                    CompactMaxGoroutines  =7;
 }
 message Stream {

@@ -129,13 +129,14 @@ func TestNewConfigUnknownSetting(t *testing.T) {
 // it should be set, otherwise, default values should be kept
 func TestParseCustomStreamConfig(t *testing.T) {
 	// Given custom stream config
+	// duration configuration is in millisecond
 	customStreamConfig := &proto.CustomStreamConfig{
 		SegmentMaxBytes:      1024,
-		SegmentMaxAge:        "1000s",
+		SegmentMaxAge:        1000000,
 		RetentionMaxBytes:    2048,
 		RetentionMaxMessages: 1000,
-		RetentionMaxAge:      "1000s",
-		CleanerInterval:      "1000s",
+		RetentionMaxAge:      1000000,
+		CleanerInterval:      1000000,
 		CompactMaxGoroutines: 10,
 	}
 	streamConfig := StreamsConfig{}
@@ -166,8 +167,8 @@ func TestDefaultCustomStreamConfig(t *testing.T) {
 	customStreamConfig := &proto.CustomStreamConfig{
 		RetentionMaxBytes:    1024,
 		RetentionMaxMessages: 1000,
-		RetentionMaxAge:      "1000s",
-		CleanerInterval:      "1000s",
+		RetentionMaxAge:      1000000,
+		CleanerInterval:      1000000,
 		CompactMaxGoroutines: 10,
 	}
 
