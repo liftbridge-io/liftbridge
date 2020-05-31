@@ -187,3 +187,43 @@ func TestDefaultCustomStreamConfig(t *testing.T) {
 	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
 
 }
+
+// Ensure compact activation is correctly parsed
+func TestCompactEnabledInCustomStreamConfig(t *testing.T) {
+	// Given a default stream config
+	streamConfig := StreamsConfig{}
+
+	// Given custom configs with option to disable compact
+	customStreamConfig := &proto.CustomStreamConfig{
+		CompactEnabled: 2,
+	}
+
+	streamConfig.ParseCustomStreamConfig(customStreamConfig)
+
+	// Ensure that stream config correctly disable compact option
+	require.Equal(t, false, streamConfig.Compact)
+
+	// Given a default stream config
+	streamConfig2 := StreamsConfig{}
+	// Given custom configs with option to disable compact
+	customStreamConfig2 := &proto.CustomStreamConfig{
+		CompactEnabled: 1,
+	}
+
+	streamConfig2.ParseCustomStreamConfig(customStreamConfig2)
+
+	// Ensure that stream config correctly disable compact option
+	require.Equal(t, true, streamConfig2.Compact)
+
+	// Given a default stream config with default compaction disabled
+	streamConfig3 := StreamsConfig{}
+
+	// Given custom configs with NO option to configure compact
+	customStreamConfig3 := &proto.CustomStreamConfig{}
+
+	streamConfig3.ParseCustomStreamConfig(customStreamConfig3)
+
+	// Ensure that stream default config is retained (by default compact.enabled is set
+	// to true)
+	require.Equal(t, true, streamConfig2.Compact)
+}

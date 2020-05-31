@@ -1793,3 +1793,131 @@ func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 		t.Fatal("Did not receive expected message")
 	}
 }
+
+// Ensure the stream logs are compacted when the client explicitly request compaction
+// to be activated for the stream
+func TestCustomStreamCompactEnabledOnStreamCreated(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxMessages = 1000
+	s1Config.BatchMaxMessages = 1
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream with activate compaction
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.EnableCompact())
+	require.NoError(t, err)
+
+	// Publish some messages.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, err = client.Publish(ctx, name, []byte("first"), lift.Key([]byte("foo")))
+	_, err = client.Publish(ctx, name, []byte("second"), lift.Key([]byte("foo")))
+	_, err = client.Publish(ctx, name, []byte("third"), lift.Key([]byte("foo")))
+	require.NoError(t, err)
+
+	// Force log clean
+	time.Sleep(1 * time.Second)
+	forceLogClean(t, subject, name, s1)
+
+	// The first message read back should have offset 99.
+	msgs := make(chan *lift.Message, 1)
+	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	// We expect that only 1 message are with latest value for the
+	// given key as compaction should work.
+
+	select {
+	case msg := <-msgs:
+		require.Equal(t, []byte("third"), msg.Value())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensure the stream logs are NOT compacted when the client explicitly request compaction
+// to be de-activated for the stream
+func TestCustomStreamCompactDisabledOnStreamCreated(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Streams.SegmentMaxBytes = 1
+	s1Config.Streams.RetentionMaxMessages = 1000
+	s1Config.BatchMaxMessages = 1
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream with activate compaction
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.DisableCompact())
+	require.NoError(t, err)
+
+	// Publish some messages.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, err = client.Publish(ctx, name, []byte("first"), lift.Key([]byte("foo")))
+	_, err = client.Publish(ctx, name, []byte("second"), lift.Key([]byte("foo")))
+	_, err = client.Publish(ctx, name, []byte("third"), lift.Key([]byte("foo")))
+	require.NoError(t, err)
+
+	// Force log clean
+	time.Sleep(1 * time.Second)
+	forceLogClean(t, subject, name, s1)
+
+	// The first message read back should have offset 99.
+	msgs := make(chan *lift.Message, 1)
+	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, lift.StartAtEarliestReceived())
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	// We expect that only 3 message are with latest value for the
+	// given key as compaction should be de-activated.
+
+	select {
+	case msg := <-msgs:
+		require.Equal(t, []byte("first"), msg.Value())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
