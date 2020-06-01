@@ -157,11 +157,13 @@ configure a stream. Supported options are:
 | Partitions | int | Sets the number of partitions for the stream. | 1 |
 | RetentionMaxBytes | int64 | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. |  |
 | RetentionMaxMessages | int64 | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. |  |
-| RetentionMaxAge | duration | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL. |  |
-| CleanerInterval | duration |The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled. |  |
+| RetentionMaxAge | int64 | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL(in milliseconds). |  |
+| CleanerInterval | int64 |The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled (in milliseconds). |  |
 | SegmentMaxBytes | int64 |The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. |  |
-| SegmentMaxAge | duration |The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. |  |
+| SegmentMaxAge | int64 |The maximum time before a new stream log segment is rolled out(in milliseconds). A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. |  |
 | CompactMaxGoroutines | int| The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if compact.enabled is true). |  |
+| EnableCompact | | Enable message compaction by key on the server for this stream |  |
+| DisableCompact | | Disable message compaction by key on the server for this stream |  |
 
 `CreateStream` returns/throws an error if the operation fails, specifically
 `ErrStreamExists` if a stream with the given name already exists.
@@ -292,7 +294,7 @@ configure a subscription. Supported options are:
 | StartAtOffset | int | Sets the subscription start position to the first message with an offset greater than or equal to the given offset. | |
 | StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
 | StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
-| ReadISRReplica | bool | Sets the subscription to one of a random ISR replica instead of subscribing to the partition's leader. | false |
+| ReadISRReplica |  | Sets the subscription to one of a random ISR replica instead of subscribing to the partition's leader. | false |
 
 Currently, `Subscribe` can only subscribe to a single partition. In the future,
 there will be functionality for consuming all partitions.
@@ -900,10 +902,14 @@ RetentionMaxAge,
 CleanerInterval,
 SegmentMaxBytes,
 SegmentMaxAge,
+CompactEnabled,
 CompactMaxGoroutines,
 ```
+
 Refer to [Sream Configuration](configuration.md#streams-configuration-settings) for more details
 Note that these opts are optional, if not given, the default configurations of the broker will be used instead.
+
+Note: if `CompactMaxGoroutines` is configured, you have to make sure manually that tCompacEnabled is also set. The reason is that if this is not enabled explicitly, the servier will use default configuration and that may be to disable compaction on the service side, which renders `CompactMaxGoroutines` to be unused.
 
 ```go
 // CreateStream creates a new stream attached to a NATS subject. Subject is the
@@ -931,8 +937,8 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 		SegmentMaxBytes:      opts.SegmentMaxBytes,
 		SegmentMaxAge:        opts.SegmentMaxAge,
 		CompactMaxGoroutines: opts.CompactMaxGoroutines,
+		CompactEnabled:       opts.CompactEnabled.toProto(),
 	}
-
 	err := c.doResilientRPC(func(client proto.APIClient) error {
 		_, err := client.CreateStream(ctx, req)
 		return err
