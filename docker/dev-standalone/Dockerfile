@@ -1,6 +1,6 @@
 FROM golang:1.13-alpine as build-base
 RUN apk update && apk upgrade && \
-    apk add --no-cache bash git openssh make bzr
+    apk add --no-cache bash git openssh make
 
 WORKDIR /workspace
 
