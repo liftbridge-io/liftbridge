@@ -639,7 +639,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		offsets, err := p.log.Append(msgBatch)
 		if err != nil {
 			p.srv.logger.Errorf("Failed to append to log %s: %v", p, err)
-			return
+			continue
 		}
 
 		for i, msg := range msgBatch {
