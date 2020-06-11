@@ -16,7 +16,7 @@ require (
 	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/raft v1.1.2
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
-	github.com/liftbridge-io/go-liftbridge v1.0.1-0.20200529203758-df2275de3575
+	github.com/liftbridge-io/go-liftbridge v1.0.1-0.20200611205943-5ecc0922bc4a
 	github.com/liftbridge-io/liftbridge-api v1.0.1-0.20200513211853-e05fca3b17e3
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200303015016-68120bc11e03
 	github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73
@@ -36,9 +36,9 @@ require (
 	github.com/spf13/viper v1.6.2
 	github.com/stretchr/testify v1.4.0
 	github.com/urfave/cli v1.22.3
-	golang.org/x/net v0.0.0-20200528225125-3c3fba18258b // indirect
-	golang.org/x/sys v0.0.0-20200523222454-059865788121 // indirect
-	google.golang.org/genproto v0.0.0-20200528191852-705c0b31589b // indirect
+	golang.org/x/net v0.0.0-20200602114024-627f9648deb9 // indirect
+	golang.org/x/sys v0.0.0-20200610111108-226ff32320da // indirect
+	google.golang.org/genproto v0.0.0-20200611194920-44ba362f84c1 // indirect
 	google.golang.org/grpc v1.29.1
 	gopkg.in/ini.v1 v1.55.0 // indirect
 	launchpad.net/gocheck v0.0.0-20140225173054-000000000087 // indirect
