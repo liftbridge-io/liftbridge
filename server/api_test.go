@@ -642,6 +642,67 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	}
 }
 
+// Ensure legacy Publish endpoint works.
+func TestLegacyPublish(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.Partitions(2))
+	require.NoError(t, err)
+
+	conn, err := grpc.Dial("localhost:5050", grpc.WithInsecure())
+	require.NoError(t, err)
+	apiClient := proto.NewAPIClient(conn)
+
+	// Publishing with no stream returns an error.
+	_, err = apiClient.Publish(context.Background(), &proto.PublishRequest{})
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Convert(err).Code())
+
+	// Publishing to non-existant stream returns an error.
+	_, err = apiClient.Publish(context.Background(), &proto.PublishRequest{
+		Stream: "bar",
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.NotFound, status.Convert(err).Code())
+
+	// Successful publish returns an ack when AckPolicy is not NONE and a
+	// timeout is set.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp, err := apiClient.Publish(ctx, &proto.PublishRequest{
+		Stream:    "foo",
+		Partition: 1,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.Ack)
+
+	// Successful publish returns nil when AckPolicy is NONE.
+	resp, err = apiClient.Publish(context.Background(), &proto.PublishRequest{
+		Stream:    "foo",
+		Partition: 1,
+		AckPolicy: proto.AckPolicy_NONE,
+	})
+	require.NoError(t, err)
+	require.Nil(t, resp.Ack)
+}
+
 // Ensure publishing to a NATS subject works.
 func TestPublishToSubject(t *testing.T) {
 	defer cleanupStorage(t)
