@@ -697,7 +697,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Streams.SegmentMaxBytes = 1
-	s1Config.Streams.RetentionMaxBytes = 1000
+	s1Config.Streams.RetentionMaxBytes = 100
 	s1Config.BatchMaxMessages = 1
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
@@ -716,7 +716,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish some messages.
-	num := 100
+	num := 10
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -727,7 +727,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Force log clean.
 	forceLogClean(t, subject, name, s1)
 
-	// The first message read back should have offset 87.
+	// The first message read back should have offset 9.
 	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
@@ -740,7 +740,7 @@ func TestStreamRetentionBytes(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(87), msg.Offset())
+		require.Equal(t, int64(9), msg.Offset())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
@@ -838,7 +838,7 @@ func TestStreamRetentionAge(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish some messages.
-	num := 100
+	num := 10
 	for i := 0; i < num; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -850,7 +850,7 @@ func TestStreamRetentionAge(t *testing.T) {
 	forceLogClean(t, subject, name, s1)
 
 	// We expect all segments but the last to be truncated due to age, so the
-	// first message read back should have offset 99.
+	// first message read back should have offset 9.
 	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
@@ -863,7 +863,7 @@ func TestStreamRetentionAge(t *testing.T) {
 	// Wait to get the new message.
 	select {
 	case msg := <-msgs:
-		require.Equal(t, int64(99), msg.Offset())
+		require.Equal(t, int64(9), msg.Offset())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
