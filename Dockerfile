@@ -1,6 +1,6 @@
 FROM golang:1.13-alpine as build-base
 RUN apk update && apk upgrade && \
-    apk add --no-cache bash git openssh make bzr
+    apk add --no-cache bash git openssh make
 ADD . /go/src/github.com/liftbridge-io/liftbridge
 WORKDIR /go/src/github.com/liftbridge-io/liftbridge
 ENV GO111MODULE on
