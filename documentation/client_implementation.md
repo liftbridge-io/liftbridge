@@ -909,7 +909,7 @@ CompactMaxGoroutines,
 Refer to [Sream Configuration](configuration.md#streams-configuration-settings) for more details
 Note that these opts are optional, if not given, the default configurations of the broker will be used instead.
 
-Note: if `CompactMaxGoroutines` is configured, you have to make sure manually that tCompacEnabled is also set. The reason is that if this is not enabled explicitly, the servier will use default configuration and that may be to disable compaction on the service side, which renders `CompactMaxGoroutines` to be unused.
+Note: if `CompactMaxGoroutines` is configured, you have to make sure manually that `CompacEnabled` is also set. The reason is that if this is not enabled explicitly, the servier will use default configuration and that may be to disable compaction on the service side, which renders `CompactMaxGoroutines` to be unused.
 
 ```go
 // CreateStream creates a new stream attached to a NATS subject. Subject is the
@@ -930,14 +930,14 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 		ReplicationFactor:    opts.ReplicationFactor,
 		Group:                opts.Group,
 		Partitions:           opts.Partitions,
-		RetentionMaxBytes:    opts.RetentionMaxBytes,
-		RetentionMaxMessages: opts.RetentionMaxMessages,
+		RetentionMaxBytes:    &proto.RetentionMaxBytes{Value: opts.RetentionMaxBytes},
+		RetentionMaxMessages: &proto.RetentionMaxMessages{Value: opts.RetentionMaxMessages},
 		RetentionMaxAge:      opts.RetentionMaxAge,
 		CleanerInterval:      opts.CleanerInterval,
 		SegmentMaxBytes:      opts.SegmentMaxBytes,
 		SegmentMaxAge:        opts.SegmentMaxAge,
 		CompactMaxGoroutines: opts.CompactMaxGoroutines,
-		CompactEnabled:       opts.CompactEnabled.toProto(),
+		CompactEnabled:       &proto.CompactEnabled{Value: opts.CompactEnabled},
 	}
 	err := c.doResilientRPC(func(client proto.APIClient) error {
 		_, err := client.CreateStream(ctx, req)

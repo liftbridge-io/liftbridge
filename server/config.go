@@ -199,24 +199,19 @@ func (l *StreamsConfig) ParseCustomStreamConfig(c *proto.CustomStreamConfig) {
 	if segmentMaxAge != 0 {
 		l.SegmentMaxAge = time.Duration(segmentMaxAge) * time.Millisecond
 	}
-	if c.GetRetentionMaxBytes() != 0 {
-		l.RetentionMaxBytes = c.GetRetentionMaxBytes()
+	if c.GetRetentionMaxBytes() != nil {
+		l.RetentionMaxBytes = c.GetRetentionMaxBytes().GetValue()
 	}
-	if c.GetRetentionMaxMessages() != 0 {
-		l.RetentionMaxMessages = c.GetRetentionMaxMessages()
+	if c.GetRetentionMaxMessages() != nil {
+		l.RetentionMaxMessages = c.GetRetentionMaxMessages().GetValue()
 	}
 
 	if c.GetSegmentMaxBytes() != 0 {
 		l.SegmentMaxBytes = c.GetSegmentMaxBytes()
 	}
 
-	switch c.GetCompactEnabled() {
-	case 1:
-		// Enable
-		l.Compact = true
-	case 2:
-		// Disable
-		l.Compact = false
+	if c.GetCompactEnabled() != nil {
+		l.Compact = c.GetCompactEnabled().GetValue()
 	}
 
 	if c.GetCompactMaxGoroutines() != 0 {

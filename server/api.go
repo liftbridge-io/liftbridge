@@ -55,25 +55,27 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 			Id:                i,
 		}
 	}
-	var compactEnabled int32
-	switch req.CompactEnabled {
-	case client.CompactEnabled_UNKNOWN:
-		compactEnabled = 0
-	case client.CompactEnabled_ENABLED:
-		compactEnabled = 1
-	case client.CompactEnabled_DISABLED:
-		compactEnabled = 2
-	}
+	// set custom stream config
 	streamConfig := &proto.CustomStreamConfig{
-		RetentionMaxBytes:    req.RetentionMaxBytes,
-		RetentionMaxMessages: req.RetentionMaxMessages,
 		RetentionMaxAge:      req.RetentionMaxAge,
 		CleanerInterval:      req.CleanerInterval,
 		SegmentMaxBytes:      req.SegmentMaxBytes,
 		SegmentMaxAge:        req.SegmentMaxAge,
 		CompactMaxGoroutines: req.CompactMaxGoroutines,
-		CompactEnabled:       compactEnabled,
 	}
+
+	if req.RetentionMaxBytes != nil {
+		streamConfig.RetentionMaxBytes = &proto.RetentionMaxBytes{Value: req.RetentionMaxBytes.GetValue()}
+	}
+
+	if req.RetentionMaxMessages != nil {
+		streamConfig.RetentionMaxMessages = &proto.RetentionMaxMessages{Value: req.RetentionMaxMessages.GetValue()}
+	}
+
+	if req.CompactEnabled != nil {
+		streamConfig.CompactEnabled = &proto.CompactEnabled{Value: req.CompactEnabled.GetValue()}
+	}
+
 	stream := &proto.Stream{
 		Name:               req.Name,
 		Subject:            req.Subject,

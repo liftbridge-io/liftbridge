@@ -133,8 +133,8 @@ func TestParseCustomStreamConfig(t *testing.T) {
 	customStreamConfig := &proto.CustomStreamConfig{
 		SegmentMaxBytes:      1024,
 		SegmentMaxAge:        1000000,
-		RetentionMaxBytes:    2048,
-		RetentionMaxMessages: 1000,
+		RetentionMaxBytes:    &proto.RetentionMaxBytes{Value: 2048},
+		RetentionMaxMessages: &proto.RetentionMaxMessages{Value: 1000},
 		RetentionMaxAge:      1000000,
 		CleanerInterval:      1000000,
 		CompactMaxGoroutines: 10,
@@ -165,8 +165,8 @@ func TestDefaultCustomStreamConfig(t *testing.T) {
 
 	// Given custom configs
 	customStreamConfig := &proto.CustomStreamConfig{
-		RetentionMaxBytes:    1024,
-		RetentionMaxMessages: 1000,
+		RetentionMaxBytes:    &proto.RetentionMaxBytes{Value: 1024},
+		RetentionMaxMessages: &proto.RetentionMaxMessages{Value: 1000},
 		RetentionMaxAge:      1000000,
 		CleanerInterval:      1000000,
 		CompactMaxGoroutines: 10,
@@ -195,7 +195,7 @@ func TestCompactEnabledInCustomStreamConfig(t *testing.T) {
 
 	// Given custom configs with option to disable compact
 	customStreamConfig := &proto.CustomStreamConfig{
-		CompactEnabled: 2,
+		CompactEnabled: &proto.CompactEnabled{Value: false},
 	}
 
 	streamConfig.ParseCustomStreamConfig(customStreamConfig)
@@ -205,14 +205,14 @@ func TestCompactEnabledInCustomStreamConfig(t *testing.T) {
 
 	// Given a default stream config
 	streamConfig2 := StreamsConfig{}
-	// Given custom configs with option to disable compact
+	// Given custom configs with option to enable compact
 	customStreamConfig2 := &proto.CustomStreamConfig{
-		CompactEnabled: 1,
+		CompactEnabled: &proto.CompactEnabled{Value: true},
 	}
 
 	streamConfig2.ParseCustomStreamConfig(customStreamConfig2)
 
-	// Ensure that stream config correctly disable compact option
+	// Ensure that stream config correctly enable compact option
 	require.Equal(t, true, streamConfig2.Compact)
 
 	// Given a default stream config with default compaction disabled

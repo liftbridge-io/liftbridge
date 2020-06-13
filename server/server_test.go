@@ -1837,7 +1837,6 @@ func TestCustomStreamCompactEnabledOnStreamCreated(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	forceLogClean(t, subject, name, s1)
 
-	// The first message read back should have offset 99.
 	msgs := make(chan *lift.Message, 1)
 	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
 		require.NoError(t, err)
@@ -1901,7 +1900,6 @@ func TestCustomStreamCompactDisabledOnStreamCreated(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	forceLogClean(t, subject, name, s1)
 
-	// The first message read back should have offset 99.
 	msgs := make(chan *lift.Message, 1)
 	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
 		require.NoError(t, err)
@@ -1911,7 +1909,7 @@ func TestCustomStreamCompactDisabledOnStreamCreated(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait to get the new message.
-	// We expect that only 3 message are with latest value for the
+	// We expect that there are total 3 messages for the
 	// given key as compaction should be de-activated.
 
 	select {
