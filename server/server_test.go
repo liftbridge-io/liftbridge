@@ -1729,7 +1729,7 @@ func TestCustomStreamRetentionMessagesOnStreamCreated(t *testing.T) {
 // overwrite the default configuration on the broker
 func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 	// custom RetentionMaxAge
-	var customRetentionMaxAge int64 = 3000
+	customRetentionMaxAge, _ := time.ParseDuration("3000us")
 	defer cleanupStorage(t)
 
 	// Use a central NATS server.
@@ -1767,8 +1767,7 @@ func TestCustomStreamRetentionAgeOnStreamCreated(t *testing.T) {
 	}
 
 	// Force log clean, wait a few seconds to ensure RetentionMaxAge is passed
-	waitTime := time.Duration(customRetentionMaxAge) * time.Millisecond
-	time.Sleep(waitTime + 1*time.Second)
+	time.Sleep(customRetentionMaxAge + 1*time.Second)
 	forceLogClean(t, subject, name, s1)
 
 	// The first message read back should have offset 99.
