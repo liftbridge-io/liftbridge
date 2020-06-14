@@ -73,7 +73,6 @@ An example configuration file is shown below.
 ```yaml
 ---
 listen: localhost:9293
-host: localhost
 data.dir: /tmp/liftbridge/server-2
 activity.stream.enabled: true
 
@@ -99,21 +98,6 @@ clustering:
   server.id: server-2
   raft.bootstrap.seed: true
   replica.max.lag.time: 20s
-```
-
-## Overriding configuration settings with environment variables
-
-For configuration set in the configuration file the value can be overridden
-with environment variables prefixed with `LIFTBRIDGE_`. The key must exist in
-the config file to be overridden.
-
-For example using the config file from above one could override the host and
-logging level with:
-
-```sh
-env LIFTBRIDGE_HOST=liftbridge.example.com \
-  LIFTBRIDGE_LOGGING_LEVEL=error \
-  liftbridge --config config.yaml
 ```
 
 ## Configuration Settings
@@ -162,10 +146,10 @@ configuration file.
 |:----|:----|:----|:----|:----|:----|
 | retention.max.bytes | | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. | int64 | 0 | |
 | retention.max.messages | | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. | int64 | 0 | |
-| retention.max.age | | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL. The time unit is millisecond | int64 | 168h | |
-| cleaner.interval | | The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled. The time unit is millisecond | int64 | 5m | |
+| retention.max.age | | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL. | duration | 168h | |
+| cleaner.interval | | The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled. | duration | 5m | |
 | segment.max.bytes | | The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. | int64 | 268435456 | |
-| segment.max.age | | The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when `segment.max.bytes` is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. The time unit is millisecond | int64 | value of `retention.max.age` | |
+| segment.max.age | | The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when `segment.max.bytes` is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. | duration | value of `retention.max.age` | |
 | compact.enabled | | Enables stream log compaction. Compaction works by retaining only the latest message for each key and discarding older messages. The frequency in which compaction runs is controlled by `cleaner.interval`. | bool | false | |
 | compact.max.goroutines | | The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if `compact.enabled` is `true`). | int | 10 | |
 
@@ -199,4 +183,3 @@ the configuration file.
 | stream.enabled | | Enables the activity stream. This will create an internal stream called `__activity` which events will be published to. | bool | false | |
 | stream.publish.timeout | | The timeout for publishes to the activity stream. This is the time to wait for an ack from the activity stream, which means it's related to `stream.publish.ack.policy`. If the ack policy is `none`, this has no effect.  | duration | 5s | |
 | stream.publish.ack.policy | | The ack policy to use for publishes to the activity stream. The value `none` means publishes will not wait for an ack, `leader` means publishes will wait for the ack sent when the leader has committed the event, and `all` means publishes will wait for the ack sent when all replicas have committed the event. | string | all | [none, leader, all] |
-

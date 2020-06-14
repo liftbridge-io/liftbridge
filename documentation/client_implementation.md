@@ -157,11 +157,11 @@ configure a stream. Supported options are:
 | Partitions | int | Sets the number of partitions for the stream. | 1 |
 | RetentionMaxBytes | int64 | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. |  |
 | RetentionMaxMessages | int64 | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. |  |
-| RetentionMaxAge | int64 | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL(in milliseconds). |  |
-| CleanerInterval | int64 |The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled (in milliseconds). |  |
+| RetentionMaxAge | time.Duration | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL |  |
+| CleanerInterval | time.Duration |The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled  |  |
 | SegmentMaxBytes | int64 |The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. |  |
-| SegmentMaxAge | int64 |The maximum time before a new stream log segment is rolled out(in milliseconds). A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. |  |
-| CompactMaxGoroutines | int| The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if compact.enabled is true). |  |
+| SegmentMaxAge | time.Duration |The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. |  |
+| CompactMaxGoroutines | int32| The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if compact.enabled is true). |  |
 | EnableCompact | | Enable message compaction by key on the server for this stream |  |
 | DisableCompact | | Disable message compaction by key on the server for this stream |  |
 
@@ -930,15 +930,23 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 		ReplicationFactor:    opts.ReplicationFactor,
 		Group:                opts.Group,
 		Partitions:           opts.Partitions,
-		RetentionMaxBytes:    &proto.RetentionMaxBytes{Value: opts.RetentionMaxBytes},
-		RetentionMaxMessages: &proto.RetentionMaxMessages{Value: opts.RetentionMaxMessages},
-		RetentionMaxAge:      opts.RetentionMaxAge,
-		CleanerInterval:      opts.CleanerInterval,
+		RetentionMaxAge:      opts.RetentionMaxAge.Milliseconds(),
+		CleanerInterval:      opts.CleanerInterval.Milliseconds(),
 		SegmentMaxBytes:      opts.SegmentMaxBytes,
-		SegmentMaxAge:        opts.SegmentMaxAge,
+		SegmentMaxAge:        opts.SegmentMaxAge.Milliseconds(),
 		CompactMaxGoroutines: opts.CompactMaxGoroutines,
-		CompactEnabled:       &proto.CompactEnabled{Value: opts.CompactEnabled},
 	}
+
+	if opts.RetentionMaxBytes != nil {
+		req.RetentionMaxBytes = opts.RetentionMaxBytes
+	}
+	if opts.RetentionMaxMessages != nil {
+		req.RetentionMaxMessages = opts.RetentionMaxMessages
+	}
+	if opts.CompactEnabled != nil {
+		req.CompactEnabled = opts.CompactEnabled
+	}
+
 	err := c.doResilientRPC(func(client proto.APIClient) error {
 		_, err := client.CreateStream(ctx, req)
 		return err
