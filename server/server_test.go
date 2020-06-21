@@ -1820,7 +1820,7 @@ func TestCustomStreamCompactEnabledOnStreamCreated(t *testing.T) {
 	// Create stream with activate compaction
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name, lift.EnableCompact())
+	err = client.CreateStream(context.Background(), subject, name, lift.SetCompactEnabled(true))
 	require.NoError(t, err)
 
 	// Publish some messages.
@@ -1883,7 +1883,7 @@ func TestCustomStreamCompactDisabledOnStreamCreated(t *testing.T) {
 	// Create stream with activate compaction
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name, lift.DisableCompact())
+	err = client.CreateStream(context.Background(), subject, name, lift.SetCompactEnabled(false))
 	require.NoError(t, err)
 
 	// Publish some messages.

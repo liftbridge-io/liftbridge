@@ -131,13 +131,13 @@ func TestParseCustomStreamConfig(t *testing.T) {
 	// Given custom stream config
 	// duration configuration is in millisecond
 	customStreamConfig := &proto.CustomStreamConfig{
-		SegmentMaxBytes:      1024,
-		SegmentMaxAge:        1000000,
-		RetentionMaxBytes:    &proto.RetentionMaxBytes{Value: 2048},
-		RetentionMaxMessages: &proto.RetentionMaxMessages{Value: 1000},
-		RetentionMaxAge:      1000000,
-		CleanerInterval:      1000000,
-		CompactMaxGoroutines: 10,
+		SegmentMaxBytes:      &proto.NullableInt64{Value: 1024},
+		SegmentMaxAge:        &proto.NullableInt64{Value: 1000000},
+		RetentionMaxBytes:    &proto.NullableInt64{Value: 2048},
+		RetentionMaxMessages: &proto.NullableInt64{Value: 1000},
+		RetentionMaxAge:      &proto.NullableInt64{Value: 1000000},
+		CleanerInterval:      &proto.NullableInt64{Value: 1000000},
+		CompactMaxGoroutines: &proto.NullableInt32{Value: 10},
 	}
 	streamConfig := StreamsConfig{}
 
@@ -165,11 +165,11 @@ func TestDefaultCustomStreamConfig(t *testing.T) {
 
 	// Given custom configs
 	customStreamConfig := &proto.CustomStreamConfig{
-		RetentionMaxBytes:    &proto.RetentionMaxBytes{Value: 1024},
-		RetentionMaxMessages: &proto.RetentionMaxMessages{Value: 1000},
-		RetentionMaxAge:      1000000,
-		CleanerInterval:      1000000,
-		CompactMaxGoroutines: 10,
+		RetentionMaxBytes:    &proto.NullableInt64{Value: 1024},
+		RetentionMaxMessages: &proto.NullableInt64{Value: 1000},
+		RetentionMaxAge:      &proto.NullableInt64{Value: 1000000},
+		CleanerInterval:      &proto.NullableInt64{Value: 1000000},
+		CompactMaxGoroutines: &proto.NullableInt32{Value: 10},
 	}
 
 	streamConfig.ParseCustomStreamConfig(customStreamConfig)
@@ -195,7 +195,7 @@ func TestCompactEnabledInCustomStreamConfig(t *testing.T) {
 
 	// Given custom configs with option to disable compact
 	customStreamConfig := &proto.CustomStreamConfig{
-		CompactEnabled: &proto.CompactEnabled{Value: false},
+		CompactEnabled: &proto.NullableBool{Value: false},
 	}
 
 	streamConfig.ParseCustomStreamConfig(customStreamConfig)
@@ -207,7 +207,7 @@ func TestCompactEnabledInCustomStreamConfig(t *testing.T) {
 	streamConfig2 := StreamsConfig{}
 	// Given custom configs with option to enable compact
 	customStreamConfig2 := &proto.CustomStreamConfig{
-		CompactEnabled: &proto.CompactEnabled{Value: true},
+		CompactEnabled: &proto.NullableBool{Value: true},
 	}
 
 	streamConfig2.ParseCustomStreamConfig(customStreamConfig2)

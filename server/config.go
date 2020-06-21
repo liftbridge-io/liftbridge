@@ -188,16 +188,16 @@ func (l *StreamsConfig) ParseCustomStreamConfig(c *proto.CustomStreamConfig) {
 	}
 	// By default, duration configuration a considered as millisecon
 	retentionMaxAge := c.GetRetentionMaxAge()
-	if retentionMaxAge != 0 {
-		l.RetentionMaxAge = time.Duration(retentionMaxAge) * time.Millisecond
+	if retentionMaxAge != nil {
+		l.RetentionMaxAge = time.Duration(retentionMaxAge.GetValue()) * time.Millisecond
 	}
 	cleanerInterval := c.GetCleanerInterval()
-	if cleanerInterval != 0 {
-		l.CleanerInterval = time.Duration(cleanerInterval) * time.Millisecond
+	if cleanerInterval != nil {
+		l.CleanerInterval = time.Duration(cleanerInterval.GetValue()) * time.Millisecond
 	}
 	segmentMaxAge := c.GetSegmentMaxAge()
-	if segmentMaxAge != 0 {
-		l.SegmentMaxAge = time.Duration(segmentMaxAge) * time.Millisecond
+	if segmentMaxAge != nil {
+		l.SegmentMaxAge = time.Duration(segmentMaxAge.GetValue()) * time.Millisecond
 	}
 	if c.GetRetentionMaxBytes() != nil {
 		l.RetentionMaxBytes = c.GetRetentionMaxBytes().GetValue()
@@ -206,16 +206,16 @@ func (l *StreamsConfig) ParseCustomStreamConfig(c *proto.CustomStreamConfig) {
 		l.RetentionMaxMessages = c.GetRetentionMaxMessages().GetValue()
 	}
 
-	if c.GetSegmentMaxBytes() != 0 {
-		l.SegmentMaxBytes = c.GetSegmentMaxBytes()
+	if c.GetSegmentMaxBytes() != nil {
+		l.SegmentMaxBytes = c.GetSegmentMaxBytes().GetValue()
 	}
 
 	if c.GetCompactEnabled() != nil {
 		l.Compact = c.GetCompactEnabled().GetValue()
 	}
 
-	if c.GetCompactMaxGoroutines() != 0 {
-		l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines())
+	if c.GetCompactMaxGoroutines() != nil {
+		l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines().GetValue())
 	}
 
 }

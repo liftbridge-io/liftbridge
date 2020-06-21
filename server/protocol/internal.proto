@@ -83,27 +83,27 @@ message PublishActivityOp {
     uint64 raftIndex = 1;
 }
 
-message RetentionMaxBytes {
+message NullableInt64 {
     int64 value = 1; 
 }
 
-message RetentionMaxMessages {
-    int64 value = 1;
+message NullableInt32 {
+    int32 value = 1; 
 }
 
-message CompactEnabled {
-    bool value = 1;
+message NullableBool {
+    bool value = 1; 
 }
 
 message CustomStreamConfig  {
-	RetentionMaxBytes        RetentionMaxBytes     = 1;
-	RetentionMaxMessages     RetentionMaxMessages  = 2;
-	int64                    RetentionMaxAge       = 3;  
-	int64                    CleanerInterval       = 4;
-	int64                    SegmentMaxBytes       = 5;
-	int64                    SegmentMaxAge         = 6;
-    int32                    CompactMaxGoroutines  = 7;
-    CompactEnabled           CompactEnabled        = 8;
+    NullableInt64     RetentionMaxBytes     = 1;
+    NullableInt64     RetentionMaxMessages  = 2;
+    NullableInt64     RetentionMaxAge       = 3;  
+    NullableInt64     CleanerInterval       = 4;
+    NullableInt64     SegmentMaxBytes       = 5;
+    NullableInt64     SegmentMaxAge         = 6;
+    NullableInt32     CompactMaxGoroutines  = 7;
+    NullableBool      CompactEnabled        = 8;
 }
 
 message Stream {

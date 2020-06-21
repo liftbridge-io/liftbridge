@@ -162,8 +162,8 @@ configure a stream. Supported options are:
 | SegmentMaxBytes | int64 |The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. |  |
 | SegmentMaxAge | time.Duration |The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. |  |
 | CompactMaxGoroutines | int32| The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if compact.enabled is true). |  |
-| EnableCompact | | Enable message compaction by key on the server for this stream |  |
-| DisableCompact | | Disable message compaction by key on the server for this stream |  |
+| SetCompactEnabled | bool | Enable message compaction by key on the server for this stream |  |
+
 
 `CreateStream` returns/throws an error if the operation fails, specifically
 `ErrStreamExists` if a stream with the given name already exists.
@@ -894,7 +894,6 @@ thrown. Otherwise, any other error/exception is thrown if the operation failed.
 
 Also, client can set custom configurations for the stream to be created. The exhaustive list of supported stream configuration are:
 
-
 ```
 RetentionMaxBytes,
 RetentionMaxMessages,
@@ -907,7 +906,24 @@ CompactMaxGoroutines,
 ```
 
 Refer to [Sream Configuration](configuration.md#streams-configuration-settings) for more details
-Note that these opts are optional, if not given, the default configurations of the broker will be used instead.
+Note that these opts are optional, if not given, the default configurations of the broker will be used instead. 
+
+In order to differentiate between custom configuration and default server's configuration, we use 3 custom `NullableType` in setting options for the `CreateStreamRequest`. These custom types are
+
+```proto
+message NullableInt64 {
+    int64 value = 1; 
+}
+
+message NullableInt32 {
+    int32 value = 1; 
+}
+
+message NullableBool {
+    bool value = 1; 
+}
+
+```
 
 Note: if `CompactMaxGoroutines` is configured, you have to make sure manually that `CompacEnabled` is also set. The reason is that if this is not enabled explicitly, the servier will use default configuration and that may be to disable compaction on the service side, which renders `CompactMaxGoroutines` to be unused.
 
@@ -930,21 +946,14 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 		ReplicationFactor:    opts.ReplicationFactor,
 		Group:                opts.Group,
 		Partitions:           opts.Partitions,
-		RetentionMaxAge:      opts.RetentionMaxAge.Milliseconds(),
-		CleanerInterval:      opts.CleanerInterval.Milliseconds(),
+		RetentionMaxAge:      opts.RetentionMaxAge,
+		RetentionMaxBytes:    opts.RetentionMaxBytes,
+		RetentionMaxMessages: opts.RetentionMaxMessages,
+		CleanerInterval:      opts.CleanerInterval,
 		SegmentMaxBytes:      opts.SegmentMaxBytes,
-		SegmentMaxAge:        opts.SegmentMaxAge.Milliseconds(),
+		SegmentMaxAge:        opts.SegmentMaxAge,
 		CompactMaxGoroutines: opts.CompactMaxGoroutines,
-	}
-
-	if opts.RetentionMaxBytes != nil {
-		req.RetentionMaxBytes = opts.RetentionMaxBytes
-	}
-	if opts.RetentionMaxMessages != nil {
-		req.RetentionMaxMessages = opts.RetentionMaxMessages
-	}
-	if opts.CompactEnabled != nil {
-		req.CompactEnabled = opts.CompactEnabled
+		CompactEnabled:       opts.CompactEnabled,
 	}
 
 	err := c.doResilientRPC(func(client proto.APIClient) error {

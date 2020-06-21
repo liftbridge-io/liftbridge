@@ -56,24 +56,38 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		}
 	}
 	// set custom stream config
-	streamConfig := &proto.CustomStreamConfig{
-		RetentionMaxAge:      req.RetentionMaxAge,
-		CleanerInterval:      req.CleanerInterval,
-		SegmentMaxBytes:      req.SegmentMaxBytes,
-		SegmentMaxAge:        req.SegmentMaxAge,
-		CompactMaxGoroutines: req.CompactMaxGoroutines,
+	streamConfig := &proto.CustomStreamConfig{}
+
+	if req.RetentionMaxAge != nil {
+		streamConfig.RetentionMaxAge = &proto.NullableInt64{Value: req.RetentionMaxAge.GetValue()}
+	}
+
+	if req.CleanerInterval != nil {
+		streamConfig.CleanerInterval = &proto.NullableInt64{Value: req.CleanerInterval.GetValue()}
+	}
+
+	if req.SegmentMaxBytes != nil {
+		streamConfig.SegmentMaxBytes = &proto.NullableInt64{Value: req.SegmentMaxBytes.GetValue()}
+	}
+
+	if req.SegmentMaxAge != nil {
+		streamConfig.SegmentMaxAge = &proto.NullableInt64{Value: req.SegmentMaxAge.GetValue()}
+	}
+
+	if req.CompactMaxGoroutines != nil {
+		streamConfig.CompactMaxGoroutines = &proto.NullableInt32{Value: req.CompactMaxGoroutines.GetValue()}
 	}
 
 	if req.RetentionMaxBytes != nil {
-		streamConfig.RetentionMaxBytes = &proto.RetentionMaxBytes{Value: req.RetentionMaxBytes.GetValue()}
+		streamConfig.RetentionMaxBytes = &proto.NullableInt64{Value: req.RetentionMaxBytes.GetValue()}
 	}
 
 	if req.RetentionMaxMessages != nil {
-		streamConfig.RetentionMaxMessages = &proto.RetentionMaxMessages{Value: req.RetentionMaxMessages.GetValue()}
+		streamConfig.RetentionMaxMessages = &proto.NullableInt64{Value: req.RetentionMaxMessages.GetValue()}
 	}
 
 	if req.CompactEnabled != nil {
-		streamConfig.CompactEnabled = &proto.CompactEnabled{Value: req.CompactEnabled.GetValue()}
+		streamConfig.CompactEnabled = &proto.NullableBool{Value: req.CompactEnabled.GetValue()}
 	}
 
 	stream := &proto.Stream{
