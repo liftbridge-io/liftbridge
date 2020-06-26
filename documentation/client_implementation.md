@@ -947,22 +947,7 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 		}
 	}
 
-	req := &proto.CreateStreamRequest{
-		Subject:              subject,
-		Name:                 name,
-		ReplicationFactor:    opts.ReplicationFactor,
-		Group:                opts.Group,
-		Partitions:           opts.Partitions,
-		RetentionMaxAge:      opts.RetentionMaxAge,
-		RetentionMaxBytes:    opts.RetentionMaxBytes,
-		RetentionMaxMessages: opts.RetentionMaxMessages,
-		CleanerInterval:      opts.CleanerInterval,
-		SegmentMaxBytes:      opts.SegmentMaxBytes,
-		SegmentMaxAge:        opts.SegmentMaxAge,
-		CompactMaxGoroutines: opts.CompactMaxGoroutines,
-		CompactEnabled:       opts.CompactEnabled,
-	}
-
+	req := opts.newRequest(subject, name)
 	err := c.doResilientRPC(func(client proto.APIClient) error {
 		_, err := client.CreateStream(ctx, req)
 		return err
@@ -973,6 +958,9 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 	return err
 }
 ```
+
+`StreamOptions.newRequest` creates a `CreateStreamRequest` protobuf and applies
+the specified options to it.
 
 ### DeleteStream Implementation
 
