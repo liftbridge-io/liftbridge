@@ -891,23 +891,27 @@ it using the [resilient RPC method](#rpcs) described above. If the
 `AlreadyExists` gRPC error is returned, an `ErrStreamExists` error/exception is
 thrown. Otherwise, any other error/exception is thrown if the operation failed.
 
-Also, client can set custom configurations for the stream to be created. The exhaustive list of supported stream configuration are:
+Also, clients can set custom configurations for the stream to be created. The
+exhaustive list of supported stream configurations are:
 
+```plaintext
+RetentionMaxBytes
+RetentionMaxMessages
+RetentionMaxAge
+CleanerInterval
+SegmentMaxBytes
+SegmentMaxAge
+CompactEnabled
+CompactMaxGoroutines
 ```
-RetentionMaxBytes,
-RetentionMaxMessages,
-RetentionMaxAge,
-CleanerInterval,
-SegmentMaxBytes,
-SegmentMaxAge,
-CompactEnabled,
-CompactMaxGoroutines,
-```
 
-Refer to [Sream Configuration](configuration.md#streams-configuration-settings) for more details
-Note that these opts are optional, if not given, the default configurations of the broker will be used instead. 
+Refer to [Stream Configuration](configuration.md#streams-configuration-settings)
+for more details. Note that these settings are optional. If not provided, the
+default configurations of the broker will be used instead. 
 
-In order to differentiate between custom configuration and default server's configuration, we use 3 custom `NullableType` in setting options for the `CreateStreamRequest`. These custom types are
+In order to differentiate between custom configuration specified by the user
+and the server's default configuration, we use 3 custom `NullableType` wrappers
+in setting options for the `CreateStreamRequest`. These custom types are:
 
 ```proto
 message NullableInt64 {
@@ -924,7 +928,11 @@ message NullableBool {
 
 ```
 
-Note: if `CompactMaxGoroutines` is configured, you have to make sure manually that `CompacEnabled` is also set. The reason is that if this is not enabled explicitly, the servier will use default configuration and that may be to disable compaction on the service side, which renders `CompactMaxGoroutines` to be unused.
+Note: if `CompactMaxGoroutines` is configured, you have to make sure manually
+that `CompactEnabled` is also set. The reason is that if this is not enabled
+explicitly, the servier will use the default configuration and that may be to
+disable compaction on the service side, which renders `CompactMaxGoroutines` to
+be unused.
 
 ```go
 // CreateStream creates a new stream attached to a NATS subject. Subject is the
