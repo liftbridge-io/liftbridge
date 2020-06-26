@@ -156,7 +156,9 @@ the configuration file.
 ### Streams Configuration Settings
 
 Below is the list of the configuration settings for the `streams` part of the
-configuration file.
+configuration file. These settings are applied globally to all streams.
+However, streams can be individually configured when they are created,
+overriding these settings.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|

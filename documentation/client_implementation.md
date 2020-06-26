@@ -155,15 +155,14 @@ configure a stream. Supported options are:
 | MaxReplication | bool | Sets the stream replication factor equal to the current number of servers in the cluster. This means all partitions for the stream will be fully replicated within the cluster. | false |
 | ReplicationFactor | int | Sets the replication factor for the stream. The replication factor controls the number of servers a stream's partitions should be replicated to. For example, a value of 1 would mean only 1 server would have the data, and a value of 3 would mean 3 servers would have it. A value of -1 will signal to the server to set the replication factor equal to the current number of servers in the cluster (i.e. MaxReplication). | 1 |
 | Partitions | int | Sets the number of partitions for the stream. | 1 |
-| RetentionMaxBytes | int64 | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. |  |
-| RetentionMaxMessages | int64 | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. |  |
-| RetentionMaxAge | time.Duration | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL |  |
-| CleanerInterval | time.Duration |The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled  |  |
-| SegmentMaxBytes | int64 |The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. |  |
-| SegmentMaxAge | time.Duration |The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. |  |
-| CompactMaxGoroutines | int32| The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if compact.enabled is true). |  |
-| SetCompactEnabled | bool | Enable message compaction by key on the server for this stream |  |
-
+| RetentionMaxBytes | int64 | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. If this is not set, it takes the server default. |  |
+| RetentionMaxMessages | int64 | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. If this is not set, it takes the server default. |  |
+| RetentionMaxAge | time duration | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL. If this is not set, it takes the server default.  |  |
+| CleanerInterval | time duration | The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled. If this is not set, it takes the server default. |  |
+| SegmentMaxBytes | int64 | The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. If this is not set, it takes the server default. |  |
+| SegmentMaxAge | time duration | The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. If this is not set, it takes the server default. |  |
+| CompactMaxGoroutines | int32 | The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if compact.enabled is true). If this is not set, it takes the server default. |  |
+| CompactEnabled | bool | Enable message compaction by key on the server for this stream. If this is not set, it takes the server default. |  |
 
 `CreateStream` returns/throws an error if the operation fails, specifically
 `ErrStreamExists` if a stream with the given name already exists.
@@ -294,7 +293,7 @@ configure a subscription. Supported options are:
 | StartAtOffset | int | Sets the subscription start position to the first message with an offset greater than or equal to the given offset. | |
 | StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
 | StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
-| ReadISRReplica |  | Sets the subscription to one of a random ISR replica instead of subscribing to the partition's leader. | false |
+| ReadISRReplica | bool | Sets the subscription to one of a random ISR replica instead of subscribing to the partition's leader. | false |
 
 Currently, `Subscribe` can only subscribe to a single partition. In the future,
 there will be functionality for consuming all partitions.
