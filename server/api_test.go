@@ -781,3 +781,29 @@ func TestSubscribePartitionClosed(t *testing.T) {
 		t.Fatal("Did not receive expected status")
 	}
 }
+
+// Ensure getStreamConfig applies non-nil values from the CreateStreamRequest
+// to the StreamConfig.
+func TestGetStreamConfig(t *testing.T) {
+	req := &proto.CreateStreamRequest{
+		RetentionMaxAge:      &proto.NullableInt64{Value: 1},
+		CleanerInterval:      &proto.NullableInt64{Value: 2},
+		SegmentMaxBytes:      &proto.NullableInt64{Value: 3},
+		SegmentMaxAge:        &proto.NullableInt64{Value: 4},
+		CompactMaxGoroutines: &proto.NullableInt32{Value: 5},
+		RetentionMaxBytes:    &proto.NullableInt64{Value: 6},
+		RetentionMaxMessages: &proto.NullableInt64{Value: 7},
+		CompactEnabled:       &proto.NullableBool{Value: true},
+	}
+
+	config := getStreamConfig(req)
+
+	require.Equal(t, int64(1), config.RetentionMaxAge.Value)
+	require.Equal(t, int64(2), config.CleanerInterval.Value)
+	require.Equal(t, int64(3), config.SegmentMaxBytes.Value)
+	require.Equal(t, int64(4), config.SegmentMaxAge.Value)
+	require.Equal(t, int32(5), config.CompactMaxGoroutines.Value)
+	require.Equal(t, int64(6), config.RetentionMaxBytes.Value)
+	require.Equal(t, int64(7), config.RetentionMaxMessages.Value)
+	require.True(t, config.CompactEnabled.Value)
+}

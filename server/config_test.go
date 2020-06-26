@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 // Ensure NewConfig properly parses config files.
@@ -121,4 +122,107 @@ func TestNewConfigInvalidClusteringSetting(t *testing.T) {
 func TestNewConfigUnknownSetting(t *testing.T) {
 	_, err := NewConfig("configs/unknown-setting.yaml")
 	require.Error(t, err)
+}
+
+// Ensure custom StreamConfig can be applied correctly. If a given value is
+// present in the StreamConfig it should be set. Otherwise, default values
+// should be kept.
+func TestStreamsConfigApplyOverrides(t *testing.T) {
+	// Given custom stream config duration configuration is in milliseconds.
+	customStreamConfig := &proto.StreamConfig{
+		SegmentMaxBytes:      &proto.NullableInt64{Value: 1024},
+		SegmentMaxAge:        &proto.NullableInt64{Value: 1000000},
+		RetentionMaxBytes:    &proto.NullableInt64{Value: 2048},
+		RetentionMaxMessages: &proto.NullableInt64{Value: 1000},
+		RetentionMaxAge:      &proto.NullableInt64{Value: 1000000},
+		CleanerInterval:      &proto.NullableInt64{Value: 1000000},
+		CompactMaxGoroutines: &proto.NullableInt32{Value: 10},
+	}
+	streamConfig := StreamsConfig{}
+
+	streamConfig.ApplyOverrides(customStreamConfig)
+
+	s, _ := time.ParseDuration("1000s")
+
+	// Expect custom stream config overwrites default stream config
+	require.Equal(t, int64(1024), streamConfig.SegmentMaxBytes)
+	require.Equal(t, s, streamConfig.SegmentMaxAge)
+	require.Equal(t, int64(2048), streamConfig.RetentionMaxBytes)
+	require.Equal(t, int64(1000), streamConfig.RetentionMaxMessages)
+	require.Equal(t, s, streamConfig.RetentionMaxAge)
+	require.Equal(t, s, streamConfig.CleanerInterval)
+	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
+
+}
+
+// Ensure default stream configs are always present. This should be the case
+// when custom stream configs are not set.
+func TestStreamsConfigApplyOverridesDefault(t *testing.T) {
+	s, _ := time.ParseDuration("1000s")
+	// Given a default stream config
+	streamConfig := StreamsConfig{SegmentMaxBytes: 2048, SegmentMaxAge: s}
+
+	// Given custom configs
+	customStreamConfig := &proto.StreamConfig{
+		RetentionMaxBytes:    &proto.NullableInt64{Value: 1024},
+		RetentionMaxMessages: &proto.NullableInt64{Value: 1000},
+		RetentionMaxAge:      &proto.NullableInt64{Value: 1000000},
+		CleanerInterval:      &proto.NullableInt64{Value: 1000000},
+		CompactMaxGoroutines: &proto.NullableInt32{Value: 10},
+	}
+
+	streamConfig.ApplyOverrides(customStreamConfig)
+
+	// Ensure that in case of non-overlap values, default configs
+	// remain present
+	require.Equal(t, int64(2048), streamConfig.SegmentMaxBytes)
+	require.Equal(t, s, streamConfig.SegmentMaxAge)
+
+	// Ensure values from custom configs overwrite default configs
+	require.Equal(t, int64(1024), streamConfig.RetentionMaxBytes)
+	require.Equal(t, int64(1000), streamConfig.RetentionMaxMessages)
+	require.Equal(t, s, streamConfig.RetentionMaxAge)
+	require.Equal(t, s, streamConfig.CleanerInterval)
+	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
+
+}
+
+// Ensure compact activation is correctly parsed.
+func TestStreamsConfigApplyOverridesCompactEnabled(t *testing.T) {
+	// Given a default stream config
+	streamConfig := StreamsConfig{}
+
+	// Given custom configs with option to disable compact
+	customStreamConfig := &proto.StreamConfig{
+		CompactEnabled: &proto.NullableBool{Value: false},
+	}
+
+	streamConfig.ApplyOverrides(customStreamConfig)
+
+	// Ensure that stream config correctly disable compact option
+	require.Equal(t, false, streamConfig.Compact)
+
+	// Given a default stream config
+	streamConfig2 := StreamsConfig{}
+	// Given custom configs with option to enable compact
+	customStreamConfig2 := &proto.StreamConfig{
+		CompactEnabled: &proto.NullableBool{Value: true},
+	}
+
+	streamConfig2.ApplyOverrides(customStreamConfig2)
+
+	// Ensure that stream config correctly enable compact option
+	require.Equal(t, true, streamConfig2.Compact)
+
+	// Given a default stream config with default compaction disabled
+	streamConfig3 := StreamsConfig{}
+
+	// Given custom configs with NO option to configure compact
+	customStreamConfig3 := &proto.StreamConfig{}
+
+	streamConfig3.ApplyOverrides(customStreamConfig3)
+
+	// Ensure that stream default config is retained (by default
+	// compact.enabled is set to true)
+	require.Equal(t, true, streamConfig2.Compact)
 }

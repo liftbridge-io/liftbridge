@@ -83,10 +83,34 @@ message PublishActivityOp {
     uint64 raftIndex = 1;
 }
 
+message NullableInt64 {
+    int64 value = 1; 
+}
+
+message NullableInt32 {
+    int32 value = 1; 
+}
+
+message NullableBool {
+    bool value = 1; 
+}
+
+message StreamConfig  {
+    NullableInt64     RetentionMaxBytes     = 1;
+    NullableInt64     RetentionMaxMessages  = 2;
+    NullableInt64     RetentionMaxAge       = 3;  
+    NullableInt64     CleanerInterval       = 4;
+    NullableInt64     SegmentMaxBytes       = 5;
+    NullableInt64     SegmentMaxAge         = 6;
+    NullableInt32     CompactMaxGoroutines  = 7;
+    NullableBool      CompactEnabled        = 8;
+}
+
 message Stream {
     string             name       = 1;
     string             subject    = 2;
     repeated Partition partitions = 3;
+    StreamConfig       config     = 4;
 }
 
 message Partition {
