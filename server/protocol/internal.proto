@@ -95,7 +95,7 @@ message NullableBool {
     bool value = 1; 
 }
 
-message CustomStreamConfig  {
+message StreamConfig  {
     NullableInt64     RetentionMaxBytes     = 1;
     NullableInt64     RetentionMaxMessages  = 2;
     NullableInt64     RetentionMaxAge       = 3;  
@@ -107,10 +107,10 @@ message CustomStreamConfig  {
 }
 
 message Stream {
-    string             name               = 1;
-    string             subject            = 2;
-    repeated Partition partitions         = 3;
-    CustomStreamConfig customStreamConfig =4;
+    string             name       = 1;
+    string             subject    = 2;
+    repeated Partition partitions = 3;
+    StreamConfig       config     = 4;
 }
 
 message Partition {

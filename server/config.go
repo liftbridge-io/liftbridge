@@ -10,12 +10,13 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/hako/durafmt"
 	client "github.com/liftbridge-io/liftbridge-api/go"
-	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 const (
@@ -179,45 +180,49 @@ func (l StreamsConfig) RetentionString() string {
 	return str
 }
 
-// ParseCustomStreamConfig tries to parse streams config from the request
-// to StreamConfig struct. If the value is present in the request's config section,
-// it will be set in StreamConfig
-func (l *StreamsConfig) ParseCustomStreamConfig(c *proto.CustomStreamConfig) {
+// ApplyOverrides applies the values from the StreamConfig protobuf to the
+// StreamsConfig struct. If the value is present in the request's config
+// section, it will be set in StreamsConfig.
+func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 	if c == nil {
 		return
 	}
-	// By default, duration configuration a considered as millisecon
+
+	// By default, duration configuration is considered as milliseconds.
 	retentionMaxAge := c.GetRetentionMaxAge()
 	if retentionMaxAge != nil {
-		l.RetentionMaxAge = time.Duration(retentionMaxAge.GetValue()) * time.Millisecond
+		l.RetentionMaxAge = time.Duration(retentionMaxAge.Value) * time.Millisecond
 	}
+
 	cleanerInterval := c.GetCleanerInterval()
 	if cleanerInterval != nil {
-		l.CleanerInterval = time.Duration(cleanerInterval.GetValue()) * time.Millisecond
+		l.CleanerInterval = time.Duration(cleanerInterval.Value) * time.Millisecond
 	}
+
 	segmentMaxAge := c.GetSegmentMaxAge()
 	if segmentMaxAge != nil {
-		l.SegmentMaxAge = time.Duration(segmentMaxAge.GetValue()) * time.Millisecond
+		l.SegmentMaxAge = time.Duration(segmentMaxAge.Value) * time.Millisecond
 	}
+
 	if c.GetRetentionMaxBytes() != nil {
-		l.RetentionMaxBytes = c.GetRetentionMaxBytes().GetValue()
+		l.RetentionMaxBytes = c.GetRetentionMaxBytes().Value
 	}
+
 	if c.GetRetentionMaxMessages() != nil {
-		l.RetentionMaxMessages = c.GetRetentionMaxMessages().GetValue()
+		l.RetentionMaxMessages = c.GetRetentionMaxMessages().Value
 	}
 
 	if c.GetSegmentMaxBytes() != nil {
-		l.SegmentMaxBytes = c.GetSegmentMaxBytes().GetValue()
+		l.SegmentMaxBytes = c.GetSegmentMaxBytes().Value
 	}
 
 	if c.GetCompactEnabled() != nil {
-		l.Compact = c.GetCompactEnabled().GetValue()
+		l.Compact = c.GetCompactEnabled().Value
 	}
 
 	if c.GetCompactMaxGoroutines() != nil {
-		l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines().GetValue())
+		l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines().Value)
 	}
-
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.

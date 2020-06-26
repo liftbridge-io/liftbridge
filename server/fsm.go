@@ -283,6 +283,7 @@ func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 			protoStream = &proto.Stream{
 				Name:       stream.GetName(),
 				Subject:    stream.GetSubject(),
+				Config:     stream.GetConfig(),
 				Partitions: make([]*proto.Partition, len(partitions)),
 			}
 		)

@@ -55,46 +55,12 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 			Id:                i,
 		}
 	}
-	// set custom stream config
-	streamConfig := &proto.CustomStreamConfig{}
-
-	if req.RetentionMaxAge != nil {
-		streamConfig.RetentionMaxAge = &proto.NullableInt64{Value: req.RetentionMaxAge.GetValue()}
-	}
-
-	if req.CleanerInterval != nil {
-		streamConfig.CleanerInterval = &proto.NullableInt64{Value: req.CleanerInterval.GetValue()}
-	}
-
-	if req.SegmentMaxBytes != nil {
-		streamConfig.SegmentMaxBytes = &proto.NullableInt64{Value: req.SegmentMaxBytes.GetValue()}
-	}
-
-	if req.SegmentMaxAge != nil {
-		streamConfig.SegmentMaxAge = &proto.NullableInt64{Value: req.SegmentMaxAge.GetValue()}
-	}
-
-	if req.CompactMaxGoroutines != nil {
-		streamConfig.CompactMaxGoroutines = &proto.NullableInt32{Value: req.CompactMaxGoroutines.GetValue()}
-	}
-
-	if req.RetentionMaxBytes != nil {
-		streamConfig.RetentionMaxBytes = &proto.NullableInt64{Value: req.RetentionMaxBytes.GetValue()}
-	}
-
-	if req.RetentionMaxMessages != nil {
-		streamConfig.RetentionMaxMessages = &proto.NullableInt64{Value: req.RetentionMaxMessages.GetValue()}
-	}
-
-	if req.CompactEnabled != nil {
-		streamConfig.CompactEnabled = &proto.NullableBool{Value: req.CompactEnabled.GetValue()}
-	}
 
 	stream := &proto.Stream{
-		Name:               req.Name,
-		Subject:            req.Subject,
-		Partitions:         partitions,
-		CustomStreamConfig: streamConfig,
+		Name:       req.Name,
+		Subject:    req.Subject,
+		Partitions: partitions,
+		Config:     getStreamConfig(req),
 	}
 
 	if e := a.metadata.CreateStream(ctx, &proto.CreateStreamOp{Stream: stream}); e != nil {
@@ -527,4 +493,33 @@ func getStartOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int6
 	}
 
 	return startOffset, nil
+}
+
+func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
+	config := new(proto.StreamConfig)
+	if req.RetentionMaxAge != nil {
+		config.RetentionMaxAge = &proto.NullableInt64{Value: req.RetentionMaxAge.Value}
+	}
+	if req.CleanerInterval != nil {
+		config.CleanerInterval = &proto.NullableInt64{Value: req.CleanerInterval.Value}
+	}
+	if req.SegmentMaxBytes != nil {
+		config.SegmentMaxBytes = &proto.NullableInt64{Value: req.SegmentMaxBytes.Value}
+	}
+	if req.SegmentMaxAge != nil {
+		config.SegmentMaxAge = &proto.NullableInt64{Value: req.SegmentMaxAge.Value}
+	}
+	if req.CompactMaxGoroutines != nil {
+		config.CompactMaxGoroutines = &proto.NullableInt32{Value: req.CompactMaxGoroutines.Value}
+	}
+	if req.RetentionMaxBytes != nil {
+		config.RetentionMaxBytes = &proto.NullableInt64{Value: req.RetentionMaxBytes.Value}
+	}
+	if req.RetentionMaxMessages != nil {
+		config.RetentionMaxMessages = &proto.NullableInt64{Value: req.RetentionMaxMessages.Value}
+	}
+	if req.CompactEnabled != nil {
+		config.CompactEnabled = &proto.NullableBool{Value: req.CompactEnabled.Value}
+	}
+	return config
 }

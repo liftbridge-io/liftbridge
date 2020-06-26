@@ -572,12 +572,11 @@ func TestPartitionReplicationRequestLoopPreempt(t *testing.T) {
 	}
 }
 
-//TestPartitionWithCustomConfigNoError ensure that a new partition
-// can be created with custom StreamConfiguration
+// Ensure that a new partition can be created with custom StreamConfig.
 func TestPartitionWithCustomConfigNoError(t *testing.T) {
 	defer cleanupStorage(t)
 	server := createServer(false)
-	customStreamConfig := &proto.CustomStreamConfig{
+	customStreamConfig := &proto.StreamConfig{
 		RetentionMaxMessages: &proto.NullableInt64{Value: 1000},
 	}
 	p, err := server.newPartition(&proto.Partition{

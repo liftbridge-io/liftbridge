@@ -95,7 +95,7 @@ type partition struct {
 //
 // A partitioned stream maps to separate NATS subjects: subject, subject.1,
 // subject.2, etc.
-func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, protoStreamsConfig *proto.CustomStreamConfig) (*partition, error) {
+func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, config *proto.StreamConfig) (*partition, error) {
 	streamsConfig := &StreamsConfig{
 		SegmentMaxBytes:      s.config.Streams.SegmentMaxBytes,
 		SegmentMaxAge:        s.config.Streams.SegmentMaxAge,
@@ -106,7 +106,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, p
 		Compact:              s.config.Streams.Compact,
 		CompactMaxGoroutines: s.config.Streams.CompactMaxGoroutines,
 	}
-	streamsConfig.ParseCustomStreamConfig(protoStreamsConfig)
+	streamsConfig.ApplyOverrides(config)
 	var (
 		file = filepath.Join(s.config.DataDir, "streams", protoPartition.Stream,
 			strconv.FormatInt(int64(protoPartition.Id), 10))

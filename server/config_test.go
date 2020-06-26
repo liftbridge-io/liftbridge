@@ -124,13 +124,12 @@ func TestNewConfigUnknownSetting(t *testing.T) {
 	require.Error(t, err)
 }
 
-// Ensure custom's StreamConfig can be parsed correctly
-// if a given value is present in the custom's StreamConfig
-// it should be set, otherwise, default values should be kept
-func TestParseCustomStreamConfig(t *testing.T) {
-	// Given custom stream config
-	// duration configuration is in millisecond
-	customStreamConfig := &proto.CustomStreamConfig{
+// Ensure custom StreamConfig can be applied correctly. If a given value is
+// present in the StreamConfig it should be set. Otherwise, default values
+// should be kept.
+func TestStreamsConfigApplyOverrides(t *testing.T) {
+	// Given custom stream config duration configuration is in milliseconds.
+	customStreamConfig := &proto.StreamConfig{
 		SegmentMaxBytes:      &proto.NullableInt64{Value: 1024},
 		SegmentMaxAge:        &proto.NullableInt64{Value: 1000000},
 		RetentionMaxBytes:    &proto.NullableInt64{Value: 2048},
@@ -141,7 +140,7 @@ func TestParseCustomStreamConfig(t *testing.T) {
 	}
 	streamConfig := StreamsConfig{}
 
-	streamConfig.ParseCustomStreamConfig(customStreamConfig)
+	streamConfig.ApplyOverrides(customStreamConfig)
 
 	s, _ := time.ParseDuration("1000s")
 
@@ -156,15 +155,15 @@ func TestParseCustomStreamConfig(t *testing.T) {
 
 }
 
-// Ensure default stream configs are always present,
-// this should be the case when custom's stream configs are not set
-func TestDefaultCustomStreamConfig(t *testing.T) {
+// Ensure default stream configs are always present. This should be the case
+// when custom stream configs are not set.
+func TestStreamsConfigApplyOverridesDefault(t *testing.T) {
 	s, _ := time.ParseDuration("1000s")
 	// Given a default stream config
 	streamConfig := StreamsConfig{SegmentMaxBytes: 2048, SegmentMaxAge: s}
 
 	// Given custom configs
-	customStreamConfig := &proto.CustomStreamConfig{
+	customStreamConfig := &proto.StreamConfig{
 		RetentionMaxBytes:    &proto.NullableInt64{Value: 1024},
 		RetentionMaxMessages: &proto.NullableInt64{Value: 1000},
 		RetentionMaxAge:      &proto.NullableInt64{Value: 1000000},
@@ -172,7 +171,7 @@ func TestDefaultCustomStreamConfig(t *testing.T) {
 		CompactMaxGoroutines: &proto.NullableInt32{Value: 10},
 	}
 
-	streamConfig.ParseCustomStreamConfig(customStreamConfig)
+	streamConfig.ApplyOverrides(customStreamConfig)
 
 	// Ensure that in case of non-overlap values, default configs
 	// remain present
@@ -188,17 +187,17 @@ func TestDefaultCustomStreamConfig(t *testing.T) {
 
 }
 
-// Ensure compact activation is correctly parsed
-func TestCompactEnabledInCustomStreamConfig(t *testing.T) {
+// Ensure compact activation is correctly parsed.
+func TestStreamsConfigApplyOverridesCompactEnabled(t *testing.T) {
 	// Given a default stream config
 	streamConfig := StreamsConfig{}
 
 	// Given custom configs with option to disable compact
-	customStreamConfig := &proto.CustomStreamConfig{
+	customStreamConfig := &proto.StreamConfig{
 		CompactEnabled: &proto.NullableBool{Value: false},
 	}
 
-	streamConfig.ParseCustomStreamConfig(customStreamConfig)
+	streamConfig.ApplyOverrides(customStreamConfig)
 
 	// Ensure that stream config correctly disable compact option
 	require.Equal(t, false, streamConfig.Compact)
@@ -206,11 +205,11 @@ func TestCompactEnabledInCustomStreamConfig(t *testing.T) {
 	// Given a default stream config
 	streamConfig2 := StreamsConfig{}
 	// Given custom configs with option to enable compact
-	customStreamConfig2 := &proto.CustomStreamConfig{
+	customStreamConfig2 := &proto.StreamConfig{
 		CompactEnabled: &proto.NullableBool{Value: true},
 	}
 
-	streamConfig2.ParseCustomStreamConfig(customStreamConfig2)
+	streamConfig2.ApplyOverrides(customStreamConfig2)
 
 	// Ensure that stream config correctly enable compact option
 	require.Equal(t, true, streamConfig2.Compact)
@@ -219,11 +218,11 @@ func TestCompactEnabledInCustomStreamConfig(t *testing.T) {
 	streamConfig3 := StreamsConfig{}
 
 	// Given custom configs with NO option to configure compact
-	customStreamConfig3 := &proto.CustomStreamConfig{}
+	customStreamConfig3 := &proto.StreamConfig{}
 
-	streamConfig3.ParseCustomStreamConfig(customStreamConfig3)
+	streamConfig3.ApplyOverrides(customStreamConfig3)
 
-	// Ensure that stream default config is retained (by default compact.enabled is set
-	// to true)
+	// Ensure that stream default config is retained (by default
+	// compact.enabled is set to true)
 	require.Equal(t, true, streamConfig2.Compact)
 }
