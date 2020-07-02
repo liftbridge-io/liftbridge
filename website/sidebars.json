@@ -4,8 +4,9 @@
         "overview",
         "faq",
         "concepts",
+        "quick-start",
         "feature-comparison",
-        "quick-start"
+        "roadmap"
     ],
     "Configuration": [
         "configuration",
