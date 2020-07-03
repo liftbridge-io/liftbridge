@@ -260,6 +260,7 @@ func (a *apiServer) PublishAsync(stream client.API_PublishAsyncServer) error {
 	if err != nil {
 		return err
 	}
+	sub.SetPendingLimits(-1, -1)
 	defer sub.Unsubscribe()
 
 	if err := a.publishAsyncLoop(stream, ackInbox); err != nil {
