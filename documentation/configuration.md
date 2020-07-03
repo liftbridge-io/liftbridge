@@ -156,7 +156,9 @@ the configuration file.
 ### Streams Configuration Settings
 
 Below is the list of the configuration settings for the `streams` part of the
-configuration file.
+configuration file. These settings are applied globally to all streams.
+However, streams can be individually configured when they are created,
+overriding these settings.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
@@ -199,4 +201,3 @@ the configuration file.
 | stream.enabled | | Enables the activity stream. This will create an internal stream called `__activity` which events will be published to. | bool | false | |
 | stream.publish.timeout | | The timeout for publishes to the activity stream. This is the time to wait for an ack from the activity stream, which means it's related to `stream.publish.ack.policy`. If the ack policy is `none`, this has no effect.  | duration | 5s | |
 | stream.publish.ack.policy | | The ack policy to use for publishes to the activity stream. The value `none` means publishes will not wait for an ack, `leader` means publishes will wait for the ack sent when the leader has committed the event, and `all` means publishes will wait for the ack sent when all replicas have committed the event. | string | all | [none, leader, all] |
-

@@ -47,6 +47,9 @@
       "replication-protocol": {
         "title": "Replication Protocol"
       },
+      "roadmap": {
+        "title": "Product Roadmap"
+      },
       "version-v0.0.1-alpha/version-v0.0.1-alpha-client-implementation": {
         "title": "Client Implementation Guidance"
       },

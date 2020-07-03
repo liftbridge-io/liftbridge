@@ -101,7 +101,7 @@ func TestMetadataAddPartitionAlreadyExists(t *testing.T) {
 		Stream:  "foo",
 		Subject: "foo",
 		Id:      0,
-	}, false)
+	}, false, nil)
 	require.Error(t, err)
 }
 

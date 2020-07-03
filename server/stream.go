@@ -3,6 +3,8 @@ package server
 import (
 	"fmt"
 	"sync"
+
+	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 // stream is a message stream consisting of one or more partitions. Each
@@ -10,6 +12,7 @@ import (
 type stream struct {
 	name       string
 	subject    string
+	config     *proto.StreamConfig
 	partitions map[int32]*partition
 	resumeAll  bool // When partition(s) are paused, this indicates if all should be resumed
 	mu         sync.RWMutex
@@ -17,10 +20,11 @@ type stream struct {
 
 // newStream creates a stream for the given NATS subject. All stream
 // interactions should only go through the exported functions.
-func newStream(name, subject string) *stream {
+func newStream(name, subject string, config *proto.StreamConfig) *stream {
 	return &stream{
 		name:       name,
 		subject:    subject,
+		config:     config,
 		partitions: make(map[int32]*partition),
 	}
 }
@@ -45,6 +49,13 @@ func (s *stream) GetSubject() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.subject
+}
+
+// GetConfig returns the stream's custom configuration.
+func (s *stream) GetConfig() *proto.StreamConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config
 }
 
 // GetResumeAll returns a bool indicating if the stream was paused with

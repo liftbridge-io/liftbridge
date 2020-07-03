@@ -155,6 +155,14 @@ configure a stream. Supported options are:
 | MaxReplication | bool | Sets the stream replication factor equal to the current number of servers in the cluster. This means all partitions for the stream will be fully replicated within the cluster. | false |
 | ReplicationFactor | int | Sets the replication factor for the stream. The replication factor controls the number of servers a stream's partitions should be replicated to. For example, a value of 1 would mean only 1 server would have the data, and a value of 3 would mean 3 servers would have it. A value of -1 will signal to the server to set the replication factor equal to the current number of servers in the cluster (i.e. MaxReplication). | 1 |
 | Partitions | int | Sets the number of partitions for the stream. | 1 |
+| RetentionMaxBytes | int64 | The maximum size a stream's log can grow to, in bytes, before we will discard old log segments to free up space. A value of 0 indicates no limit. If this is not set, it takes the server default. |  |
+| RetentionMaxMessages | int64 | The maximum size a stream's log can grow to, in number of messages, before we will discard old log segments to free up space. A value of 0 indicates no limit. If this is not set, it takes the server default. |  |
+| RetentionMaxAge | time duration | The TTL for stream log segment files, after which they are deleted. A value of 0 indicates no TTL. If this is not set, it takes the server default.  |  |
+| CleanerInterval | time duration | The frequency to check if a new stream log segment file should be rolled and whether any segments are eligible for deletion based on the retention policy or compaction if enabled. If this is not set, it takes the server default. |  |
+| SegmentMaxBytes | int64 | The maximum size of a single stream log segment file in bytes. Retention is always done a file at a time, so a larger segment size means fewer files but less granular control over retention. If this is not set, it takes the server default. |  |
+| SegmentMaxAge | time duration | The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when segment.max.bytes is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. If this is not set, it takes the server default. |  |
+| CompactMaxGoroutines | int32 | The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if compact.enabled is true). If this is not set, it takes the server default. |  |
+| CompactEnabled | bool | Enable message compaction by key on the server for this stream. If this is not set, it takes the server default. |  |
 
 `CreateStream` returns/throws an error if the operation fails, specifically
 `ErrStreamExists` if a stream with the given name already exists.
@@ -883,6 +891,49 @@ it using the [resilient RPC method](#rpcs) described above. If the
 `AlreadyExists` gRPC error is returned, an `ErrStreamExists` error/exception is
 thrown. Otherwise, any other error/exception is thrown if the operation failed.
 
+Also, clients can set custom configurations for the stream to be created. The
+exhaustive list of supported stream configurations are:
+
+```plaintext
+RetentionMaxBytes
+RetentionMaxMessages
+RetentionMaxAge
+CleanerInterval
+SegmentMaxBytes
+SegmentMaxAge
+CompactEnabled
+CompactMaxGoroutines
+```
+
+Refer to [Stream Configuration](configuration.md#streams-configuration-settings)
+for more details. Note that these settings are optional. If not provided, the
+default configurations of the broker will be used instead. 
+
+In order to differentiate between custom configuration specified by the user
+and the server's default configuration, we use 3 custom `NullableType` wrappers
+in setting options for the `CreateStreamRequest`. These custom types are:
+
+```proto
+message NullableInt64 {
+    int64 value = 1; 
+}
+
+message NullableInt32 {
+    int32 value = 1; 
+}
+
+message NullableBool {
+    bool value = 1; 
+}
+
+```
+
+Note: if `CompactMaxGoroutines` is configured, you have to make sure manually
+that `CompactEnabled` is also set. The reason is that if this is not enabled
+explicitly, the servier will use the default configuration and that may be to
+disable compaction on the service side, which renders `CompactMaxGoroutines` to
+be unused.
+
 ```go
 // CreateStream creates a new stream attached to a NATS subject. Subject is the
 // NATS subject the stream is attached to, and name is the stream identifier,
@@ -896,13 +947,7 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 		}
 	}
 
-	req := &proto.CreateStreamRequest{
-		Subject:           subject,
-		Name:              name,
-		ReplicationFactor: opts.ReplicationFactor,
-		Group:             opts.Group,
-		Partitions:        opts.Partitions,
-	}
+	req := opts.newRequest(subject, name)
 	err := c.doResilientRPC(func(client proto.APIClient) error {
 		_, err := client.CreateStream(ctx, req)
 		return err
@@ -913,6 +958,9 @@ func (c *client) CreateStream(ctx context.Context, subject, name string, options
 	return err
 }
 ```
+
+`StreamOptions.newRequest` creates a `CreateStreamRequest` protobuf and applies
+the specified options to it.
 
 ### DeleteStream Implementation
 
