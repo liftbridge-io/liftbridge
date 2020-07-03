@@ -271,10 +271,10 @@ func (r *replicator) caughtUp(stop <-chan struct{}, leo int64, req replicationRe
 		r.partition.srv.startGoroutine(func() {
 			select {
 			case <-waiter:
-				r.partition.sendPartitionNotification(req.ReplicaID)
 				r.mu.Lock()
 				r.waiter = nil
 				r.mu.Unlock()
+				r.partition.sendPartitionNotification(req.ReplicaID)
 			case <-stop:
 			}
 		})
