@@ -200,6 +200,8 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // is returned.
 func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	*client.PublishResponse, error) {
+
+	// TODO: Deprecate in favor of PublishAsync and log a warning.
 	a.logger.Debugf("api: Publish [stream=%s, partition=%d]", req.Stream, req.Partition)
 
 	subject, err := a.getPublishSubject(req)
