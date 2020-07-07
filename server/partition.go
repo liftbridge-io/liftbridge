@@ -64,6 +64,7 @@ func (r *replica) getLatestOffset() int64 {
 type partition struct {
 	*proto.Partition
 	mu              sync.RWMutex
+	closeMu         sync.Mutex
 	sub             *nats.Subscription // Subscription to partition NATS subject
 	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
 	leaderOffsetSub *nats.Subscription // Subscription for leader epoch offset requests from followers
@@ -165,7 +166,12 @@ func (p *partition) String() string {
 	return fmt.Sprintf("[subject=%s, stream=%s, partition=%d]", p.Subject, p.Stream, p.Id)
 }
 
+// close stops the partition if it is running and closes the commit log. Must
+// be called within the scope of the partition mutex.
 func (p *partition) close() error {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
+
 	if p.isClosed {
 		return nil
 	}
@@ -306,7 +312,7 @@ func (p *partition) startLeadingOrFollowing() error {
 }
 
 // stopLeadingOrFollowing stops the partition as a leader or follower, if
-// applicable.
+// applicable. Must be called within the scope of the partition mutex.
 func (p *partition) stopLeadingOrFollowing() error {
 	if p.isFollowing {
 		// Stop following if previously a follower.
@@ -401,7 +407,8 @@ func (p *partition) becomeLeader(epoch uint64) error {
 
 // stopLeading causes the partition to step down as leader by unsubscribing
 // from the NATS subject and replication subject, stopping message processing
-// and replication, and disposing the commit queue.
+// and replication, and disposing the commit queue. Must be called within the
+// scope of the partition mutex.
 func (p *partition) stopLeading() error {
 	// Unsubscribe from NATS subject.
 	if err := p.sub.Unsubscribe(); err != nil {
@@ -426,8 +433,11 @@ func (p *partition) stopLeading() error {
 	}
 	close(p.stopLeader)
 
-	// Wait for loops to shutdown.
+	// Wait for loops to shutdown. Release mutex while we wait to avoid
+	// deadlocks.
+	p.mu.Unlock()
 	p.shutdown.Wait()
+	p.mu.Lock()
 
 	p.commitQueue.Dispose()
 	p.isLeading = false
@@ -651,7 +661,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		offsets, err := p.log.Append(msgBatch)
 		if err != nil {
 			p.srv.logger.Errorf("Failed to append to log %s: %v", p, err)
-			return
+			continue
 		}
 
 		for i, msg := range msgBatch {

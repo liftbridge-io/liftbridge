@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
+	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -198,15 +200,18 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // is returned.
 func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	*client.PublishResponse, error) {
+
+	// TODO: Deprecate in favor of PublishAsync and log a warning.
 	a.logger.Debugf("api: Publish [stream=%s, partition=%d]", req.Stream, req.Partition)
 
 	subject, err := a.getPublishSubject(req)
 	if err != nil {
+		a.logger.Errorf("api: Failed to publish message: %v", err)
 		return nil, err
 	}
 
-	err = a.resumeStream(ctx, req.Stream, req.Partition)
-	if err != nil {
+	if err := a.resumeStream(ctx, req.Stream, req.Partition); err != nil {
+		a.logger.Errorf("api: Failed to resume stream: %v", err)
 		return nil, err
 	}
 
@@ -229,10 +234,40 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	)
 
 	ack, err := a.publish(ctx, subject, req.AckInbox, req.AckPolicy, msg)
+	if err != nil {
+		a.logger.Errorf("api: Failed to publish message: %v", err)
+		return nil, err
+	}
+
 	resp.Ack = ack
+	return resp, nil
+}
 
-	return resp, err
+// Asynchronously publish messages to a stream. This returns a stream which
+// will yield PublishResponses for messages whose AckPolicy is not NONE.
+func (a *apiServer) PublishAsync(stream client.API_PublishAsyncServer) error {
+	ackInbox := nuid.Next()
+	sub, err := a.ncPublishes.Subscribe(ackInbox, func(m *nats.Msg) {
+		ack, err := proto.UnmarshalAck(m.Data)
+		if err != nil {
+			a.logger.Errorf("api: Invalid ack received on ack inbox: %v", err)
+			return
+		}
+		if err := stream.Send(&client.PublishResponse{Ack: ack}); err != nil {
+			a.logger.Errorf("api: Failed to send PublishAsync response: %v", err)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	sub.SetPendingLimits(-1, -1)
+	defer sub.Unsubscribe()
 
+	if err := a.publishAsyncLoop(stream, ackInbox); err != nil {
+		a.logger.Errorf("api: Failed to publish async message: %v", err)
+		return err
+	}
+	return nil
 }
 
 // Publish a Liftbridge message to a NATS subject. If the AckPolicy is not NONE
@@ -261,9 +296,13 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 	)
 
 	ack, err := a.publish(ctx, req.Subject, req.AckInbox, req.AckPolicy, msg)
-	resp.Ack = ack
+	if err != nil {
+		a.logger.Errorf("api: Failed to publish message: %v", err)
+		return nil, err
+	}
 
-	return resp, err
+	resp.Ack = ack
+	return resp, nil
 }
 
 func (a *apiServer) resumeStream(ctx context.Context, streamName string, partitionID int32) error {
@@ -303,7 +342,6 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 		Partitions: toResume,
 	}
 	if e := a.metadata.ResumeStream(ctx, req); e != nil {
-		a.logger.Errorf("api: Failed to resume stream: %v", e.Err())
 		return e.Err()
 	}
 
@@ -327,13 +365,51 @@ func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, error
 	return subject, nil
 }
 
+func (a *apiServer) publishAsyncLoop(stream client.API_PublishAsyncServer, ackInbox string) error {
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF || status.Code(err) == codes.Canceled {
+				return nil
+			}
+			return err
+		}
+
+		req.AckInbox = ackInbox
+
+		a.logger.Debugf("api: PublishAsync [stream=%s, partition=%d]", req.Stream, req.Partition)
+		subject, err := a.getPublishSubject(req)
+		if err != nil {
+			return errors.Wrap(err, "failed to get publish subject")
+		}
+		if err := a.resumeStream(stream.Context(), req.Stream, req.Partition); err != nil {
+			return errors.Wrap(err, "failed to resume stream")
+		}
+		msg, err := proto.MarshalPublish(&client.Message{
+			Key:           req.Key,
+			Value:         req.Value,
+			Stream:        req.Stream,
+			Subject:       subject,
+			Headers:       req.Headers,
+			AckInbox:      req.AckInbox,
+			CorrelationId: req.CorrelationId,
+			AckPolicy:     req.AckPolicy,
+		})
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal message")
+		}
+		if err := a.ncPublishes.Publish(subject, msg); err != nil {
+			return errors.Wrap(err, "failed to publish to NATS")
+		}
+	}
+}
+
 func (a *apiServer) publish(ctx context.Context, subject, ackInbox string,
 	ackPolicy client.AckPolicy, msg *client.Message) (*client.Ack, error) {
 
 	buf, err := proto.MarshalPublish(msg)
 	if err != nil {
-		a.logger.Errorf("api: Failed to marshal message: %v", err.Error())
-		return nil, err
+		return nil, errors.Wrap(err, "failed to marshal message")
 	}
 
 	// If AckPolicy is NONE or a timeout isn't specified, then we will fire and
@@ -341,8 +417,7 @@ func (a *apiServer) publish(ctx context.Context, subject, ackInbox string,
 	_, hasDeadline := ctx.Deadline()
 	if ackPolicy == client.AckPolicy_NONE || !hasDeadline {
 		if err := a.ncPublishes.Publish(subject, buf); err != nil {
-			a.logger.Errorf("api: Failed to publish message: %v", err)
-			return nil, err
+			return nil, errors.Wrap(err, "failed to publish to NATS")
 		}
 		return nil, nil
 	}
@@ -356,34 +431,27 @@ func (a *apiServer) publishSync(ctx context.Context, subject,
 
 	sub, err := a.ncPublishes.SubscribeSync(ackInbox)
 	if err != nil {
-		a.logger.Errorf("api: Failed to subscribe to ack inbox: %v", err)
-		return nil, err
+		return nil, errors.Wrap(err, "failed to subscribe to ack inbox")
 	}
 	if err := sub.AutoUnsubscribe(1); err != nil {
-		a.logger.Errorf("api: Failed to auto unsubscribe from ack inbox: %v", err)
-		return nil, err
+		return nil, errors.Wrap(err, "failed to auto unsubscribe from ack inbox")
 	}
 
 	if err := a.ncPublishes.Publish(subject, msg); err != nil {
-		a.logger.Errorf("api: Failed to publish message: %v", err)
-		return nil, err
+		return nil, errors.Wrap(err, "failed to publish to NATS")
 	}
 
 	ackMsg, err := sub.NextMsgWithContext(ctx)
 	if err != nil {
 		if err == nats.ErrTimeout {
-			a.logger.Errorf("api: Ack for publish timed out")
 			err = status.Error(codes.DeadlineExceeded, err.Error())
-		} else {
-			a.logger.Errorf("api: Failed to get ack for publish: %v", err)
 		}
 		return nil, err
 	}
 
 	ack, err := proto.UnmarshalAck(ackMsg.Data)
 	if err != nil {
-		a.logger.Errorf("api: Invalid ack for publish: %v", err)
-		return nil, err
+		return nil, errors.Wrap(err, "Invalid ack for publish")
 	}
 	return ack, nil
 }
