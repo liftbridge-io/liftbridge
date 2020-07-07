@@ -732,7 +732,7 @@ func TestPublishToSubject(t *testing.T) {
 
 	// Publish message to subject.
 	_, err = client.PublishToSubject(context.Background(), "foo.bar", []byte("hello"),
-		lift.Key([]byte("key")))
+		lift.Key([]byte("key")), lift.AckPolicyNone())
 	require.NoError(t, err)
 
 	msg, err := sub.NextMsg(5 * time.Second)
