@@ -1,7 +1,10 @@
 package server
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"strconv"
 	"strings"
@@ -72,6 +75,9 @@ const (
 	configNATSServers  = "nats.servers"
 	configNATSUser     = "nats.user"
 	configNATSPassword = "nats.password"
+	configNATSCert     = "nats.tls.cert"
+	configNATSKey      = "nats.tls.key"
+	configNATSCA       = "nats.tls.ca"
 
 	configStreamsRetentionMaxBytes    = "streams.retention.max.bytes"
 	configStreamsRetentionMaxMessages = "streams.retention.max.messages"
@@ -118,6 +124,9 @@ var configKeys = map[string]struct{}{
 	configNATSServers:                       {},
 	configNATSUser:                          {},
 	configNATSPassword:                      {},
+	configNATSCert:                          {},
+	configNATSKey:                           {},
+	configNATSCA:                            {},
 	configStreamsRetentionMaxBytes:          {},
 	configStreamsRetentionMaxMessages:       {},
 	configStreamsRetentionMaxAge:            {},
@@ -487,6 +496,42 @@ func parseNATSConfig(opts *nats.Options, v *viper.Viper) error {
 
 	if v.IsSet(configNATSPassword) {
 		opts.Password = v.GetString(configNATSPassword)
+	}
+
+	// NATS TLS config
+	// Both Cert and Key must be presented
+
+	if v.IsSet(configNATSCert) && v.IsSet(configNATSKey) {
+
+		// Load cert and key file
+		certFile := v.GetString(configNATSCert)
+		keyFile := v.GetString(configNATSKey)
+
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return err
+		}
+
+		config := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+
+		// Load CACert if available
+		if v.IsSet(configNATSCA) {
+			caFile := v.GetString(configNATSCA)
+			// Load CA cert
+			caCert, err := ioutil.ReadFile(caFile)
+
+			if err != nil {
+				return err
+			}
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
+
+			config.RootCAs = caCertPool
+		}
+		opts.TLSConfig = config
 	}
 
 	return nil

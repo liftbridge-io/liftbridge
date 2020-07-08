@@ -4,4 +4,3 @@ tls:
   cert: ./configs/certs/server.crt
 logging.level: error
 clustering.raft.bootstrap.seed: true
-
