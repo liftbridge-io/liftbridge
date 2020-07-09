@@ -1,6 +1,9 @@
 package server
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"io/ioutil"
 	"testing"
 	"time"
 
@@ -102,8 +105,32 @@ func TestNewConfigListen(t *testing.T) {
 func TestNewConfigTLS(t *testing.T) {
 	config, err := NewConfig("configs/tls.yaml")
 	require.NoError(t, err)
+	// Liftbridge TLS
 	require.Equal(t, "./configs/certs/server.key", config.TLSKey)
 	require.Equal(t, "./configs/certs/server.crt", config.TLSCert)
+}
+
+func TestNewConfigNATSTLS(t *testing.T) {
+	config, err := NewConfig("configs/tls-nats.yaml")
+	require.NoError(t, err)
+	// NATS TLS
+	// Parse test TLS
+	cert, err := tls.LoadX509KeyPair("./configs/certs/server.crt", "./configs/certs/server.key")
+	require.NoError(t, err)
+	// CARoot parsing
+	// Load CA cert
+	caCert, err := ioutil.ReadFile("./configs/certs/caroot.pem")
+	require.NoError(t, err)
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+		RootCAs:      caCertPool,
+	}
+	require.Equal(t, tlsConfig, config.NATS.TLSConfig)
 }
 
 // Ensure error is raised when given config file not found.
