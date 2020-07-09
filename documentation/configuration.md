@@ -152,7 +152,9 @@ the configuration file.
 | servers | nats-servers | List of NATS hosts to connect to. | list | nats://localhost:4222 | |
 | user | | Username to use to connect to NATS servers. | string | | |
 | password | | Password to use to connect to NATS servers. | string | | |
-
+| tls.cert | | Path to NATS certificate file  | string | | |
+| tls.key | | Path to NATS key file  | string | | |
+| tls.ca  | | Path to NATS CA Root file  | string | | |
 ### Streams Configuration Settings
 
 Below is the list of the configuration settings for the `streams` part of the
