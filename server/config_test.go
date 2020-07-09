@@ -2,6 +2,8 @@ package server
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"io/ioutil"
 	"testing"
 	"time"
 
@@ -115,10 +117,18 @@ func TestNewConfigNATSTLS(t *testing.T) {
 	// Parse test TLS
 	cert, err := tls.LoadX509KeyPair("./configs/certs/server.crt", "./configs/certs/server.key")
 	require.NoError(t, err)
+	// CARoot parsing
+	// Load CA cert
+	caCert, err := ioutil.ReadFile("./configs/certs/caroot.pem")
+	require.NoError(t, err)
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
 
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
+		RootCAs:      caCertPool,
 	}
 	require.Equal(t, tlsConfig, config.NATS.TLSConfig)
 }
