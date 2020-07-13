@@ -174,6 +174,15 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		if err := s.applyPauseStream(stream, partitions, resumeAll); err != nil {
 			return nil, err
 		}
+	case proto.Op_SET_STREAM_READONLY:
+		var (
+			stream     = log.SetStreamReadonlyOp.Stream
+			partitions = log.SetStreamReadonlyOp.Partitions
+			readonly   = log.SetStreamReadonlyOp.Readonly
+		)
+		if err := s.applySetStreamReadonly(stream, partitions, readonly); err != nil {
+			return nil, err
+		}
 	case proto.Op_RESUME_STREAM:
 		var (
 			stream     = log.ResumeStreamOp.Stream
@@ -471,5 +480,22 @@ func (s *Server) applyResumeStream(streamName string, partitionIDs []int32, reco
 		}
 		s.logger.Debugf("fsm: Resumed partition %s", partition)
 	}
+	return nil
+}
+
+// applySetStreamReadonly changes the stream partitions readonly flag in the
+// metadata store.
+func (s *Server) applySetStreamReadonly(streamName string, partitions []int32, readonly bool) error {
+	stream := s.metadata.GetStream(streamName)
+	if stream == nil {
+		return ErrStreamNotFound
+	}
+
+	err := stream.SetStreamReadonly(partitions, readonly)
+	if err != nil {
+		return errors.Wrap(err, "failed to set stream as readonly")
+	}
+
+	s.logger.Debugf("fsm: Set stream %s readonly flag as %v", streamName, readonly)
 	return nil
 }

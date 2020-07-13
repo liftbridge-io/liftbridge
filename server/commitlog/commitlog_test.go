@@ -39,7 +39,7 @@ func TestNewCommitLog(t *testing.T) {
 
 	headers := make([]byte, 28)
 	for i, exp := range msgs {
-		msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
+		msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers, nil)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
 		require.Equal(t, msgs[i].Timestamp, timestamp)
@@ -73,7 +73,7 @@ func TestAppendMessageSet(t *testing.T) {
 
 	headers := make([]byte, 28)
 	for i, exp := range msgs {
-		msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
+		msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers, nil)
 		require.NoError(t, err)
 		require.Equal(t, int64(i), offset)
 		require.Equal(t, msgs[i].Timestamp, timestamp)
@@ -112,7 +112,7 @@ func TestCommitLogRecover(t *testing.T) {
 
 			headers := make([]byte, 28)
 			for i, exp := range msgs {
-				msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
+				msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers, nil)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)
@@ -132,7 +132,7 @@ func TestCommitLogRecover(t *testing.T) {
 			r, err = l.NewReader(0, true)
 			require.NoError(t, err)
 			for i, exp := range msgs {
-				msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers)
+				msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(ctx, headers, nil)
 				require.NoError(t, err)
 				compareMessages(t, exp, msg)
 				require.Equal(t, int64(i), offset)

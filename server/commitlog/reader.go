@@ -10,7 +10,7 @@ import (
 )
 
 type contextReader interface {
-	Read(context.Context, []byte) (int, error)
+	Read(context.Context, []byte, chan struct{}) (int, error)
 }
 
 // Reader reads messages atomically from a CommitLog. Readers should not be
@@ -53,9 +53,9 @@ func (l *commitLog) NewReader(offset int64, uncommitted bool) (*Reader, error) {
 //
 // TODO: Should this just return a MessageSet directly instead of a Message and
 // the MessageSet header values?
-func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte) (SerializedMessage, int64, int64, uint64, error) {
+func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte, noBlocking chan struct{}) (SerializedMessage, int64, int64, uint64, error) {
 RETRY:
-	msg, offset, timestamp, leaderEpoch, err := readMessage(ctx, r.ctxReader, headersBuf)
+	msg, offset, timestamp, leaderEpoch, err := readMessage(ctx, r.ctxReader, headersBuf, noBlocking)
 	if err != nil {
 		if r.log.IsDeleted() {
 			// The log was deleted while we were trying to read.
@@ -91,7 +91,7 @@ type uncommittedReader struct {
 	pos int64
 }
 
-func (r *uncommittedReader) Read(ctx context.Context, p []byte) (n int, err error) {
+func (r *uncommittedReader) Read(ctx context.Context, p []byte, noBlocking chan struct{}) (n int, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -128,7 +128,7 @@ LOOP:
 			}
 			// Otherwise, wait for segment to be written to (or split).
 			waiting = true
-			if !r.waitForData(ctx, r.seg) {
+			if !r.waitForData(ctx, r.seg, noBlocking) {
 				err = io.EOF
 				break
 			}
@@ -146,7 +146,7 @@ LOOP:
 		// If there are not enough segments to read, wait for new segment to be
 		// appended or the context to be canceled.
 		for nextSeg == nil {
-			if !r.waitForData(ctx, r.seg) {
+			if !r.waitForData(ctx, r.seg, noBlocking) {
 				err = io.EOF
 				break LOOP
 			}
@@ -161,13 +161,16 @@ LOOP:
 	return n, err
 }
 
-func (r *uncommittedReader) waitForData(ctx context.Context, seg *segment) bool {
+func (r *uncommittedReader) waitForData(ctx context.Context, seg *segment, noBlocking chan struct{}) bool {
 	wait := seg.WaitForData(r, r.pos)
 	select {
 	case <-r.cl.closed:
 		seg.removeWaiter(r)
 		return false
 	case <-ctx.Done():
+		seg.removeWaiter(r)
+		return false
+	case <-noBlocking:
 		seg.removeWaiter(r)
 		return false
 	case <-wait:
@@ -207,7 +210,7 @@ type committedReader struct {
 	hw    int64
 }
 
-func (r *committedReader) Read(ctx context.Context, p []byte) (n int, err error) {
+func (r *committedReader) Read(ctx context.Context, p []byte, noBlocking chan struct{}) (n int, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	segments := r.cl.Segments()
@@ -220,7 +223,7 @@ func (r *committedReader) Read(ctx context.Context, p []byte) (n int, err error)
 		hw := r.cl.HighWatermark()
 		for hw == r.hw {
 			// The HW has not changed, so wait for it to update.
-			if !r.waitForHW(ctx, hw) {
+			if !r.waitForHW(ctx, hw, noBlocking) {
 				err = io.EOF
 				return
 			}
@@ -246,11 +249,11 @@ func (r *committedReader) Read(ctx context.Context, p []byte) (n int, err error)
 		r.pos = entry.Position
 	}
 
-	return r.readLoop(ctx, p, segments)
+	return r.readLoop(ctx, p, segments, noBlocking)
 }
 
 func (r *committedReader) readLoop(
-	ctx context.Context, p []byte, segments []*segment) (n int, err error) {
+	ctx context.Context, p []byte, segments []*segment, noBlocking chan struct{}) (n int, err error) {
 
 	var readSize int
 LOOP:
@@ -290,7 +293,7 @@ LOOP:
 		hw := r.cl.HighWatermark()
 		for hw == r.hw {
 			// The HW has not changed, so wait for it to update.
-			if !r.waitForHW(ctx, hw) {
+			if !r.waitForHW(ctx, hw, noBlocking) {
 				err = io.EOF
 				break LOOP
 			}
@@ -310,13 +313,16 @@ LOOP:
 	return n, err
 }
 
-func (r *committedReader) waitForHW(ctx context.Context, hw int64) bool {
+func (r *committedReader) waitForHW(ctx context.Context, hw int64, noBlocking chan struct{}) bool {
 	wait := r.cl.waitForHW(r, hw)
 	select {
 	case <-r.cl.closed:
 		r.cl.removeHWWaiter(r)
 		return false
 	case <-ctx.Done():
+		r.cl.removeHWWaiter(r)
+		return false
+	case <-noBlocking:
 		r.cl.removeHWWaiter(r)
 		return false
 	case <-wait:

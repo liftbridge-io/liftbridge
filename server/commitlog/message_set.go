@@ -101,8 +101,8 @@ func newMessageSetFromProto(baseOffset, basePos int64, msgs []*Message) (
 // available. It returns the Message in addition to its offset, timestamp, and
 // leader epoch. This may return uncommitted messages if the reader was created
 // with the uncommitted flag set to true.
-func readMessage(ctx context.Context, reader contextReader, headersBuf []byte) (SerializedMessage, int64, int64, uint64, error) {
-	if _, err := reader.Read(ctx, headersBuf); err != nil {
+func readMessage(ctx context.Context, reader contextReader, headersBuf []byte, noBlocking chan struct{}) (SerializedMessage, int64, int64, uint64, error) {
+	if _, err := reader.Read(ctx, headersBuf, noBlocking); err != nil {
 		return nil, 0, 0, 0, errors.Wrap(err, "failed to read message headers")
 	}
 	var (
@@ -112,7 +112,7 @@ func readMessage(ctx context.Context, reader contextReader, headersBuf []byte) (
 		size        = encoding.Uint32(headersBuf[sizePos:])
 		buf         = make([]byte, int(size))
 	)
-	if _, err := reader.Read(ctx, buf); err != nil {
+	if _, err := reader.Read(ctx, buf, noBlocking); err != nil {
 		return nil, 0, 0, 0, errors.Wrap(err, "failed to ready message payload")
 	}
 	m := SerializedMessage(buf)

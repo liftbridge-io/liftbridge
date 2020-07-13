@@ -782,7 +782,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 		require.NoError(t, err)
 		headersBuf := make([]byte, 28)
 
-		msg, offset, _, _, err := reader.ReadMessage(context.Background(), headersBuf)
+		msg, offset, _, _, err := reader.ReadMessage(context.Background(), headersBuf, nil)
 		require.NoError(t, err)
 		require.Equal(t, int64(0), offset)
 		require.Equal(t, []byte("hello"), msg.Value())
@@ -790,12 +790,12 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 		// The second message we published was orphaned and should have been
 		// truncated.
 
-		msg, offset, _, _, err = reader.ReadMessage(context.Background(), headersBuf)
+		msg, offset, _, _, err = reader.ReadMessage(context.Background(), headersBuf, nil)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), offset)
 		require.Equal(t, []byte("goodnight"), msg.Value())
 
-		msg, offset, _, _, err = reader.ReadMessage(context.Background(), headersBuf)
+		msg, offset, _, _, err = reader.ReadMessage(context.Background(), headersBuf, nil)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), offset)
 		require.Equal(t, []byte("moon"), msg.Value())

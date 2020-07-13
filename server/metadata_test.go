@@ -256,3 +256,32 @@ func TestEnsureTimeout(t *testing.T) {
 	require.True(t, ok)
 	require.InDelta(t, timeout.Milliseconds(), time.Until(deadline).Milliseconds(), 1)
 }
+
+// Ensure checkResumeStreamPreconditions returns ErrPartitionNotFound if the
+// partition doesn't exist.
+func TestMetadataCheckSetStreamReadonlyPreconditionsPartitionNotFound(t *testing.T) {
+	defer cleanupStorage(t)
+
+	server := New(getTestConfig("a", true, 0))
+	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
+
+	_, err := metadata.AddStream(&proto.Stream{
+		Name:    "foo",
+		Subject: "foo",
+		Partitions: []*proto.Partition{
+			{
+				Stream:  "foo",
+				Subject: "foo",
+				Id:      0,
+			},
+		},
+	}, false)
+	require.NoError(t, err)
+
+	err = metadata.checkSetStreamReadonlyPreconditions(&proto.RaftLog{
+		Op:                  proto.Op_SET_STREAM_READONLY,
+		SetStreamReadonlyOp: &proto.SetStreamReadonlyOp{Stream: "foo", Partitions: []int32{1}},
+	})
+	require.Equal(t, ErrPartitionNotFound, err)
+}

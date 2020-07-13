@@ -631,6 +631,45 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	return reported.addWitness(req.Replica)
 }
 
+// SetStreamReadonly sets a stream's readonly flag if this server is the
+// metadata leader. If it is not, it will forward the request to the leader and
+// return the response. This operation is replicated by Raft. If successful,
+// this will return once the readonly flag has been set.
+func (m *metadataAPI) SetStreamReadonly(ctx context.Context, req *proto.SetStreamReadonlyOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagateSetStreamReadonly(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Replicate stream the readonly flag through Raft.
+	op := &proto.RaftLog{
+		Op:                  proto.Op_SET_STREAM_READONLY,
+		SetStreamReadonlyOp: req,
+	}
+
+	// Wait on result of setting the readonly flag.
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkSetStreamReadonlyPreconditions)
+	if err != nil {
+		code := codes.FailedPrecondition
+		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
+			code = codes.NotFound
+		}
+		return status.Newf(code, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to set stream readonly flag: %v", err.Error())
+	}
+
+	return nil
+}
+
 // AddStream adds the given stream and its partitions to the metadata store. It
 // returns an error if a stream with the same name or any partitions with the
 // same ID for the stream already exist. If the stream is recovered, this will
@@ -993,6 +1032,18 @@ func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.Repo
 	return m.propagateRequest(ctx, propagate)
 }
 
+// propagateSetStreamReadonly forwards a ReportLeader request to the metadata
+// leader. The bool indicates if this server has since become leader and the
+// request should be performed locally. A Status is returned if the propagated
+// request failed.
+func (m *metadataAPI) propagateSetStreamReadonly(ctx context.Context, req *proto.SetStreamReadonlyOp) (bool, *status.Status) {
+	propagate := &proto.PropagatedRequest{
+		Op:                  proto.Op_SET_STREAM_READONLY,
+		SetStreamReadonlyOp: req,
+	}
+	return m.propagateRequest(ctx, propagate)
+}
+
 // propagateRequest forwards a metadata request to the metadata leader. The
 // bool indicates if this server has since become leader and the request should
 // be performed locally. A Status is returned if the propagated request failed.
@@ -1149,6 +1200,23 @@ func (m *metadataAPI) checkPauseStreamPreconditions(op *proto.RaftLog) error {
 		return ErrStreamNotFound
 	}
 	for _, partitionID := range op.PauseStreamOp.Partitions {
+		if partition := stream.GetPartition(partitionID); partition == nil {
+			return ErrPartitionNotFound
+		}
+	}
+	return nil
+}
+
+// checkSetStreamReadonlyPreconditions checks if the stream and partitions being
+// set readonly exist. If the stream doesn't exist, it returns
+// ErrStreamNotFound. If one or more specified partitions don't exist, it
+// returns ErrPartitionNotFound. Otherwise, it returns nil.
+func (m *metadataAPI) checkSetStreamReadonlyPreconditions(op *proto.RaftLog) error {
+	stream := m.GetStream(op.SetStreamReadonlyOp.Stream)
+	if stream == nil {
+		return ErrStreamNotFound
+	}
+	for _, partitionID := range op.SetStreamReadonlyOp.Partitions {
 		if partition := stream.GetPartition(partitionID); partition == nil {
 			return ErrPartitionNotFound
 		}

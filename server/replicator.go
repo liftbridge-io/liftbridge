@@ -232,7 +232,7 @@ func (r *replicator) replicate(
 		err          error
 	)
 	for offset < newestOffset && r.writer.Len() < replicationMaxSize {
-		message, offset, _, _, err = reader.ReadMessage(ctx, r.headersBuf[:])
+		message, offset, _, _, err = reader.ReadMessage(ctx, r.headersBuf[:], nil)
 		if err != nil {
 			r.partition.srv.logger.Errorf("Failed to read message while replicating: %v", err)
 			return err

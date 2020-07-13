@@ -151,3 +151,31 @@ func (s *stream) Delete() error {
 	}
 	return nil
 }
+
+// SetStreamReadonly sets the readonly flag on some or all the partitions of
+// this stream.
+func (s *stream) SetStreamReadonly(partitions []int32, readonly bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	toSetReadonly := make([]*partition, 0, len(partitions))
+	if len(partitions) == 0 {
+		for _, partition := range s.partitions {
+			toSetReadonly = append(toSetReadonly, partition)
+		}
+	} else {
+		for _, partitionID := range partitions {
+			partition, ok := s.partitions[partitionID]
+			if !ok {
+				return ErrPartitionNotFound
+			}
+			toSetReadonly = append(toSetReadonly, partition)
+		}
+	}
+
+	for _, partition := range toSetReadonly {
+		partition.SetReadonly(readonly)
+	}
+
+	return nil
+}

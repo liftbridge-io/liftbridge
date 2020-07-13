@@ -13,6 +13,7 @@ import (
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
+	pkgErrors "github.com/pkg/errors"
 )
 
 // apiServer implements the gRPC server interface clients interact with.
@@ -124,6 +125,38 @@ func (a *apiServer) PauseStream(ctx context.Context, req *client.PauseStreamRequ
 	return resp, nil
 }
 
+// SetStreamReadonly sets the readonly status on a stream's partitions. If no
+// partitions are specified, all of the stream's partitions will have their
+// readonly status set.
+func (a *apiServer) SetStreamReadonly(ctx context.Context, req *client.SetStreamReadonlyRequest) (
+	*client.SetStreamReadonlyResponse, error) {
+
+	resp := &client.SetStreamReadonlyResponse{}
+	a.logger.Debugf("api: SetStreamReadonly [name=%s, partitions=%v, readonly=%v]",
+		req.Name, req.Partitions, req.Readonly)
+
+	if len(req.Partitions) == 0 {
+		stream := a.metadata.GetStream(req.Name)
+		if stream == nil {
+			return nil, status.Error(codes.NotFound, "stream not found")
+		}
+		for _, partition := range stream.GetPartitions() {
+			req.Partitions = append(req.Partitions, partition.Id)
+		}
+	}
+
+	if e := a.metadata.SetStreamReadonly(ctx, &proto.SetStreamReadonlyOp{
+		Stream:     req.Name,
+		Partitions: req.Partitions,
+		Readonly:   req.Readonly,
+	}); e != nil {
+		a.logger.Errorf("api: Failed to set stream readonly flag %v: %v", req.Name, e.Err())
+		return nil, e.Err()
+	}
+
+	return resp, nil
+}
+
 // Subscribe creates an ephemeral subscription for the given stream partition.
 // It begins to receive messages starting at the given offset and waits for new
 // messages when it reaches the end of the partition. Use the request context
@@ -200,7 +233,8 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // Publish a new message to a stream. If the AckPolicy is not NONE and a
 // deadline is provided, this will synchronously block until the ack is
 // received. If the ack is not received in time, a DeadlineExceeded status code
-// is returned.
+// is returned. A FailedPrecondition status code is returned if the partition is
+// readonly.
 func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	*client.PublishResponse, error) {
 
@@ -213,9 +247,22 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		return nil, err
 	}
 
+	stream := a.metadata.GetStream(req.Stream)
+	if stream == nil {
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
+	}
+
+	partition := stream.GetPartition(req.Partition)
+	if partition == nil {
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("No such partition: %d", req.Partition))
+	}
+
+	if partition.IsReadonly() {
+		return nil, status.Error(codes.FailedPrecondition, fmt.Sprintf("Readonly partition: %d", req.Partition))
+	}
+
 	if err := a.resumeStream(ctx, req.Stream, req.Partition); err != nil {
 		a.logger.Errorf("api: Failed to resume stream: %v", err)
-		return nil, err
 	}
 
 	if req.AckInbox == "" {
@@ -489,6 +536,8 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		return nil, nil, st
 	}
 
+	endOffset := partition.log.NewestOffset()
+
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
@@ -503,7 +552,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		headersBuf := make([]byte, 28)
 		for {
 			// TODO: this could be more efficient.
-			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf)
+			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf, partition.setReadonly)
 			if err != nil {
 				var s *status.Status
 				if err == commitlog.ErrCommitLogDeleted {
@@ -516,6 +565,9 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 						code = codes.FailedPrecondition
 					}
 					s = status.New(code, err.Error())
+				} else if pkgErrors.Cause(err) == io.EOF && partition.IsReadonly() {
+					// Partition was set to readonly while subscribed.
+					s = status.New(codes.ResourceExhausted, fmt.Sprintf("End of readonly partition"))
 				} else {
 					s = status.Convert(err)
 				}
@@ -543,6 +595,15 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			select {
 			case ch <- msg:
 			case <-cancel:
+				return
+			}
+			if partition.IsReadonly() && offset == endOffset {
+				s := status.New(codes.ResourceExhausted, fmt.Sprintf("End of readonly partition"))
+
+				select {
+				case errCh <- s:
+				case <-cancel:
+				}
 				return
 			}
 		}
