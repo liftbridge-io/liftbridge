@@ -304,7 +304,7 @@ func (s *Server) detectBootstrapMisconfig() {
 			}
 		}
 	})
-	inbox := nats.NewInbox()
+	inbox := fmt.Sprintf("%s.bootstrap.reply", s.baseMetadataRaftSubject())
 	s.ncRaft.Subscribe(inbox, func(m *nats.Msg) {
 		s.logger.Fatalf("Server %s was also started with raft.bootstrap.seed", string(m.Data))
 	})

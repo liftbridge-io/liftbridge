@@ -18,6 +18,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -816,11 +817,23 @@ func (s *Server) getPartitionStatusInbox(id string) string {
 	return fmt.Sprintf("%s.status.%s", s.baseMetadataRaftSubject(), id)
 }
 
+// getMetadataReplyInbox returns a random NATS subject to use for metadata
+// responses scoped to the cluster namespace.
+func (s *Server) getMetadataReplyInbox() string {
+	return fmt.Sprintf("%s.fetch.%s", s.baseMetadataRaftSubject(), nuid.Next())
+}
+
 // getPartitionNotificationInbox returns the NATS subject used for leaders to
 // indicate new data is available on a partition for a follower to replicate if
 // the follower is idle.
 func (s *Server) getPartitionNotificationInbox(id string) string {
 	return fmt.Sprintf("%s.notify.%s", s.config.Clustering.Namespace, id)
+}
+
+// getAckInbox returns a random NATS subject to use for publish acks scoped to
+// the cluster namespace.
+func (s *Server) getAckInbox() string {
+	return fmt.Sprintf("%s.ack.%s", s.config.Clustering.Namespace, nuid.Next())
 }
 
 // getActivityStreamSubject returns the NATS subject used for publishing

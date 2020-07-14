@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -216,7 +215,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	}
 
 	if req.AckInbox == "" {
-		req.AckInbox = nuid.Next()
+		req.AckInbox = a.getAckInbox()
 	}
 
 	var (
@@ -246,7 +245,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 // Asynchronously publish messages to a stream. This returns a stream which
 // will yield PublishResponses for messages whose AckPolicy is not NONE.
 func (a *apiServer) PublishAsync(stream client.API_PublishAsyncServer) error {
-	ackInbox := nuid.Next()
+	ackInbox := a.getAckInbox()
 	sub, err := a.ncPublishes.Subscribe(ackInbox, func(m *nats.Msg) {
 		ack, err := proto.UnmarshalAck(m.Data)
 		if err != nil {
@@ -279,7 +278,7 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 	a.logger.Debugf("api: PublishToSubject [subject=%s]", req.Subject)
 
 	if req.AckInbox == "" {
-		req.AckInbox = nuid.Next()
+		req.AckInbox = a.getAckInbox()
 	}
 
 	var (

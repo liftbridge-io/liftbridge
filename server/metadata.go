@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -200,7 +199,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 	}
 
 	// Create subscription to receive responses on.
-	inbox := nats.NewInbox()
+	inbox := m.getMetadataReplyInbox()
 	sub, err := m.ncRaft.SubscribeSync(inbox)
 	if err != nil {
 		return nil, status.New(codes.Internal, err.Error())
