@@ -825,6 +825,14 @@ func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop <-c
 		if err != nil {
 			p.srv.logger.Errorf(
 				"Error sending replication request for partition %s: %v", p, err)
+
+			// Check if the loop has since been stopped. This is possible, for
+			// example, if another leader was since elected.
+			select {
+			case <-stop:
+				return
+			default:
+			}
 		} else {
 			leaderLastSeen = time.Now()
 		}
