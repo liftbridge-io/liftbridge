@@ -18,13 +18,13 @@ to comment on particular roadmap items.
 
 ## H2 2020
 
-### Stream-Level Configuration ([#75](https://github.com/liftbridge-io/liftbridge/issues/75))
+### ~~Stream-Level Configuration ([#75](https://github.com/liftbridge-io/liftbridge/issues/75))~~
 
 Allow users to configure and override server defaults for individual streams
 via the gRPC API. To date, streams are configured globally using the Liftbridge
 configuration.
 
-### Asynchronous Publish API ([#215](https://github.com/liftbridge-io/liftbridge/issues/215))
+### ~~Asynchronous Publish API ([#215](https://github.com/liftbridge-io/liftbridge/issues/215))~~
 
 The current publish endpoint is synchronous, meaning each publish is a full
 server roundtrip. To enable higher throughput of messages, implement an
