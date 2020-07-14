@@ -705,8 +705,19 @@ func (s *Server) natsClosedHandler(nc *nats.Conn) {
 // natsErrorHandler fires when there is an asynchronous error on the NATS
 // connection.
 func (s *Server) natsErrorHandler(nc *nats.Conn, sub *nats.Subscription, err error) {
-	s.logger.Errorf("Asynchronous error on connection %s, subject %s: %s",
-		nc.Opts.Name, sub.Subject, err)
+	var (
+		msg    = "Asynchronous error on NATS connection"
+		prefix = " "
+	)
+	if nc != nil {
+		msg += fmt.Sprintf(" %s", nc.Opts.Name)
+		prefix = ", "
+	}
+	if sub != nil {
+		msg += fmt.Sprintf("%ssubject %s", prefix, sub.Subject)
+	}
+	msg += fmt.Sprintf(": %s", err)
+	s.logger.Errorf(msg)
 }
 
 // handleServerInfoRequest is a NATS handler used to process requests for
