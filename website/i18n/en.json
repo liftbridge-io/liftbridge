@@ -187,6 +187,18 @@
       },
       "version-v1.1.0/version-v1.1.0-quick-start": {
         "title": "Quick Start"
+      },
+      "version-v1.2.0/version-v1.2.0-client-implementation": {
+        "title": "Client Implementation Guidance"
+      },
+      "version-v1.2.0/version-v1.2.0-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.2.0/version-v1.2.0-quick-start": {
+        "title": "Quick Start"
+      },
+      "version-v1.2.0/version-v1.2.0-roadmap": {
+        "title": "Product Roadmap"
       }
     },
     "links": {
