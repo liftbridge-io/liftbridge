@@ -952,3 +952,20 @@ func TestShrinkExpandISR(t *testing.T) {
 	// Wait for ISR to expand to 3.
 	waitForISR(t, 10*time.Second, name, 0, 3, servers...)
 }
+
+// Ensure computeTick correctly computes the sleep time for the tick loop based
+// on the last caught up elapsed.
+func TestComputeTick(t *testing.T) {
+	maxLagTime := 10 * time.Second
+	r := &replicator{maxLagTime: maxLagTime}
+
+	require.Equal(t, time.Duration(0), r.computeTick(maxLagTime))
+
+	require.Equal(t, time.Second, r.computeTick(9*time.Second))
+
+	require.Equal(t, 9*time.Second, r.computeTick(time.Second))
+
+	require.Equal(t, maxLagTime, r.computeTick(15*time.Second))
+
+	require.Equal(t, maxLagTime, r.computeTick(0))
+}
