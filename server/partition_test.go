@@ -589,3 +589,19 @@ func TestPartitionWithCustomConfigNoError(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 }
+
+// Ensure computeTick correctly computes the sleep time for the tick loop based
+// on the elapsed time.
+func TestComputeTick(t *testing.T) {
+	maxSleep := 10 * time.Second
+
+	require.Equal(t, time.Duration(0), computeTick(maxSleep, maxSleep))
+
+	require.Equal(t, time.Second, computeTick(9*time.Second, maxSleep))
+
+	require.Equal(t, 9*time.Second, computeTick(time.Second, maxSleep))
+
+	require.Equal(t, maxSleep, computeTick(15*time.Second, maxSleep))
+
+	require.Equal(t, maxSleep, computeTick(0, maxSleep))
+}

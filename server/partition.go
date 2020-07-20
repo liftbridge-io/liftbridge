@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
@@ -62,7 +63,7 @@ func (r *replica) getLatestOffset() int64 {
 // leader's log by fetching messages from it. All partition access should go
 // through exported methods.
 type partition struct {
-	*proto.Partition
+	lastReceived    int64 // Atomic Unix time last message was received on partition
 	mu              sync.RWMutex
 	closeMu         sync.Mutex
 	sub             *nats.Subscription // Subscription to partition NATS subject
@@ -87,6 +88,8 @@ type partition struct {
 	pause           bool // Pause replication on the leader (for unit testing)
 	shutdown        sync.WaitGroup
 	paused          bool
+	autoPauseTime   time.Duration
+	*proto.Partition
 }
 
 // newPartition creates a new stream partition. If the partition is recovered,
@@ -106,6 +109,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		CleanerInterval:      s.config.Streams.CleanerInterval,
 		Compact:              s.config.Streams.Compact,
 		CompactMaxGoroutines: s.config.Streams.CompactMaxGoroutines,
+		AutoPauseTime:        s.config.Streams.AutoPauseTime,
 	}
 	streamsConfig.ApplyOverrides(config)
 	var (
@@ -148,14 +152,15 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 	}
 
 	st := &partition{
-		Partition:   protoPartition,
-		log:         log,
-		srv:         s,
-		replicas:    replicas,
-		isr:         isr,
-		commitCheck: make(chan struct{}, len(protoPartition.Replicas)),
-		notify:      make(chan struct{}, 1),
-		recovered:   recovered,
+		Partition:     protoPartition,
+		log:           log,
+		srv:           s,
+		replicas:      replicas,
+		isr:           isr,
+		commitCheck:   make(chan struct{}, len(protoPartition.Replicas)),
+		notify:        make(chan struct{}, 1),
+		recovered:     recovered,
+		autoPauseTime: streamsConfig.AutoPauseTime,
 	}
 
 	return st, nil
@@ -399,6 +404,14 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	p.leaderOffsetSub = sub
 	p.srv.ncRepl.Flush()
 
+	// Start auto-pause timer if enabled.
+	if p.autoPauseTime > 0 {
+		p.srv.startGoroutine(func() {
+			p.autoPauseLoop(p.stopLeader)
+			p.shutdown.Done()
+		})
+	}
+
 	p.isLeading = true
 	p.isFollowing = false
 
@@ -428,6 +441,9 @@ func (p *partition) stopLeading() error {
 	// Stop processing messages and replicating.
 	p.shutdown.Add(1) // Message processing loop
 	p.shutdown.Add(1) // Commit loop
+	if p.autoPauseTime > 0 {
+		p.shutdown.Add(1) // Auto-pause timer loop
+	}
 	if replicas := len(p.replicas); replicas > 1 {
 		p.shutdown.Add(replicas - 1) // Replicator loops (minus one to exclude self)
 	}
@@ -601,6 +617,42 @@ func (p *partition) getLeaderOffsetRequestInbox() string {
 		p.srv.config.Clustering.Namespace, p.Stream, p.Id)
 }
 
+func (p *partition) autoPauseLoop(stop <-chan struct{}) {
+	atomic.StoreInt64(&p.lastReceived, time.Now().UnixNano())
+	timer := time.NewTimer(p.autoPauseTime)
+	defer timer.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-timer.C:
+		}
+
+		ns := atomic.LoadInt64(&p.lastReceived)
+		lastReceivedElapsed := time.Since(time.Unix(0, ns))
+		if lastReceivedElapsed > p.autoPauseTime {
+			p.srv.logger.Infof("Partition %s has not received a message in over %s, "+
+				"auto pausing partition", p, p.autoPauseTime)
+			if err := p.requestPause(); err != nil {
+				p.srv.logger.Errorf("Failed to auto pause partition %s: %v", p, err)
+			}
+		}
+
+		timer.Reset(computeTick(lastReceivedElapsed, p.autoPauseTime))
+	}
+}
+
+func (p *partition) requestPause() error {
+	if e := p.srv.metadata.PauseStream(context.Background(), &proto.PauseStreamOp{
+		Stream:     p.Stream,
+		Partitions: []int32{p.Id},
+		ResumeAll:  false,
+	}); e != nil {
+		return e.Err()
+	}
+	return nil
+}
+
 // messageProcessingLoop is a long-running loop that processes messages
 // received on the given channel until the stop channel is closed. This will
 // attempt to batch messages up before writing them to the commit log. Once
@@ -624,6 +676,8 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 			return
 		case msg = <-recvChan:
 		}
+
+		atomic.StoreInt64(&p.lastReceived, time.Now().UnixNano())
 
 		m := natsToProtoMessage(msg, leaderEpoch)
 		msgBatch = append(msgBatch, m)
@@ -1209,6 +1263,17 @@ func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 	m.Headers["subject"] = []byte(msg.Subject)
 	m.Headers["reply"] = []byte(msg.Reply)
 	return m
+}
+
+// computeTick calculates a generic amount of time a loop should sleep before
+// performing an action. This is adjusted based on how much time has elapsed
+// since an arbitrary event.
+func computeTick(timeElapsed, maxSleep time.Duration) time.Duration {
+	tick := maxSleep - timeElapsed
+	if tick < 0 {
+		tick = maxSleep
+	}
+	return tick
 }
 
 // min returns the minimum int64 contained in the slice.

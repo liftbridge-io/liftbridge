@@ -183,7 +183,7 @@ func (r *replicator) tick(stop <-chan struct{}) {
 			r.expandISR()
 		}
 
-		timer.Reset(r.computeTick(lastCaughtUpElapsed))
+		timer.Reset(computeTick(lastCaughtUpElapsed, r.maxLagTime))
 	}
 }
 
@@ -294,17 +294,6 @@ func (r *replicator) caughtUp(stop <-chan struct{}, leo int64, req replicationRe
 func (r *replicator) sendHW(request *nats.Msg) error {
 	r.writer.Reset()
 	return r.writer.Flush(request.Respond)
-}
-
-// computeTick calculates the amount of time the replicator tick loop should
-// sleep before checking the follower health. This is adjusted based on how
-// much time has elapsed since the follower last caught up.
-func (r *replicator) computeTick(lastCaughtUpElapsed time.Duration) time.Duration {
-	tick := r.maxLagTime - lastCaughtUpElapsed
-	if tick < 0 {
-		tick = r.maxLagTime
-	}
-	return tick
 }
 
 type replicationProtocolWriter interface {
