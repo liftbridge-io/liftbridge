@@ -192,6 +192,16 @@ func (l StreamsConfig) RetentionString() string {
 	return str
 }
 
+// AutoPauseString returns a human-readable string representation of the auto
+// pause setting.
+func (l StreamsConfig) AutoPauseString() string {
+	str := "disabled"
+	if l.AutoPauseTime > 0 {
+		str = durafmt.Parse(l.AutoPauseTime).String()
+	}
+	return str
+}
+
 // ApplyOverrides applies the values from the StreamConfig protobuf to the
 // StreamsConfig struct. If the value is present in the request's config
 // section, it will be set in StreamsConfig.
