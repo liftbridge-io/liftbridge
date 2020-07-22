@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
+	lift "github.com/liftbridge-io/go-liftbridge"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
@@ -28,6 +30,17 @@ func waitForCommitQueue(t *testing.T, timeout time.Duration, size int64, partiti
 		time.Sleep(15 * time.Millisecond)
 	}
 	stackFatalf(t, "Commit queue did not reach size %d", size)
+}
+
+func waitForPause(t *testing.T, timeout time.Duration, partition *partition) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if partition.IsPaused() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	stackFatalf(t, "Partition did not pause in time")
 }
 
 // Ensure commitLoop commits messages in the queue when they have been
@@ -588,6 +601,62 @@ func TestPartitionWithCustomConfigNoError(t *testing.T) {
 	}, false, customStreamConfig)
 	require.NoError(t, err)
 	defer p.Close()
+}
+
+// Ensure when streams.auto.pause.time is enabled, partitions automatically
+// pause when idle.
+func TestPartitionAutoPause(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Start NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	autoPauseTime := 100 * time.Millisecond
+	s1Config.Streams.AutoPauseTime = autoPauseTime
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	subject := "foo"
+	name := "foo"
+
+	// Start publishing to stream subject to keep it active.
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			nc.Publish(subject, nil)
+		}
+	}()
+
+	// Create stream
+	err = client.CreateStream(context.Background(), subject, name)
+	require.NoError(t, err)
+
+	// Stop publishing to trigger a pause.
+	close(stop)
+	before := time.Now()
+
+	waitForPause(t, 2*time.Second, s1.metadata.GetPartition(name, 0))
+	require.True(t, time.Since(before) > autoPauseTime)
 }
 
 // Ensure computeTick correctly computes the sleep time for the tick loop based
