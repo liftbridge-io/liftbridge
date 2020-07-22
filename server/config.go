@@ -87,6 +87,7 @@ const (
 	configStreamsSegmentMaxAge        = "streams.segment.max.age"
 	configStreamsCompactEnabled       = "streams.compact.enabled"
 	configStreamsCompactMaxGoroutines = "streams.compact.max.goroutines"
+	configStreamsAutoPauseTime        = "streams.auto.pause.time"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"
@@ -135,6 +136,7 @@ var configKeys = map[string]struct{}{
 	configStreamsSegmentMaxAge:              {},
 	configStreamsCompactEnabled:             {},
 	configStreamsCompactMaxGoroutines:       {},
+	configStreamsAutoPauseTime:              {},
 	configClusteringServerID:                {},
 	configClusteringNamespace:               {},
 	configClusteringRaftSnapshotRetain:      {},
@@ -162,6 +164,7 @@ type StreamsConfig struct {
 	SegmentMaxAge        time.Duration
 	Compact              bool
 	CompactMaxGoroutines int
+	AutoPauseTime        time.Duration
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -189,6 +192,16 @@ func (l StreamsConfig) RetentionString() string {
 	return str
 }
 
+// AutoPauseString returns a human-readable string representation of the auto
+// pause setting.
+func (l StreamsConfig) AutoPauseString() string {
+	str := "disabled"
+	if l.AutoPauseTime > 0 {
+		str = durafmt.Parse(l.AutoPauseTime).String()
+	}
+	return str
+}
+
 // ApplyOverrides applies the values from the StreamConfig protobuf to the
 // StreamsConfig struct. If the value is present in the request's config
 // section, it will be set in StreamsConfig.
@@ -198,39 +211,40 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 	}
 
 	// By default, duration configuration is considered as milliseconds.
-	retentionMaxAge := c.GetRetentionMaxAge()
-	if retentionMaxAge != nil {
+	if retentionMaxAge := c.RetentionMaxAge; retentionMaxAge != nil {
 		l.RetentionMaxAge = time.Duration(retentionMaxAge.Value) * time.Millisecond
 	}
 
-	cleanerInterval := c.GetCleanerInterval()
-	if cleanerInterval != nil {
+	if cleanerInterval := c.CleanerInterval; cleanerInterval != nil {
 		l.CleanerInterval = time.Duration(cleanerInterval.Value) * time.Millisecond
 	}
 
-	segmentMaxAge := c.GetSegmentMaxAge()
-	if segmentMaxAge != nil {
+	if segmentMaxAge := c.SegmentMaxAge; segmentMaxAge != nil {
 		l.SegmentMaxAge = time.Duration(segmentMaxAge.Value) * time.Millisecond
 	}
 
-	if c.GetRetentionMaxBytes() != nil {
-		l.RetentionMaxBytes = c.GetRetentionMaxBytes().Value
+	if maxBytes := c.RetentionMaxBytes; maxBytes != nil {
+		l.RetentionMaxBytes = maxBytes.Value
 	}
 
-	if c.GetRetentionMaxMessages() != nil {
-		l.RetentionMaxMessages = c.GetRetentionMaxMessages().Value
+	if maxMessages := c.RetentionMaxMessages; maxMessages != nil {
+		l.RetentionMaxMessages = maxMessages.Value
 	}
 
-	if c.GetSegmentMaxBytes() != nil {
-		l.SegmentMaxBytes = c.GetSegmentMaxBytes().Value
+	if segmentMaxBytes := c.SegmentMaxBytes; segmentMaxBytes != nil {
+		l.SegmentMaxBytes = segmentMaxBytes.Value
 	}
 
-	if c.GetCompactEnabled() != nil {
-		l.Compact = c.GetCompactEnabled().Value
+	if compactEnabled := c.CompactEnabled; compactEnabled != nil {
+		l.Compact = compactEnabled.Value
 	}
 
-	if c.GetCompactMaxGoroutines() != nil {
-		l.CompactMaxGoroutines = int(c.GetCompactMaxGoroutines().Value)
+	if maxGoroutines := c.CompactMaxGoroutines; maxGoroutines != nil {
+		l.CompactMaxGoroutines = int(maxGoroutines.Value)
+	}
+
+	if autoPauseTime := c.AutoPauseTime; autoPauseTime != nil {
+		l.AutoPauseTime = time.Duration(autoPauseTime.Value) * time.Millisecond
 	}
 }
 
@@ -570,6 +584,10 @@ func parseStreamsConfig(config *Config, v *viper.Viper) error {
 
 	if v.IsSet(configStreamsCompactMaxGoroutines) {
 		config.Streams.CompactMaxGoroutines = v.GetInt(configStreamsCompactMaxGoroutines)
+	}
+
+	if v.IsSet(configStreamsAutoPauseTime) {
+		config.Streams.AutoPauseTime = v.GetDuration(configStreamsAutoPauseTime)
 	}
 
 	return nil

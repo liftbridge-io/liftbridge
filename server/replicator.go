@@ -152,17 +152,17 @@ func (r *replicator) request(req replicationRequest) {
 // offset for the lag-time duration. If this is the case, the follower is
 // removed from the ISR until it catches back up.
 func (r *replicator) tick(stop <-chan struct{}) {
-	ticker := time.NewTicker(r.maxLagTime)
-	defer ticker.Stop()
-	var now time.Time
+	timer := time.NewTimer(r.maxLagTime)
+	defer timer.Stop()
 	for {
 		select {
 		case <-stop:
 			return
-		case now = <-ticker.C:
+		case <-timer.C:
 		}
 		r.mu.RLock()
 		var (
+			now                 = time.Now()
 			lastSeenElapsed     = now.Sub(r.lastSeen)
 			lastCaughtUpElapsed = now.Sub(r.lastCaughtUp)
 		)
@@ -182,6 +182,8 @@ func (r *replicator) tick(stop <-chan struct{}) {
 				"rejoining ISR", r.replica, r.partition)
 			r.expandISR()
 		}
+
+		timer.Reset(computeTick(lastCaughtUpElapsed, r.maxLagTime))
 	}
 }
 

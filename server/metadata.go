@@ -192,11 +192,8 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 	}}
 
 	// Make sure there is a deadline on the request.
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultPropagateTimeout)
-		defer cancel()
-	}
+	ctx, cancel := ensureTimeout(ctx, defaultPropagateTimeout)
+	defer cancel()
 
 	// Create subscription to receive responses on.
 	inbox := m.getMetadataReplyInbox()
@@ -1015,11 +1012,8 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 		panic(err)
 	}
 
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultPropagateTimeout)
-		defer cancel()
-	}
+	ctx, cancel := ensureTimeout(ctx, defaultPropagateTimeout)
+	defer cancel()
 
 	resp, err := m.nc.RequestWithContext(ctx, m.getPropagateInbox(), data)
 	if err != nil {
@@ -1064,11 +1058,14 @@ func (m *metadataAPI) waitForMetadataLeader(ctx context.Context) (bool, error) {
 // waitForPartitionLeader does a best-effort wait for the leader of the given
 // partition to create and start the partition.
 func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, partition *proto.Partition) {
+	ctx, cancel := ensureTimeout(ctx, defaultPropagateTimeout)
+	defer cancel()
+
 	if partition.Leader == m.config.Clustering.ServerID {
 		// If we're the partition leader, there's no need to make a status
 		// request. We can just apply a Raft barrier since the FSM is local.
-		// TODO: Use context deadline
-		if err := m.getRaft().Barrier(5 * time.Second).Error(); err != nil {
+		deadline, _ := ctx.Deadline()
+		if err := m.getRaft().Barrier(time.Until(deadline)).Error(); err != nil {
 			m.logger.Warnf("Failed to apply Raft barrier: %v", err)
 		}
 		return
@@ -1081,6 +1078,7 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, partition *pro
 	if err != nil {
 		panic(err)
 	}
+
 	inbox := m.getPartitionStatusInbox(partition.Leader)
 	for i := 0; i < 5; i++ {
 		resp, err := m.ncRaft.RequestWithContext(ctx, inbox, req)
@@ -1088,22 +1086,34 @@ func (m *metadataAPI) waitForPartitionLeader(ctx context.Context, partition *pro
 			m.logger.Warnf(
 				"Failed to get status for partition %s from leader %s: %v",
 				partition, partition.Leader, err)
-			time.Sleep(100 * time.Millisecond)
-			continue
+			select {
+			case <-time.After(100 * time.Millisecond):
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
 		statusResp, err := proto.UnmarshalPartitionStatusResponse(resp.Data)
 		if err != nil {
 			m.logger.Warnf(
 				"Invalid status response for partition %s from leader %s: %v",
 				partition, partition.Leader, err)
-			time.Sleep(100 * time.Millisecond)
-			continue
+			select {
+			case <-time.After(100 * time.Millisecond):
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
 		if !statusResp.Exists || !statusResp.IsLeader {
 			// The leader hasn't finished creating the partition, so wait a bit
 			// and retry.
-			time.Sleep(100 * time.Millisecond)
-			continue
+			select {
+			case <-time.After(100 * time.Millisecond):
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
 		break
 	}
@@ -1203,4 +1213,17 @@ func (m *metadataAPI) partitionExists(streamName string, partitionID int32) erro
 // selectRandomReplica selects a random replica from the list of replicas.
 func selectRandomReplica(replicas []string) string {
 	return replicas[rand.Intn(len(replicas))]
+}
+
+// ensureTimeout ensures there is a timeout on the Context. If there is, it
+// returns the Context. If there isn't it returns a new Context wrapping the
+// provided one with the default timeout applied. It also returns a cancel
+// function which must be invoked by the caller in all cases to avoid a Context
+// leak.
+func ensureTimeout(ctx context.Context, defaultTimeout time.Duration) (context.Context, context.CancelFunc) {
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok {
+		ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
+	}
+	return ctx, cancel
 }

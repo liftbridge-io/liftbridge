@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -229,4 +230,29 @@ func TestMetadataPartitionExistsPartitionNotFound(t *testing.T) {
 
 	err = metadata.partitionExists("foo", 1)
 	require.Equal(t, ErrPartitionNotFound, err)
+}
+
+// Ensure ensureTimeout sets the given timeout on the Context if one isn't set
+// or otherwise returns the same Context.
+func TestEnsureTimeout(t *testing.T) {
+	ctx := context.Background()
+	defaultTimeout := 5 * time.Second
+
+	ctx, cancel := ensureTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	require.InDelta(t, defaultTimeout.Milliseconds(), time.Until(deadline).Milliseconds(), 1)
+
+	timeout := 100 * time.Second
+	ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ctx, cancel = ensureTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	deadline, ok = ctx.Deadline()
+	require.True(t, ok)
+	require.InDelta(t, timeout.Milliseconds(), time.Until(deadline).Milliseconds(), 1)
 }
