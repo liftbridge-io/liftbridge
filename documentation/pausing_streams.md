@@ -7,8 +7,9 @@ Liftbridge streams can be *paused* to conserve system resources such as CPU,
 memory, and file descriptors. While pausing is performed on streams, the
 granularity is specified at the partition level. We can pause all or a subset
 of a stream's partitions. A partition is resumed when it is published to via
-the Liftbridge `Publish` gRPC endpoint or if the stream was paused with
-`ResumeAll` enabled and another partition in the stream was published to.
+the Liftbridge `Publish` or `PublishAsync` gRPC endpoints or if the stream was
+paused with `ResumeAll` enabled and another partition in the stream was
+published to.
 
 > **Use Case Note**
 >
@@ -32,3 +33,15 @@ replication will stop, messages will not be received on the NATS subject, and
 any file handles associated with the partition will be closed.
 
 Pausing is maintained across server restarts.
+
+## Auto Pausing
+
+In addition to the pause API, streams can be configured to automatically pause
+partitions when they go idle, meaning no messages are received on the partition
+within a specified period of time. This is configured globally using the
+`streams.auto.pause.time` setting which applies the pause timeout for all
+streams. By default, this is disabled. This can also be overridden on
+individual streams when they are created.
+
+Only the idle partitions within a stream are paused. These partitions are
+resumed when published to via the Liftbridge API.

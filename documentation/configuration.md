@@ -152,9 +152,10 @@ the configuration file.
 | servers | nats-servers | List of NATS hosts to connect to. | list | nats://localhost:4222 | |
 | user | | Username to use to connect to NATS servers. | string | | |
 | password | | Password to use to connect to NATS servers. | string | | |
-| tls.cert | | Path to NATS certificate file  | string | | |
-| tls.key | | Path to NATS key file  | string | | |
-| tls.ca  | | Path to NATS CA Root file  | string | | |
+| tls.cert | | Path to NATS certificate file. | string | | |
+| tls.key | | Path to NATS key file. | string | | |
+| tls.ca  | | Path to NATS CA Root file. | string | | |
+
 ### Streams Configuration Settings
 
 Below is the list of the configuration settings for the `streams` part of the
@@ -172,6 +173,7 @@ overriding these settings.
 | segment.max.age | | The maximum time before a new stream log segment is rolled out. A value of 0 means new segments will only be rolled when `segment.max.bytes` is reached. Retention is always done a file at a time, so a larger value means fewer files but less granular control over retention. | duration | value of `retention.max.age` | |
 | compact.enabled | | Enables stream log compaction. Compaction works by retaining only the latest message for each key and discarding older messages. The frequency in which compaction runs is controlled by `cleaner.interval`. | bool | false | |
 | compact.max.goroutines | | The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if `compact.enabled` is `true`). | int | 10 | |
+| auto.pause.time | | The amount of time a stream partition can go idle, i.e. not receive a message, before it is automatically paused. A value of 0 disables auto pausing. | duration | 0 | |
 
 ### Clustering Configuration Settings
 
