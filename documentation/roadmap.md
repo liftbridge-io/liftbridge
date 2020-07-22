@@ -33,7 +33,7 @@ endpoint will ultimately replace the synchronous endpoint since the synchronous
 behavior can be implemented on top of the async API. At this point, the
 synchronous endpoint will be deprecated.
 
-### Automatic Partition Pausing ([#218](https://github.com/liftbridge-io/liftbridge/issues/218))
+### ~~Automatic Partition Pausing ([#218](https://github.com/liftbridge-io/liftbridge/issues/218))~~
 
 Allow partitions to be automatically paused when they go idle to support large
 numbers of sparse streams. Users can configure the max time with no messages
