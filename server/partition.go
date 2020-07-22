@@ -408,7 +408,6 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	if p.autoPauseTime > 0 {
 		p.srv.startGoroutine(func() {
 			p.autoPauseLoop(p.stopLeader)
-			p.shutdown.Done()
 		})
 	}
 
@@ -441,9 +440,6 @@ func (p *partition) stopLeading() error {
 	// Stop processing messages and replicating.
 	p.shutdown.Add(1) // Message processing loop
 	p.shutdown.Add(1) // Commit loop
-	if p.autoPauseTime > 0 {
-		p.shutdown.Add(1) // Auto-pause timer loop
-	}
 	if replicas := len(p.replicas); replicas > 1 {
 		p.shutdown.Add(replicas - 1) // Replicator loops (minus one to exclude self)
 	}
@@ -617,6 +613,8 @@ func (p *partition) getLeaderOffsetRequestInbox() string {
 		p.srv.config.Clustering.Namespace, p.Stream, p.Id)
 }
 
+// autoPauseLoop is a long-running loop the leader runs to check if the
+// partition should be automatically paused due to inactivity.
 func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 	atomic.StoreInt64(&p.lastReceived, time.Now().UnixNano())
 	timer := time.NewTimer(p.autoPauseTime)
@@ -642,6 +640,7 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 	}
 }
 
+// requestPause sends a request to pause the partition.
 func (p *partition) requestPause() error {
 	if e := p.srv.metadata.PauseStream(context.Background(), &proto.PauseStreamOp{
 		Stream:     p.Stream,

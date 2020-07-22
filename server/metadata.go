@@ -410,16 +410,17 @@ func (m *metadataAPI) PauseStream(ctx context.Context, req *proto.PauseStreamOp)
 		PauseStreamOp: req,
 	}
 
-	// Don't wait on the result of replication since this could result in a
-	// deadlock, i.e. partition auto pause loop -> PauseStream -> FSM apply ->
-	// wait for partition auto pause loop to exit (deadlock).
-	_, err := m.getRaft().applyOperation(ctx, op, m.checkPauseStreamPreconditions)
+	// Wait on result of pausing.
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkPauseStreamPreconditions)
 	if err != nil {
 		code := codes.FailedPrecondition
 		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
 			code = codes.NotFound
 		}
 		return status.Newf(code, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to pause stream: %v", err.Error())
 	}
 
 	return nil
