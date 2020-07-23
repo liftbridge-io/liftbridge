@@ -1542,6 +1542,81 @@ func TestPauseStreamPropagate(t *testing.T) {
 	checkPartitionPaused(t, 5*time.Second, name, 0, false, s2)
 }
 
+// Ensure the ISR is maintained across partition pauses.
+func TestPauseStreamMaintainISR(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s1Config.Clustering.ReplicaMaxIdleWait = 0
+	s1Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server.
+	s2Config := getTestConfig("b", false, 0)
+	s2Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s2Config.Clustering.ReplicaMaxIdleWait = 0
+	s2Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Configure third server.
+	s3Config := getTestConfig("c", false, 0)
+	s3Config.Clustering.ReplicaMaxLagTime = 2 * time.Second
+	s3Config.Clustering.ReplicaMaxIdleWait = 0
+	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1, s2, s3)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	name := "foo"
+	err = client.CreateStream(ctx, "foo", name, lift.ReplicationFactor(3))
+	require.NoError(t, err)
+
+	// Check the ISR size is 3.
+	waitForISR(t, 5*time.Second, name, 0, 3, s1, s2, s3)
+
+	// Kill a replica.
+	s2.Stop()
+
+	// Ensure ISR size shrinks to 2.
+	waitForISR(t, 10*time.Second, name, 0, 2, s1, s3)
+
+	// Pause stream.
+	err = client.PauseStream(context.Background(), name)
+	require.NoError(t, err)
+
+	checkPartitionPaused(t, 5*time.Second, name, 0, true, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 0, true, s3)
+
+	// Resume stream by publishing.
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, []byte("hello"))
+	require.NoError(t, err)
+
+	// Ensure stream is resumed.
+	checkPartitionPaused(t, 5*time.Second, name, 0, false, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 0, false, s3)
+
+	// Ensure ISR size is still 2.
+	waitForISR(t, 10*time.Millisecond, name, 0, 2, s1, s3)
+}
+
 // Ensure publishing to a non-existent stream returns an error.
 func TestPublishNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
