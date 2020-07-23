@@ -1070,6 +1070,12 @@ func (p *partition) RemoveFromISR(replica string) error {
 	}
 	delete(p.isr, replica)
 
+	// Also update the ISR on the protobuf so this state is persisted.
+	p.Isr = make([]string, 0, len(p.isr))
+	for replica := range p.isr {
+		p.Isr = append(p.Isr, replica)
+	}
+
 	// Check if ISR went below minimum ISR size. This is important for
 	// operators to be aware of.
 	var (
@@ -1102,6 +1108,12 @@ func (p *partition) AddToISR(rep string) error {
 		return fmt.Errorf("%s not a replica", rep)
 	}
 	p.isr[rep] = &replica{offset: -1}
+
+	// Also update the ISR on the protobuf so this state is persisted.
+	p.Isr = make([]string, 0, len(p.isr))
+	for replica := range p.isr {
+		p.Isr = append(p.Isr, replica)
+	}
 
 	// Check if ISR recovered from being below the minimum ISR size.
 	var (

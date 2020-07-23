@@ -51,7 +51,10 @@ LOOP:
 }
 
 func waitForISR(t *testing.T, timeout time.Duration, name string, partitionID int32, isrSize int, servers ...*Server) {
-	deadline := time.Now().Add(timeout)
+	var (
+		actualSize int
+		deadline   = time.Now().Add(timeout)
+	)
 LOOP:
 	for time.Now().Before(deadline) {
 		for _, s := range servers {
@@ -60,14 +63,16 @@ LOOP:
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP
 			}
-			if partition.ISRSize() != isrSize {
+			actualSize = partition.ISRSize()
+			if actualSize != isrSize {
 				time.Sleep(15 * time.Millisecond)
 				continue LOOP
 			}
 		}
 		return
 	}
-	stackFatalf(t, "Cluster did not reach ISR size %d for [name=%s, partition=%d]", isrSize, name, partitionID)
+	stackFatalf(t, "Cluster did not reach ISR size %d for [name=%s, partition=%d], actual ISR size is %d",
+		isrSize, name, partitionID, actualSize)
 }
 
 func stopFollowing(t *testing.T, p *partition) {
