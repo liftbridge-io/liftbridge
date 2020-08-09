@@ -260,10 +260,12 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 			for id, partition := range stream.GetPartitions() {
 				leader, _ := partition.GetLeader()
 				partitions[id] = &client.PartitionMetadata{
-					Id:       id,
-					Leader:   leader,
-					Replicas: partition.GetReplicas(),
-					Isr:      partition.GetISR(),
+					Id:            id,
+					Leader:        leader,
+					Replicas:      partition.GetReplicas(),
+					Isr:           partition.GetISR(),
+					HighWatermark: partition.log.HighWatermark(),
+					NewestOffset:  partition.log.NewestOffset(),
 				}
 			}
 			metadata[i] = &client.StreamMetadata{
