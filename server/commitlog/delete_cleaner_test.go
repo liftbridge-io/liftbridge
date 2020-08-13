@@ -98,7 +98,7 @@ func TestDeleteCleanerBytesBelowLimit(t *testing.T) {
 }
 
 // Ensure Clean deletes segments to maintain the messages limit.
-func TestDeleteCleanerMessages(t *testing.T) {
+func TestDeleteCleanerMessages1(t *testing.T) {
 	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Messages = 10
 	cleaner := newDeleteCleaner(opts)
@@ -116,6 +116,33 @@ func TestDeleteCleanerMessages(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		require.Equal(t, int64(i+10), actual[i].BaseOffset)
 	}
+}
+
+// Ensure Clean deletes segments to maintain the messages limit but keeps at
+// least the active segment.
+func TestDeleteCleanerMessagesKeepActiveSegment(t *testing.T) {
+	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
+	opts.Retention.Messages = 5
+	cleaner := newDeleteCleaner(opts)
+	dir := tempDir(t)
+	defer remove(t, dir)
+
+	segs := []*segment{
+		createSegment(t, dir, 0, 128),
+		createSegment(t, dir, 10, 128),
+	}
+	offset := int64(0)
+	for _, seg := range segs {
+		for i := 0; i < 10; i++ {
+			writeToSegment(t, seg, offset, []byte("blah"))
+			offset++
+		}
+	}
+
+	actual, err := cleaner.Clean(segs)
+	require.NoError(t, err)
+	require.Len(t, actual, 1)
+	require.Equal(t, int64(10), actual[0].BaseOffset)
 }
 
 // Ensure Clean is a no-op when there are segments and a messages limit but the
