@@ -98,7 +98,7 @@ func TestDeleteCleanerBytesBelowLimit(t *testing.T) {
 }
 
 // Ensure Clean deletes segments to maintain the messages limit.
-func TestDeleteCleanerMessages1(t *testing.T) {
+func TestDeleteCleanerMessages(t *testing.T) {
 	opts := deleteCleanerOptions{Name: "foo", Logger: noopLogger()}
 	opts.Retention.Messages = 10
 	cleaner := newDeleteCleaner(opts)
