@@ -149,10 +149,10 @@ func (l *leaderEpochCache) ClearEarliest(offset int64) error {
 	// If the offset is less than the earliest offset remaining, add
 	// previous epoch back but with an updated offset.
 	if offset < l.earliestOffset() || len(l.epochOffsets) == 0 {
-		l.epochOffsets = append(l.epochOffsets, &epochOffset{
+		l.epochOffsets = append([]*epochOffset{{
 			leaderEpoch: earliest[len(earliest)-1].leaderEpoch,
 			startOffset: offset,
-		})
+		}}, l.epochOffsets...)
 		removed--
 	}
 	err := l.flush()
