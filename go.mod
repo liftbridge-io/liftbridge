@@ -4,7 +4,7 @@ go 1.14
 
 require (
 	github.com/Workiva/go-datastructures v1.0.52
-	github.com/armon/go-metrics v0.3.3 // indirect
+	github.com/armon/go-metrics v0.3.4 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/dustin/go-humanize v1.0.0
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
@@ -16,7 +16,7 @@ require (
 	github.com/hashicorp/raft v1.1.2
 	github.com/liftbridge-io/go-liftbridge v1.0.1-0.20200707183953-f9c0b883e534
 	github.com/liftbridge-io/liftbridge-api v1.1.0
-	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200303015016-68120bc11e03
+	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73
 	github.com/mattn/go-colorable v0.1.7 // indirect
 	github.com/mitchellh/mapstructure v1.3.2 // indirect
@@ -38,7 +38,9 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/urfave/cli v1.22.4
 	go.etcd.io/bbolt v1.3.5 // indirect
+	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de // indirect
 	golang.org/x/net v0.0.0-20200707034311-ab3426394381 // indirect
+	golang.org/x/sys v0.0.0-20200817155316-9781c653f443 // indirect
 	google.golang.org/genproto v0.0.0-20200715011427-11fb19a81f2c // indirect
 	google.golang.org/grpc v1.30.0
 	gopkg.in/ini.v1 v1.57.0 // indirect
