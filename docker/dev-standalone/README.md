@@ -39,6 +39,12 @@ time="2019-08-21 11:26:14" level=info msg="Starting server on :9292..."
 time="2019-08-21 11:26:15" level=info msg="Server became metadata leader, performing leader promotion actions"
 ```
 
+If you want to advertise a docker host that is not localhost:
+```
+docker run -d --add-host registry:0.0.0.0 --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 -eLIFTBRIDGE_HOST=registry liftbridge/standalone-dev
+```
+
+
 ### Volume
 
 Optionally you can specify the mount point with:

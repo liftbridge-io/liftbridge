@@ -20,6 +20,7 @@ EXPOSE 9292 4222 8222 6222
 VOLUME "/tmp/liftbridge/liftbridge-default"
 
 COPY docker/dev-standalone/nats-server.conf nats-server.conf
+COPY docker/dev-standalone/liftbridge.yaml liftbridge.yaml
 COPY docker/dev-standalone/script_runner.sh script_runner.sh
 
 RUN chmod +x script_runner.sh
