@@ -20,6 +20,10 @@ official clients.
 ## Java
 [java-liftbridge](https://github.com/liftbridge-io/java-liftbridge)*
 
+## Rust
+
+[liftbridge-rs](https://github.com/liftbridge-io/liftbridge-rs)*
+
 ## Node.js
 
 [node-liftbridge](https://github.com/paambaati/node-liftbridge)
