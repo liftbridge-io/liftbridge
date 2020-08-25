@@ -46,6 +46,7 @@ func TestMarshalUnmarshalAck(t *testing.T) {
 		AckInbox:         "ack",
 		CorrelationId:    "123",
 		PartitionSubject: "foo.1",
+		Timestamp:        43,
 	}
 
 	envelope, err := MarshalAck(ack)

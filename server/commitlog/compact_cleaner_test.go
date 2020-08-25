@@ -284,7 +284,7 @@ func benchmarkClean(b *testing.B, segmentSize int64) {
 						Key:   []byte(keys[rand.Intn(len(keys))]),
 						Value: buf,
 					}
-					offsets, err := l.Append([]*Message{msg})
+					offsets, _, err := l.Append([]*Message{msg})
 					require.NoError(b, err)
 					l.SetHighWatermark(offsets[len(offsets)-1])
 				}
@@ -303,7 +303,7 @@ func appendToLog(t *testing.T, l *commitLog, entries []keyValue, commit bool) {
 			Key:   entry.key,
 			Value: entry.value,
 		}
-		offsets, err := l.Append([]*Message{msg})
+		offsets, _, err := l.Append([]*Message{msg})
 		require.NoError(t, err)
 		if commit {
 			l.SetHighWatermark(offsets[len(offsets)-1])

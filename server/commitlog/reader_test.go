@@ -41,7 +41,7 @@ func TestReaderUncommittedStartOffset(t *testing.T) {
 					LeaderEpoch: 42,
 				}
 			}
-			_, err = l.Append(msgs)
+			_, _, err = l.Append(msgs)
 			require.NoError(t, err)
 			idx := 4
 			ctx, cancel := context.WithCancel(context.Background())
@@ -69,7 +69,7 @@ func TestReaderUncommittedBlockCancel(t *testing.T) {
 	defer cleanup()
 
 	msg := &Message{Value: []byte("hi")}
-	_, err := l.Append([]*Message{msg})
+	_, _, err := l.Append([]*Message{msg})
 	require.NoError(t, err)
 
 	r, err := l.NewReader(0, true)
@@ -98,7 +98,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 		Timestamp:   1,
 		LeaderEpoch: 42,
 	}
-	_, err := l.Append([]*Message{msg})
+	_, _, err := l.Append([]*Message{msg})
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -123,7 +123,7 @@ func TestReaderUncommittedBlockForSegmentWrite(t *testing.T) {
 
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		_, err := l.Append([]*Message{msg})
+		_, _, err := l.Append([]*Message{msg})
 		require.NoError(t, err)
 		close(done)
 	}()
@@ -146,7 +146,7 @@ func TestReaderUncommittedReadError(t *testing.T) {
 	defer cleanup()
 
 	msg := &Message{Value: []byte("hi")}
-	_, err := l.Append([]*Message{msg})
+	_, _, err := l.Append([]*Message{msg})
 	require.NoError(t, err)
 
 	r, err := l.NewReader(0, true)
@@ -179,7 +179,7 @@ func TestReaderCommittedStartOffset(t *testing.T) {
 					LeaderEpoch: 42,
 				}
 			}
-			_, err = l.Append(msgs)
+			_, _, err = l.Append(msgs)
 			require.NoError(t, err)
 			l.SetHighWatermark(4)
 			idx := 2
@@ -222,10 +222,10 @@ func TestReaderCommittedReadError(t *testing.T) {
 	defer cleanup()
 
 	msg := &Message{Value: []byte("hi")}
-	_, err := l.Append([]*Message{msg})
+	_, _, err := l.Append([]*Message{msg})
 	require.NoError(t, err)
 	msg = &Message{Value: []byte("hi")}
-	_, err = l.Append([]*Message{msg})
+	_, _, err = l.Append([]*Message{msg})
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 
@@ -258,7 +258,7 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		_, err := l.Append([]*Message{msg})
+		_, _, err := l.Append([]*Message{msg})
 		require.NoError(t, err)
 		l.SetHighWatermark(0)
 	}()
@@ -292,7 +292,7 @@ func TestReaderCommittedRead(t *testing.T) {
 					LeaderEpoch: 42,
 				}
 			}
-			_, err = l.Append(msgs)
+			_, _, err = l.Append(msgs)
 			require.NoError(t, err)
 			l.SetHighWatermark(9)
 			r, err := l.NewReader(0, false)
@@ -331,7 +331,7 @@ func TestReaderCommittedReadToHW(t *testing.T) {
 					LeaderEpoch: 42,
 				}
 			}
-			_, err = l.Append(msgs)
+			_, _, err = l.Append(msgs)
 			require.NoError(t, err)
 			l.SetHighWatermark(4)
 			r, err := l.NewReader(0, false)
@@ -368,7 +368,7 @@ func TestReaderCommittedWaitForHW(t *testing.T) {
 			LeaderEpoch: 42,
 		}
 	}
-	_, err = l.Append(msgs)
+	_, _, err = l.Append(msgs)
 	require.NoError(t, err)
 	l.SetHighWatermark(4)
 	r, err := l.NewReader(0, false)
@@ -408,7 +408,7 @@ func TestReaderCommittedCancel(t *testing.T) {
 			LeaderEpoch: 42,
 		}
 	}
-	_, err = l.Append(msgs)
+	_, _, err = l.Append(msgs)
 	require.NoError(t, err)
 	l.SetHighWatermark(4)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -452,14 +452,14 @@ func TestReaderCommittedCapOffset(t *testing.T) {
 		Timestamp:   1,
 		LeaderEpoch: 42,
 	}
-	_, err := l.Append([]*Message{msg1})
+	_, _, err := l.Append([]*Message{msg1})
 	require.NoError(t, err)
 	msg2 := &Message{
 		Value:       []byte("hi"),
 		Timestamp:   2,
 		LeaderEpoch: 42,
 	}
-	_, err = l.Append([]*Message{msg2})
+	_, _, err = l.Append([]*Message{msg2})
 	require.NoError(t, err)
 	l.SetHighWatermark(0)
 

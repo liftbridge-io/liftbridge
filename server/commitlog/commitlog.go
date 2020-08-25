@@ -211,10 +211,10 @@ func (l *commitLog) open() error {
 }
 
 // Append writes the given batch of messages to the log and returns their
-// corresponding offsets in the log.
-func (l *commitLog) Append(msgs []*Message) ([]int64, error) {
+// corresponding offsets and timestamps in the log.
+func (l *commitLog) Append(msgs []*Message) ([]int64, []int64, error) {
 	if _, err := l.checkAndPerformSplit(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var (
 		segment          = l.activeSegment()
@@ -223,16 +223,16 @@ func (l *commitLog) Append(msgs []*Message) ([]int64, error) {
 		ms, entries, err = newMessageSetFromProto(baseOffset, basePosition, msgs)
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return l.append(segment, ms, entries)
 }
 
 // AppendMessageSet writes the given message set data to the log and returns
-// the corresponding offsets in the log.
-func (l *commitLog) AppendMessageSet(ms []byte) ([]int64, error) {
+// the corresponding offsets and timestamps in the log.
+func (l *commitLog) AppendMessageSet(ms []byte) ([]int64, []int64, error) {
 	if _, err := l.checkAndPerformSplit(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var (
 		segment      = l.activeSegment()
@@ -242,26 +242,28 @@ func (l *commitLog) AppendMessageSet(ms []byte) ([]int64, error) {
 	return l.append(segment, ms, entries)
 }
 
-func (l *commitLog) append(segment *segment, ms []byte, entries []*entry) ([]int64, error) {
+func (l *commitLog) append(segment *segment, ms []byte, entries []*entry) ([]int64, []int64, error) {
 	if err := segment.WriteMessageSet(ms, entries); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var (
 		lastLeaderEpoch = l.leaderEpochCache.LastLeaderEpoch()
 		offsets         = make([]int64, len(entries))
+		timestamps      = make([]int64, len(entries))
 	)
 	for i, entry := range entries {
 		// Check if message is in a new leader epoch.
 		if entry.LeaderEpoch > lastLeaderEpoch {
 			// If it is, we need to assign the epoch offset.
 			if err := l.leaderEpochCache.Assign(entry.LeaderEpoch, entry.Offset); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			lastLeaderEpoch = entry.LeaderEpoch
 		}
 		offsets[i] = entry.Offset
+		timestamps[i] = entry.Timestamp
 	}
-	return offsets, nil
+	return offsets, timestamps, nil
 }
 
 // NewestOffset returns the offset of the last message in the log or -1 if

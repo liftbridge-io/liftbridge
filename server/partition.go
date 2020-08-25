@@ -592,7 +592,7 @@ func (p *partition) handleReplicationResponse(msg *nats.Msg) int {
 	if offset < p.log.NewestOffset()+1 {
 		return 0
 	}
-	offsets, err := p.log.AppendMessageSet(data)
+	offsets, _, err := p.log.AppendMessageSet(data)
 	if err != nil {
 		panic(fmt.Errorf("Failed to replicate data to log %s: %v", p, err))
 	}
@@ -711,14 +711,14 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		}
 
 		// Write uncommitted messages to log.
-		offsets, err := p.log.Append(msgBatch)
+		offsets, timestamps, err := p.log.Append(msgBatch)
 		if err != nil {
 			p.srv.logger.Errorf("Failed to append to log %s: %v", p, err)
 			continue
 		}
 
 		for i, msg := range msgBatch {
-			p.processPendingMessage(offsets[i], msg)
+			p.processPendingMessage(offsets[i], timestamps[i], msg)
 		}
 
 		// Update this replica's latest offset.
@@ -732,7 +732,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 // processPendingMessage sends an ack if the message's AckPolicy is LEADER and
 // adds the pending message to the commit queue. Messages are removed from the
 // queue and committed when the entire ISR has replicated them.
-func (p *partition) processPendingMessage(offset int64, msg *commitlog.Message) {
+func (p *partition) processPendingMessage(offset, timestamp int64, msg *commitlog.Message) {
 	ack := &client.Ack{
 		Stream:           p.Stream,
 		PartitionSubject: p.Subject,
@@ -741,6 +741,7 @@ func (p *partition) processPendingMessage(offset int64, msg *commitlog.Message) 
 		AckInbox:         msg.AckInbox,
 		CorrelationId:    msg.CorrelationID,
 		AckPolicy:        msg.AckPolicy,
+		Timestamp:        timestamp,
 	}
 	if msg.AckPolicy == client.AckPolicy_LEADER {
 		// Send the ack now since AckPolicy_LEADER means we ack as soon as the

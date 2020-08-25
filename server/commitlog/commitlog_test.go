@@ -30,7 +30,7 @@ func TestNewCommitLog(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	_, err = l.Append(msgs)
+	_, _, err = l.Append(msgs)
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -63,7 +63,7 @@ func TestAppendMessageSet(t *testing.T) {
 	set, _, err := newMessageSetFromProto(0, 0, msgs)
 	require.NoError(t, err)
 
-	offsets, err := l.AppendMessageSet(set)
+	offsets, _, err := l.AppendMessageSet(set)
 	require.NoError(t, err)
 	require.Equal(t, []int64{0, 1, 2, 3, 4}, offsets)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -100,7 +100,7 @@ func TestCommitLogRecover(t *testing.T) {
 				msgs[i] = &Message{Value: []byte(strconv.Itoa(i))}
 			}
 			for _, msg := range msgs {
-				_, err := l.Append([]*Message{msg})
+				_, _, err := l.Append([]*Message{msg})
 				require.NoError(t, err)
 			}
 
@@ -178,7 +178,7 @@ func BenchmarkCommitLog(b *testing.B) {
 	defer cleanup()
 
 	for i := 0; i < b.N; i++ {
-		_, err = l.Append(msgs)
+		_, _, err = l.Append(msgs)
 		require.NoError(b, err)
 	}
 }
@@ -198,7 +198,7 @@ func TestOffsets(t *testing.T) {
 	for i := 0; i < numMsgs; i++ {
 		msgs[i] = &Message{Value: []byte(strconv.Itoa(i))}
 	}
-	_, err := l.Append(msgs)
+	_, _, err := l.Append(msgs)
 	require.NoError(t, err)
 
 	require.Equal(t, int64(0), l.OldestOffset())
@@ -220,12 +220,12 @@ func TestCleaner(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	_, err := l.Append(msgs)
+	_, _, err := l.Append(msgs)
 	require.NoError(t, err)
 	segments := l.Segments()
 	require.Equal(t, 1, len(l.Segments()))
 
-	_, err = l.Append(msgs)
+	_, _, err = l.Append(msgs)
 	require.NoError(t, err)
 
 	require.NoError(t, l.Clean())
@@ -252,7 +252,7 @@ func TestCleanerDeleteLeaderEpochOffsets(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 1,
@@ -261,7 +261,7 @@ func TestCleanerDeleteLeaderEpochOffsets(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Value:       []byte(strconv.Itoa(i + 5)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 2,
@@ -270,7 +270,7 @@ func TestCleanerDeleteLeaderEpochOffsets(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Value:       []byte(strconv.Itoa(i + 10)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 3,
@@ -317,7 +317,7 @@ func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Key:         []byte("foo"),
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
@@ -327,7 +327,7 @@ func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Key:         []byte("bar"),
 			Value:       []byte(strconv.Itoa(i + 5)),
 			Timestamp:   time.Now().UnixNano(),
@@ -337,7 +337,7 @@ func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Key:         []byte("baz"),
 			Value:       []byte(strconv.Itoa(i + 10)),
 			Timestamp:   time.Now().UnixNano(),
@@ -389,7 +389,7 @@ func TestOffsetForTimestamp(t *testing.T) {
 		msgs[i] = &Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i * 10)}
 	}
 	for _, msg := range msgs {
-		_, err := l.Append([]*Message{msg})
+		_, _, err := l.Append([]*Message{msg})
 		require.NoError(t, err)
 	}
 
@@ -437,7 +437,7 @@ func TestTruncate(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 1,
@@ -446,7 +446,7 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Value:       []byte(strconv.Itoa(i + 5)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 2,
@@ -455,7 +455,7 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Value:       []byte(strconv.Itoa(i + 10)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 3,
@@ -489,7 +489,7 @@ func TestNotifyLEOMismatch(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 1,
@@ -499,7 +499,7 @@ func TestNotifyLEOMismatch(t *testing.T) {
 
 	// Get current log end offset and then add another message.
 	leo := l.NewestOffset()
-	_, err := l.Append([]*Message{{
+	_, _, err := l.Append([]*Message{{
 		Value:       []byte(strconv.Itoa(5)),
 		Timestamp:   time.Now().UnixNano(),
 		LeaderEpoch: 1,
@@ -529,7 +529,7 @@ func TestNotifyLEONewData(t *testing.T) {
 
 	// Add some messages.
 	for i := 0; i < 5; i++ {
-		_, err := l.Append([]*Message{{
+		_, _, err := l.Append([]*Message{{
 			Value:       []byte(strconv.Itoa(i)),
 			Timestamp:   time.Now().UnixNano(),
 			LeaderEpoch: 1,
@@ -551,7 +551,7 @@ func TestNotifyLEONewData(t *testing.T) {
 	}
 
 	// Add another message.
-	_, err := l.Append([]*Message{{
+	_, _, err := l.Append([]*Message{{
 		Value:       []byte(strconv.Itoa(5)),
 		Timestamp:   time.Now().UnixNano(),
 		LeaderEpoch: 1,
