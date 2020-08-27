@@ -1617,6 +1617,68 @@ func TestPauseStreamMaintainISR(t *testing.T) {
 	waitForISR(t, 10*time.Millisecond, name, 0, 2, s1, s3)
 }
 
+// Test stream pausing and resuming by subscription. A paused stream should
+// re-activate itself when it is subscribed to (with the Resume option
+// enabled) using the Liftbridge API. This test pauses all partitions and checks
+// that only the partition that is subscribed to gets resumed.
+func TestPauseStreamResumeBySubscription(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.Partitions(2))
+	require.NoError(t, err)
+
+	// Publish a message to the first partition.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, []byte("hello"), lift.ToPartition(0))
+	require.NoError(t, err)
+
+	// Pause all partitions.
+	err = client.PauseStream(context.Background(), name)
+	require.NoError(t, err)
+
+	// Subscribe to partition 0.
+	msgs := make(chan *lift.Message, 1)
+	ctx, cancel = context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		msgs <- msg
+		cancel()
+	}, lift.StartAtEarliestReceived(), lift.Resume(), lift.Partition(0))
+	require.NoError(t, err)
+
+	// Wait to get the new message.
+	select {
+	case msg := <-msgs:
+		require.Equal(t, []byte("hello"), msg.Value())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+
+	// Check that partition 0 was resumed but partition 1 is still paused.
+	checkPartitionPaused(t, 5*time.Second, name, 0, false, s1)
+	checkPartitionPaused(t, 5*time.Second, name, 1, true, s1)
+}
+
 // Ensure publishing to a non-existent stream returns an error.
 func TestPublishNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
