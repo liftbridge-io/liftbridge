@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/go-msgpack v1.1.5 // indirect
 	github.com/hashicorp/raft v1.1.2
 	github.com/liftbridge-io/go-liftbridge v1.0.1-0.20200707183953-f9c0b883e534
-	github.com/liftbridge-io/liftbridge-api v1.1.0
+	github.com/liftbridge-io/liftbridge-api v1.1.1-0.20200828094752-af34f7c64cb7
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73
 	github.com/mattn/go-colorable v0.1.7 // indirect
