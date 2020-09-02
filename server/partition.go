@@ -734,14 +734,14 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 // queue and committed when the entire ISR has replicated them.
 func (p *partition) processPendingMessage(offset, timestamp int64, msg *commitlog.Message) {
 	ack := &client.Ack{
-		Stream:           p.Stream,
-		PartitionSubject: p.Subject,
-		MsgSubject:       string(msg.Headers["subject"]),
-		Offset:           offset,
-		AckInbox:         msg.AckInbox,
-		CorrelationId:    msg.CorrelationID,
-		AckPolicy:        msg.AckPolicy,
-		Timestamp:        timestamp,
+		Stream:             p.Stream,
+		PartitionSubject:   p.Subject,
+		MsgSubject:         string(msg.Headers["subject"]),
+		Offset:             offset,
+		AckInbox:           msg.AckInbox,
+		CorrelationId:      msg.CorrelationID,
+		AckPolicy:          msg.AckPolicy,
+		ReceptionTimestamp: timestamp,
 	}
 	if msg.AckPolicy == client.AckPolicy_LEADER {
 		// Send the ack now since AckPolicy_LEADER means we ack as soon as the
@@ -856,6 +856,7 @@ func (p *partition) sendAck(ack *client.Ack) {
 	if ack.AckInbox == "" {
 		return
 	}
+	ack.CommitTimestamp = timestamp()
 	data, err := proto.MarshalAck(ack)
 	if err != nil {
 		panic(err)
