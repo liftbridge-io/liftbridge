@@ -741,7 +741,7 @@ func (p *partition) processPendingMessage(offset int64, msg *commitlog.Message) 
 		AckInbox:           msg.AckInbox,
 		CorrelationId:      msg.CorrelationID,
 		AckPolicy:          msg.AckPolicy,
-		ReceptionTimestamp: timestamp,
+		ReceptionTimestamp: msg.Timestamp,
 	}
 	if msg.AckPolicy == client.AckPolicy_LEADER {
 		// Send the ack now since AckPolicy_LEADER means we ack as soon as the
