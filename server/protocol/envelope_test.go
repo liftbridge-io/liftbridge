@@ -40,12 +40,14 @@ func TestMarshalUnmarshalPublish(t *testing.T) {
 // Ensure we can marshal an ack and then unmarshal it.
 func TestMarshalUnmarshalAck(t *testing.T) {
 	ack := &client.Ack{
-		Offset:           42,
-		Stream:           "foo",
-		MsgSubject:       "foo",
-		AckInbox:         "ack",
-		CorrelationId:    "123",
-		PartitionSubject: "foo.1",
+		Offset:             42,
+		Stream:             "foo",
+		MsgSubject:         "foo",
+		AckInbox:           "ack",
+		CorrelationId:      "123",
+		PartitionSubject:   "foo.1",
+		ReceptionTimestamp: 43,
+		CommitTimestamp:    44,
 	}
 
 	envelope, err := MarshalAck(ack)

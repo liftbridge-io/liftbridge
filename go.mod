@@ -8,15 +8,14 @@ require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
 	github.com/dustin/go-humanize v1.0.0
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
-	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/golang/protobuf v1.4.2
 	github.com/hako/durafmt v0.0.0-20200605151348-3a43fc422dd9
 	github.com/hashicorp/go-hclog v0.14.1 // indirect
 	github.com/hashicorp/go-immutable-radix v1.2.0 // indirect
 	github.com/hashicorp/go-msgpack v1.1.5 // indirect
 	github.com/hashicorp/raft v1.1.2
-	github.com/liftbridge-io/go-liftbridge v1.0.1-0.20200901161913-0186d7b88b1d
-	github.com/liftbridge-io/liftbridge-api v1.1.1-0.20200831172318-3f08960fbccd
+	github.com/liftbridge-io/go-liftbridge v1.0.1-0.20200901163447-38f14d24c90d
+	github.com/liftbridge-io/liftbridge-api v1.1.1-0.20200902210540-e8e022c522b7
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73
 	github.com/mattn/go-colorable v0.1.7 // indirect

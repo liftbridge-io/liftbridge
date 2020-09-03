@@ -1050,9 +1050,15 @@ func TestSubscribeStartTime(t *testing.T) {
 	defer cleanupStorage(t)
 	timestampBefore := timestamp
 	mockTimestamp := int64(0)
+	timestampCalls := 0
 	timestamp = func() int64 {
 		time := mockTimestamp
-		mockTimestamp += 10
+		// Only increment on every other call because we don't want sendAck to
+		// advance the time as it throws off the subscribe test.
+		if timestampCalls%2 == 0 {
+			mockTimestamp += 10
+		}
+		timestampCalls++
 		return time
 	}
 	defer func() {
@@ -1091,24 +1097,25 @@ func TestSubscribeStartTime(t *testing.T) {
 	}
 
 	// Subscribe with TIMESTAMP 25. This should start reading from offset 3.
-	gotMsg := make(chan struct{})
+	msgCh := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	client.Subscribe(ctx, name, func(msg *lift.Message, err error) {
 		select {
-		case <-gotMsg:
+		case <-msgCh:
 			return
 		default:
 		}
 		require.NoError(t, err)
-		require.Equal(t, int64(3), msg.Offset())
-		require.Equal(t, int64(30), msg.Timestamp().UnixNano())
-		close(gotMsg)
+		msgCh <- msg
+		close(msgCh)
 		cancel()
 	}, lift.StartAtTime(time.Unix(0, 25)))
 
 	// Wait to get the new message.
 	select {
-	case <-gotMsg:
+	case msg := <-msgCh:
+		require.Equal(t, int64(3), msg.Offset())
+		require.Equal(t, int64(30), msg.Timestamp().UnixNano())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
