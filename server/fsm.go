@@ -184,6 +184,10 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		}
 	case proto.Op_PUBLISH_ACTIVITY:
 		s.activity.SetLastPublishedRaftIndex(log.PublishActivityOp.RaftIndex)
+	case proto.Op_SET_STREAM_CONFIG:
+		if err := s.applySetStreamConfig(log.SetStreamConfigOp, recovered); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("Unknown Raft operation: %s", log.Op)
 	}
@@ -464,6 +468,20 @@ func (s *Server) applyPauseStream(streamName string, partitions []int32, resumeA
 // until after the recovery process completes. If they are not being recovered,
 // the partitions will be started as a leader or follower if applicable.
 func (s *Server) applyResumeStream(streamName string, partitionIDs []int32, recovered bool) error {
+	// Resume all paused partitions if not specified.
+	if len(partitionIDs) == 0 {
+		stream := s.metadata.GetStream(streamName)
+		if stream == nil {
+			return ErrStreamNotFound
+		}
+		for _, partition := range stream.GetPartitions() {
+			if !partition.IsPaused() {
+				continue
+			}
+			partitionIDs = append(partitionIDs, partition.Id)
+		}
+	}
+
 	for _, id := range partitionIDs {
 		partition, err := s.metadata.ResumePartition(streamName, id, recovered)
 		if err != nil {
@@ -471,5 +489,28 @@ func (s *Server) applyResumeStream(streamName string, partitionIDs []int32, reco
 		}
 		s.logger.Debugf("fsm: Resumed partition %s", partition)
 	}
+	return nil
+}
+
+// applySetStreamConfig updates the configuration for a stream or its
+// partitions.
+func (s *Server) applySetStreamConfig(req *proto.SetStreamConfigOp, recovered bool) error {
+	if req.Paused != nil {
+		if req.Paused.Value {
+			resumeAll := false
+			if req.ResumeAll != nil {
+				resumeAll = req.ResumeAll.Value
+			}
+			if err := s.applyPauseStream(req.Stream, req.Partitions, resumeAll); err != nil {
+				return err
+			}
+		} else {
+			if err := s.applyResumeStream(req.Stream, req.Partitions, recovered); err != nil {
+				return err
+			}
+		}
+	}
+
+	s.logger.Debugf("fsm: Set stream config for %s", req.Stream)
 	return nil
 }

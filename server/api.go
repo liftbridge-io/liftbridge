@@ -304,6 +304,57 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 	return resp, nil
 }
 
+// SetStreamConfig dynamically updates a stream or its partitions'
+// configuration.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) SetStreamConfig(ctx context.Context, req *client.SetStreamConfigRequest) (
+	*client.SetStreamConfigResponse, error) {
+	a.logger.Debugf("api: SetStreamConfig [stream=%s, partitions=%s]", req.Stream, req.Partitions)
+
+	validatedReq, err := a.validateSetStreamConfigRequest(req)
+	if err != nil {
+		a.logger.Errorf("api: Failed to set stream config: %v", err)
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	if err := a.metadata.SetStreamConfig(ctx, validatedReq); err != nil {
+		a.logger.Errorf("api: Failed to set stream config: %v", err.Err())
+		return nil, err.Err()
+	}
+
+	return &client.SetStreamConfigResponse{}, nil
+}
+
+func (a *apiServer) validateSetStreamConfigRequest(req *client.SetStreamConfigRequest) (*proto.SetStreamConfigOp, error) {
+	if req.Stream == "" {
+		return nil, errors.New("stream cannot be empty")
+	}
+	if req.ResumeAll != nil {
+		if req.Paused == nil {
+			return nil, errors.New("paused must be set with resumeAll")
+		}
+		if !req.Paused.Value {
+			return nil, errors.New("paused must be enabled when resumeAll is set")
+		}
+	}
+
+	op := &proto.SetStreamConfigOp{
+		Stream:     req.Stream,
+		Partitions: req.Partitions,
+	}
+
+	if req.Paused != nil {
+		op.Paused = &proto.NullableBool{Value: req.Paused.Value}
+	}
+	if req.ResumeAll != nil {
+		op.ResumeAll = &proto.NullableBool{Value: req.ResumeAll.Value}
+	}
+
+	return op, nil
+}
+
 func (a *apiServer) resumeStream(ctx context.Context, streamName string, partitionID int32) error {
 	stream := a.metadata.GetStream(streamName)
 	if stream == nil {

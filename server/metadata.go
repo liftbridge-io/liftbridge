@@ -154,6 +154,43 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 	return resp, nil
 }
 
+// SetStreamConfig updates a stream or its partitions' configuration.
+func (m *metadataAPI) SetStreamConfig(ctx context.Context, req *proto.SetStreamConfigOp) *status.Status {
+
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagateSetStreamConfig(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Replicate stream pausing through Raft.
+	op := &proto.RaftLog{
+		Op:                proto.Op_SET_STREAM_CONFIG,
+		SetStreamConfigOp: req,
+	}
+
+	// Wait on result of setting config.
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkSetStreamConfigPreconditions)
+	if err != nil {
+		code := codes.FailedPrecondition
+		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
+			code = codes.NotFound
+		}
+		return status.Newf(code, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to set stream config: %v", err.Error())
+	}
+
+	return nil
+}
+
 // brokerCache checks if the cache of broker metadata is clean and, if it is
 // and it's not past the metadata cache max age, returns the cached broker
 // list. The bool returned indicates if the cached data is returned or not.
@@ -993,6 +1030,18 @@ func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.Repo
 	return m.propagateRequest(ctx, propagate)
 }
 
+// propagateSetStreamConfig forwards a SetStreamConfig request to the metadata
+// leader. The bool indicates if this server has since become leader and the
+// request should be performed locally. A Status is returned if the propagated
+// request failed.
+func (m *metadataAPI) propagateSetStreamConfig(ctx context.Context, req *proto.SetStreamConfigOp) (bool, *status.Status) {
+	propagate := &proto.PropagatedRequest{
+		Op:                proto.Op_SET_STREAM_CONFIG,
+		SetStreamConfigOp: req,
+	}
+	return m.propagateRequest(ctx, propagate)
+}
+
 // propagateRequest forwards a metadata request to the metadata leader. The
 // bool indicates if this server has since become leader and the request should
 // be performed locally. A Status is returned if the propagated request failed.
@@ -1195,6 +1244,23 @@ func (m *metadataAPI) checkExpandISRPreconditions(op *proto.RaftLog) error {
 // it returns nil.
 func (m *metadataAPI) checkChangeLeaderPreconditions(op *proto.RaftLog) error {
 	return m.partitionExists(op.ChangeLeaderOp.Stream, op.ChangeLeaderOp.Partition)
+}
+
+// checkSetStreamConfigPreconditions checks if the specified stream and
+// partitions exist. If the stream does not exist, it returns
+// ErrStreamNotFound.  If any partitions do not exist, it returns
+// ErrPartitionNotFound. Otherwise, it returns nil.
+func (m *metadataAPI) checkSetStreamConfigPreconditions(op *proto.RaftLog) error {
+	stream := m.GetStream(op.SetStreamConfigOp.Stream)
+	if stream == nil {
+		return ErrStreamNotFound
+	}
+	for _, id := range op.SetStreamConfigOp.Partitions {
+		if partition := stream.GetPartition(id); partition == nil {
+			return ErrPartitionNotFound
+		}
+	}
+	return nil
 }
 
 // partitionExists indicates if the given partition exists in the stream. If

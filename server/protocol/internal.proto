@@ -7,15 +7,16 @@ message ServerState {
 }
 
 enum Op {
-    CREATE_STREAM    = 0;
-    SHRINK_ISR       = 1;
-    REPORT_LEADER    = 2;
-    CHANGE_LEADER    = 3;
-    EXPAND_ISR       = 4;
-    DELETE_STREAM    = 5;
-    PAUSE_STREAM     = 6;
-    RESUME_STREAM    = 7;
-    PUBLISH_ACTIVITY = 8;
+    CREATE_STREAM     = 0;
+    SHRINK_ISR        = 1;
+    REPORT_LEADER     = 2;
+    CHANGE_LEADER     = 3;
+    EXPAND_ISR        = 4;
+    DELETE_STREAM     = 5;
+    PAUSE_STREAM      = 6;
+    RESUME_STREAM     = 7;
+    PUBLISH_ACTIVITY  = 8;
+    SET_STREAM_CONFIG = 9;
 }
 
 message RaftLog {
@@ -28,6 +29,7 @@ message RaftLog {
     PauseStreamOp     pauseStreamOp     = 7;
     ResumeStreamOp    resumeStreamOp    = 8;
     PublishActivityOp publishActivityOp = 9;
+    SetStreamConfigOp setStreamConfigOp = 10;
 }
 
 message CreateStreamOp {
@@ -81,6 +83,13 @@ message ChangeLeaderOp {
 
 message PublishActivityOp {
     uint64 raftIndex = 1;
+}
+
+message SetStreamConfigOp {
+    string         stream     = 1;
+    repeated int32 partitions = 2;
+    NullableBool   paused     = 3;
+    NullableBool   resumeAll  = 4;
 }
 
 message NullableInt64 {
@@ -158,14 +167,15 @@ message LeaderEpochOffsetResponse {
 }
 
 message PropagatedRequest {
-    Op             op             = 1;
-    CreateStreamOp createStreamOp = 2;
-    ShrinkISROp    shrinkISROp    = 3;
-    ReportLeaderOp reportLeaderOp = 4;
-    ExpandISROp    expandISROp    = 5;
-    DeleteStreamOp deleteStreamOp = 6;
-    PauseStreamOp  pauseStreamOp  = 7;
-    ResumeStreamOp resumeStreamOp = 8;
+    Op                op                = 1;
+    CreateStreamOp    createStreamOp    = 2;
+    ShrinkISROp       shrinkISROp       = 3;
+    ReportLeaderOp    reportLeaderOp    = 4;
+    ExpandISROp       expandISROp       = 5;
+    DeleteStreamOp    deleteStreamOp    = 6;
+    PauseStreamOp     pauseStreamOp     = 7;
+    ResumeStreamOp    resumeStreamOp    = 8;
+    SetStreamConfigOp setStreamConfigOp = 9;
 }
 
 message Error {
@@ -183,6 +193,7 @@ message PropagatedResponse {
     // Reserving = 7 for deleteStreamResp if needed.
     // Reserving = 8 for pauseStreamResp if needed.
     // Reserving = 9 for resumePartitionResp if needed.
+    // Reserving = 10 for setStreamConfigResp if needed.
 }
 
 message ServerInfoRequest {
