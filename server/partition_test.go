@@ -659,6 +659,70 @@ func TestPartitionAutoPause(t *testing.T) {
 	require.True(t, time.Since(before) > autoPauseTime)
 }
 
+// Ensure when streams.auto.pause.disable.if.subscribers is enabled, partitions
+// automatically pause when idle only if there is no subscriber.
+func TestPartitionAutoPauseDisableIfSubscribers(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Start NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	autoPauseTime := 100 * time.Millisecond
+	s1Config.Streams.AutoPauseTime = autoPauseTime
+	s1Config.Streams.AutoPauseDisableIfSubscribers = true
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	subject := "foo"
+	name := "foo"
+
+	// Start publishing to stream subject to keep it active.
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			nc.Publish(subject, nil)
+		}
+	}()
+
+	// Create stream
+	err = client.CreateStream(context.Background(), subject, name)
+	require.NoError(t, err)
+
+	// Subscribe to the stream.
+	err = client.Subscribe(context.Background(), name, func(msg *lift.Message, err error) {})
+	require.NoError(t, err)
+
+	// Stop publishing.
+	close(stop)
+
+	// Wait some time.
+	time.Sleep(200 * time.Millisecond)
+
+	// Check that the partition has not been paused.
+	partition := s1.metadata.GetPartition(name, 0)
+	require.False(t, partition.IsPaused())
+}
+
 // Ensure computeTick correctly computes the sleep time for the tick loop based
 // on the elapsed time.
 func TestComputeTick(t *testing.T) {
