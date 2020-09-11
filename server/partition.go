@@ -240,27 +240,23 @@ func (p *partition) Delete() error {
 // a subscriber count greater than zero will not be auto-paused if the partition
 // is idle, and the corresponding configuration option is set.
 func (p *partition) IncreaseSubscriberCount() {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	if p.autoPauseDisableIfSubscribers {
-		atomic.AddInt64(&p.subscriberCount, 1)
-	}
+	p.subscriberCount++
 }
 
 // DecreaseSubscriberCount decreases the number of subscribers. Partitions with
 // a subscriber count greater than zero will not be auto-paused if the partition
 // is idle, and the corresponding configuration option is set.
 func (p *partition) DecreaseSubscriberCount() {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	if p.autoPauseDisableIfSubscribers {
-		sc := atomic.AddInt64(&p.subscriberCount, -1)
-		if sc < 0 {
-			atomic.StoreInt64(&p.subscriberCount, 0)
-			p.srv.logger.Errorf("Negative partition subscriber count for partition %s: %d", p, sc)
-		}
+	p.subscriberCount--
+	if p.subscriberCount < 0 {
+		p.subscriberCount = 0
+		p.srv.logger.Errorf("Negative partition subscriber count for partition %s: %d", p, p.subscriberCount)
 	}
 }
 
@@ -660,9 +656,12 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 
 		ns := atomic.LoadInt64(&p.lastReceived)
 		lastReceivedElapsed := time.Since(time.Unix(0, ns))
-		subs := atomic.LoadInt64(&p.subscriberCount)
 
-		if lastReceivedElapsed > p.autoPauseTime && subs == 0 {
+		p.mu.RLock()
+		subsAllowPausing := !p.autoPauseDisableIfSubscribers || p.subscriberCount == 0
+		p.mu.RUnlock()
+
+		if lastReceivedElapsed > p.autoPauseTime && subsAllowPausing {
 			p.srv.logger.Infof("Partition %s has not received a message in over %s, "+
 				"auto pausing partition", p, p.autoPauseTime)
 			if err := p.requestPause(); err != nil {
