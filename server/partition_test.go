@@ -721,6 +721,8 @@ func TestPartitionAutoPauseDisableIfSubscribers(t *testing.T) {
 	// Check that the partition has not been paused.
 	partition := s1.metadata.GetPartition(name, 0)
 	require.False(t, partition.IsPaused())
+
+	waitForPartition(t, time.Second, name, 0)
 }
 
 // Ensure computeTick correctly computes the sleep time for the tick loop based
