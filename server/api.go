@@ -164,6 +164,10 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 		return err
 	}
 
+	// Update the active subscriber count.
+	partition.IncreaseSubscriberCount()
+	defer partition.DecreaseSubscriberCount()
+
 	for {
 		select {
 		case <-out.Context().Done():
