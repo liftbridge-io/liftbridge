@@ -38,6 +38,7 @@ const (
 	acksConnName        = "acks"
 	publishesConnName   = "publishes"
 	activityStream      = "__activity"
+	cursorStream        = "__cursors"
 )
 
 // Server is the main Liftbridge object. Create it by calling New or

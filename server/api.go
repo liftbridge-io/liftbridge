@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"io"
 
 	"github.com/nats-io/nats.go"
@@ -14,6 +15,8 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
+
+var hasher = crc32.ChecksumIEEE
 
 // apiServer implements the gRPC server interface clients interact with.
 type apiServer struct {
@@ -302,6 +305,47 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 
 	resp.Ack = ack
 	return resp, nil
+}
+
+// SetCursor stores a cursor position for a particular stream partition which
+// is uniquely identified by an opaque string.
+func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest) (
+	*client.SetCursorResponse, error) {
+	a.logger.Debugf("api: SetCursor [stream=%s, partition=%d, cursorId=%s, offset=%d",
+		req.Stream, req.Partition, req.CursorId, req.Offset)
+
+	stream := a.metadata.GetStream(cursorStream)
+	if stream == nil {
+		a.logger.Errorf("api: Cursors stream does not exist")
+		return nil, status.Error(codes.Internal, "Cursors stream does not exist")
+	}
+
+	var (
+		partitionID = int32(hasher([]byte(req.CursorId)) % uint32(len(stream.GetPartitions())))
+		partition   = stream.GetPartition(partitionID)
+	)
+	if partition == nil {
+		a.logger.Errorf("api: Cursors partition %d does not exist", partitionID)
+		return nil, status.Errorf(codes.Internal, "Cursors partition %d does not exist", partitionID)
+	}
+
+	leader, _ := partition.GetLeader()
+	if leader != a.config.Clustering.ServerID {
+		// TODO: Attempt to forward to partition leader.
+		a.logger.Errorf("api: Failed to set cursor: server not leader for cursors partition %d", partitionID)
+		return nil, status.Errorf(codes.FailedPrecondition, "Server not leader for cursors partition %d", partitionID)
+	}
+
+	// TODO
+	return nil, nil
+}
+
+// FetchCursor retrieves a partition cursor position.
+func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequest) (
+	*client.FetchCursorResponse, error) {
+
+	// TODO
+	return nil, nil
 }
 
 func (a *apiServer) resumeStream(ctx context.Context, streamName string, partitionID int32) error {
