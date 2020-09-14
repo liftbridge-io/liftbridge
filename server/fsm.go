@@ -491,7 +491,7 @@ func (s *Server) applySetStreamReadonly(streamName string, partitions []int32, r
 		return ErrStreamNotFound
 	}
 
-	err := stream.SetStreamReadonly(partitions, readonly)
+	err := stream.SetReadonly(partitions, readonly)
 	if err != nil {
 		return errors.Wrap(err, "failed to set stream as readonly")
 	}

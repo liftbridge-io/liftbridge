@@ -43,9 +43,10 @@ type commitLog struct {
 	closed           chan struct{}
 	segments         []*segment
 	vActiveSegment   *segment
-	hwWaiters        map[contextReader]chan struct{}
+	hwWaiters        map[contextReader]chan bool
 	leaderEpochCache *leaderEpochCache
 	deleted          bool
+	readonly         bool
 }
 
 // Options contains settings for configuring a commitLog.
@@ -115,7 +116,7 @@ func New(opts Options) (CommitLog, error) {
 		compactCleaner:   compactCleaner,
 		hw:               -1,
 		closed:           make(chan struct{}),
-		hwWaiters:        make(map[contextReader]chan struct{}),
+		hwWaiters:        make(map[contextReader]chan bool),
 		leaderEpochCache: epochCache,
 	}
 
@@ -327,7 +328,7 @@ func (l *commitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
 	if hw > l.hw {
 		l.hw = hw
-		l.notifyHWWaiters()
+		l.notifyHWWaiters(false)
 	}
 	l.mu.Unlock()
 	// TODO: should we flush the HW to disk here?
@@ -339,23 +340,28 @@ func (l *commitLog) SetHighWatermark(hw int64) {
 func (l *commitLog) OverrideHighWatermark(hw int64) {
 	l.mu.Lock()
 	l.hw = hw
-	l.notifyHWWaiters()
+	l.notifyHWWaiters(false)
 	l.mu.Unlock()
 }
 
-func (l *commitLog) notifyHWWaiters() {
+// notifyHWWaiters signals all HW waiters to wake up, either because the HW has
+// changed or the log has become readonly, depending on the flag passed in.
+func (l *commitLog) notifyHWWaiters(readonly bool) {
 	for r, ch := range l.hwWaiters {
-		close(ch)
+		ch <- readonly
 		delete(l.hwWaiters, r)
 	}
 }
 
-func (l *commitLog) waitForHW(r contextReader, hw int64) <-chan struct{} {
-	wait := make(chan struct{})
+// waitForHW registers an HW waiter and returns a channel which will receive a
+// bool either when the HW changes (false) or the log has become readonly
+// (true).
+func (l *commitLog) waitForHW(r contextReader, hw int64) <-chan bool {
+	wait := make(chan bool, 1)
 	l.mu.Lock()
 	// Check if HW has changed.
 	if l.hw != hw {
-		close(wait)
+		wait <- false
 	} else {
 		l.hwWaiters[r] = wait
 	}
@@ -543,6 +549,25 @@ func (l *commitLog) Segments() []*segment {
 // opaque value that uniquely identifies the entity waiting for data.
 func (l *commitLog) NotifyLEO(waiter interface{}, leo int64) <-chan struct{} {
 	return l.activeSegment().WaitForLEO(waiter, leo)
+}
+
+// SetReadonly marks the log as readonly. When in readonly mode, committed
+// readers will read up to the HW and then will receive an ErrCommitLogReadOnly
+// error.
+func (l *commitLog) SetReadonly(readonly bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.readonly = true
+	if readonly {
+		l.notifyHWWaiters(true)
+	}
+}
+
+// IsReadonly indicates if the log is in readonly mode.
+func (l *commitLog) IsReadonly() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.readonly
 }
 
 // checkAndPerformSplit determines if a new log segment should be rolled out

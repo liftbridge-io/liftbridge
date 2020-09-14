@@ -89,7 +89,6 @@ type partition struct {
 	shutdown                      sync.WaitGroup
 	paused                        bool
 	readonly                      bool
-	setReadonly                   chan struct{}
 	autoPauseTime                 time.Duration
 	autoPauseDisableIfSubscribers bool
 	subscriberCount               int64
@@ -165,7 +164,6 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		commitCheck:                   make(chan struct{}, len(protoPartition.Replicas)),
 		notify:                        make(chan struct{}, 1),
 		recovered:                     recovered,
-		setReadonly:                   make(chan struct{}),
 		autoPauseTime:                 streamsConfig.AutoPauseTime,
 		autoPauseDisableIfSubscribers: streamsConfig.AutoPauseDisableIfSubscribers,
 	}
@@ -232,12 +230,7 @@ func (p *partition) SetReadonly(readonly bool) {
 	defer p.mu.Unlock()
 
 	p.readonly = readonly
-
-	// Notify that the partition is now readonly.
-	if readonly && !p.readonly {
-		close(p.setReadonly)
-		p.setReadonly = make(chan struct{})
-	}
+	p.log.SetReadonly(readonly)
 }
 
 // IsReadonly indicates if the partition is currently readonly.

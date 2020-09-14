@@ -68,6 +68,11 @@ type CommitLog interface {
 	// for data.
 	NotifyLEO(waiter interface{}, leo int64) <-chan struct{}
 
+	// SetReadonly marks the log as readonly. When in readonly mode, committed
+	// readers will read up to the HW and then will receive an
+	// ErrCommitLogReadonly error.
+	SetReadonly(readonly bool)
+
 	// Close closes each log segment file and stops the background goroutine
 	// checkpointing the high watermark to disk.
 	Close() error

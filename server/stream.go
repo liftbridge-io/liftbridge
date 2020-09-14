@@ -152,9 +152,9 @@ func (s *stream) Delete() error {
 	return nil
 }
 
-// SetStreamReadonly sets the readonly flag on some or all the partitions of
-// this stream.
-func (s *stream) SetStreamReadonly(partitions []int32, readonly bool) error {
+// SetReadonly sets the readonly flag on some or all the partitions of this
+// stream.
+func (s *stream) SetReadonly(partitions []int32, readonly bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

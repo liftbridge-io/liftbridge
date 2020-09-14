@@ -13,7 +13,6 @@ import (
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
-	pkgErrors "github.com/pkg/errors"
 )
 
 // apiServer implements the gRPC server interface clients interact with.
@@ -552,7 +551,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		headersBuf := make([]byte, 28)
 		for {
 			// TODO: this could be more efficient.
-			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf, partition.setReadonly)
+			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf)
 			if err != nil {
 				var s *status.Status
 				if err == commitlog.ErrCommitLogDeleted {
@@ -565,7 +564,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 						code = codes.FailedPrecondition
 					}
 					s = status.New(code, err.Error())
-				} else if pkgErrors.Cause(err) == io.EOF && partition.IsReadonly() {
+				} else if err == commitlog.ErrCommitLogReadonly {
 					// Partition was set to readonly while subscribed.
 					s = status.New(codes.ResourceExhausted, fmt.Sprintf("End of readonly partition"))
 				} else {

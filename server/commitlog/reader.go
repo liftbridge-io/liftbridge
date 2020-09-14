@@ -9,8 +9,12 @@ import (
 	pkgErrors "github.com/pkg/errors"
 )
 
+// ErrCommitLogReadonly is returned when the end of a readonly CommitLog has
+// been reached.
+var ErrCommitLogReadonly = errors.New("end of readonly log")
+
 type contextReader interface {
-	Read(context.Context, []byte, chan struct{}) (int, error)
+	Read(context.Context, []byte) (int, error)
 }
 
 // Reader reads messages atomically from a CommitLog. Readers should not be
@@ -53,9 +57,9 @@ func (l *commitLog) NewReader(offset int64, uncommitted bool) (*Reader, error) {
 //
 // TODO: Should this just return a MessageSet directly instead of a Message and
 // the MessageSet header values?
-func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte, noBlocking chan struct{}) (SerializedMessage, int64, int64, uint64, error) {
+func (r *Reader) ReadMessage(ctx context.Context, headersBuf []byte) (SerializedMessage, int64, int64, uint64, error) {
 RETRY:
-	msg, offset, timestamp, leaderEpoch, err := readMessage(ctx, r.ctxReader, headersBuf, noBlocking)
+	msg, offset, timestamp, leaderEpoch, err := readMessage(ctx, r.ctxReader, headersBuf)
 	if err != nil {
 		if r.log.IsDeleted() {
 			// The log was deleted while we were trying to read.
@@ -63,6 +67,9 @@ RETRY:
 		} else if r.log.IsClosed() {
 			// The log was closed while we were trying to read.
 			return nil, 0, 0, 0, ErrCommitLogClosed
+		} else if pkgErrors.Cause(err) == ErrCommitLogReadonly && r.log.IsReadonly() {
+			// The log was set to readonly while we were trying to read.
+			return nil, 0, 0, 0, ErrCommitLogReadonly
 		} else if pkgErrors.Cause(err) == ErrSegmentReplaced {
 			// ErrSegmentReplaced indicates we attempted to read from a log
 			// segment that was replaced due to compaction, so reinitialize the
@@ -91,7 +98,7 @@ type uncommittedReader struct {
 	pos int64
 }
 
-func (r *uncommittedReader) Read(ctx context.Context, p []byte, noBlocking chan struct{}) (n int, err error) {
+func (r *uncommittedReader) Read(ctx context.Context, p []byte) (n int, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -128,7 +135,7 @@ LOOP:
 			}
 			// Otherwise, wait for segment to be written to (or split).
 			waiting = true
-			if !r.waitForData(ctx, r.seg, noBlocking) {
+			if !r.waitForData(ctx, r.seg) {
 				err = io.EOF
 				break
 			}
@@ -146,7 +153,7 @@ LOOP:
 		// If there are not enough segments to read, wait for new segment to be
 		// appended or the context to be canceled.
 		for nextSeg == nil {
-			if !r.waitForData(ctx, r.seg, noBlocking) {
+			if !r.waitForData(ctx, r.seg) {
 				err = io.EOF
 				break LOOP
 			}
@@ -161,16 +168,13 @@ LOOP:
 	return n, err
 }
 
-func (r *uncommittedReader) waitForData(ctx context.Context, seg *segment, noBlocking chan struct{}) bool {
+func (r *uncommittedReader) waitForData(ctx context.Context, seg *segment) bool {
 	wait := seg.WaitForData(r, r.pos)
 	select {
 	case <-r.cl.closed:
 		seg.removeWaiter(r)
 		return false
 	case <-ctx.Done():
-		seg.removeWaiter(r)
-		return false
-	case <-noBlocking:
 		seg.removeWaiter(r)
 		return false
 	case <-wait:
@@ -210,7 +214,7 @@ type committedReader struct {
 	hw    int64
 }
 
-func (r *committedReader) Read(ctx context.Context, p []byte, noBlocking chan struct{}) (n int, err error) {
+func (r *committedReader) Read(ctx context.Context, p []byte) (n int, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	segments := r.cl.Segments()
@@ -223,8 +227,8 @@ func (r *committedReader) Read(ctx context.Context, p []byte, noBlocking chan st
 		hw := r.cl.HighWatermark()
 		for hw == r.hw {
 			// The HW has not changed, so wait for it to update.
-			if !r.waitForHW(ctx, hw, noBlocking) {
-				err = io.EOF
+			err = r.waitForHW(ctx, hw)
+			if err != nil {
 				return
 			}
 			// Sync the HW.
@@ -249,11 +253,11 @@ func (r *committedReader) Read(ctx context.Context, p []byte, noBlocking chan st
 		r.pos = entry.Position
 	}
 
-	return r.readLoop(ctx, p, segments, noBlocking)
+	return r.readLoop(ctx, p, segments)
 }
 
 func (r *committedReader) readLoop(
-	ctx context.Context, p []byte, segments []*segment, noBlocking chan struct{}) (n int, err error) {
+	ctx context.Context, p []byte, segments []*segment) (n int, err error) {
 
 	var readSize int
 LOOP:
@@ -293,8 +297,8 @@ LOOP:
 		hw := r.cl.HighWatermark()
 		for hw == r.hw {
 			// The HW has not changed, so wait for it to update.
-			if !r.waitForHW(ctx, hw, noBlocking) {
-				err = io.EOF
+			err = r.waitForHW(ctx, hw)
+			if err != nil {
 				break LOOP
 			}
 			// Sync the HW.
@@ -313,20 +317,20 @@ LOOP:
 	return n, err
 }
 
-func (r *committedReader) waitForHW(ctx context.Context, hw int64, noBlocking chan struct{}) bool {
+func (r *committedReader) waitForHW(ctx context.Context, hw int64) error {
 	wait := r.cl.waitForHW(r, hw)
 	select {
 	case <-r.cl.closed:
 		r.cl.removeHWWaiter(r)
-		return false
+		return io.EOF
 	case <-ctx.Done():
 		r.cl.removeHWWaiter(r)
-		return false
-	case <-noBlocking:
-		r.cl.removeHWWaiter(r)
-		return false
-	case <-wait:
-		return true
+		return io.EOF
+	case readonly := <-wait:
+		if readonly {
+			return ErrCommitLogReadonly
+		}
+		return nil
 	}
 }
 
