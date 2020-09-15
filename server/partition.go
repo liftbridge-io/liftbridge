@@ -69,7 +69,6 @@ type partition struct {
 	sub                           *nats.Subscription // Subscription to partition NATS subject
 	leaderReplSub                 *nats.Subscription // Subscription for replication requests from followers
 	leaderOffsetSub               *nats.Subscription // Subscription for leader epoch offset requests from followers
-	recvChan                      chan *nats.Msg     // Channel leader places received messages on
 	log                           commitlog.CommitLog
 	srv                           *Server
 	isLeading                     bool
@@ -405,10 +404,10 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	}
 
 	// Start message processing loop.
-	p.recvChan = make(chan *nats.Msg, recvChannelSize)
+	recvChan := make(chan *nats.Msg, recvChannelSize)
 	p.stopLeader = make(chan struct{})
 	p.srv.startGoroutine(func() {
-		p.messageProcessingLoop(p.recvChan, p.stopLeader, epoch)
+		p.messageProcessingLoop(recvChan, p.stopLeader, epoch)
 		p.shutdown.Done()
 	})
 
@@ -418,7 +417,7 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	// Subscribe to the NATS subject and begin sequencing messages.
 	// TODO: This should be drained on shutdown.
 	sub, err := p.srv.nc.QueueSubscribe(p.getSubject(), p.Group, func(m *nats.Msg) {
-		p.recvChan <- m
+		recvChan <- m
 	})
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to NATS")
@@ -493,7 +492,6 @@ func (p *partition) stopLeading() error {
 
 	p.commitQueue.Dispose()
 	p.isLeading = false
-	p.recvChan = nil // Nil this out since it's a non-trivial amount of memory
 
 	return nil
 }
