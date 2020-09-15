@@ -49,5 +49,3 @@ require (
 
 // Temporary replacements until upstream merge.
 replace github.com/liftbridge-io/go-liftbridge => github.com/ably-forks/go-liftbridge v1.0.1-0.20200907110023-38daabe19873
-
-replace github.com/liftbridge-io/liftbridge-api => github.com/ably-forks/liftbridge-api v1.9.3
