@@ -588,6 +588,87 @@ func TestNotifyLEOIdempotent(t *testing.T) {
 	require.Equal(t, ch1, ch2)
 }
 
+// Ensure when SetReadonly is called with true on a log, committed readers
+// receive ErrCommitLogReadonly once they reach the LEO.
+func TestSetReadonlyReadToLEO(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 256,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	_, err := l.Append(msgs)
+	require.NoError(t, err)
+	r, err := l.NewReader(0, false)
+	require.NoError(t, err)
+	l.SetHighWatermark(4)
+
+	l.SetReadonly(true)
+
+	headers := make([]byte, 28)
+	for range msgs {
+		_, _, _, _, err := r.ReadMessage(context.Background(), headers)
+		require.NoError(t, err)
+	}
+
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.Equal(t, ErrCommitLogReadonly, err)
+}
+
+// Ensure when SetReadonly is called with true on a log, committed readers
+// waiting for the HW to advance do not receive ErrCommitLogReadonly when the
+// HW is less than the LEO.
+func TestSetReadonlyDoNotWakeHWLessThanLEO(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 256,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	_, err := l.Append(msgs)
+	require.NoError(t, err)
+	r, err := l.NewReader(0, false)
+	require.NoError(t, err)
+
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		l.SetReadonly(true)
+		l.SetHighWatermark(4)
+	}()
+
+	headers := make([]byte, 28)
+	for range msgs {
+		_, _, _, _, err := r.ReadMessage(context.Background(), headers)
+		require.NoError(t, err)
+	}
+}
+
+// Ensure when SetReadonly is called with true on a log, committed readers
+// waiting for the HW to advance receive ErrCommitLogReadonly when the HW is
+// caught up to the LEO.
+func TestSetReadonlyWakeHWEqualsLEO(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 256,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	r, err := l.NewReader(0, false)
+	require.NoError(t, err)
+
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		l.SetReadonly(true)
+	}()
+
+	headers := make([]byte, 28)
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.Equal(t, ErrCommitLogReadonly, err)
+}
+
 func setup(t require.TestingT) (*commitLog, func()) {
 	opts := Options{
 		Path:            tempDir(t),

@@ -328,7 +328,7 @@ func (l *commitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
 	if hw > l.hw {
 		l.hw = hw
-		l.notifyHWWaiters(false)
+		l.notifyHWChange()
 	}
 	l.mu.Unlock()
 	// TODO: should we flush the HW to disk here?
@@ -340,15 +340,29 @@ func (l *commitLog) SetHighWatermark(hw int64) {
 func (l *commitLog) OverrideHighWatermark(hw int64) {
 	l.mu.Lock()
 	l.hw = hw
-	l.notifyHWWaiters(false)
+	l.notifyHWChange()
 	l.mu.Unlock()
 }
 
-// notifyHWWaiters signals all HW waiters to wake up, either because the HW has
-// changed or the log has become readonly, depending on the flag passed in.
-func (l *commitLog) notifyHWWaiters(readonly bool) {
+// notifyHWChange signals all HW waiters to wake up because the HW has changed.
+// This must be called within the log mutex.
+func (l *commitLog) notifyHWChange() {
 	for r, ch := range l.hwWaiters {
-		ch <- readonly
+		ch <- false
+		delete(l.hwWaiters, r)
+	}
+}
+
+// notifyReadonly signals all HW waiters to wake up if the HW is caught up to
+// the LEO because the log has become readonly. This must be called within the
+// log mutex.
+func (l *commitLog) notifyReadonly() {
+	if l.hw < l.NewestOffset() {
+		return
+	}
+	// HW is caught up to LEO so notify HW waiters.
+	for r, ch := range l.hwWaiters {
+		ch <- true
 		delete(l.hwWaiters, r)
 	}
 }
@@ -359,10 +373,14 @@ func (l *commitLog) notifyHWWaiters(readonly bool) {
 func (l *commitLog) waitForHW(r contextReader, hw int64) <-chan bool {
 	wait := make(chan bool, 1)
 	l.mu.Lock()
-	// Check if HW has changed.
 	if l.hw != hw {
+		// HW has changed since reader last checked so they can unblock now.
 		wait <- false
+	} else if l.readonly && l.hw == l.NewestOffset() {
+		// Log is readonly and HW is caught up to LEO so return an error to reader.
+		wait <- true
 	} else {
+		// Reader needs to wait for HW to advance.
 		l.hwWaiters[r] = wait
 	}
 	l.mu.Unlock()
@@ -551,15 +569,18 @@ func (l *commitLog) NotifyLEO(waiter interface{}, leo int64) <-chan struct{} {
 	return l.activeSegment().WaitForLEO(waiter, leo)
 }
 
-// SetReadonly marks the log as readonly. When in readonly mode, committed
-// readers will read up to the HW and then will receive an ErrCommitLogReadOnly
-// error.
+// SetReadonly marks the log as readonly for committed readers. When in
+// readonly mode, committed readers will read up to the log end offset (LEO),
+// if the HW allows so, and then will receive an ErrCommitLogReadonly error.
+// This will unblock committed readers waiting for data if they are at the LEO.
+// Readers will continue to block if the HW is less than the LEO. This does not
+// affect uncommitted readers.
 func (l *commitLog) SetReadonly(readonly bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.readonly = true
 	if readonly {
-		l.notifyHWWaiters(true)
+		l.notifyReadonly()
 	}
 }
 

@@ -68,9 +68,12 @@ type CommitLog interface {
 	// for data.
 	NotifyLEO(waiter interface{}, leo int64) <-chan struct{}
 
-	// SetReadonly marks the log as readonly. When in readonly mode, committed
-	// readers will read up to the HW and then will receive an
-	// ErrCommitLogReadonly error.
+	// SetReadonly marks the log as readonly for committed readers. When in
+	// readonly mode, committed readers will read up to the log end offset
+	// (LEO), if the HW allows so, and then will receive an
+	// ErrCommitLogReadonly error.  This will unblock committed readers waiting
+	// for data if they are at the LEO. Readers will continue to block if the
+	// HW is less than the LEO. This does not affect uncommitted readers.
 	SetReadonly(readonly bool)
 
 	// Close closes each log segment file and stops the background goroutine
