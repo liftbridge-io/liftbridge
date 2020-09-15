@@ -247,18 +247,8 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		return nil, err
 	}
 
-	stream := a.metadata.GetStream(req.Stream)
-	if stream == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
-	}
-
-	partition := stream.GetPartition(req.Partition)
-	if partition == nil {
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("No such partition: %d", req.Partition))
-	}
-
-	if partition.IsReadonly() {
-		return nil, status.Error(codes.FailedPrecondition, fmt.Sprintf("Readonly partition: %d", req.Partition))
+	if err = a.ensureStreamNotReadonly(req.Stream, req.Partition); err != nil {
+		return nil, err
 	}
 
 	if err := a.resumeStream(ctx, req.Stream, req.Partition); err != nil {
@@ -355,6 +345,22 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 	return resp, nil
 }
 
+func (a *apiServer) ensureStreamNotReadonly(name string, partitionID int32) error {
+	stream := a.metadata.GetStream(name)
+	if stream == nil {
+		return status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", name))
+	}
+	partition := stream.GetPartition(partitionID)
+	if partition == nil {
+		return status.Error(codes.NotFound, fmt.Sprintf("No such partition: %d", partitionID))
+	}
+	if partition.IsReadonly() {
+		return status.Error(codes.FailedPrecondition, fmt.Sprintf("Readonly partition: %d", partitionID))
+	}
+
+	return nil
+}
+
 func (a *apiServer) resumeStream(ctx context.Context, streamName string, partitionID int32) error {
 	stream := a.metadata.GetStream(streamName)
 	if stream == nil {
@@ -422,6 +428,10 @@ func (a *apiServer) publishAsyncLoop(stream client.API_PublishAsyncServer, ackIn
 			if err == io.EOF || status.Code(err) == codes.Canceled {
 				return nil
 			}
+			return err
+		}
+
+		if err = a.ensureStreamNotReadonly(req.Stream, req.Partition); err != nil {
 			return err
 		}
 
