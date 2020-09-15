@@ -231,13 +231,13 @@ func (p *partition) SetReadonly(readonly bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.readonly = readonly
-
 	// Notify that the partition is now readonly.
 	if readonly && !p.readonly {
 		close(p.setReadonly)
 		p.setReadonly = make(chan struct{})
 	}
+
+	p.readonly = readonly
 }
 
 // IsReadonly indicates if the partition is currently readonly.
