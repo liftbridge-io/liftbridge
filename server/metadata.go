@@ -1032,10 +1032,10 @@ func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.Repo
 	return m.propagateRequest(ctx, propagate)
 }
 
-// propagateSetStreamReadonly forwards a ReportLeader request to the metadata
-// leader. The bool indicates if this server has since become leader and the
-// request should be performed locally. A Status is returned if the propagated
-// request failed.
+// propagateSetStreamReadonly forwards a SetStreamReadonly request to the
+// metadata leader. The bool indicates if this server has since become leader
+// and the request should be performed locally. A Status is returned if the
+// propagated request failed.
 func (m *metadataAPI) propagateSetStreamReadonly(ctx context.Context, req *proto.SetStreamReadonlyOp) (bool, *status.Status) {
 	propagate := &proto.PropagatedRequest{
 		Op:                  proto.Op_SET_STREAM_READONLY,
