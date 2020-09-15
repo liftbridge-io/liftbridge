@@ -588,6 +588,32 @@ func TestNotifyLEOIdempotent(t *testing.T) {
 	require.Equal(t, ch1, ch2)
 }
 
+// Ensure when SetReadonly is called with true on a log, Append returns
+// ErrCommitLogReadonly. When SetReadonly is called with false, Appends
+// succeed.
+func TestSetReadonlyAppend(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 256,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	require.False(t, l.IsReadonly())
+
+	l.SetReadonly(true)
+	require.True(t, l.IsReadonly())
+
+	_, err := l.Append(msgs)
+	require.Equal(t, ErrCommitLogReadonly, err)
+
+	l.SetReadonly(false)
+	require.False(t, l.IsReadonly())
+
+	_, err = l.Append(msgs)
+	require.NoError(t, err)
+}
+
 // Ensure when SetReadonly is called with true on a log, committed readers
 // receive ErrCommitLogReadonly once they reach the LEO.
 func TestSetReadonlyReadToLEO(t *testing.T) {

@@ -88,7 +88,6 @@ type partition struct {
 	pause                         bool // Pause replication on the leader (for unit testing)
 	shutdown                      sync.WaitGroup
 	paused                        bool
-	readonly                      bool
 	autoPauseTime                 time.Duration
 	autoPauseDisableIfSubscribers bool
 	subscriberCount               int64
@@ -224,20 +223,16 @@ func (p *partition) IsPaused() bool {
 	return p.paused
 }
 
-// SetReadonly sets the partition's readonly flag.
+// SetReadonly enables or disables readonly for the partition. When enabled,
+// new messages cannot be written to the log and consumers will not block once
+// they reach the end of the log. This does not affect replication.
 func (p *partition) SetReadonly(readonly bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.readonly = readonly
 	p.log.SetReadonly(readonly)
 }
 
 // IsReadonly indicates if the partition is currently readonly.
 func (p *partition) IsReadonly() bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.readonly
+	return p.log.IsReadonly()
 }
 
 // Delete stops the partition if it is running, closes, and deletes the commit
