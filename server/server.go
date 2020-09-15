@@ -38,7 +38,7 @@ const (
 	acksConnName        = "acks"
 	publishesConnName   = "publishes"
 	activityStream      = "__activity"
-	cursorStream        = "__cursors"
+	cursorsStream       = "__cursors"
 )
 
 // Server is the main Liftbridge object. Create it by calling New or
@@ -66,6 +66,7 @@ type Server struct {
 	running            bool
 	goroutineWait      sync.WaitGroup
 	activity           *activityManager
+	cursors            *cursorManager
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -94,6 +95,7 @@ func New(config *Config) *Server {
 	}
 	s.metadata = newMetadataAPI(s)
 	s.activity = newActivityManager(s)
+	s.cursors = newCursorManager(s)
 	return s
 }
 
@@ -519,6 +521,10 @@ func (s *Server) leadershipAcquired() error {
 		return err
 	}
 
+	if err := s.cursors.Initialize(); err != nil {
+		return err
+	}
+
 	s.getRaft().setLeader(true)
 	return nil
 }
@@ -842,6 +848,12 @@ func (s *Server) getAckInbox() string {
 // activity stream events.
 func (s *Server) getActivityStreamSubject() string {
 	return fmt.Sprintf("%s.activity", s.config.Clustering.Namespace)
+}
+
+// getCursorStreamSubject returns the NATS subject used for storing consumer
+// partition cursors.
+func (s *Server) getCursorStreamSubject() string {
+	return fmt.Sprintf("%s.cursors", s.config.Clustering.Namespace)
 }
 
 // startGoroutine starts a goroutine which is managed by the server. This adds

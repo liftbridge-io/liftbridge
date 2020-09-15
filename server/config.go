@@ -105,6 +105,8 @@ const (
 	configActivityStreamEnabled          = "activity.stream.enabled"
 	configActivityStreamPublishTimeout   = "activity.stream.publish.timeout"
 	configActivityStreamPublishAckPolicy = "activity.stream.publish.ack.policy"
+
+	configCursorsStreamPartitions = "cursors.stream.partitions"
 )
 
 var configKeys = map[string]struct{}{
@@ -152,6 +154,7 @@ var configKeys = map[string]struct{}{
 	configActivityStreamEnabled:             {},
 	configActivityStreamPublishTimeout:      {},
 	configActivityStreamPublishAckPolicy:    {},
+	configCursorsStreamPartitions:           {},
 }
 
 // StreamsConfig contains settings for controlling the message log for streams.
@@ -272,6 +275,11 @@ type ActivityStreamConfig struct {
 	PublishAckPolicy client.AckPolicy
 }
 
+// CursorsStreamConfig contains settings for controlling cursors stream behavior.
+type CursorsStreamConfig struct {
+	Partitions int32
+}
+
 // Config contains all settings for a Liftbridge Server.
 type Config struct {
 	Listen              HostPort
@@ -293,6 +301,7 @@ type Config struct {
 	Streams             StreamsConfig
 	Clustering          ClusteringConfig
 	ActivityStream      ActivityStreamConfig
+	CursorsStream       CursorsStreamConfig
 }
 
 // NewDefaultConfig creates a new Config with default settings.
@@ -487,6 +496,7 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	parseStreamsConfig(config, v)
 	parseClusteringConfig(config, v)
 	parseActivityStreamConfig(config, v)
+	parseCursorsStreamConfig(config, v)
 
 	// If SegmentMaxAge is not set, default it to the retention time.
 	if config.Streams.SegmentMaxAge == 0 {
@@ -665,6 +675,16 @@ func parseActivityStreamConfig(config *Config, v *viper.Viper) error { // nolint
 		}
 
 		config.ActivityStream.PublishAckPolicy = ackPolicy
+	}
+
+	return nil
+}
+
+// parseCursorsStreamConfig parses the `cursors` section of a config file and
+// populates the given Config.
+func parseCursorsStreamConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
+	if v.IsSet(configCursorsStreamPartitions) {
+		config.CursorsStream.Partitions = v.GetInt32(configCursorsStreamPartitions)
 	}
 
 	return nil

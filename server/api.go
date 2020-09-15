@@ -314,7 +314,7 @@ func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest)
 	a.logger.Debugf("api: SetCursor [stream=%s, partition=%d, cursorId=%s, offset=%d",
 		req.Stream, req.Partition, req.CursorId, req.Offset)
 
-	stream := a.metadata.GetStream(cursorStream)
+	stream := a.metadata.GetStream(cursorsStream)
 	if stream == nil {
 		a.logger.Errorf("api: Cursors stream does not exist")
 		return nil, status.Error(codes.Internal, "Cursors stream does not exist")

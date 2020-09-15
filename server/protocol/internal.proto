@@ -209,3 +209,10 @@ message PartitionNotification {
     string stream    = 1;
     int32  partition = 2;
 }
+
+message Cursor {
+    string stream    = 1;
+    int32  partition = 2;
+    string cursorId  = 3;
+    int64  offset    = 4;
+}
