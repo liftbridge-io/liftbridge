@@ -321,7 +321,7 @@ func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest)
 		return nil, status.Error(codes.InvalidArgument, "No cursorId provided")
 	}
 
-	if status := a.cursors.SetCursor(req.Stream, req.Partition, req.CursorId, req.Offset); status != nil {
+	if status := a.cursors.SetCursor(ctx, req.Stream, req.CursorId, req.Partition, req.Offset); status != nil {
 		return nil, status.Err()
 	}
 	return new(client.SetCursorResponse), nil
@@ -330,9 +330,21 @@ func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest)
 // FetchCursor retrieves a partition cursor position.
 func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequest) (
 	*client.FetchCursorResponse, error) {
+	a.logger.Debugf("api: FetchCursor [stream=%s, partition=%d, cursorId=%s",
+		req.Stream, req.Partition, req.CursorId)
 
-	// TODO
-	return nil, nil
+	if req.Stream == "" {
+		return nil, status.Error(codes.InvalidArgument, "No stream provided")
+	}
+	if req.CursorId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No cursorId provided")
+	}
+
+	offset, status := a.cursors.GetCursor(ctx, req.Stream, req.CursorId, req.Partition)
+	if status != nil {
+		return nil, status.Err()
+	}
+	return &client.FetchCursorResponse{Offset: offset}, nil
 }
 
 func (a *apiServer) resumeStream(ctx context.Context, streamName string, partitionID int32) error {
