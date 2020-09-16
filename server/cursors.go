@@ -2,11 +2,10 @@ package server
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"sync"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -64,10 +63,10 @@ func (c *cursorManager) Initialize() error {
 // SetCursor stores a cursor position for a particular stream partition
 // uniquely identified by an opaque string. This returns an error if persisting
 // the cursor failed.
-func (c *cursorManager) SetCursor(streamName string, partitionID int32, cursorID string, offset int64) error {
+func (c *cursorManager) SetCursor(streamName string, partitionID int32, cursorID string, offset int64) *status.Status {
 	stream := c.metadata.GetStream(cursorsStream)
 	if stream == nil {
-		return errors.New("Cursors stream does not exist")
+		return status.New(codes.Internal, "Cursors stream does not exist")
 	}
 
 	var (
@@ -75,13 +74,13 @@ func (c *cursorManager) SetCursor(streamName string, partitionID int32, cursorID
 		cursorsPartition   = stream.GetPartition(cursorsPartitionID)
 	)
 	if cursorsPartition == nil {
-		return fmt.Errorf("Cursors partition %d does not exist", cursorsPartitionID)
+		return status.Newf(codes.Internal, "Cursors partition %d does not exist", cursorsPartitionID)
 	}
 
 	leader, _ := cursorsPartition.GetLeader()
 	if leader != c.config.Clustering.ServerID {
 		// TODO: Attempt to forward to partition leader.
-		return fmt.Errorf("Server not leader for cursors partition %d", cursorsPartitionID)
+		return status.Newf(codes.FailedPrecondition, "Server not leader for cursors partition %d", cursorsPartitionID)
 	}
 
 	// TODO

@@ -314,30 +314,17 @@ func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest)
 	a.logger.Debugf("api: SetCursor [stream=%s, partition=%d, cursorId=%s, offset=%d",
 		req.Stream, req.Partition, req.CursorId, req.Offset)
 
-	stream := a.metadata.GetStream(cursorsStream)
-	if stream == nil {
-		a.logger.Errorf("api: Cursors stream does not exist")
-		return nil, status.Error(codes.Internal, "Cursors stream does not exist")
+	if req.Stream == "" {
+		return nil, status.Error(codes.InvalidArgument, "No stream provided")
+	}
+	if req.CursorId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No cursorId provided")
 	}
 
-	var (
-		partitionID = int32(hasher([]byte(req.CursorId)) % uint32(len(stream.GetPartitions())))
-		partition   = stream.GetPartition(partitionID)
-	)
-	if partition == nil {
-		a.logger.Errorf("api: Cursors partition %d does not exist", partitionID)
-		return nil, status.Errorf(codes.Internal, "Cursors partition %d does not exist", partitionID)
+	if status := a.cursors.SetCursor(req.Stream, req.Partition, req.CursorId, req.Offset); status != nil {
+		return nil, status.Err()
 	}
-
-	leader, _ := partition.GetLeader()
-	if leader != a.config.Clustering.ServerID {
-		// TODO: Attempt to forward to partition leader.
-		a.logger.Errorf("api: Failed to set cursor: server not leader for cursors partition %d", partitionID)
-		return nil, status.Errorf(codes.FailedPrecondition, "Server not leader for cursors partition %d", partitionID)
-	}
-
-	// TODO
-	return nil, nil
+	return new(client.SetCursorResponse), nil
 }
 
 // FetchCursor retrieves a partition cursor position.
