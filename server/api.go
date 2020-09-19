@@ -164,6 +164,10 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 		return err
 	}
 
+	// Update the active subscriber count.
+	partition.IncreaseSubscriberCount()
+	defer partition.DecreaseSubscriberCount()
+
 	for {
 		select {
 		case <-out.Context().Done():
@@ -462,6 +466,23 @@ func (a *apiServer) publishSync(ctx context.Context, subject,
 func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 	req *client.SubscribeRequest, cancel chan struct{}) (
 	<-chan *client.Message, <-chan *status.Status, *status.Status) {
+
+	if req.Resume {
+		if err := a.resumeStream(ctx, req.Stream, req.Partition); err != nil {
+			return nil, nil, status.New(
+				codes.Internal, fmt.Sprintf("Failed to resume stream: %v", err))
+		}
+
+		// Resuming a partition creates a new one, so we have to get a pointer
+		// to it.
+		partition = a.metadata.GetPartition(req.Stream, req.Partition)
+		if partition == nil {
+			a.logger.Errorf("api: Failed to subscribe to partition "+
+				"[stream=%s, partition=%d]: no such partition",
+				req.Stream, req.Partition)
+			return nil, nil, status.New(codes.NotFound, "No such partition")
+		}
+	}
 
 	startOffset, st := getStartOffset(req, partition.log)
 	if st != nil {

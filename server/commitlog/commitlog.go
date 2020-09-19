@@ -661,8 +661,11 @@ func (l *commitLog) rebaseSegments(from, to []*segment, epochCache *leaderEpochC
 	to = append(to, from...)
 	// Rebase any leader epoch offsets also. We don't check the error returned
 	// here because Rebase can't return an error since epochCache is not
-	// file-backed.
-	epochCache.Rebase(l.leaderEpochCache, from[0].BaseOffset) // nolint: errcheck
+	// file-backed. The epoch cache is nil if compaction didn't run, in which
+	// case skip this.
+	if epochCache != nil {
+		epochCache.Rebase(l.leaderEpochCache, from[0].BaseOffset) // nolint: errcheck
+	}
 	return to
 }
 

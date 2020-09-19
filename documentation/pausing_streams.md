@@ -43,5 +43,9 @@ within a specified period of time. This is configured globally using the
 streams. By default, this is disabled. This can also be overridden on
 individual streams when they are created.
 
+The `auto.pause.disable.if.subscribers` setting controls if the automatic
+partition pausing should be disabled if there is any subscribers to the
+partition. This is disabled by default.
+
 Only the idle partitions within a stream are paused. These partitions are
 resumed when published to via the Liftbridge API.

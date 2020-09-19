@@ -80,6 +80,7 @@ func (c *deleteCleaner) noRetentionLimits() bool {
 }
 
 func (c *deleteCleaner) applyMessagesLimit(segments []*segment) ([]*segment, error) {
+	// We must retain at least the active segment.
 	if len(segments) <= 1 {
 		return segments, nil
 	}
@@ -87,12 +88,13 @@ func (c *deleteCleaner) applyMessagesLimit(segments []*segment) ([]*segment, err
 	// We start at the most recent segment and work our way backwards until we
 	// meet the retention size.
 	var (
-		cleanedSegments = make([]*segment, 0, len(segments))
-		totalMessages   int64
+		lastSeg         = segments[len(segments)-1]
+		cleanedSegments = []*segment{lastSeg}
+		totalMessages   = lastSeg.MessageCount()
 	)
 
 	var i int
-	for i = len(segments) - 1; i > -1; i-- {
+	for i = len(segments) - 2; i > -1; i-- {
 		s := segments[i]
 		totalMessages += s.MessageCount()
 		if totalMessages > c.Retention.Messages {
@@ -116,6 +118,11 @@ func (c *deleteCleaner) applyMessagesLimit(segments []*segment) ([]*segment, err
 }
 
 func (c *deleteCleaner) applyBytesLimit(segments []*segment) ([]*segment, error) {
+	// We must retain at least the active segment.
+	if len(segments) <= 1 {
+		return segments, nil
+	}
+
 	// We start at the most recent segment and work our way backwards until we
 	// meet the retention size.
 	var (
@@ -124,26 +131,23 @@ func (c *deleteCleaner) applyBytesLimit(segments []*segment) ([]*segment, error)
 		totalBytes      = lastSeg.Position()
 	)
 
-	if len(segments) > 1 {
-		var i int
-		for i = len(segments) - 2; i > -1; i-- {
-			s := segments[i]
-			totalBytes += s.Position()
-			if totalBytes > c.Retention.Bytes {
-				break
-			}
-			cleanedSegments = append([]*segment{s}, cleanedSegments...)
+	var i int
+	for i = len(segments) - 2; i > -1; i-- {
+		s := segments[i]
+		totalBytes += s.Position()
+		if totalBytes > c.Retention.Bytes {
+			break
 		}
-		if i > -1 {
-			for ; i > -1; i-- {
-				// TODO: There is an edge case here where we fail partway
-				// through deletion. We will delete some segments but return an
-				// error. This should probably mark segments for deletion,
-				// remove them from the read path, and then delete them
-				// asynchronously.
-				if err := segments[i].Delete(); err != nil {
-					return nil, err
-				}
+		cleanedSegments = append([]*segment{s}, cleanedSegments...)
+	}
+	if i > -1 {
+		for ; i > -1; i-- {
+			// TODO: There is an edge case here where we fail partway through
+			// deletion. We will delete some segments but return an error. This
+			// should probably mark segments for deletion, remove them from the
+			// read path, and then delete them asynchronously.
+			if err := segments[i].Delete(); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -153,7 +157,7 @@ func (c *deleteCleaner) applyBytesLimit(segments []*segment) ([]*segment, error)
 
 func (c *deleteCleaner) applyAgeLimit(segments []*segment) ([]*segment, error) {
 	// We must retain at least the active segment.
-	if len(segments) == 1 {
+	if len(segments) <= 1 {
 		return segments, nil
 	}
 
