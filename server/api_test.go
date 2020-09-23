@@ -867,3 +867,60 @@ func TestGetStreamConfig(t *testing.T) {
 	require.Equal(t, int64(7), config.RetentionMaxMessages.Value)
 	require.True(t, config.CompactEnabled.Value)
 }
+
+// Ensure SetCursor stores cursors and FetchCursor retrieves them.
+func TestSetFetchCursor(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure servers.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.CursorsStream.Partitions = 10
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	s2Config := getTestConfig("b", false, 5051)
+	s2 := runServerWithConfig(t, s2Config)
+	s2Config.CursorsStream.Partitions = 10
+	defer s2.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "foo"
+	partition := int32(2)
+	cursorID := "abc"
+
+	err = client.CreateStream(context.Background(), "foo", stream, lift.Partitions(5))
+	require.NoError(t, err)
+
+	println(int32(hasher(s1.cursors.getCursorKey(cursorID, stream, partition)) % uint32(10)))
+	println(int32(hasher(s1.cursors.getCursorKey("123", stream, partition)) % uint32(10)))
+
+	// Fetching cursor that doesn't exist returns -1.
+	offset, err := client.FetchCursor(context.Background(), cursorID, stream, partition)
+	require.NoError(t, err)
+	require.Equal(t, int64(-1), offset)
+
+	err = client.SetCursor(context.Background(), "123", stream, partition, 2)
+	require.NoError(t, err)
+	err = client.SetCursor(context.Background(), cursorID, stream, partition, 5)
+	require.NoError(t, err)
+
+	offset, err = client.FetchCursor(context.Background(), cursorID, stream, partition)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), offset)
+
+	err = client.SetCursor(context.Background(), cursorID, stream, partition, 10)
+	require.NoError(t, err)
+
+	offset, err = client.FetchCursor(context.Background(), cursorID, stream, partition)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), offset)
+}

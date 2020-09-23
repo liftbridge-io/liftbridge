@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"sync"
 
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
@@ -168,7 +167,7 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 	c.getLoopbackClient().Subscribe(ctx, cursorsStream, func(msg *lift.Message, err error) {
 		defer func() {
 			if msg.Offset() == hw {
-				errC <- io.EOF
+				close(msgC)
 			}
 		}()
 		if err != nil {
@@ -188,7 +187,10 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 	)
 	for {
 		select {
-		case msg := <-msgC:
+		case msg, ok := <-msgC:
+			if !ok {
+				return latestOffset, nil
+			}
 			if err := cursor.Unmarshal(msg.Value()); err != nil {
 				c.logger.Errorf("Invalid cursor message in cursors stream: %v", err)
 				continue
