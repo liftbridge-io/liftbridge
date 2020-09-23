@@ -257,9 +257,9 @@ func TestEnsureTimeout(t *testing.T) {
 	require.InDelta(t, timeout.Milliseconds(), time.Until(deadline).Milliseconds(), 1)
 }
 
-// TestMetadataContainOffSetandHighWaterMark ensures that High Watermark and Newest Offset are
-// exposed in metadata
-func TestMetadataContainOffSetandHighWaterMark(t *testing.T) {
+// TestPartitionMetadataContainOffSetandHighWaterMark ensures that High Watermark and Newest Offset are
+// exposed in partition's metadata
+func TestPartitionMetadataContainOffSetandHighWaterMark(t *testing.T) {
 	defer cleanupStorage(t)
 
 	server := New(getTestConfig("a", true, 0))
@@ -278,20 +278,55 @@ func TestMetadataContainOffSetandHighWaterMark(t *testing.T) {
 		},
 	}, false)
 	require.NoError(t, err)
-	streams := []string{"foo"}
-	metadataResponse := metadata.createMetadataResponse(streams)
 
-	// Given that the test metadata has 1 stream and 1 partition by default
-	// Extract the partition information from the metadata response
+	// Monkey patch partition leader
+	// As createPartitionMetadataResponse does not process
+	// request if the server is not the partition's leader
+	// this monkey-patch is necessary
+	stream := metadata.GetStream("foo")
+	p := stream.GetPartition(0)
+	p.isLeading = true
 
-	metadataOfTestStreamPartition0 := metadataResponse.Metadata[0].Partitions[0]
+	// Generate PartitionMetadataResponse
+	partitionMetadataResponse, err := metadata.createPartitionMetadataResponse("foo", 0)
+	require.NoError(t, err)
 
 	// Expect high watermark and offset are present in the metatada
 
 	// High watermark is -1, indicating no message on the partition
-	require.Equal(t, metadataOfTestStreamPartition0.GetHighWatermark(), int64(-1))
+	require.Equal(t, partitionMetadataResponse.GetHighWatermark(), int64(-1))
 
 	// Newest Offset is -1, indicating no message on the partition
-	require.Equal(t, metadataOfTestStreamPartition0.GetNewestOffset(), int64(-1))
+	require.Equal(t, partitionMetadataResponse.GetNewestOffset(), int64(-1))
+
+}
+
+// TestPartitionMetadataError ensures that an error is raised if the server
+// is not the partition leader
+func TestPartitionMetadataError(t *testing.T) {
+	defer cleanupStorage(t)
+
+	server := New(getTestConfig("a", true, 0))
+	metadata := newMetadataAPI(server)
+	defer metadata.Reset()
+
+	_, err := metadata.AddStream(&proto.Stream{
+		Name:    "foo",
+		Subject: "foo",
+		Partitions: []*proto.Partition{
+			{
+				Stream:  "foo",
+				Subject: "foo",
+				Id:      0,
+			},
+		},
+	}, false)
+	require.NoError(t, err)
+
+	// Generate PartitionMetadataResponse
+	_, err = metadata.createPartitionMetadataResponse("foo", 0)
+
+	// Expect error as the server is not the partition leader
+	require.Error(t, err)
 
 }

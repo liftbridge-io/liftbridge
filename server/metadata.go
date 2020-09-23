@@ -233,6 +233,30 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 	return brokers, nil
 }
 
+// createPartitionMetadataResponse creates a PartitionMetadata and populates it with
+// partition metadata. Only the partition leader should process the request
+// as Highest Watermark and Newest Offset of the partition are returned
+// In the usage context, only partition leader has the latest information
+// of Highest Watermark and Newest Offset
+func (m *metadataAPI) createPartitionMetadataResponse(streamName string, partitionID int32) (*client.PartitionMetadata, error) {
+	stream := m.GetStream(streamName)
+	partition := stream.GetPartition(partitionID)
+	leader, _ := partition.GetLeader()
+	if !partition.IsLeader() {
+		return nil, errors.New("The request should be sent to partition leader")
+	}
+	partitionsMetaData := &client.PartitionMetadata{
+		Id:            partitionID,
+		Leader:        leader,
+		Replicas:      partition.GetReplicas(),
+		Isr:           partition.GetISR(),
+		Paused:        partition.GetPaused(),
+		HighWatermark: partition.log.HighWatermark(),
+		NewestOffset:  partition.log.NewestOffset(),
+	}
+	return partitionsMetaData, nil
+}
+
 // createMetadataResponse creates a FetchMetadataResponse and populates it with
 // stream metadata. If the provided list of stream names is empty, it will
 // populate metadata for all streams. Otherwise, it populates only the
