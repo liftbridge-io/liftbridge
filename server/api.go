@@ -246,8 +246,8 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		return nil, convertPublishAsyncError(e)
 	}
 
-	if err := a.ensureStreamNotReadonly(req.Stream, req.Partition); err != nil {
-		return nil, err
+	if e := a.ensureStreamNotReadonly(req.Stream, req.Partition); e != nil {
+		return nil, convertPublishAsyncError(e)
 	}
 
 	if err := a.resumeStream(ctx, req.Stream, req.Partition); err != nil {
@@ -345,17 +345,45 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 	return resp, nil
 }
 
-func (a *apiServer) ensureStreamNotReadonly(name string, partitionID int32) error {
+// SetCursor stores a cursor position for a particular stream partition which
+// is uniquely identified by an opaque string.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest) (
+	*client.SetCursorResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+// FetchCursor retrieves a partition cursor position.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequest) (
+	*client.FetchCursorResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (a *apiServer) ensureStreamNotReadonly(name string, partitionID int32) *client.PublishAsyncError {
 	stream := a.metadata.GetStream(name)
 	if stream == nil {
-		return status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", name))
+		return &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_NOT_FOUND,
+			Message: fmt.Sprintf("no such stream: %s", name),
+		}
 	}
 	partition := stream.GetPartition(partitionID)
 	if partition == nil {
-		return status.Error(codes.NotFound, fmt.Sprintf("No such partition: %d", partitionID))
+		return &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_NOT_FOUND,
+			Message: fmt.Sprintf("no such partition: %d", partitionID),
+		}
 	}
 	if partition.IsReadonly() {
-		return status.Error(codes.FailedPrecondition, fmt.Sprintf("Readonly partition: %d", partitionID))
+		return &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_READONLY,
+			Message: fmt.Sprintf("readonly partition: %d", partitionID),
+		}
 	}
 
 	return nil
@@ -437,8 +465,10 @@ func (a *apiServer) publishAsyncLoop(stream client.API_PublishAsyncServer, ackIn
 			return err
 		}
 
-		if err = a.ensureStreamNotReadonly(req.Stream, req.Partition); err != nil {
-			return err
+		if e := a.ensureStreamNotReadonly(req.Stream, req.Partition); e != nil {
+			a.logger.Errorf("api: Failed to publish async message: %v", e.Message)
+			a.sendPublishAsyncError(stream, req.CorrelationId, e)
+			continue
 		}
 
 		req.AckInbox = ackInbox
@@ -735,8 +765,10 @@ func convertPublishAsyncError(err *client.PublishAsyncError) error {
 		code = codes.NotFound
 	case client.PublishAsyncError_BAD_REQUEST:
 		code = codes.InvalidArgument
+	case client.PublishAsyncError_READONLY:
+		code = codes.FailedPrecondition
 	case client.PublishAsyncError_UNKNOWN:
-		code = codes.Unknown
+		fallthrough
 	default:
 		code = codes.Unknown
 	}
