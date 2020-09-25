@@ -240,13 +240,13 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	// TODO: Deprecate in favor of PublishAsync and log a warning.
 	a.logger.Debugf("api: Publish [stream=%s, partition=%d]", req.Stream, req.Partition)
 
-	subject, err := a.getPublishSubject(req)
-	if err != nil {
-		a.logger.Errorf("api: Failed to publish message: %v", err)
-		return nil, err
+	subject, e := a.getPublishSubject(req)
+	if e != nil {
+		a.logger.Errorf("api: Failed to publish message: %v", e.Message)
+		return nil, convertPublishAsyncError(e)
 	}
 
-	if err = a.ensureStreamNotReadonly(req.Stream, req.Partition); err != nil {
+	if err := a.ensureStreamNotReadonly(req.Stream, req.Partition); err != nil {
 		return nil, err
 	}
 
@@ -292,7 +292,7 @@ func (a *apiServer) PublishAsync(stream client.API_PublishAsyncServer) error {
 			a.logger.Errorf("api: Invalid ack received on ack inbox: %v", err)
 			return
 		}
-		if err := stream.Send(&client.PublishResponse{Ack: ack}); err != nil {
+		if err := stream.Send(&client.PublishResponse{CorrelationId: ack.CorrelationId, Ack: ack}); err != nil {
 			a.logger.Errorf("api: Failed to send PublishAsync response: %v", err)
 		}
 	})
@@ -405,13 +405,19 @@ func (a *apiServer) resumeStream(ctx context.Context, streamName string, partiti
 	return nil
 }
 
-func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, error) {
+func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, *client.PublishAsyncError) {
 	if req.Stream == "" {
-		return "", status.Error(codes.InvalidArgument, "No stream provided")
+		return "", &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_BAD_REQUEST,
+			Message: "no stream provided",
+		}
 	}
 	stream := a.metadata.GetStream(req.Stream)
 	if stream == nil {
-		return "", status.Error(codes.NotFound, fmt.Sprintf("No such stream: %s", req.Stream))
+		return "", &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_NOT_FOUND,
+			Message: fmt.Sprintf("no such stream: %s", req.Stream),
+		}
 	}
 	subject := stream.GetSubject()
 	if req.Partition > 0 {
@@ -437,12 +443,21 @@ func (a *apiServer) publishAsyncLoop(stream client.API_PublishAsyncServer, ackIn
 		req.AckInbox = ackInbox
 
 		a.logger.Debugf("api: PublishAsync [stream=%s, partition=%d]", req.Stream, req.Partition)
-		subject, err := a.getPublishSubject(req)
-		if err != nil {
-			return errors.Wrap(err, "failed to get publish subject")
+
+		subject, e := a.getPublishSubject(req)
+		if e != nil {
+			a.logger.Errorf("api: Failed to publish async message: %v", e.Message)
+			a.sendPublishAsyncError(stream, req.CorrelationId, e)
+			continue
 		}
 		if err := a.resumeStream(stream.Context(), req.Stream, req.Partition); err != nil {
-			return errors.Wrap(err, "failed to resume stream")
+			err = errors.Wrap(err, "failed to resume stream")
+			a.logger.Errorf("api: Failed to publish async message: %v", err)
+			a.sendPublishAsyncError(stream, req.CorrelationId, &client.PublishAsyncError{
+				Code:    client.PublishAsyncError_INTERNAL,
+				Message: err.Error(),
+			})
+			continue
 		}
 		msg, err := proto.MarshalPublish(&client.Message{
 			Key:           req.Key,
@@ -455,11 +470,38 @@ func (a *apiServer) publishAsyncLoop(stream client.API_PublishAsyncServer, ackIn
 			AckPolicy:     req.AckPolicy,
 		})
 		if err != nil {
-			return errors.Wrap(err, "failed to marshal message")
+			err = errors.Wrap(err, "failed to marshal message")
+			a.logger.Errorf("api: Failed to publish async message: %v", err)
+			a.sendPublishAsyncError(stream, req.CorrelationId, &client.PublishAsyncError{
+				Code:    client.PublishAsyncError_INTERNAL,
+				Message: err.Error(),
+			})
+			continue
 		}
 		if err := a.ncPublishes.Publish(subject, msg); err != nil {
-			return errors.Wrap(err, "failed to publish to NATS")
+			err = errors.Wrap(err, "failed to publish to NATS")
+			a.logger.Errorf("api: Failed to publish async message: %v", err)
+			a.sendPublishAsyncError(stream, req.CorrelationId, &client.PublishAsyncError{
+				Code:    client.PublishAsyncError_INTERNAL,
+				Message: err.Error(),
+			})
 		}
+	}
+}
+
+func (a *apiServer) sendPublishAsyncError(stream client.API_PublishAsyncServer,
+	correlationID string, err *client.PublishAsyncError) {
+
+	resp := &client.PublishResponse{
+		CorrelationId: correlationID,
+		// Set an Ack with an empty correlation id so we don't break older
+		// clients that are unaware of AsyncError. TODO (2.0.0): Remove when
+		// clients are expected to check for AsyncError.
+		Ack:        &client.Ack{CorrelationId: ""},
+		AsyncError: err,
+	}
+	if err := stream.Send(resp); err != nil {
+		a.logger.Errorf("api: Failed to send PublishAsync error response: %v", err)
 	}
 }
 
@@ -680,4 +722,23 @@ func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
 		config.CompactEnabled = &proto.NullableBool{Value: req.CompactEnabled.Value}
 	}
 	return config
+}
+
+func convertPublishAsyncError(err *client.PublishAsyncError) error {
+	if err == nil {
+		return nil
+	}
+	var code codes.Code
+	switch err.Code {
+	case client.PublishAsyncError_NOT_FOUND:
+		code = codes.NotFound
+	case client.PublishAsyncError_BAD_REQUEST:
+		code = codes.InvalidArgument
+	case client.PublishAsyncError_UNKNOWN:
+		code = codes.Unknown
+	default:
+		code = codes.Unknown
+	}
+
+	return status.Error(code, err.Message)
 }

@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.2.0 // indirect
 	github.com/hashicorp/go-msgpack v1.1.5 // indirect
 	github.com/hashicorp/raft v1.1.2
-	github.com/liftbridge-io/go-liftbridge v1.0.1-0.20200901163447-38f14d24c90d
+	github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20200925174817-2617a1d8e6f7
 	github.com/liftbridge-io/liftbridge-api v1.1.1-0.20200924210717-4ee8bde00417
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73
@@ -40,7 +40,6 @@ require (
 	go.etcd.io/bbolt v1.3.5 // indirect
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de // indirect
 	golang.org/x/net v0.0.0-20200925080053-05aa5d4ee321 // indirect
-	golang.org/x/sys v0.0.0-20200923182605-d9f96fdee20d // indirect
 	google.golang.org/genproto v0.0.0-20200925023002-c2d885f95484 // indirect
 	google.golang.org/grpc v1.32.0
 	gopkg.in/ini.v1 v1.57.0 // indirect
