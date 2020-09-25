@@ -445,7 +445,14 @@ func (a *apiServer) publishAsyncLoop(stream client.API_PublishAsyncServer, ackIn
 func (a *apiServer) sendPublishAsyncError(stream client.API_PublishAsyncServer,
 	correlationID string, err *client.PublishAsyncError) {
 
-	resp := &client.PublishResponse{CorrelationId: correlationID, AsyncError: err}
+	resp := &client.PublishResponse{
+		CorrelationId: correlationID,
+		// Set an Ack with an empty correlation id so we don't break older
+		// clients that are unaware of AsyncError. TODO (2.0.0): Remove when
+		// clients are expected to check for AsyncError.
+		Ack:        &client.Ack{CorrelationId: ""},
+		AsyncError: err,
+	}
 	if err := stream.Send(resp); err != nil {
 		a.logger.Errorf("api: Failed to send PublishAsync error response: %v", err)
 	}
