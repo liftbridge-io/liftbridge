@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	lift "github.com/liftbridge-io/go-liftbridge"
+	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -1706,7 +1706,9 @@ func TestPublishNoSuchStream(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	_, err = client.Publish(context.Background(), "foo", []byte("hello"))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, "foo", []byte("hello"))
 	require.Error(t, err)
 }
 
@@ -1736,6 +1738,8 @@ func TestPublishNoSuchPartition(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name)
 	require.NoError(t, err)
 
-	_, err = client.Publish(context.Background(), name, []byte("hello"), lift.ToPartition(42))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, []byte("hello"), lift.ToPartition(42))
 	require.Error(t, err)
 }
