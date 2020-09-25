@@ -9,6 +9,10 @@ import (
 	pkgErrors "github.com/pkg/errors"
 )
 
+// ErrCommitLogReadonly is returned when the end of a readonly CommitLog has
+// been reached.
+var ErrCommitLogReadonly = errors.New("end of readonly log")
+
 type contextReader interface {
 	Read(context.Context, []byte) (int, error)
 }
@@ -63,6 +67,9 @@ RETRY:
 		} else if r.log.IsClosed() {
 			// The log was closed while we were trying to read.
 			return nil, 0, 0, 0, ErrCommitLogClosed
+		} else if pkgErrors.Cause(err) == ErrCommitLogReadonly && r.log.IsReadonly() {
+			// The log was set to readonly while we were trying to read.
+			return nil, 0, 0, 0, ErrCommitLogReadonly
 		} else if pkgErrors.Cause(err) == ErrSegmentReplaced {
 			// ErrSegmentReplaced indicates we attempted to read from a log
 			// segment that was replaced due to compaction, so reinitialize the
@@ -220,8 +227,8 @@ func (r *committedReader) Read(ctx context.Context, p []byte) (n int, err error)
 		hw := r.cl.HighWatermark()
 		for hw == r.hw {
 			// The HW has not changed, so wait for it to update.
-			if !r.waitForHW(ctx, hw) {
-				err = io.EOF
+			err = r.waitForHW(ctx, hw)
+			if err != nil {
 				return
 			}
 			// Sync the HW.
@@ -290,8 +297,8 @@ LOOP:
 		hw := r.cl.HighWatermark()
 		for hw == r.hw {
 			// The HW has not changed, so wait for it to update.
-			if !r.waitForHW(ctx, hw) {
-				err = io.EOF
+			err = r.waitForHW(ctx, hw)
+			if err != nil {
 				break LOOP
 			}
 			// Sync the HW.
@@ -310,17 +317,20 @@ LOOP:
 	return n, err
 }
 
-func (r *committedReader) waitForHW(ctx context.Context, hw int64) bool {
+func (r *committedReader) waitForHW(ctx context.Context, hw int64) error {
 	wait := r.cl.waitForHW(r, hw)
 	select {
 	case <-r.cl.closed:
 		r.cl.removeHWWaiter(r)
-		return false
+		return io.EOF
 	case <-ctx.Done():
 		r.cl.removeHWWaiter(r)
-		return false
-	case <-wait:
-		return true
+		return io.EOF
+	case readonly := <-wait:
+		if readonly {
+			return ErrCommitLogReadonly
+		}
+		return nil
 	}
 }
 

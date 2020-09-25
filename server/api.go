@@ -129,8 +129,31 @@ func (a *apiServer) PauseStream(ctx context.Context, req *client.PauseStreamRequ
 // readonly status set.
 func (a *apiServer) SetStreamReadonly(ctx context.Context, req *client.SetStreamReadonlyRequest) (
 	*client.SetStreamReadonlyResponse, error) {
-	// TODO
-	return nil, status.Error(codes.Unimplemented, "not yet implemented")
+
+	resp := &client.SetStreamReadonlyResponse{}
+	a.logger.Debugf("api: SetStreamReadonly [name=%s, partitions=%v, readonly=%v]",
+		req.Name, req.Partitions, req.Readonly)
+
+	if len(req.Partitions) == 0 {
+		stream := a.metadata.GetStream(req.Name)
+		if stream == nil {
+			return nil, status.Error(codes.NotFound, "stream not found")
+		}
+		for _, partition := range stream.GetPartitions() {
+			req.Partitions = append(req.Partitions, partition.Id)
+		}
+	}
+
+	if e := a.metadata.SetStreamReadonly(ctx, &proto.SetStreamReadonlyOp{
+		Stream:     req.Name,
+		Partitions: req.Partitions,
+		Readonly:   req.Readonly,
+	}); e != nil {
+		a.logger.Errorf("api: Failed to set stream readonly flag %v: %v", req.Name, e.Err())
+		return nil, e.Err()
+	}
+
+	return resp, nil
 }
 
 // Subscribe creates an ephemeral subscription for the given stream partition.
@@ -209,7 +232,8 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // Publish a new message to a stream. If the AckPolicy is not NONE and a
 // deadline is provided, this will synchronously block until the ack is
 // received. If the ack is not received in time, a DeadlineExceeded status code
-// is returned.
+// is returned. A FailedPrecondition status code is returned if the partition is
+// readonly.
 func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	*client.PublishResponse, error) {
 
@@ -219,6 +243,10 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	subject, e := a.getPublishSubject(req)
 	if e != nil {
 		a.logger.Errorf("api: Failed to publish message: %v", e.Message)
+		return nil, convertPublishAsyncError(e)
+	}
+
+	if e := a.ensureStreamNotReadonly(req.Stream, req.Partition); e != nil {
 		return nil, convertPublishAsyncError(e)
 	}
 
@@ -317,6 +345,50 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 	return resp, nil
 }
 
+// SetCursor stores a cursor position for a particular stream partition which
+// is uniquely identified by an opaque string.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest) (
+	*client.SetCursorResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+// FetchCursor retrieves a partition cursor position.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequest) (
+	*client.FetchCursorResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (a *apiServer) ensureStreamNotReadonly(name string, partitionID int32) *client.PublishAsyncError {
+	stream := a.metadata.GetStream(name)
+	if stream == nil {
+		return &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_NOT_FOUND,
+			Message: fmt.Sprintf("no such stream: %s", name),
+		}
+	}
+	partition := stream.GetPartition(partitionID)
+	if partition == nil {
+		return &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_NOT_FOUND,
+			Message: fmt.Sprintf("no such partition: %d", partitionID),
+		}
+	}
+	if partition.IsReadonly() {
+		return &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_READONLY,
+			Message: fmt.Sprintf("readonly partition: %d", partitionID),
+		}
+	}
+
+	return nil
+}
+
 func (a *apiServer) resumeStream(ctx context.Context, streamName string, partitionID int32) error {
 	stream := a.metadata.GetStream(streamName)
 	if stream == nil {
@@ -391,6 +463,12 @@ func (a *apiServer) publishAsyncLoop(stream client.API_PublishAsyncServer, ackIn
 				return nil
 			}
 			return err
+		}
+
+		if e := a.ensureStreamNotReadonly(req.Stream, req.Partition); e != nil {
+			a.logger.Errorf("api: Failed to publish async message: %v", e.Message)
+			a.sendPublishAsyncError(stream, req.CorrelationId, e)
+			continue
 		}
 
 		req.AckInbox = ackInbox
@@ -540,6 +618,8 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		return nil, nil, st
 	}
 
+	endOffset := partition.log.NewestOffset()
+
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
@@ -567,6 +647,9 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 						code = codes.FailedPrecondition
 					}
 					s = status.New(code, err.Error())
+				} else if err == commitlog.ErrCommitLogReadonly {
+					// Partition was set to readonly while subscribed.
+					s = status.New(codes.ResourceExhausted, fmt.Sprintf("End of readonly partition"))
 				} else {
 					s = status.Convert(err)
 				}
@@ -594,6 +677,15 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			select {
 			case ch <- msg:
 			case <-cancel:
+				return
+			}
+			if partition.IsReadonly() && offset == endOffset {
+				s := status.New(codes.ResourceExhausted, fmt.Sprintf("End of readonly partition"))
+
+				select {
+				case errCh <- s:
+				case <-cancel:
+				}
 				return
 			}
 		}
@@ -673,8 +765,10 @@ func convertPublishAsyncError(err *client.PublishAsyncError) error {
 		code = codes.NotFound
 	case client.PublishAsyncError_BAD_REQUEST:
 		code = codes.InvalidArgument
+	case client.PublishAsyncError_READONLY:
+		code = codes.FailedPrecondition
 	case client.PublishAsyncError_UNKNOWN:
-		code = codes.Unknown
+		fallthrough
 	default:
 		code = codes.Unknown
 	}

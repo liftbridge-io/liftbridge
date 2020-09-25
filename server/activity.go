@@ -203,6 +203,15 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 				Partitions: log.ResumeStreamOp.Partitions,
 			},
 		}
+	case proto.Op_SET_STREAM_READONLY:
+		event = &client.ActivityStreamEvent{
+			Op: client.ActivityStreamOp_SET_STREAM_READONLY,
+			SetStreamReadonlyOp: &client.SetStreamReadonlyOp{
+				Stream:     log.SetStreamReadonlyOp.Stream,
+				Partitions: log.SetStreamReadonlyOp.Partitions,
+				Readonly:   log.SetStreamReadonlyOp.Readonly,
+			},
+		}
 	default:
 		return nil
 	}
