@@ -252,6 +252,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 
 	if err := a.resumeStream(ctx, req.Stream, req.Partition); err != nil {
 		a.logger.Errorf("api: Failed to resume stream: %v", err)
+		return nil, err
 	}
 
 	if req.AckInbox == "" {
