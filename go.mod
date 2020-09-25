@@ -45,6 +45,3 @@ require (
 	gopkg.in/ini.v1 v1.57.0 // indirect
 	launchpad.net/gocheck v0.0.0-20140225173054-000000000087 // indirect
 )
-
-// Temporary replacements until upstream merge.
-replace github.com/liftbridge-io/go-liftbridge => github.com/ably-forks/go-liftbridge v1.0.1-0.20200907110023-38daabe19873
