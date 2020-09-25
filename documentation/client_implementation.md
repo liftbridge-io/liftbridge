@@ -301,6 +301,7 @@ configure a subscription. Supported options are:
 | StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
 | StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
 | ReadISRReplica | bool | Sets the subscription to one of a random ISR replica instead of subscribing to the partition's leader. | false |
+| Resume | bool | Specifies whether a paused partition should be resumed before subscribing. | false |
 
 Currently, `Subscribe` can only subscribe to a single partition. In the future,
 there will be functionality for consuming all partitions.
@@ -773,13 +774,15 @@ func (a AckPolicy) toProto() proto.AckPolicy {
 // Ack represents an acknowledgement that a message was committed to a stream
 // partition.
 type Ack struct {
-	stream           string
-	partitionSubject string
-	messageSubject   string
-	offset           int64
-	ackInbox         string
-	correlationID    string
-	ackPolicy        AckPolicy
+	stream             string
+	partitionSubject   string
+	messageSubject     string
+	offset             int64
+	ackInbox           string
+	correlationID      string
+	ackPolicy          AckPolicy
+	receptionTimestamp time.Time
+	commitTimestamp    time.Time
 }
 
 func ackFromProto(wireAck *proto.Ack) *Ack {
@@ -787,13 +790,15 @@ func ackFromProto(wireAck *proto.Ack) *Ack {
 		return nil
 	}
 	ack := &Ack{
-		stream:           wireAck.GetStream(),
-		partitionSubject: wireAck.GetPartitionSubject(),
-		messageSubject:   wireAck.GetMsgSubject(),
-		offset:           wireAck.GetOffset(),
-		ackInbox:         wireAck.GetAckInbox(),
-		correlationID:    wireAck.GetCorrelationId(),
-		ackPolicy:        AckPolicy(wireAck.GetAckPolicy()),
+		stream:             wireAck.GetStream(),
+		partitionSubject:   wireAck.GetPartitionSubject(),
+		messageSubject:     wireAck.GetMsgSubject(),
+		offset:             wireAck.GetOffset(),
+		ackInbox:           wireAck.GetAckInbox(),
+		correlationID:      wireAck.GetCorrelationId(),
+		ackPolicy:          AckPolicy(wireAck.GetAckPolicy()),
+		receptionTimestamp: time.Unix(0, wireAck.GetReceptionTimestamp()),
+		commitTimestamp:    time.Unix(0, wireAck.GetCommitTimestamp()),
 	}
 	return ack
 }
@@ -831,6 +836,36 @@ func (a *Ack) CorrelationID() string {
 // AckPolicy sent on the message.
 func (a *Ack) AckPolicy() AckPolicy {
 	return a.ackPolicy
+}
+
+// ReceptionTimestamp is the timestamp the message was received by the server.
+func (a *Ack) ReceptionTimestamp() time.Time {
+	return a.receptionTimestamp
+}
+
+// CommitTimestamp is the timestamp the message was committed.
+func (a *Ack) CommitTimestamp() time.Time {
+	return a.commitTimestamp
+}
+```
+
+With [`PublishAsync`](#publishasync), the server can also send back `PublishResponse` messages
+containing a `PublishAsyncError` in the event of a failed publish. Similar to
+`Ack`, client implementations should wrap this error object before exposing it
+to the user. An example of this is shown in the Go implementation
+`asyncErrorFromProto` below.
+
+```go
+func asyncErrorFromProto(asyncError *proto.PublishAsyncError) error {
+	if asyncError == nil {
+		return nil
+	}
+	switch asyncError.Code {
+	case proto.PublishAsyncError_NOT_FOUND:
+		return ErrNoSuchPartition
+	default:
+		return errors.New(asyncError.Message)
+	}
 }
 ```
 
@@ -1241,7 +1276,9 @@ received from the server. We recommend initializing a dedicated gRPC connection
 for `PublishAsync` and starting a background thread for dispatching acks when
 the client is initialized. In the Go implementation, we start a `dispatchAcks`
 goroutine, shown below, which receives acks from the server and dispatches the
-appropriate callback.
+appropriate callback. `PublishResponse`, the message sent by the server, also
+includes a `PublishAsyncError`. This is set if an async publish failed, e.g.
+because the partition published to does not exist.
 
 Since the `PublishAsync` RPC is a long-lived streaming endpoint, it's possible
 for the connection to be disrupted, such as in the case of a server failure.
@@ -1278,9 +1315,16 @@ func (c *client) dispatchAcks() {
 			continue
 		}
 
-		ctx := c.removeAckContext(resp.Ack.CorrelationId)
+		var correlationID string
+		if resp.AsyncError != nil {
+			correlationID = resp.CorrelationId
+		} else if resp.Ack != nil {
+			// TODO: Use resp.CorrelationId once Ack.CorrelationId is removed.
+			correlationID = resp.Ack.CorrelationId
+		}
+		ctx := c.removeAckContext(correlationID)
 		if ctx != nil && ctx.handler != nil {
-			ctx.handler(ackFromProto(resp.Ack), nil)
+			ctx.handler(ackFromProto(resp.Ack), asyncErrorFromProto(resp.AsyncError))
 		}
 	}
 }
