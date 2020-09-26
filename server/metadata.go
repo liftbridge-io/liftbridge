@@ -154,6 +154,18 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 	return resp, nil
 }
 
+// FetchPartitionMetadata retrieves the metadata of the partition leader. This mainly serves
+// the purpose of returning Highest Watermakr and Newest Offset
+func (m *metadataAPI) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (*client.FetchPartitionMetadataResponse,
+	*status.Status) {
+	resp, err := m.createPartitionMetadataResponse(req.Stream, req.PartitionID)
+	if err != nil {
+		return nil, status.New(codes.Internal, err.Error())
+	}
+	return resp, nil
+
+}
+
 // brokerCache checks if the cache of broker metadata is clean and, if it is
 // and it's not past the metadata cache max age, returns the cached broker
 // list. The bool returned indicates if the cached data is returned or not.
@@ -238,7 +250,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 // as Highest Watermark and Newest Offset of the partition are returned
 // In the usage context, only partition leader has the latest information
 // of Highest Watermark and Newest Offset
-func (m *metadataAPI) createPartitionMetadataResponse(streamName string, partitionID int32) (*client.PartitionMetadata, error) {
+func (m *metadataAPI) createPartitionMetadataResponse(streamName string, partitionID int32) (*client.FetchPartitionMetadataResponse, error) {
 	stream := m.GetStream(streamName)
 	partition := stream.GetPartition(partitionID)
 	leader, _ := partition.GetLeader()
@@ -254,7 +266,8 @@ func (m *metadataAPI) createPartitionMetadataResponse(streamName string, partiti
 		HighWatermark: partition.log.HighWatermark(),
 		NewestOffset:  partition.log.NewestOffset(),
 	}
-	return partitionsMetaData, nil
+	partitionMetadataResponse := &client.FetchPartitionMetadataResponse{PartitionMetadata: partitionsMetaData}
+	return partitionMetadataResponse, nil
 }
 
 // createMetadataResponse creates a FetchMetadataResponse and populates it with

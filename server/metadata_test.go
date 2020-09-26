@@ -294,10 +294,10 @@ func TestPartitionMetadataContainOffSetandHighWaterMark(t *testing.T) {
 	// Expect high watermark and offset are present in the metatada
 
 	// High watermark is -1, indicating no message on the partition
-	require.Equal(t, partitionMetadataResponse.GetHighWatermark(), int64(-1))
+	require.Equal(t, partitionMetadataResponse.PartitionMetadata.GetHighWatermark(), int64(-1))
 
 	// Newest Offset is -1, indicating no message on the partition
-	require.Equal(t, partitionMetadataResponse.GetNewestOffset(), int64(-1))
+	require.Equal(t, partitionMetadataResponse.PartitionMetadata.GetNewestOffset(), int64(-1))
 
 }
 
