@@ -222,6 +222,18 @@ func (p *partition) IsPaused() bool {
 	return p.paused
 }
 
+// SetReadonly enables or disables readonly for the partition. When enabled,
+// new messages cannot be written to the log and consumers will not block once
+// they reach the end of the log. This does not affect replication.
+func (p *partition) SetReadonly(readonly bool) {
+	p.log.SetReadonly(readonly)
+}
+
+// IsReadonly indicates if the partition is currently readonly.
+func (p *partition) IsReadonly() bool {
+	return p.log.IsReadonly()
+}
+
 // Delete stops the partition if it is running, closes, and deletes the commit
 // log.
 func (p *partition) Delete() error {

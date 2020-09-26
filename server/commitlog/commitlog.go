@@ -34,7 +34,7 @@ const (
 // commitLog implements the CommitLog interface, which is a durable write-ahead
 // log.
 type commitLog struct {
-	Options
+	readonly         int32 // Atomic flag
 	deleteCleaner    *deleteCleaner
 	compactCleaner   *compactCleaner
 	name             string
@@ -43,9 +43,10 @@ type commitLog struct {
 	closed           chan struct{}
 	segments         []*segment
 	vActiveSegment   *segment
-	hwWaiters        map[contextReader]chan struct{}
+	hwWaiters        map[contextReader]chan bool
 	leaderEpochCache *leaderEpochCache
 	deleted          bool
+	Options
 }
 
 // Options contains settings for configuring a commitLog.
@@ -115,7 +116,7 @@ func New(opts Options) (CommitLog, error) {
 		compactCleaner:   compactCleaner,
 		hw:               -1,
 		closed:           make(chan struct{}),
-		hwWaiters:        make(map[contextReader]chan struct{}),
+		hwWaiters:        make(map[contextReader]chan bool),
 		leaderEpochCache: epochCache,
 	}
 
@@ -211,8 +212,12 @@ func (l *commitLog) open() error {
 }
 
 // Append writes the given batch of messages to the log and returns their
-// corresponding offsets in the log.
+// corresponding offsets in the log. This will return ErrCommitLogReadonly if
+// the log is in readonly mode.
 func (l *commitLog) Append(msgs []*Message) ([]int64, error) {
+	if l.IsReadonly() {
+		return nil, ErrCommitLogReadonly
+	}
 	if _, err := l.checkAndPerformSplit(); err != nil {
 		return nil, err
 	}
@@ -229,7 +234,9 @@ func (l *commitLog) Append(msgs []*Message) ([]int64, error) {
 }
 
 // AppendMessageSet writes the given message set data to the log and returns
-// the corresponding offsets in the log.
+// the corresponding offsets in the log. This can be called even if the log is
+// in readonly mode to allow for reconciliation, e.g. when replicating from
+// another log.
 func (l *commitLog) AppendMessageSet(ms []byte) ([]int64, error) {
 	if _, err := l.checkAndPerformSplit(); err != nil {
 		return nil, err
@@ -327,7 +334,7 @@ func (l *commitLog) SetHighWatermark(hw int64) {
 	l.mu.Lock()
 	if hw > l.hw {
 		l.hw = hw
-		l.notifyHWWaiters()
+		l.notifyHWChange()
 	}
 	l.mu.Unlock()
 	// TODO: should we flush the HW to disk here?
@@ -339,24 +346,47 @@ func (l *commitLog) SetHighWatermark(hw int64) {
 func (l *commitLog) OverrideHighWatermark(hw int64) {
 	l.mu.Lock()
 	l.hw = hw
-	l.notifyHWWaiters()
+	l.notifyHWChange()
 	l.mu.Unlock()
 }
 
-func (l *commitLog) notifyHWWaiters() {
+// notifyHWChange signals all HW waiters to wake up because the HW has changed.
+// This must be called within the log mutex.
+func (l *commitLog) notifyHWChange() {
 	for r, ch := range l.hwWaiters {
-		close(ch)
+		ch <- false
 		delete(l.hwWaiters, r)
 	}
 }
 
-func (l *commitLog) waitForHW(r contextReader, hw int64) <-chan struct{} {
-	wait := make(chan struct{})
+// notifyReadonly signals all HW waiters to wake up if the HW is caught up to
+// the LEO because the log has become readonly. This must be called within the
+// log mutex.
+func (l *commitLog) notifyReadonly() {
+	if l.hw < l.NewestOffset() {
+		return
+	}
+	// HW is caught up to LEO so notify HW waiters.
+	for r, ch := range l.hwWaiters {
+		ch <- true
+		delete(l.hwWaiters, r)
+	}
+}
+
+// waitForHW registers an HW waiter and returns a channel which will receive a
+// bool either when the HW changes (false) or the log has become readonly
+// (true).
+func (l *commitLog) waitForHW(r contextReader, hw int64) <-chan bool {
+	wait := make(chan bool, 1)
 	l.mu.Lock()
-	// Check if HW has changed.
 	if l.hw != hw {
-		close(wait)
+		// HW has changed since reader last checked so they can unblock now.
+		wait <- false
+	} else if l.hw == l.NewestOffset() && l.IsReadonly() {
+		// Log is readonly and HW is caught up to LEO so return an error to reader.
+		wait <- true
 	} else {
+		// Reader needs to wait for HW to advance.
 		l.hwWaiters[r] = wait
 	}
 	l.mu.Unlock()
@@ -543,6 +573,32 @@ func (l *commitLog) Segments() []*segment {
 // opaque value that uniquely identifies the entity waiting for data.
 func (l *commitLog) NotifyLEO(waiter interface{}, leo int64) <-chan struct{} {
 	return l.activeSegment().WaitForLEO(waiter, leo)
+}
+
+// SetReadonly marks the log as readonly. When in readonly mode, new messages
+// cannot be added to the log with Append and committed readers will read up to
+// the log end offset (LEO), if the HW allows so, and then will receive an
+// ErrCommitLogReadonly error. This will unblock committed readers waiting for
+// data if they are at the LEO. Readers will continue to block if the HW is
+// less than the LEO. This does not affect uncommitted readers. Messages can
+// still be written to the log with AppendMessageSet for reconciliation
+// purposes, e.g. when replicating from another log.
+func (l *commitLog) SetReadonly(readonly bool) {
+	value := int32(0)
+	if readonly {
+		value = 1
+	}
+	atomic.StoreInt32(&l.readonly, value)
+	if readonly {
+		l.mu.Lock()
+		l.notifyReadonly()
+		l.mu.Unlock()
+	}
+}
+
+// IsReadonly indicates if the log is in readonly mode.
+func (l *commitLog) IsReadonly() bool {
+	return atomic.LoadInt32(&l.readonly) == 1
 }
 
 // checkAndPerformSplit determines if a new log segment should be rolled out

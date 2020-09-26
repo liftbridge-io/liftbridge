@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	lift "github.com/liftbridge-io/go-liftbridge"
+	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/pkg/errors"
 
@@ -201,6 +201,15 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 			ResumeStreamOp: &client.ResumeStreamOp{
 				Stream:     log.ResumeStreamOp.Stream,
 				Partitions: log.ResumeStreamOp.Partitions,
+			},
+		}
+	case proto.Op_SET_STREAM_READONLY:
+		event = &client.ActivityStreamEvent{
+			Op: client.ActivityStreamOp_SET_STREAM_READONLY,
+			SetStreamReadonlyOp: &client.SetStreamReadonlyOp{
+				Stream:     log.SetStreamReadonlyOp.Stream,
+				Partitions: log.SetStreamReadonlyOp.Partitions,
+				Readonly:   log.SetStreamReadonlyOp.Readonly,
 			},
 		}
 	default:
