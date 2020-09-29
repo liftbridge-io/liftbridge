@@ -429,11 +429,9 @@ func (s *Server) createLoopbackClient() error {
 		time.Sleep(time.Millisecond)
 	}
 	if conn == nil {
-		println("yo")
 		return err
 	}
 	if err := conn.Close(); err != nil {
-		println("hi")
 		return err
 	}
 	opts := []lift.ClientOption{}
@@ -444,7 +442,6 @@ func (s *Server) createLoopbackClient() error {
 	}
 	client, err := lift.Connect([]string{addr.String()}, opts...)
 	if err != nil {
-		println("hello")
 		return err
 	}
 	s.client.Store(client)
@@ -641,6 +638,8 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		resp = s.handlePauseStream(req)
 	case proto.Op_RESUME_STREAM:
 		resp = s.handleResumeStream(req)
+	case proto.Op_SET_STREAM_READONLY:
+		resp = s.handleSetStreamReadonly(req)
 	default:
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
 		return
@@ -719,6 +718,16 @@ func (s *Server) handleResumeStream(req *proto.PropagatedRequest) *proto.Propaga
 		Op: req.Op,
 	}
 	if err := s.metadata.ResumeStream(context.Background(), req.ResumeStreamOp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	return resp
+}
+
+func (s *Server) handleSetStreamReadonly(req *proto.PropagatedRequest) *proto.PropagatedResponse {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.SetStreamReadonly(context.Background(), req.SetStreamReadonlyOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
 	return resp

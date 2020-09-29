@@ -28,22 +28,20 @@ to implementing a high-level client.
 
 ## Client Interface
 
-A high-level client has several operations:
+A high-level client has the following operations:
 
-- [`CreateStream`](#createstream): creates a new stream attached to a NATS
-  subject (or group of related NATS subjects if partitioned)
-- [`DeleteStream`](#deletestream): deletes a stream and all of its partitions
-- [`PauseStream`](#pausestream): pauses some or all of a stream's partitions
-  until they are published to
-- [`Subscribe`](#subscribe): creates an ephemeral subscription for a given
-  stream that messages are received on
-- [`Publish`](#publish): publishes a new message to a Liftbridge stream
-- [`PublishAsync`](#publishasync): publishes a new message to a Liftbridge
-  stream asynchronously
-- [`PublishToSubject`](#publishtosubject): publishes a new message to a NATS
-  subject
-- [`FetchMetadata`](#fetchmetadata): retrieves metadata from the cluster
-- [`Close`](#close): closes any client connections to Liftbridge
+| Operation | Description |
+|:----|:----|
+| [CreateStream](#createstream) | Creates a new stream attached to a NATS subject (or group of related NATS subjects if partitioned) |
+| [DeleteStream](#deletestream) | Deletes a stream and all of its partitions |
+| [PauseStream](#pausestream) | Pauses some or all of a stream's partitions until they are published to |
+| [SetStreamReadonly](#setstreamreadonly) | Sets some or all of a stream's partitions as readonly or readwrite |
+| [Subscribe](#subscribe) | Creates an ephemeral subscription for a given stream that messages are received on |
+| [Publish](#publish) | Publishes a new message to a Liftbridge stream |
+| [PublishAsync](#publishasync) | Publishes a new message to a Liftbridge stream asynchronously |
+| [PublishToSubject](#publishtosubject) | Publishes a new message to a NATS subject |
+| [FetchMetadata](#fetchmetadata) | Retrieves metadata from the cluster |
+| [Close](#close) | Closes any client connections to Liftbridge |
 
 Below is the interface definition of the Go Liftbridge client. We'll walk
 through each of these operations in more detail below.
@@ -72,6 +70,15 @@ type Client interface {
 	// the Liftbridge Publish API or ResumeAll is enabled and another partition
 	// in the stream is published to.
 	PauseStream(ctx context.Context, name string, opts ...PauseOption) error
+
+	// SetStreamReadonly sets the readonly flag on a stream and some or all of
+	// its partitions. Name is the stream identifier, globally unique. It
+	// returns an ErrNoSuchPartition if the given stream or partition does not
+	// exist. By default, this will set the readonly flag on all partitions.
+	// Subscribers to a readonly partition will see their subscription ended
+	// with a ErrReadonlyPartition error once all messages currently in the
+	// partition have been read.
+	SetStreamReadonly(ctx context.Context, name string, opts ...ReadonlyOption) error
 
 	// Subscribe creates an ephemeral subscription for the given stream. It
 	// begins receiving messages starting at the configured position and waits
@@ -244,6 +251,46 @@ configure stream pausing. Supported options are:
 
 [Implementation Guidance](#pausestream-implementation)
 
+### SetStreamReadonly
+
+```go
+// SetStreamReadonly sets the readonly flag on a stream and some or all of
+// its partitions. Name is the stream identifier, globally unique. It
+// returns an ErrNoSuchPartition if the given stream or partition does not
+// exist. By default, this will set the readonly flag on all partitions.
+// Subscribers to a readonly partition will see their subscription ended
+// with a ErrReadonlyPartition error once all messages currently in the
+// partition have been read.
+func (c *client) SetStreamReadonly(ctx context.Context, name string, options ...ReadonlyOption) error
+```
+
+`SetStreamReadonly` sets some or all of a stream's partitions as readonly or
+readwrite. Attempting to publish to a readonly partition will result in an
+`ErrReadonlyPartition` error/exception. Subscribers consuming a readonly
+partition will read up to the end of the partition and then receive an
+`ErrReadonlyPartition` error.
+
+In the Go client example above, `SetStreamReadonly` takes three arguments:
+
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
+| name | string | The name of the stream whose partitions to set the readonly flag for. | yes |
+| options | readonly options | Zero or more readonly options. These are used to pass in optional settings for setting the readonly flag. This is a common [Go pattern](https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis) for implementing extensible APIs. In other languages, this might be replaced with a builder pattern or optional named arguments. These `SetStreamReadonly` options are described below. | language-dependent |
+
+The readonly options are the equivalent of optional named arguments used to
+configure readonly requests. Supported options are:
+
+| Option | Type | Description | Default |
+|:----|:----|:----|:----|
+| ReadonlyPartitions | list of ints | Specifies the stream partitions to set the readonly flag for. If not set, all partitions will be changed. | |
+| Readonly | bool | Defines if the partitions should be set to readonly or readwrite. | false |
+
+`SetStreamReadonly` returns/throws an error if the operation fails,
+specifically `ErrNoSuchPartition` if the stream or partition(s) do not exist.
+
+[Implementation Guidance](#setstreamreadonly-implementation)
+
 ### Subscribe
 
 ```go
@@ -301,6 +348,7 @@ configure a subscription. Supported options are:
 | StartAtTime | timestamp | Sets the subscription start position to the first message with a timestamp greater than or equal to the given time. | |
 | StartAtTimeDelta | time duration | Sets the subscription start position to the first message with a timestamp greater than or equal to `now - delta`. | |
 | ReadISRReplica | bool | Sets the subscription to one of a random ISR replica instead of subscribing to the partition's leader. | false |
+| Resume | bool | Specifies whether a paused partition should be resumed before subscribing. | false |
 
 Currently, `Subscribe` can only subscribe to a single partition. In the future,
 there will be functionality for consuming all partitions.
@@ -773,13 +821,15 @@ func (a AckPolicy) toProto() proto.AckPolicy {
 // Ack represents an acknowledgement that a message was committed to a stream
 // partition.
 type Ack struct {
-	stream           string
-	partitionSubject string
-	messageSubject   string
-	offset           int64
-	ackInbox         string
-	correlationID    string
-	ackPolicy        AckPolicy
+	stream             string
+	partitionSubject   string
+	messageSubject     string
+	offset             int64
+	ackInbox           string
+	correlationID      string
+	ackPolicy          AckPolicy
+	receptionTimestamp time.Time
+	commitTimestamp    time.Time
 }
 
 func ackFromProto(wireAck *proto.Ack) *Ack {
@@ -787,13 +837,15 @@ func ackFromProto(wireAck *proto.Ack) *Ack {
 		return nil
 	}
 	ack := &Ack{
-		stream:           wireAck.GetStream(),
-		partitionSubject: wireAck.GetPartitionSubject(),
-		messageSubject:   wireAck.GetMsgSubject(),
-		offset:           wireAck.GetOffset(),
-		ackInbox:         wireAck.GetAckInbox(),
-		correlationID:    wireAck.GetCorrelationId(),
-		ackPolicy:        AckPolicy(wireAck.GetAckPolicy()),
+		stream:             wireAck.GetStream(),
+		partitionSubject:   wireAck.GetPartitionSubject(),
+		messageSubject:     wireAck.GetMsgSubject(),
+		offset:             wireAck.GetOffset(),
+		ackInbox:           wireAck.GetAckInbox(),
+		correlationID:      wireAck.GetCorrelationId(),
+		ackPolicy:          AckPolicy(wireAck.GetAckPolicy()),
+		receptionTimestamp: time.Unix(0, wireAck.GetReceptionTimestamp()),
+		commitTimestamp:    time.Unix(0, wireAck.GetCommitTimestamp()),
 	}
 	return ack
 }
@@ -832,6 +884,38 @@ func (a *Ack) CorrelationID() string {
 func (a *Ack) AckPolicy() AckPolicy {
 	return a.ackPolicy
 }
+
+// ReceptionTimestamp is the timestamp the message was received by the server.
+func (a *Ack) ReceptionTimestamp() time.Time {
+	return a.receptionTimestamp
+}
+
+// CommitTimestamp is the timestamp the message was committed.
+func (a *Ack) CommitTimestamp() time.Time {
+	return a.commitTimestamp
+}
+```
+
+With [`PublishAsync`](#publishasync), the server can also send back `PublishResponse` messages
+containing a `PublishAsyncError` in the event of a failed publish. Similar to
+`Ack`, client implementations should wrap this error object before exposing it
+to the user. An example of this is shown in the Go implementation
+`asyncErrorFromProto` below.
+
+```go
+func asyncErrorFromProto(asyncError *proto.PublishAsyncError) error {
+	if asyncError == nil {
+		return nil
+	}
+	switch asyncError.Code {
+	case proto.PublishAsyncError_NOT_FOUND:
+		return ErrNoSuchPartition
+	case proto.PublishAsyncError_READONLY:
+		return ErrReadonlyPartition
+	default:
+		return errors.New(asyncError.Message)
+	}
+}
 ```
 
 ### RPCs
@@ -851,6 +935,7 @@ idempotency reasons. This resilient RPC method can be used for RPCs such as:
 - `CreateStream`
 - `DeleteStream`
 - `PauseStream`
+- `SetStreamReadonly`
 - `PublishToSubject`
 - `FetchMetadata`
 
@@ -1081,6 +1166,46 @@ func (c *client) PauseStream(ctx context.Context, name string, options ...PauseO
 }
 ```
 
+### SetStreamReadonly Implementation
+
+The `SetStreamReadonly` implementation simply constructs a gRPC request and
+executes it using the [resilient RPC method](#rpcs) described above. If the
+`NotFound` gRPC error is returned, an `ErrNoSuchPartition` error/exception is
+thrown.  Otherwise, any other error/exception is thrown if the operation
+failed.
+
+```go
+// SetStreamReadonly sets the readonly flag on a stream and some or all of
+// its partitions. Name is the stream identifier, globally unique. It
+// returns an ErrNoSuchPartition if the given stream or partition does not
+// exist. By default, this will set the readonly flag on all partitions.
+// Subscribers to a readonly partition will see their subscription ended
+// with a ErrReadonlyPartition error once all messages currently in the
+// partition have been read.
+func (c *client) SetStreamReadonly(ctx context.Context, name string, options ...ReadonlyOption) error {
+	opts := &ReadonlyOptions{}
+	for _, opt := range options {
+		if err := opt(opts); err != nil {
+			return err
+		}
+	}
+
+	req := &proto.SetStreamReadonlyRequest{
+		Name:       name,
+		Partitions: opts.Partitions,
+		Readonly:   !opts.Readwrite,
+	}
+	err := c.doResilientRPC(func(client proto.APIClient) error {
+		_, err := client.SetStreamReadonly(ctx, req)
+		return err
+	})
+	if status.Code(err) == codes.NotFound {
+		return ErrNoSuchPartition
+	}
+	return err
+}
+```
+
 ### Subscribe Implementation
 
 `Subscribe` works by making a gRPC request which returns a stream that sends
@@ -1241,7 +1366,9 @@ received from the server. We recommend initializing a dedicated gRPC connection
 for `PublishAsync` and starting a background thread for dispatching acks when
 the client is initialized. In the Go implementation, we start a `dispatchAcks`
 goroutine, shown below, which receives acks from the server and dispatches the
-appropriate callback.
+appropriate callback. `PublishResponse`, the message sent by the server, also
+includes a `PublishAsyncError`. This is set if an async publish failed, e.g.
+because the partition published to does not exist.
 
 Since the `PublishAsync` RPC is a long-lived streaming endpoint, it's possible
 for the connection to be disrupted, such as in the case of a server failure.
@@ -1278,9 +1405,16 @@ func (c *client) dispatchAcks() {
 			continue
 		}
 
-		ctx := c.removeAckContext(resp.Ack.CorrelationId)
+		var correlationID string
+		if resp.AsyncError != nil {
+			correlationID = resp.CorrelationId
+		} else if resp.Ack != nil {
+			// TODO: Use resp.CorrelationId once Ack.CorrelationId is removed.
+			correlationID = resp.Ack.CorrelationId
+		}
+		ctx := c.removeAckContext(correlationID)
 		if ctx != nil && ctx.handler != nil {
-			ctx.handler(ackFromProto(resp.Ack), nil)
+			ctx.handler(ackFromProto(resp.Ack), asyncErrorFromProto(resp.AsyncError))
 		}
 	}
 }

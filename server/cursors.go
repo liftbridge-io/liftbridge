@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/hashicorp/golang-lru"
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -13,16 +15,28 @@ import (
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
+const (
+	defaultCursorTimeout = 5 * time.Second
+	cursorCacheSize      = 512
+)
+
 // cursorManager provides an API for managing consumer cursor positions for
-// stream partitions.
+// stream partitions. A cursorManager can only accept operations for requests
+// that map to internal cursor partitions of which this server is the leader.
+// Otherwise, it will return an error.
 type cursorManager struct {
 	*Server
-	mu sync.RWMutex
+	mu           sync.RWMutex
+	cache        *lru.Cache
+	disableCache bool // Used for testing purposes only
 }
 
 func newCursorManager(s *Server) *cursorManager {
+	// Ignoring error here because it's only returned if size is <= 0.
+	cache, _ := lru.New(cursorCacheSize)
 	return &cursorManager{
 		Server: s,
+		cache:  cache,
 	}
 }
 
@@ -43,7 +57,7 @@ func (c *cursorManager) Initialize() error {
 		partitions[i] = &proto.Partition{
 			Subject:           c.getCursorStreamSubject(),
 			Stream:            cursorsStream,
-			ReplicationFactor: maxReplicationFactor, // TODO: Make configurable
+			ReplicationFactor: maxReplicationFactor,
 			Id:                i,
 		}
 	}
@@ -76,24 +90,34 @@ func (c *cursorManager) SetCursor(ctx context.Context, streamName, cursorID stri
 	}
 
 	var (
-		cursor, err = (&proto.Cursor{
+		cursor = &proto.Cursor{
 			Stream:    streamName,
 			Partition: partitionID,
 			CursorId:  cursorID,
 			Offset:    offset,
-		}).Marshal()
+		}
+		serializedCursor, err = cursor.Marshal()
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	_, err = c.getLoopbackClient().Publish(ctx, cursorsStream, cursor,
+	ctx, cancel := ensureTimeout(ctx, defaultCursorTimeout)
+	defer cancel()
+
+	// We lock on write to ensure ordering is consistent between the partition
+	// and in-memory cache even though the cache itself is thread-safe.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	_, err = c.getLoopbackClient().Publish(ctx, cursorsStream, serializedCursor,
 		lift.ToPartition(cursorsPartitionID), lift.Key(cursorKey), lift.AckPolicyAll())
 	if err != nil {
 		return status.New(codes.Internal, err.Error())
 	}
 
-	// TODO: Add caching
+	// Cache the offset.
+	c.cache.Add(string(cursorKey), cursor.Offset)
 
 	return nil
 }
@@ -108,10 +132,27 @@ func (c *cursorManager) GetCursor(ctx context.Context, streamName, cursorID stri
 	if st != nil {
 		return 0, st
 	}
+
+	if !c.disableCache {
+		c.mu.RLock()
+		if offset, ok := c.cache.Get(string(cursorKey)); ok {
+			c.mu.RUnlock()
+			return offset.(int64), nil
+		}
+		c.mu.RUnlock()
+	}
+
+	// Find the latest offset for the cursor in the log.
 	offset, err := c.getLatestCursorOffset(ctx, cursorKey, cursorsPartitionID)
 	if err != nil {
 		return 0, status.New(codes.Internal, err.Error())
 	}
+
+	// Cache the offset.
+	c.mu.Lock()
+	c.cache.Add(string(cursorKey), offset)
+	c.mu.Unlock()
+
 	return offset, nil
 }
 
@@ -143,8 +184,6 @@ func (c *cursorManager) getCursorKey(cursorID, streamName string, partitionID in
 }
 
 func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []byte, partitionID int32) (int64, error) {
-	// TODO: Add caching
-
 	partition := c.metadata.GetPartition(cursorsStream, partitionID)
 	if partition == nil {
 		return 0, fmt.Errorf("Cursors partition %d does not exist", partitionID)
@@ -156,7 +195,6 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 		return -1, nil
 	}
 
-	// Find the latest offset for the cursor in the log.
 	// TODO: This can likely be made more efficient.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -204,5 +242,4 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 			return 0, ctx.Err()
 		}
 	}
-
 }

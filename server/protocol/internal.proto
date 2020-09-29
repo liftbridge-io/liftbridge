@@ -7,27 +7,29 @@ message ServerState {
 }
 
 enum Op {
-    CREATE_STREAM    = 0;
-    SHRINK_ISR       = 1;
-    REPORT_LEADER    = 2;
-    CHANGE_LEADER    = 3;
-    EXPAND_ISR       = 4;
-    DELETE_STREAM    = 5;
-    PAUSE_STREAM     = 6;
-    RESUME_STREAM    = 7;
-    PUBLISH_ACTIVITY = 8;
+    CREATE_STREAM       = 0;
+    SHRINK_ISR          = 1;
+    REPORT_LEADER       = 2;
+    CHANGE_LEADER       = 3;
+    EXPAND_ISR          = 4;
+    DELETE_STREAM       = 5;
+    PAUSE_STREAM        = 6;
+    RESUME_STREAM       = 7;
+    PUBLISH_ACTIVITY    = 8;
+    SET_STREAM_READONLY = 9;
 }
 
 message RaftLog {
-    Op                op                = 1;
-    CreateStreamOp    createStreamOp    = 2;
-    ShrinkISROp       shrinkISROp       = 3;
-    ChangeLeaderOp    changeLeaderOp    = 4;
-    ExpandISROp       expandISROp       = 5;
-    DeleteStreamOp    deleteStreamOp    = 6;
-    PauseStreamOp     pauseStreamOp     = 7;
-    ResumeStreamOp    resumeStreamOp    = 8;
-    PublishActivityOp publishActivityOp = 9;
+    Op                  op                  = 1;
+    CreateStreamOp      createStreamOp      = 2;
+    ShrinkISROp         shrinkISROp         = 3;
+    ChangeLeaderOp      changeLeaderOp      = 4;
+    ExpandISROp         expandISROp         = 5;
+    DeleteStreamOp      deleteStreamOp      = 6;
+    PauseStreamOp       pauseStreamOp       = 7;
+    ResumeStreamOp      resumeStreamOp      = 8;
+    PublishActivityOp   publishActivityOp   = 9;
+    SetStreamReadonlyOp setStreamReadonlyOp = 10;
 }
 
 message CreateStreamOp {
@@ -83,6 +85,12 @@ message PublishActivityOp {
     uint64 raftIndex = 1;
 }
 
+message SetStreamReadonlyOp {
+    string         stream     = 1;
+    repeated int32 partitions = 2;
+    bool           readonly   = 3;
+}
+
 message NullableInt64 {
     int64 value = 1; 
 }
@@ -96,15 +104,16 @@ message NullableBool {
 }
 
 message StreamConfig  {
-    NullableInt64 RetentionMaxBytes    = 1;
-    NullableInt64 RetentionMaxMessages = 2;
-    NullableInt64 RetentionMaxAge      = 3;  
-    NullableInt64 CleanerInterval      = 4;
-    NullableInt64 SegmentMaxBytes      = 5;
-    NullableInt64 SegmentMaxAge        = 6;
-    NullableInt32 CompactMaxGoroutines = 7;
-    NullableBool  CompactEnabled       = 8;
-    NullableInt64 AutoPauseTime        = 9;
+    NullableInt64 RetentionMaxBytes             = 1;
+    NullableInt64 RetentionMaxMessages          = 2;
+    NullableInt64 RetentionMaxAge               = 3;  
+    NullableInt64 CleanerInterval               = 4;
+    NullableInt64 SegmentMaxBytes               = 5;
+    NullableInt64 SegmentMaxAge                 = 6;
+    NullableInt32 CompactMaxGoroutines          = 7;
+    NullableBool  CompactEnabled                = 8;
+    NullableInt64 AutoPauseTime                 = 9;
+    NullableBool  AutoPauseDisableIfSubscribers = 10;
 }
 
 message Stream {
@@ -158,14 +167,15 @@ message LeaderEpochOffsetResponse {
 }
 
 message PropagatedRequest {
-    Op             op             = 1;
-    CreateStreamOp createStreamOp = 2;
-    ShrinkISROp    shrinkISROp    = 3;
-    ReportLeaderOp reportLeaderOp = 4;
-    ExpandISROp    expandISROp    = 5;
-    DeleteStreamOp deleteStreamOp = 6;
-    PauseStreamOp  pauseStreamOp  = 7;
-    ResumeStreamOp resumeStreamOp = 8;
+    Op                  op                  = 1;
+    CreateStreamOp      createStreamOp      = 2;
+    ShrinkISROp         shrinkISROp         = 3;
+    ReportLeaderOp      reportLeaderOp      = 4;
+    ExpandISROp         expandISROp         = 5;
+    DeleteStreamOp      deleteStreamOp      = 6;
+    PauseStreamOp       pauseStreamOp       = 7;
+    ResumeStreamOp      resumeStreamOp      = 8;
+    SetStreamReadonlyOp setStreamReadonlyOp = 9;
 }
 
 message Error {
@@ -182,7 +192,8 @@ message PropagatedResponse {
     // Reserving = 6 for expandISRResp if needed.
     // Reserving = 7 for deleteStreamResp if needed.
     // Reserving = 8 for pauseStreamResp if needed.
-    // Reserving = 9 for resumePartitionResp if needed.
+    // Reserving = 9 for resumeStreamResp if needed.
+    // Reserving = 10 for setStreamReadonlyResp if needed.
 }
 
 message ServerInfoRequest {

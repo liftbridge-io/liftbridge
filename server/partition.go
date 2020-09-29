@@ -63,32 +63,33 @@ func (r *replica) getLatestOffset() int64 {
 // leader's log by fetching messages from it. All partition access should go
 // through exported methods.
 type partition struct {
-	lastReceived    int64 // Atomic Unix time last message was received on partition
-	mu              sync.RWMutex
-	closeMu         sync.Mutex
-	sub             *nats.Subscription // Subscription to partition NATS subject
-	leaderReplSub   *nats.Subscription // Subscription for replication requests from followers
-	leaderOffsetSub *nats.Subscription // Subscription for leader epoch offset requests from followers
-	recvChan        chan *nats.Msg     // Channel leader places received messages on
-	log             commitlog.CommitLog
-	srv             *Server
-	isLeading       bool
-	isFollowing     bool
-	isClosed        bool
-	replicas        map[string]struct{}
-	isr             map[string]*replica
-	replicators     map[string]*replicator
-	commitQueue     *queue.Queue
-	commitCheck     chan struct{}
-	recovered       bool
-	stopFollower    chan struct{}
-	stopLeader      chan struct{}
-	notify          chan struct{}
-	belowMinISR     bool
-	pause           bool // Pause replication on the leader (for unit testing)
-	shutdown        sync.WaitGroup
-	paused          bool
-	autoPauseTime   time.Duration
+	lastReceived                  int64 // Atomic Unix time last message was received on partition
+	mu                            sync.RWMutex
+	closeMu                       sync.Mutex
+	sub                           *nats.Subscription // Subscription to partition NATS subject
+	leaderReplSub                 *nats.Subscription // Subscription for replication requests from followers
+	leaderOffsetSub               *nats.Subscription // Subscription for leader epoch offset requests from followers
+	log                           commitlog.CommitLog
+	srv                           *Server
+	isLeading                     bool
+	isFollowing                   bool
+	isClosed                      bool
+	replicas                      map[string]struct{}
+	isr                           map[string]*replica
+	replicators                   map[string]*replicator
+	commitQueue                   *queue.Queue
+	commitCheck                   chan struct{}
+	recovered                     bool
+	stopFollower                  chan struct{}
+	stopLeader                    chan struct{}
+	notify                        chan struct{}
+	belowMinISR                   bool
+	pause                         bool // Pause replication on the leader (for unit testing)
+	shutdown                      sync.WaitGroup
+	paused                        bool
+	autoPauseTime                 time.Duration
+	autoPauseDisableIfSubscribers bool
+	subscriberCount               int64
 	*proto.Partition
 }
 
@@ -101,15 +102,16 @@ type partition struct {
 // subject.2, etc.
 func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, config *proto.StreamConfig) (*partition, error) {
 	streamsConfig := &StreamsConfig{
-		SegmentMaxBytes:      s.config.Streams.SegmentMaxBytes,
-		SegmentMaxAge:        s.config.Streams.SegmentMaxAge,
-		RetentionMaxBytes:    s.config.Streams.RetentionMaxBytes,
-		RetentionMaxMessages: s.config.Streams.RetentionMaxMessages,
-		RetentionMaxAge:      s.config.Streams.RetentionMaxAge,
-		CleanerInterval:      s.config.Streams.CleanerInterval,
-		Compact:              s.config.Streams.Compact,
-		CompactMaxGoroutines: s.config.Streams.CompactMaxGoroutines,
-		AutoPauseTime:        s.config.Streams.AutoPauseTime,
+		SegmentMaxBytes:               s.config.Streams.SegmentMaxBytes,
+		SegmentMaxAge:                 s.config.Streams.SegmentMaxAge,
+		RetentionMaxBytes:             s.config.Streams.RetentionMaxBytes,
+		RetentionMaxMessages:          s.config.Streams.RetentionMaxMessages,
+		RetentionMaxAge:               s.config.Streams.RetentionMaxAge,
+		CleanerInterval:               s.config.Streams.CleanerInterval,
+		Compact:                       s.config.Streams.Compact,
+		CompactMaxGoroutines:          s.config.Streams.CompactMaxGoroutines,
+		AutoPauseTime:                 s.config.Streams.AutoPauseTime,
+		AutoPauseDisableIfSubscribers: s.config.Streams.AutoPauseDisableIfSubscribers,
 	}
 	streamsConfig.ApplyOverrides(config)
 	var (
@@ -152,15 +154,16 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 	}
 
 	st := &partition{
-		Partition:     protoPartition,
-		log:           log,
-		srv:           s,
-		replicas:      replicas,
-		isr:           isr,
-		commitCheck:   make(chan struct{}, len(protoPartition.Replicas)),
-		notify:        make(chan struct{}, 1),
-		recovered:     recovered,
-		autoPauseTime: streamsConfig.AutoPauseTime,
+		Partition:                     protoPartition,
+		log:                           log,
+		srv:                           s,
+		replicas:                      replicas,
+		isr:                           isr,
+		commitCheck:                   make(chan struct{}, len(protoPartition.Replicas)),
+		notify:                        make(chan struct{}, 1),
+		recovered:                     recovered,
+		autoPauseTime:                 streamsConfig.AutoPauseTime,
+		autoPauseDisableIfSubscribers: streamsConfig.AutoPauseDisableIfSubscribers,
 	}
 
 	return st, nil
@@ -219,6 +222,18 @@ func (p *partition) IsPaused() bool {
 	return p.paused
 }
 
+// SetReadonly enables or disables readonly for the partition. When enabled,
+// new messages cannot be written to the log and consumers will not block once
+// they reach the end of the log. This does not affect replication.
+func (p *partition) SetReadonly(readonly bool) {
+	p.log.SetReadonly(readonly)
+}
+
+// IsReadonly indicates if the partition is currently readonly.
+func (p *partition) IsReadonly() bool {
+	return p.log.IsReadonly()
+}
+
 // Delete stops the partition if it is running, closes, and deletes the commit
 // log.
 func (p *partition) Delete() error {
@@ -230,6 +245,30 @@ func (p *partition) Delete() error {
 	}
 
 	return p.stopLeadingOrFollowing()
+}
+
+// IncreaseSubscriberCount increases the number of subscribers. Partitions with
+// a subscriber count greater than zero will not be auto-paused if the partition
+// is idle, and the corresponding configuration option is set.
+func (p *partition) IncreaseSubscriberCount() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.subscriberCount++
+}
+
+// DecreaseSubscriberCount decreases the number of subscribers. Partitions with
+// a subscriber count greater than zero will not be auto-paused if the partition
+// is idle, and the corresponding configuration option is set.
+func (p *partition) DecreaseSubscriberCount() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.subscriberCount--
+	if p.subscriberCount < 0 {
+		p.subscriberCount = 0
+		p.srv.logger.Errorf("Negative partition subscriber count for partition %s: %d", p, p.subscriberCount)
+	}
 }
 
 // Notify is used to short circuit the sleep backoff a partition uses when it
@@ -365,10 +404,10 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	}
 
 	// Start message processing loop.
-	p.recvChan = make(chan *nats.Msg, recvChannelSize)
+	recvChan := make(chan *nats.Msg, recvChannelSize)
 	p.stopLeader = make(chan struct{})
 	p.srv.startGoroutine(func() {
-		p.messageProcessingLoop(p.recvChan, p.stopLeader, epoch)
+		p.messageProcessingLoop(recvChan, p.stopLeader, epoch)
 		p.shutdown.Done()
 	})
 
@@ -378,7 +417,7 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	// Subscribe to the NATS subject and begin sequencing messages.
 	// TODO: This should be drained on shutdown.
 	sub, err := p.srv.nc.QueueSubscribe(p.getSubject(), p.Group, func(m *nats.Msg) {
-		p.recvChan <- m
+		recvChan <- m
 	})
 	if err != nil {
 		return errors.Wrap(err, "failed to subscribe to NATS")
@@ -453,7 +492,6 @@ func (p *partition) stopLeading() error {
 
 	p.commitQueue.Dispose()
 	p.isLeading = false
-	p.recvChan = nil // Nil this out since it's a non-trivial amount of memory
 
 	return nil
 }
@@ -628,7 +666,12 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 
 		ns := atomic.LoadInt64(&p.lastReceived)
 		lastReceivedElapsed := time.Since(time.Unix(0, ns))
-		if lastReceivedElapsed > p.autoPauseTime {
+
+		p.mu.RLock()
+		subsAllowPausing := !p.autoPauseDisableIfSubscribers || p.subscriberCount == 0
+		p.mu.RUnlock()
+
+		if lastReceivedElapsed > p.autoPauseTime && subsAllowPausing {
 			p.srv.logger.Infof("Partition %s has not received a message in over %s, "+
 				"auto pausing partition", p, p.autoPauseTime)
 			if err := p.requestPause(); err != nil {

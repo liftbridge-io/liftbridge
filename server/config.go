@@ -79,15 +79,16 @@ const (
 	configNATSKey      = "nats.tls.key"
 	configNATSCA       = "nats.tls.ca"
 
-	configStreamsRetentionMaxBytes    = "streams.retention.max.bytes"
-	configStreamsRetentionMaxMessages = "streams.retention.max.messages"
-	configStreamsRetentionMaxAge      = "streams.retention.max.age"
-	configStreamsCleanerInterval      = "streams.cleaner.interval"
-	configStreamsSegmentMaxBytes      = "streams.segment.max.bytes"
-	configStreamsSegmentMaxAge        = "streams.segment.max.age"
-	configStreamsCompactEnabled       = "streams.compact.enabled"
-	configStreamsCompactMaxGoroutines = "streams.compact.max.goroutines"
-	configStreamsAutoPauseTime        = "streams.auto.pause.time"
+	configStreamsRetentionMaxBytes             = "streams.retention.max.bytes"
+	configStreamsRetentionMaxMessages          = "streams.retention.max.messages"
+	configStreamsRetentionMaxAge               = "streams.retention.max.age"
+	configStreamsCleanerInterval               = "streams.cleaner.interval"
+	configStreamsSegmentMaxBytes               = "streams.segment.max.bytes"
+	configStreamsSegmentMaxAge                 = "streams.segment.max.age"
+	configStreamsCompactEnabled                = "streams.compact.enabled"
+	configStreamsCompactMaxGoroutines          = "streams.compact.max.goroutines"
+	configStreamsAutoPauseTime                 = "streams.auto.pause.time"
+	configStreamsAutoPauseDisableIfSubscribers = "streams.auto.pause.disable.if.subscribers"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"
@@ -110,64 +111,66 @@ const (
 )
 
 var configKeys = map[string]struct{}{
-	configListen:                            {},
-	configHost:                              {},
-	configPort:                              {},
-	configDataDir:                           {},
-	configMetadataCacheMaxAge:               {},
-	configLoggingLevel:                      {},
-	configLoggingRecovery:                   {},
-	configLoggingRaft:                       {},
-	configBatchMaxMessages:                  {},
-	configBatchMaxTime:                      {},
-	configTLSKey:                            {},
-	configTLSCert:                           {},
-	configTLSClientAuthEnabled:              {},
-	configTLSClientAuthCA:                   {},
-	configNATSServers:                       {},
-	configNATSUser:                          {},
-	configNATSPassword:                      {},
-	configNATSCert:                          {},
-	configNATSKey:                           {},
-	configNATSCA:                            {},
-	configStreamsRetentionMaxBytes:          {},
-	configStreamsRetentionMaxMessages:       {},
-	configStreamsRetentionMaxAge:            {},
-	configStreamsCleanerInterval:            {},
-	configStreamsSegmentMaxBytes:            {},
-	configStreamsSegmentMaxAge:              {},
-	configStreamsCompactEnabled:             {},
-	configStreamsCompactMaxGoroutines:       {},
-	configStreamsAutoPauseTime:              {},
-	configClusteringServerID:                {},
-	configClusteringNamespace:               {},
-	configClusteringRaftSnapshotRetain:      {},
-	configClusteringRaftSnapshotThreshold:   {},
-	configClusteringRaftCacheSize:           {},
-	configClusteringRaftBootstrapSeed:       {},
-	configClusteringRaftBootstrapPeers:      {},
-	configClusteringReplicaMaxLagTime:       {},
-	configClusteringReplicaMaxLeaderTimeout: {},
-	configClusteringReplicaMaxIdleWait:      {},
-	configClusteringReplicaFetchTimeout:     {},
-	configClusteringMinInsyncReplicas:       {},
-	configActivityStreamEnabled:             {},
-	configActivityStreamPublishTimeout:      {},
-	configActivityStreamPublishAckPolicy:    {},
-	configCursorsStreamPartitions:           {},
+	configListen:                               {},
+	configHost:                                 {},
+	configPort:                                 {},
+	configDataDir:                              {},
+	configMetadataCacheMaxAge:                  {},
+	configLoggingLevel:                         {},
+	configLoggingRecovery:                      {},
+	configLoggingRaft:                          {},
+	configBatchMaxMessages:                     {},
+	configBatchMaxTime:                         {},
+	configTLSKey:                               {},
+	configTLSCert:                              {},
+	configTLSClientAuthEnabled:                 {},
+	configTLSClientAuthCA:                      {},
+	configNATSServers:                          {},
+	configNATSUser:                             {},
+	configNATSPassword:                         {},
+	configNATSCert:                             {},
+	configNATSKey:                              {},
+	configNATSCA:                               {},
+	configStreamsRetentionMaxBytes:             {},
+	configStreamsRetentionMaxMessages:          {},
+	configStreamsRetentionMaxAge:               {},
+	configStreamsCleanerInterval:               {},
+	configStreamsSegmentMaxBytes:               {},
+	configStreamsSegmentMaxAge:                 {},
+	configStreamsCompactEnabled:                {},
+	configStreamsCompactMaxGoroutines:          {},
+	configStreamsAutoPauseTime:                 {},
+	configStreamsAutoPauseDisableIfSubscribers: {},
+	configClusteringServerID:                   {},
+	configClusteringNamespace:                  {},
+	configClusteringRaftSnapshotRetain:         {},
+	configClusteringRaftSnapshotThreshold:      {},
+	configClusteringRaftCacheSize:              {},
+	configClusteringRaftBootstrapSeed:          {},
+	configClusteringRaftBootstrapPeers:         {},
+	configClusteringReplicaMaxLagTime:          {},
+	configClusteringReplicaMaxLeaderTimeout:    {},
+	configClusteringReplicaMaxIdleWait:         {},
+	configClusteringReplicaFetchTimeout:        {},
+	configClusteringMinInsyncReplicas:          {},
+	configActivityStreamEnabled:                {},
+	configActivityStreamPublishTimeout:         {},
+	configActivityStreamPublishAckPolicy:       {},
+	configCursorsStreamPartitions:              {},
 }
 
 // StreamsConfig contains settings for controlling the message log for streams.
 type StreamsConfig struct {
-	RetentionMaxBytes    int64
-	RetentionMaxMessages int64
-	RetentionMaxAge      time.Duration
-	CleanerInterval      time.Duration
-	SegmentMaxBytes      int64
-	SegmentMaxAge        time.Duration
-	Compact              bool
-	CompactMaxGoroutines int
-	AutoPauseTime        time.Duration
+	RetentionMaxBytes             int64
+	RetentionMaxMessages          int64
+	RetentionMaxAge               time.Duration
+	CleanerInterval               time.Duration
+	SegmentMaxBytes               int64
+	SegmentMaxAge                 time.Duration
+	Compact                       bool
+	CompactMaxGoroutines          int
+	AutoPauseTime                 time.Duration
+	AutoPauseDisableIfSubscribers bool
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -248,6 +251,10 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 
 	if autoPauseTime := c.AutoPauseTime; autoPauseTime != nil {
 		l.AutoPauseTime = time.Duration(autoPauseTime.Value) * time.Millisecond
+	}
+
+	if autoPauseDisableIfSubscribers := c.AutoPauseDisableIfSubscribers; autoPauseDisableIfSubscribers != nil {
+		l.AutoPauseDisableIfSubscribers = autoPauseDisableIfSubscribers.Value
 	}
 }
 
@@ -598,6 +605,10 @@ func parseStreamsConfig(config *Config, v *viper.Viper) error {
 
 	if v.IsSet(configStreamsAutoPauseTime) {
 		config.Streams.AutoPauseTime = v.GetDuration(configStreamsAutoPauseTime)
+	}
+
+	if v.IsSet(configStreamsAutoPauseDisableIfSubscribers) {
+		config.Streams.AutoPauseDisableIfSubscribers = v.GetBool(configStreamsAutoPauseDisableIfSubscribers)
 	}
 
 	return nil

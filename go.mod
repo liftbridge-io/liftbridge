@@ -13,9 +13,10 @@ require (
 	github.com/hashicorp/go-hclog v0.14.1 // indirect
 	github.com/hashicorp/go-immutable-radix v1.2.0 // indirect
 	github.com/hashicorp/go-msgpack v1.1.5 // indirect
+	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/raft v1.1.2
-	github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20200916170438-ba85eaced251
-	github.com/liftbridge-io/liftbridge-api v1.1.1-0.20200911220528-1beb4c39914a
+	github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20200925212109-d8d35de2d115
+	github.com/liftbridge-io/liftbridge-api v1.1.1-0.20200925184350-33638578d994
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73
 	github.com/mattn/go-colorable v0.1.7 // indirect
@@ -39,9 +40,6 @@ require (
 	github.com/urfave/cli v1.22.4
 	go.etcd.io/bbolt v1.3.5 // indirect
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de // indirect
-	golang.org/x/net v0.0.0-20200904194848-62affa334b73 // indirect
-	golang.org/x/sys v0.0.0-20200916084744-dbad9cb7cb7a // indirect
-	google.golang.org/genproto v0.0.0-20200916143405-f6a2fa72f0c4 // indirect
 	google.golang.org/grpc v1.32.0
 	gopkg.in/ini.v1 v1.57.0 // indirect
 	launchpad.net/gocheck v0.0.0-20140225173054-000000000087 // indirect
