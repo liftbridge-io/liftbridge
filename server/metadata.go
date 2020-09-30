@@ -158,7 +158,7 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 // the purpose of returning Highest Watermakr and Newest Offset
 func (m *metadataAPI) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (*client.FetchPartitionMetadataResponse,
 	*status.Status) {
-	resp, err := m.createPartitionMetadataResponse(req.Stream, req.PartitionID)
+	resp, err := m.createPartitionMetadataResponse(req.Stream, req.Partition)
 	if err != nil {
 		return nil, status.New(codes.Internal, err.Error())
 	}
@@ -266,7 +266,7 @@ func (m *metadataAPI) createPartitionMetadataResponse(streamName string, partiti
 		HighWatermark: partition.log.HighWatermark(),
 		NewestOffset:  partition.log.NewestOffset(),
 	}
-	partitionMetadataResponse := &client.FetchPartitionMetadataResponse{PartitionMetadata: partitionsMetaData}
+	partitionMetadataResponse := &client.FetchPartitionMetadataResponse{Metadata: partitionsMetaData}
 	return partitionMetadataResponse, nil
 }
 

@@ -233,7 +233,7 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // when client would like to know Highest Watermark and Newest Offset of the partition leader
 func (a *apiServer) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (
 	*client.FetchPartitionMetadataResponse, error) {
-	a.logger.Debug("api: FetchPartitionMetadata stream: %s partition %s", req.Stream, req.PartitionID)
+	a.logger.Debug("api: FetchPartitionMetadata stream: %s partition %s", req.Stream, req.Partition)
 	resp, err := a.metadata.FetchPartitionMetadata(ctx, req)
 	if err != nil {
 		a.logger.Errorf("api: Failed to fetch metadata: %v", err.Err())
