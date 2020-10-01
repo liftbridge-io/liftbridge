@@ -123,8 +123,8 @@ type Client interface {
 	// information.
 	FetchMetadata(ctx context.Context) (*Metadata, error)
     
-    // FetchPartitionMetadata retrieves the latest partition metadata from partition leader
-    // The main interest is to retrieve Highest Watermark and Newest Offset
+	// FetchPartitionMetadata retrieves the latest partition metadata from partition leader
+	// The main interest is to retrieve Highest Watermark and Newest Offset
 	FetchPartitionMetadata(ctx context.Context, stream string, partitionID int32) (*PartitionMetadataResponse, error)
 
 }
