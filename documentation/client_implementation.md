@@ -125,7 +125,7 @@ type Client interface {
     
 	// FetchPartitionMetadata retrieves the latest partition metadata from partition leader
 	// The main interest is to retrieve Highest Watermark and Newest Offset
-	FetchPartitionMetadata(ctx context.Context, stream string, partitionID int32) (*PartitionMetadataResponse, error)
+	FetchPartitionMetadata(ctx context.Context, stream string, partition int32) (*PartitionMetadataResponse, error)
 
 }
 ```
@@ -708,8 +708,8 @@ In the Go client example above, `FetchMetadata` takes one argument:
 
 ```go
     // FetchPartitionMetadata retrieves the latest partition metadata from partition leader
-    // The main interest is to retrieve Highest Watermark and Newest Offset
-	FetchPartitionMetadata(ctx context.Context, stream string, partitionID int32) (*PartitionMetadataResponse, error)
+	// The main interest is to retrieve Highest Watermark and Newest Offset
+	FetchPartitionMetadata(ctx context.Context, stream string, partition int32) (*PartitionMetadataResponse, error)
 ```
 
 Liftbridge provides a partition metadata API which can be used to retrieve
