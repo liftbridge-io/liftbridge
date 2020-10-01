@@ -229,6 +229,21 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 	return resp, nil
 }
 
+// FetchPartitionMetadata retrieves metatadata from the partition leader. This
+// is mainly useful when client would like to know the high watermark and
+// newest offset for a partition.
+func (a *apiServer) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (
+	*client.FetchPartitionMetadataResponse, error) {
+	a.logger.Debug("api: FetchPartitionMetadata [stream=%s, partition=%s]", req.Stream, req.Partition)
+
+	resp, err := a.metadata.FetchPartitionMetadata(ctx, req)
+	if err != nil {
+		a.logger.Errorf("api: Failed to fetch partition metadata: %v", err.Err())
+		return nil, err.Err()
+	}
+	return resp, nil
+}
+
 // Publish a new message to a stream. If the AckPolicy is not NONE and a
 // deadline is provided, this will synchronously block until the ack is
 // received. If the ack is not received in time, a DeadlineExceeded status code
