@@ -32,7 +32,7 @@ a few of these systems.
 | Log Compaction | ✓ |  | ✓ | ✓ |
 | Message Headers | ✓ |  | ✓ | ✓ |
 | Multiple Consumers | independent subscribers | queue subscriptions | consumer groups | subscriptions |
-| Consumer Position Tracking | | durable subscriptions | consumer groups | cursors |
+| Consumer Position Tracking | cursors | durable subscriptions | consumer groups | cursors |
 | Event-enabled | activity stream | | | |
 | Multitenancy | namespaced clusters | namespaced clusters | topic-level ACLs | multitenant shared cluster |
 | Authentication | TLS | User authentication, TLS | TLS, Kerberos, SASL | TLS, Kerberos, JWT, Athenz |

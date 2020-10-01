@@ -20,6 +20,9 @@
       "configuration": {
         "title": "Configuration"
       },
+      "cursors": {
+        "title": "Cursors"
+      },
       "deployment": {
         "title": "Deployment"
       },
