@@ -154,16 +154,29 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 	return resp, nil
 }
 
-// FetchPartitionMetadata retrieves the metadata of the partition leader. This mainly serves
-// the purpose of returning Highest Watermakr and Newest Offset
-func (m *metadataAPI) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (*client.FetchPartitionMetadataResponse,
-	*status.Status) {
-	resp, err := m.createPartitionMetadataResponse(req.Stream, req.Partition)
-	if err != nil {
-		return nil, status.New(codes.Internal, err.Error())
-	}
-	return resp, nil
+// FetchPartitionMetadata retrieves the metadata for the partition leader. This
+// mainly serves the purpose of returning high watermark and newest offset.
+func (m *metadataAPI) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (
+	*client.FetchPartitionMetadataResponse, *status.Status) {
 
+	partition := m.GetPartition(req.Stream, req.Partition)
+	if partition == nil {
+		return nil, status.New(codes.NotFound, "partition not found")
+	}
+	if !partition.IsLeader() {
+		return nil, status.New(codes.FailedPrecondition, "The request should be sent to partition leader")
+	}
+	leader, _ := partition.GetLeader()
+	metadata := &client.PartitionMetadata{
+		Id:            req.Partition,
+		Leader:        leader,
+		Replicas:      partition.GetReplicas(),
+		Isr:           partition.GetISR(),
+		Paused:        partition.GetPaused(),
+		HighWatermark: partition.log.HighWatermark(),
+		NewestOffset:  partition.log.NewestOffset(),
+	}
+	return &client.FetchPartitionMetadataResponse{Metadata: metadata}, nil
 }
 
 // brokerCache checks if the cache of broker metadata is clean and, if it is
@@ -245,31 +258,6 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 	return brokers, nil
 }
 
-// createPartitionMetadataResponse creates a PartitionMetadata and populates it with
-// partition metadata. Only the partition leader should process the request
-// as Highest Watermark and Newest Offset of the partition are returned
-// In the usage context, only partition leader has the latest information
-// of Highest Watermark and Newest Offset
-func (m *metadataAPI) createPartitionMetadataResponse(streamName string, partitionID int32) (*client.FetchPartitionMetadataResponse, error) {
-	stream := m.GetStream(streamName)
-	partition := stream.GetPartition(partitionID)
-	leader, _ := partition.GetLeader()
-	if !partition.IsLeader() {
-		return nil, errors.New("The request should be sent to partition leader")
-	}
-	partitionsMetaData := &client.PartitionMetadata{
-		Id:            partitionID,
-		Leader:        leader,
-		Replicas:      partition.GetReplicas(),
-		Isr:           partition.GetISR(),
-		Paused:        partition.GetPaused(),
-		HighWatermark: partition.log.HighWatermark(),
-		NewestOffset:  partition.log.NewestOffset(),
-	}
-	partitionMetadataResponse := &client.FetchPartitionMetadataResponse{Metadata: partitionsMetaData}
-	return partitionMetadataResponse, nil
-}
-
 // createMetadataResponse creates a FetchMetadataResponse and populates it with
 // stream metadata. If the provided list of stream names is empty, it will
 // populate metadata for all streams. Otherwise, it populates only the
@@ -297,11 +285,13 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 			for id, partition := range stream.GetPartitions() {
 				leader, _ := partition.GetLeader()
 				partitions[id] = &client.PartitionMetadata{
-					Id:       id,
-					Leader:   leader,
-					Replicas: partition.GetReplicas(),
-					Isr:      partition.GetISR(),
-					Paused:   partition.GetPaused(),
+					Id:            id,
+					Leader:        leader,
+					Replicas:      partition.GetReplicas(),
+					Isr:           partition.GetISR(),
+					Paused:        partition.GetPaused(),
+					HighWatermark: partition.log.HighWatermark(),
+					NewestOffset:  partition.log.NewestOffset(),
 				}
 			}
 			metadata[i] = &client.StreamMetadata{
