@@ -66,7 +66,9 @@ func (c *cursorManager) Initialize() error {
 		Subject:    c.getCursorStreamSubject(),
 		Partitions: partitions,
 		Config: &proto.StreamConfig{
-			CompactEnabled: &proto.NullableBool{Value: true},
+			CompactEnabled:                &proto.NullableBool{Value: true},
+			AutoPauseTime:                 &proto.NullableInt64{Value: c.config.CursorsStream.AutoPauseTime.Milliseconds()},
+			AutoPauseDisableIfSubscribers: &proto.NullableBool{Value: true},
 		},
 	}
 	status := c.metadata.CreateStream(context.Background(), &proto.CreateStreamOp{Stream: stream})
@@ -202,9 +204,9 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 		errC = make(chan error, 1)
 		msgC = make(chan *lift.Message, 1)
 	)
-	c.getLoopbackClient().Subscribe(ctx, cursorsStream, func(msg *lift.Message, err error) {
+	err := c.getLoopbackClient().Subscribe(ctx, cursorsStream, func(msg *lift.Message, err error) {
 		defer func() {
-			if msg.Offset() == hw {
+			if msg != nil && msg.Offset() == hw {
 				close(msgC)
 			}
 		}()
@@ -217,7 +219,10 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 		}
 		msgC <- msg
 
-	}, lift.Partition(partitionID), lift.StartAtEarliestReceived())
+	}, lift.Partition(partitionID), lift.StartAtEarliestReceived(), lift.Resume())
+	if err != nil {
+		return 0, err
+	}
 
 	var (
 		latestOffset = int64(-1)

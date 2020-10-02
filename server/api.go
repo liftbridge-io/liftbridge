@@ -370,7 +370,7 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 // as part of Liftbridge's semantic versioning scheme.
 func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest) (
 	*client.SetCursorResponse, error) {
-	a.logger.Debugf("api: SetCursor [stream=%s, partition=%d, cursorId=%s, offset=%d",
+	a.logger.Debugf("api: SetCursor [stream=%s, partition=%d, cursorId=%s, offset=%d]",
 		req.Stream, req.Partition, req.CursorId, req.Offset)
 
 	if req.Stream == "" {
@@ -392,7 +392,7 @@ func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest)
 // as part of Liftbridge's semantic versioning scheme.
 func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequest) (
 	*client.FetchCursorResponse, error) {
-	a.logger.Debugf("api: FetchCursor [stream=%s, partition=%d, cursorId=%s",
+	a.logger.Debugf("api: FetchCursor [stream=%s, partition=%d, cursorId=%s]",
 		req.Stream, req.Partition, req.CursorId)
 
 	if req.Stream == "" {

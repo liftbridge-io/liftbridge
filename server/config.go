@@ -50,6 +50,7 @@ const (
 	defaultMaxSegmentAge                  = defaultRetentionMaxAge
 	defaultActivityStreamPublishTimeout   = 5 * time.Second
 	defaultActivityStreamPublishAckPolicy = client.AckPolicy_ALL
+	defaultCursorsStreamAutoPauseTime     = time.Minute
 )
 
 // Config setting key names.
@@ -107,7 +108,8 @@ const (
 	configActivityStreamPublishTimeout   = "activity.stream.publish.timeout"
 	configActivityStreamPublishAckPolicy = "activity.stream.publish.ack.policy"
 
-	configCursorsStreamPartitions = "cursors.stream.partitions"
+	configCursorsStreamPartitions    = "cursors.stream.partitions"
+	configCursorsStreamAutoPauseTime = "cursors.stream.auto.pause.time"
 )
 
 var configKeys = map[string]struct{}{
@@ -157,6 +159,7 @@ var configKeys = map[string]struct{}{
 	configActivityStreamPublishTimeout:         {},
 	configActivityStreamPublishAckPolicy:       {},
 	configCursorsStreamPartitions:              {},
+	configCursorsStreamAutoPauseTime:           {},
 }
 
 // StreamsConfig contains settings for controlling the message log for streams.
@@ -282,9 +285,11 @@ type ActivityStreamConfig struct {
 	PublishAckPolicy client.AckPolicy
 }
 
-// CursorsStreamConfig contains settings for controlling cursors stream behavior.
+// CursorsStreamConfig contains settings for controlling cursors stream
+// behavior.
 type CursorsStreamConfig struct {
-	Partitions int32
+	Partitions    int32
+	AutoPauseTime time.Duration
 }
 
 // Config contains all settings for a Liftbridge Server.
@@ -335,6 +340,7 @@ func NewDefaultConfig() *Config {
 	config.Streams.CleanerInterval = defaultCleanerInterval
 	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
+	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
 	return config
 }
 
@@ -696,6 +702,10 @@ func parseActivityStreamConfig(config *Config, v *viper.Viper) error { // nolint
 func parseCursorsStreamConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
 	if v.IsSet(configCursorsStreamPartitions) {
 		config.CursorsStream.Partitions = v.GetInt32(configCursorsStreamPartitions)
+	}
+
+	if v.IsSet(configCursorsStreamAutoPauseTime) {
+		config.CursorsStream.AutoPauseTime = v.GetDuration(configCursorsStreamAutoPauseTime)
 	}
 
 	return nil
