@@ -41,6 +41,7 @@ A high-level client has the following operations:
 | [PublishAsync](#publishasync) | Publishes a new message to a Liftbridge stream asynchronously |
 | [PublishToSubject](#publishtosubject) | Publishes a new message to a NATS subject |
 | [FetchMetadata](#fetchmetadata) | Retrieves metadata from the cluster |
+| [FetchPartitionMetadata](#fetchpartitionmetadata) | Retrieves partition metadata from the partition leader |
 | [Close](#close) | Closes any client connections to Liftbridge |
 
 Below is the interface definition of the Go Liftbridge client. We'll walk
@@ -121,6 +122,11 @@ type Client interface {
 	// FetchMetadata returns cluster metadata including broker and stream
 	// information.
 	FetchMetadata(ctx context.Context) (*Metadata, error)
+    
+	// FetchPartitionMetadata retrieves the latest partition metadata from partition leader
+	// The main interest is to retrieve Highest Watermark and Newest Offset
+	FetchPartitionMetadata(ctx context.Context, stream string, partition int32) (*PartitionMetadataResponse, error)
+
 }
 ```
 
@@ -697,6 +703,39 @@ In the Go client example above, `FetchMetadata` takes one argument:
 | context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
 
 [Implementation Guidance](#fetchmetadata-implementation)
+
+### FetchPartitionMetadata
+
+```go
+    // FetchPartitionMetadata retrieves the latest partition metadata from partition leader
+	// The main interest is to retrieve Highest Watermark and Newest Offset
+	FetchPartitionMetadata(ctx context.Context, stream string, partition int32) (*PartitionMetadataResponse, error)
+```
+
+Liftbridge provides a partition metadata API which can be used to retrieve
+information for a partition. Most importantly, there are use cases where it is
+useful to retrieve the high watermark and newest offset of the partition for
+tighter control over subscriptions and published messages. A few key points to
+take into account:
+
+- The client must connect to the partition leader to fetch partition metadata.
+  Only the partition leader maintains the most up-to-date version of the high
+  watermark and newest offset. Thus, the request must be sent to the partition
+  leader.
+- The client should maintain an internal version of the metadata to know, for a
+  given partition of a stream, which broker is currently the leader. It should
+  be noted that the partition leader is different from the cluster's metadata
+  leader.
+
+In the Go client example, `FetchPartitionMetadata` takes three arguments:
+
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
+| stream | string | Stream name | true |
+| partition | int32 | ID of the partition | true |
+
+[Implementation Guidance](#fetchpartitionmetadata-implementation)
 
 ### Close
 
@@ -1792,6 +1831,21 @@ the partition leader. It may also be prudent for clients to periodically
 refresh metadata irrespective of these types of errors, perhaps with a
 configurable interval. However, the Go client does not currently implement
 this.
+
+### FetchPartitionMetadata Implementation
+
+`FetchPartitionMetadata` should return an immutable object which exposes
+partition metadata. 
+
+*NOTE*: *It is important to keep in mind that the
+`FetchPartitionMetadataRequest` should be sent only to the partition leader. It
+is the job of the client to figure out which broker is currently the partition
+leader. `Metadata` can be used to figure out which broker is currently the
+leader of the requested partition*
+
+The object contains information of the partition, notably the high watermark
+and newest offset, which is necessary in case the client wants tighter control
+over the subscription/publication of messages.
 
 ### Close Implementation
 

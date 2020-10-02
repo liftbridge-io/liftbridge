@@ -154,6 +154,31 @@ func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetada
 	return resp, nil
 }
 
+// FetchPartitionMetadata retrieves the metadata for the partition leader. This
+// mainly serves the purpose of returning high watermark and newest offset.
+func (m *metadataAPI) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (
+	*client.FetchPartitionMetadataResponse, *status.Status) {
+
+	partition := m.GetPartition(req.Stream, req.Partition)
+	if partition == nil {
+		return nil, status.New(codes.NotFound, "partition not found")
+	}
+	if !partition.IsLeader() {
+		return nil, status.New(codes.FailedPrecondition, "The request should be sent to partition leader")
+	}
+	leader, _ := partition.GetLeader()
+	metadata := &client.PartitionMetadata{
+		Id:            req.Partition,
+		Leader:        leader,
+		Replicas:      partition.GetReplicas(),
+		Isr:           partition.GetISR(),
+		Paused:        partition.GetPaused(),
+		HighWatermark: partition.log.HighWatermark(),
+		NewestOffset:  partition.log.NewestOffset(),
+	}
+	return &client.FetchPartitionMetadataResponse{Metadata: metadata}, nil
+}
+
 // brokerCache checks if the cache of broker metadata is clean and, if it is
 // and it's not past the metadata cache max age, returns the cached broker
 // list. The bool returned indicates if the cached data is returned or not.
@@ -260,11 +285,13 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 			for id, partition := range stream.GetPartitions() {
 				leader, _ := partition.GetLeader()
 				partitions[id] = &client.PartitionMetadata{
-					Id:       id,
-					Leader:   leader,
-					Replicas: partition.GetReplicas(),
-					Isr:      partition.GetISR(),
-					Paused:   partition.GetPaused(),
+					Id:            id,
+					Leader:        leader,
+					Replicas:      partition.GetReplicas(),
+					Isr:           partition.GetISR(),
+					Paused:        partition.GetPaused(),
+					HighWatermark: partition.log.HighWatermark(),
+					NewestOffset:  partition.log.NewestOffset(),
 				}
 			}
 			metadata[i] = &client.StreamMetadata{
