@@ -846,14 +846,16 @@ func TestSubscribePartitionClosed(t *testing.T) {
 // to the StreamConfig.
 func TestGetStreamConfig(t *testing.T) {
 	req := &proto.CreateStreamRequest{
-		RetentionMaxAge:      &proto.NullableInt64{Value: 1},
-		CleanerInterval:      &proto.NullableInt64{Value: 2},
-		SegmentMaxBytes:      &proto.NullableInt64{Value: 3},
-		SegmentMaxAge:        &proto.NullableInt64{Value: 4},
-		CompactMaxGoroutines: &proto.NullableInt32{Value: 5},
-		RetentionMaxBytes:    &proto.NullableInt64{Value: 6},
-		RetentionMaxMessages: &proto.NullableInt64{Value: 7},
-		CompactEnabled:       &proto.NullableBool{Value: true},
+		RetentionMaxAge:               &proto.NullableInt64{Value: 1},
+		CleanerInterval:               &proto.NullableInt64{Value: 2},
+		SegmentMaxBytes:               &proto.NullableInt64{Value: 3},
+		SegmentMaxAge:                 &proto.NullableInt64{Value: 4},
+		CompactMaxGoroutines:          &proto.NullableInt32{Value: 5},
+		RetentionMaxBytes:             &proto.NullableInt64{Value: 6},
+		RetentionMaxMessages:          &proto.NullableInt64{Value: 7},
+		CompactEnabled:                &proto.NullableBool{Value: true},
+		AutoPauseTime:                 &proto.NullableInt64{Value: 8},
+		AutoPauseDisableIfSubscribers: &proto.NullableBool{Value: true},
 	}
 
 	config := getStreamConfig(req)
@@ -866,6 +868,8 @@ func TestGetStreamConfig(t *testing.T) {
 	require.Equal(t, int64(6), config.RetentionMaxBytes.Value)
 	require.Equal(t, int64(7), config.RetentionMaxMessages.Value)
 	require.True(t, config.CompactEnabled.Value)
+	require.Equal(t, int64(8), config.AutoPauseTime.Value)
+	require.True(t, config.AutoPauseDisableIfSubscribers.Value)
 }
 
 // Ensure SetCursor stores cursors and FetchCursor retrieves them.
