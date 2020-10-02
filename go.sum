@@ -183,8 +183,8 @@ github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORN
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
-github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201002204837-b9409be7fa03 h1:S+EQbSabI4dhUo+Z/bCO89VCpbAgRx90guwD2ejrudg=
-github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201002204837-b9409be7fa03/go.mod h1:QXKAmhIXSirSOmAMSIeuPNpVv2b4VtgiP2AR/2RtY44=
+github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201002231334-dd0ae5b3c895 h1:DhX7mzzYKycJyg3+Ghk/UnLDJ5aV3SjeTCMN7q2wMqQ=
+github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201002231334-dd0ae5b3c895/go.mod h1:QXKAmhIXSirSOmAMSIeuPNpVv2b4VtgiP2AR/2RtY44=
 github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201002201157-e2dab4dd9a52 h1:OttlOlaJhSg5hn9PevyBi+Rfno7RGXpoKcRxTNcbceg=
 github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201002201157-e2dab4dd9a52/go.mod h1:6IFEFZ4ncnOgeDVjSt0vh1lKNhlJ5YT9xnG1eRa9LC8=
 github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3 h1:O4mg1NEmukgY8hxen3grrG5RY34LadMTzpbjf8kM2tA=
