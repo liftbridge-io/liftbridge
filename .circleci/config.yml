@@ -104,21 +104,21 @@ jobs:
           name: Set image version
           command: |
             if [ -n "$CIRCLE_TAG" ]; then
-                echo "export VERSION='${CIRCLE_TAG}-k8s'" >> $BASH_ENV
+                echo "export VERSION='${CIRCLE_TAG}'" >> $BASH_ENV
             else
-                echo "export VERSION='${CIRCLE_SHA1}-k8s'" >> $BASH_ENV
+                echo "export VERSION='${CIRCLE_SHA1}'" >> $BASH_ENV
             fi
       - run:
           name: Build image
           command: |
-            docker build -t "liftbridge/liftbridge:${VERSION}" -f k8s/Dockerfile.k8s .
-            docker tag "liftbridge/liftbridge:${VERSION}" 'liftbridge/liftbridge:latest-k8s'
+            docker build -t "liftbridge/liftbridge-k8s:${VERSION}" -f k8s/Dockerfile.k8s .
+            docker tag "liftbridge/liftbridge-k8s:${VERSION}" 'liftbridge/liftbridge-k8s:latest'
       - run:
           name: Publish image
           command: |
             echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-            docker push "liftbridge/liftbridge:${VERSION}"
-            docker push 'liftbridge/liftbridge:latest-k8s'
+            docker push "liftbridge/liftbridge-k8s:${VERSION}"
+            docker push 'liftbridge/liftbridge-k8s:latest'
 
   # Create GitHub release and upload artifacts
   release:
