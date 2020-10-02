@@ -66,7 +66,7 @@ this will be providing support for single-member consumer groups, which will
 effectively provide a durable subscription, then generalizing to multi-member
 groups. The latter will require a mechanism for group coordination.
 
-### Expose Offset Information in Metadata ([#111](https://github.com/liftbridge-io/liftbridge/issues/111))
+### ~~Expose Offset Information in Metadata ([#111](https://github.com/liftbridge-io/liftbridge/issues/111))~~
 
 Include partition offset information, such as the log-end offset (LEO) and high
 watermark (HW), in cluster metadata. This information is useful in a variety of

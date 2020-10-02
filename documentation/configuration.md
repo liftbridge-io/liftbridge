@@ -141,10 +141,11 @@ the setting in the configuration file and the CLI flag if it exists.
 | streams | | Write-ahead log configuration for message streams. | map | | [See below](#streams-configuration-settings) |
 | clustering | | Broker cluster configuration. | map | | [See below](#clustering-configuration-settings) |
 | activity | | Meta activity event stream configuration. | map | | [See below](#activity-configuration-settings) |
+| cursors | | Cursor management configuration. | map | | [See below](#cursors-configuration-settings) |
 
 ### NATS Configuration Settings
 
-Below is the list of the configuration settings for the `nats` part of
+Below is the list of the configuration settings for the `nats` section of
 the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
@@ -158,7 +159,7 @@ the configuration file.
 
 ### Streams Configuration Settings
 
-Below is the list of the configuration settings for the `streams` part of the
+Below is the list of the configuration settings for the `streams` section of the
 configuration file. These settings are applied globally to all streams.
 However, streams can be individually configured when they are created,
 overriding these settings.
@@ -178,7 +179,7 @@ overriding these settings.
 
 ### Clustering Configuration Settings
 
-Below is the list of the configuration settings for the `clustering` part of
+Below is the list of the configuration settings for the `clustering` section of
 the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
@@ -198,7 +199,7 @@ the configuration file.
 
 ### Activity Configuration Settings
 
-Below is the list of the configuration settings for the `activity` part of
+Below is the list of the configuration settings for the `activity` section of
 the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
@@ -206,3 +207,12 @@ the configuration file.
 | stream.enabled | | Enables the activity stream. This will create an internal stream called `__activity` which events will be published to. | bool | false | |
 | stream.publish.timeout | | The timeout for publishes to the activity stream. This is the time to wait for an ack from the activity stream, which means it's related to `stream.publish.ack.policy`. If the ack policy is `none`, this has no effect.  | duration | 5s | |
 | stream.publish.ack.policy | | The ack policy to use for publishes to the activity stream. The value `none` means publishes will not wait for an ack, `leader` means publishes will wait for the ack sent when the leader has committed the event, and `all` means publishes will wait for the ack sent when all replicas have committed the event. | string | all | [none, leader, all] |
+
+### Cursors Configuration Settings
+
+Below is the list of the configuration settings for the `cursors` section of
+the configuration file.
+
+| Name | Flag | Description | Type | Default | Valid Values |
+|:----|:----|:----|:----|:----|:----|
+| stream.partitions | | Sets the number of partitions for the internal `__cursors` stream which stores consumer cursors. A value of 0 disables the cursors stream. This cannot be changed once it is set. | int | 0 | |
