@@ -157,14 +157,15 @@ func TestNewConfigUnknownSetting(t *testing.T) {
 func TestStreamsConfigApplyOverrides(t *testing.T) {
 	// Given custom stream config duration configuration is in milliseconds.
 	customStreamConfig := &proto.StreamConfig{
-		SegmentMaxBytes:      &proto.NullableInt64{Value: 1024},
-		SegmentMaxAge:        &proto.NullableInt64{Value: 1000000},
-		RetentionMaxBytes:    &proto.NullableInt64{Value: 2048},
-		RetentionMaxMessages: &proto.NullableInt64{Value: 1000},
-		RetentionMaxAge:      &proto.NullableInt64{Value: 1000000},
-		CleanerInterval:      &proto.NullableInt64{Value: 1000000},
-		CompactMaxGoroutines: &proto.NullableInt32{Value: 10},
-		AutoPauseTime:        &proto.NullableInt64{Value: 1000000},
+		SegmentMaxBytes:               &proto.NullableInt64{Value: 1024},
+		SegmentMaxAge:                 &proto.NullableInt64{Value: 1000000},
+		RetentionMaxBytes:             &proto.NullableInt64{Value: 2048},
+		RetentionMaxMessages:          &proto.NullableInt64{Value: 1000},
+		RetentionMaxAge:               &proto.NullableInt64{Value: 1000000},
+		CleanerInterval:               &proto.NullableInt64{Value: 1000000},
+		CompactMaxGoroutines:          &proto.NullableInt32{Value: 10},
+		AutoPauseTime:                 &proto.NullableInt64{Value: 1000000},
+		AutoPauseDisableIfSubscribers: &proto.NullableBool{Value: true},
 	}
 	streamConfig := StreamsConfig{}
 
@@ -181,6 +182,7 @@ func TestStreamsConfigApplyOverrides(t *testing.T) {
 	require.Equal(t, s, streamConfig.CleanerInterval)
 	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
 	require.Equal(t, s, streamConfig.AutoPauseTime)
+	require.True(t, streamConfig.AutoPauseDisableIfSubscribers)
 }
 
 // Ensure default stream configs are always present. This should be the case

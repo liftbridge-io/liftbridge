@@ -767,6 +767,12 @@ func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
 	if req.CompactEnabled != nil {
 		config.CompactEnabled = &proto.NullableBool{Value: req.CompactEnabled.Value}
 	}
+	if req.AutoPauseTime != nil {
+		config.AutoPauseTime = &proto.NullableInt64{Value: req.AutoPauseTime.Value}
+	}
+	if req.AutoPauseDisableIfSubscribers != nil {
+		config.AutoPauseDisableIfSubscribers = &proto.NullableBool{Value: req.AutoPauseDisableIfSubscribers.Value}
+	}
 	return config
 }
 
