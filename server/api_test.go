@@ -871,3 +871,114 @@ func TestGetStreamConfig(t *testing.T) {
 	require.Equal(t, int64(8), config.AutoPauseTime.Value)
 	require.True(t, config.AutoPauseDisableIfSubscribers.Value)
 }
+
+// Ensure SetCursor stores cursors and FetchCursor retrieves them.
+func TestSetFetchCursor(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.CursorsStream.Partitions = 5
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "foo"
+	partition := int32(2)
+	cursorID := "abc"
+
+	err = client.CreateStream(context.Background(), "foo", stream, lift.Partitions(5))
+	require.NoError(t, err)
+
+	// Fetching cursor that doesn't exist returns -1.
+	offset, err := client.FetchCursor(context.Background(), cursorID, stream, partition)
+	require.NoError(t, err)
+	require.Equal(t, int64(-1), offset)
+
+	err = client.SetCursor(context.Background(), "foo", stream, partition, 2)
+	require.NoError(t, err)
+	err = client.SetCursor(context.Background(), cursorID, stream, partition, 5)
+	require.NoError(t, err)
+
+	offset, err = client.FetchCursor(context.Background(), cursorID, stream, partition)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), offset)
+
+	err = client.SetCursor(context.Background(), cursorID, stream, partition, 10)
+	require.NoError(t, err)
+
+	offset, err = client.FetchCursor(context.Background(), cursorID, stream, partition)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), offset)
+
+	require.Error(t, client.SetCursor(context.Background(), "", "foo", 0, 5))
+	require.Error(t, client.SetCursor(context.Background(), "123", "", 0, 5))
+
+	_, err = client.FetchCursor(context.Background(), "", "foo", 0)
+	require.Error(t, err)
+	_, err = client.FetchCursor(context.Background(), "123", "", 0)
+	require.Error(t, err)
+}
+
+// Ensure SetCursor stores cursors and FetchCursor retrieves them even if the
+// cache is empty.
+func TestSetFetchCursorNoCache(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.CursorsStream.Partitions = 5
+	s1 := runServerWithConfig(t, s1Config)
+	s1.cursors.disableCache = true
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "foo"
+	partition := int32(2)
+	cursorID := "abc"
+
+	err = client.CreateStream(context.Background(), "foo", stream, lift.Partitions(5))
+	require.NoError(t, err)
+
+	err = client.SetCursor(context.Background(), "foo", stream, partition, 2)
+	require.NoError(t, err)
+	err = client.SetCursor(context.Background(), cursorID, stream, partition, 5)
+	require.NoError(t, err)
+
+	offset, err := client.FetchCursor(context.Background(), cursorID, stream, partition)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), offset)
+
+	err = client.SetCursor(context.Background(), cursorID, stream, partition, 10)
+	require.NoError(t, err)
+
+	offset, err = client.FetchCursor(context.Background(), cursorID, stream, partition)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), offset)
+
+	require.Error(t, client.SetCursor(context.Background(), "", "foo", 0, 5))
+	require.Error(t, client.SetCursor(context.Background(), "123", "", 0, 5))
+
+	_, err = client.FetchCursor(context.Background(), "", "foo", 0)
+	require.Error(t, err)
+	_, err = client.FetchCursor(context.Background(), "123", "", 0)
+	require.Error(t, err)
+}

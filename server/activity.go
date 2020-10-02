@@ -22,7 +22,6 @@ const maxActivityPublishBackoff = 10 * time.Second
 type activityManager struct {
 	*Server
 	lastPublishedRaftIndex uint64
-	client                 lift.Client
 	commitCh               chan struct{}
 	leadershipLostCh       chan struct{}
 	mu                     sync.RWMutex
@@ -33,16 +32,6 @@ func newActivityManager(s *Server) *activityManager {
 		Server:   s,
 		commitCh: make(chan struct{}, 1),
 	}
-}
-
-// Close the activity manager and any resources associated with it.
-func (a *activityManager) Close() error {
-	if a.client != nil {
-		if err := a.client.Close(); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // SetLastPublishedRaftIndex sets the Raft index of the latest event published
@@ -72,10 +61,10 @@ func (a *activityManager) SignalCommit() {
 }
 
 // BecomeLeader should be called when this node has been elected as the
-// metadata leader. This will create a loopback Liftbridge client and set up
-// the activity stream if it's enabled. It will then reconcile the last
-// published event with the Raft log and begin publishing any un-published
-// events. This should be called on the same goroutine as BecomeFollower.
+// metadata leader. This will set up the activity stream if it's enabled. It
+// will then reconcile the last published event with the Raft log and begin
+// publishing any un-published events. This should be called on the same
+// goroutine as BecomeFollower.
 func (a *activityManager) BecomeLeader() error {
 	if !a.config.ActivityStream.Enabled {
 		return nil
@@ -89,14 +78,10 @@ func (a *activityManager) BecomeLeader() error {
 }
 
 // BecomeFollower should be called when this node has lost metadata leadership.
-// This will close the loopback Liftbridge client if it exists. This should be
-// called on the same goroutine as BecomeLeader.
+// This should be called on the same goroutine as BecomeLeader.
 func (a *activityManager) BecomeFollower() error {
 	if !a.config.ActivityStream.Enabled {
 		return nil
-	}
-	if err := a.Close(); err != nil {
-		return err
 	}
 
 	close(a.leadershipLostCh)
@@ -222,16 +207,7 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 // createActivityStream creates the activity stream and connects a local client
 // that will be subscribed to it.
 func (a *activityManager) createActivityStream() error {
-	// Connect a local client that will be used to publish on the activity
-	// stream.
-	listenAddr := a.config.GetListenAddress()
-	var err error
-	a.client, err = lift.Connect([]string{fmt.Sprintf("%s:%d", listenAddr.Host, a.port)})
-	if err != nil {
-		return errors.Wrap(err, "failed to connect the activity stream client")
-	}
-
-	err = a.client.CreateStream(context.Background(),
+	err := a.getLoopbackClient().CreateStream(context.Background(),
 		a.getActivityStreamSubject(),
 		activityStream,
 		lift.MaxReplication(),
@@ -266,7 +242,7 @@ func (a *activityManager) publishActivityEvent(event *client.ActivityStreamEvent
 		panic(fmt.Sprintf("Unknown ack policy: %v", ackPolicy))
 	}
 
-	_, err = a.client.Publish(
+	_, err = a.getLoopbackClient().Publish(
 		ctx,
 		activityStream,
 		data,

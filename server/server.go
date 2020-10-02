@@ -17,13 +17,14 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	lift "github.com/liftbridge-io/go-liftbridge/v2"
+	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/health"
 	"github.com/liftbridge-io/liftbridge/server/logger"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
@@ -38,6 +39,7 @@ const (
 	acksConnName        = "acks"
 	publishesConnName   = "publishes"
 	activityStream      = "__activity"
+	cursorsStream       = "__cursors"
 )
 
 // Server is the main Liftbridge object. Create it by calling New or
@@ -64,7 +66,9 @@ type Server struct {
 	shutdown           bool
 	running            bool
 	goroutineWait      sync.WaitGroup
+	client             atomic.Value
 	activity           *activityManager
+	cursors            *cursorManager
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -93,6 +97,7 @@ func New(config *Config) *Server {
 	}
 	s.metadata = newMetadataAPI(s)
 	s.activity = newActivityManager(s)
+	s.cursors = newCursorManager(s)
 	return s
 }
 
@@ -178,7 +183,11 @@ func (s *Server) Start() (err error) {
 
 	s.handleSignals()
 
-	return errors.Wrap(s.startAPIServer(), "failed to start API server")
+	if err := s.startAPIServer(); err != nil {
+		return errors.Wrap(err, "failed to start API server")
+	}
+
+	return errors.Wrap(s.createLoopbackClient(), "failed to create loopback client")
 }
 
 // Stop will attempt to gracefully shut the Server down by signaling the stop
@@ -216,8 +225,8 @@ func (s *Server) Stop() error {
 		}
 	}
 
-	if s.activity != nil {
-		if err := s.activity.Close(); err != nil {
+	if client := s.getLoopbackClient(); client != nil {
+		if err := client.Close(); err != nil {
 			s.mu.Unlock()
 			return err
 		}
@@ -403,6 +412,51 @@ func (s *Server) startAPIServer() error {
 	return nil
 }
 
+// createLoopbackClient creates a Liftbridge client connected to this server's
+// loopback address used for internal purposes.
+func (s *Server) createLoopbackClient() error {
+	var (
+		addr     = s.listener.Addr()
+		deadline = time.Now().Add(10 * time.Second)
+		conn     net.Conn
+		err      error
+	)
+	for time.Now().Before(deadline) {
+		conn, err = net.Dial("tcp", addr.String())
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if conn == nil {
+		return err
+	}
+	if err := conn.Close(); err != nil {
+		return err
+	}
+	opts := []lift.ClientOption{}
+	if s.config.TLSCert != "" {
+		// Skip TLS verification since we're just connecting to loopback.
+		tlsConfig := &tls.Config{InsecureSkipVerify: true}
+		opts = append(opts, lift.TLSConfig(tlsConfig))
+	}
+	client, err := lift.Connect([]string{addr.String()}, opts...)
+	if err != nil {
+		return err
+	}
+	s.client.Store(client)
+	return nil
+}
+
+// getLoopbackClient returns the Liftbridge client connected to this server.
+func (s *Server) getLoopbackClient() lift.Client {
+	client := s.client.Load()
+	if client == nil {
+		return nil
+	}
+	return client.(lift.Client)
+}
+
 // createNATSConn creates a new NATS connection with the given name.
 func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 	var err error
@@ -515,6 +569,10 @@ func (s *Server) leadershipAcquired() error {
 	s.leaderSub = sub
 
 	if err := s.activity.BecomeLeader(); err != nil {
+		return err
+	}
+
+	if err := s.cursors.Initialize(); err != nil {
 		return err
 	}
 
@@ -853,6 +911,12 @@ func (s *Server) getAckInbox() string {
 // activity stream events.
 func (s *Server) getActivityStreamSubject() string {
 	return fmt.Sprintf("%s.activity", s.config.Clustering.Namespace)
+}
+
+// getCursorStreamSubject returns the NATS subject used for storing consumer
+// partition cursors.
+func (s *Server) getCursorStreamSubject() string {
+	return fmt.Sprintf("%s.cursors", s.config.Clustering.Namespace)
 }
 
 // startGoroutine starts a goroutine which is managed by the server. This adds

@@ -17,7 +17,8 @@
     ],
     "Developing With Liftbridge": [
         "activity",
-        "pausing-streams"
+        "pausing-streams",
+        "cursors"
     ],
     "Technical Deep Dive": [
         "replication-protocol",

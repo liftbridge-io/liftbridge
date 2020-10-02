@@ -119,11 +119,9 @@ to the log.
 > Consequently, different consumers are able to process at their own speed.
 > Also, a paused or starved consumer, potentially a Pod in Kubernetes, like the
 > potential reporting consumer, could easily pick up where it left off when
-> things slow down. Bear in mind that consumers need to track their state, i.e.
-> the offset, at least until durable consumer groups are supported. Until then,
-> this means we cannot support truly stateless microservice workers without
-> storing offsets in external storage such as a database or another Liftbridge
-> stream.
+> things slow down. Consumers may use [cursors](./cursors.md) to track their
+> state, i.e. the offset. In the future, Liftbridge will support durable
+> consumer groups which will allow consumers to eschew cursor management.
 
 ### Scalability
 
@@ -295,18 +293,20 @@ closed by the client.
 Subscriptions are not stateful objects. When a subscription is created, there
 is no bookkeeping done by the server, aside from the in-memory objects tied to
 the lifecycle of the subscription. As a result, the server does not track the
-position of a client in the log beyond the scope of a subscription. Stateful
-consumer groups will be coming in the near future which will allow a consumer
-to pick up where it left off and provide fault-tolerant consumption of
-streams.
+position of a client in the log beyond the scope of a subscription. Instead,
+Liftbridge provides a [cursors](./cursors.md) API which allows consumers to
+checkpoint their position in the log and pick up where they left off. Stateful
+consumer groups will be coming in the near future which will provide a more
+managed solution to fault-tolerant consumption of streams.
 
 > **Architect's Note**
 >
 > This ties back to the previously described reporting worker starved but
-> clinging to an *offset* so as not to lose probable state. When stateful
-> consumer groups are implemented, the reporting worker can be restarted
-> without state but can resume from where it left off due to state stored by
-> the server.
+> clinging to an *offset* so as not to lose probable state. With _cursors_, the
+> reporting worker can be restarted without state but can resume from where it
+> left off due to state stored by the server via the cursors API. When stateful
+> consumer groups are implemented, this will be entirely transparent to the
+> consumer.
 
 ### Stream Retention and Compaction
 

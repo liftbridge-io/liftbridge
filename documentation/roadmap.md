@@ -42,13 +42,13 @@ enable the [Consumer Position Tracking API](#consumer-position-tracking-api-214h
 such that consumer offsets can be stored in an internal, partitioned stream
 efficiently. 
 
-### Command-Line Tool ([#249](https://github.com/liftbridge-io/liftbridge/issues/249))
+### ~~Command-Line Tool ([#249](https://github.com/liftbridge-io/liftbridge/issues/249))~~
 
 Provide a CLI tool for interacting with a Liftbridge cluster in order to
 perform basic operational tasks including performance evaluation, maintenance,
 and statistics gathering.
 
-### Consumer Position Tracking API ([#214](https://github.com/liftbridge-io/liftbridge/issues/214))
+### ~~Consumer Position Tracking API ([#214](https://github.com/liftbridge-io/liftbridge/issues/214))~~
 
 Provide a means for “durable” stream subscriptions which allows consumers to
 maintain their position within a stream without having to manage the positions
@@ -66,7 +66,7 @@ this will be providing support for single-member consumer groups, which will
 effectively provide a durable subscription, then generalizing to multi-member
 groups. The latter will require a mechanism for group coordination.
 
-### Expose Offset Information in Metadata ([#111](https://github.com/liftbridge-io/liftbridge/issues/111))
+### ~~Expose Offset Information in Metadata ([#111](https://github.com/liftbridge-io/liftbridge/issues/111))~~
 
 Include partition offset information, such as the log-end offset (LEO) and high
 watermark (HW), in cluster metadata. This information is useful in a variety of

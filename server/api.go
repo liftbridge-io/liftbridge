@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"io"
 
 	"github.com/nats-io/nats.go"
@@ -14,6 +15,8 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
+
+var hasher = crc32.ChecksumIEEE
 
 // apiServer implements the gRPC server interface clients interact with.
 type apiServer struct {
@@ -367,7 +370,20 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 // as part of Liftbridge's semantic versioning scheme.
 func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest) (
 	*client.SetCursorResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
+	a.logger.Debugf("api: SetCursor [stream=%s, partition=%d, cursorId=%s, offset=%d]",
+		req.Stream, req.Partition, req.CursorId, req.Offset)
+
+	if req.Stream == "" {
+		return nil, status.Error(codes.InvalidArgument, "No stream provided")
+	}
+	if req.CursorId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No cursorId provided")
+	}
+
+	if status := a.cursors.SetCursor(ctx, req.Stream, req.CursorId, req.Partition, req.Offset); status != nil {
+		return nil, status.Err()
+	}
+	return new(client.SetCursorResponse), nil
 }
 
 // FetchCursor retrieves a partition cursor position.
@@ -376,7 +392,21 @@ func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest)
 // as part of Liftbridge's semantic versioning scheme.
 func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequest) (
 	*client.FetchCursorResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not implemented")
+	a.logger.Debugf("api: FetchCursor [stream=%s, partition=%d, cursorId=%s]",
+		req.Stream, req.Partition, req.CursorId)
+
+	if req.Stream == "" {
+		return nil, status.Error(codes.InvalidArgument, "No stream provided")
+	}
+	if req.CursorId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No cursorId provided")
+	}
+
+	offset, status := a.cursors.GetCursor(ctx, req.Stream, req.CursorId, req.Partition)
+	if status != nil {
+		return nil, status.Err()
+	}
+	return &client.FetchCursorResponse{Offset: offset}, nil
 }
 
 func (a *apiServer) ensureStreamNotReadonly(name string, partitionID int32) *client.PublishAsyncError {
