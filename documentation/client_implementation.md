@@ -42,6 +42,8 @@ A high-level client has the following operations:
 | [PublishToSubject](#publishtosubject) | Publishes a new message to a NATS subject |
 | [FetchMetadata](#fetchmetadata) | Retrieves metadata from the cluster |
 | [FetchPartitionMetadata](#fetchpartitionmetadata) | Retrieves partition metadata from the partition leader |
+| [SetCursor](#setcursor) | Persists a cursor position for a particular stream partition. |
+| [FetchCursor](#fetchcursor) | Retrieves a cursor position for a particular stream partition. |
 | [Close](#close) | Closes any client connections to Liftbridge |
 
 Below is the interface definition of the Go Liftbridge client. We'll walk
@@ -122,11 +124,15 @@ type Client interface {
 	// FetchMetadata returns cluster metadata including broker and stream
 	// information.
 	FetchMetadata(ctx context.Context) (*Metadata, error)
-    
-	// FetchPartitionMetadata retrieves the latest partition metadata from partition leader
-	// The main interest is to retrieve Highest Watermark and Newest Offset
-	FetchPartitionMetadata(ctx context.Context, stream string, partition int32) (*PartitionMetadataResponse, error)
 
+	// SetCursor persists a cursor position for a particular stream partition.
+	// This can be used to checkpoint a consumer's position in a stream to
+	// resume processing later.
+	SetCursor(ctx context.Context, id, stream string, partition int32, offset int64) error
+
+	// FetchCursor retrieves a cursor position for a particular stream
+	// partition. It returns -1 if the cursor does not exist.
+	FetchCursor(ctx context.Context, id, stream string, partition int32) (int64, error)
 }
 ```
 
@@ -707,9 +713,9 @@ In the Go client example above, `FetchMetadata` takes one argument:
 ### FetchPartitionMetadata
 
 ```go
-    // FetchPartitionMetadata retrieves the latest partition metadata from partition leader
-	// The main interest is to retrieve Highest Watermark and Newest Offset
-	FetchPartitionMetadata(ctx context.Context, stream string, partition int32) (*PartitionMetadataResponse, error)
+// FetchPartitionMetadata retrieves the latest partition metadata from partition leader
+// The main interest is to retrieve Highest Watermark and Newest Offset
+FetchPartitionMetadata(ctx context.Context, stream string, partition int32) (*PartitionMetadataResponse, error)
 ```
 
 Liftbridge provides a partition metadata API which can be used to retrieve
@@ -727,15 +733,85 @@ take into account:
   be noted that the partition leader is different from the cluster's metadata
   leader.
 
-In the Go client example, `FetchPartitionMetadata` takes three arguments:
+In the Go client example above, `FetchPartitionMetadata` takes three arguments:
 
 | Argument | Type | Description | Required |
 |:----|:----|:----|:----|
 | context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
-| stream | string | Stream name | true |
-| partition | int32 | ID of the partition | true |
+| stream | string | Stream name | yes |
+| partition | int | ID of the partition | yes |
 
 [Implementation Guidance](#fetchpartitionmetadata-implementation)
+
+### SetCursor
+
+```go
+// SetCursor persists a cursor position for a particular stream partition.
+// This can be used to checkpoint a consumer's position in a stream to
+// resume processing later.
+SetCursor(ctx context.Context, id, stream string, partition int32, offset int64) error
+```
+
+`SetCursor` is used to checkpoint a consumer's position in a stream partition.
+This is useful to allow consumer's to resume processing a stream while
+remaining stateless by using [`FetchCursor`](#fetchcursor).
+
+Because cursors are stored in an internal stream that is partitioned, clients
+need to send this request to the appropriate partition leader. The internal
+cursors stream is partitioned by cursor key. A cursor key consists of
+`<cursorID>,<stream>,<partition>`. To map this key to a partition, hash it with
+an IEEE CRC32 and then mod by the number of partitions in the `__cursors`
+stream. This request mapping should be handled by the client implementation.
+
+`SetCursor` throws an error/exception if the cursors stream does not exist, the
+particular cursors partition does not exist, the server is not the leader for
+the cursors partition, or the server failed to durably store the cursor.
+
+In the Go client example above, `SetCursor` takes five arguments:
+
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
+| id | string | Unique cursor identifier | yes |
+| stream | string | Name of stream cursor belongs to | yes |
+| partition | int | ID of the stream partition cursor belongs to | yes |
+| offset | int | Cursor offset position | yes |
+
+[Implementation Guidance](#setcursor-implementation)
+
+### FetchCursor
+
+```go
+// FetchCursor retrieves a cursor position for a particular stream
+// partition. It returns -1 if the cursor does not exist.
+FetchCursor(ctx context.Context, id, stream string, partition int32) (int64, error)
+```
+
+`FetchCursor` is used to retrieve a consumer's position in a stream partition
+stored by [`SetCursor`](#setcursor).  This is useful to allow consumer's to
+resume processing a stream while remaining stateless.
+
+Because cursors are stored in an internal stream that is partitioned, clients
+need to send this request to the appropriate partition leader. The internal
+cursors stream is partitioned by cursor key. A cursor key consists of
+`<cursorID>,<stream>,<partition>`. To map this key to a partition, hash it with
+an IEEE CRC32 and then mod by the number of partitions in the `__cursors`
+stream. This request mapping should be handled by the client implementation.
+
+`FetchCursor` throws an error/exception if the cursors stream does not exist,
+the particular cursors partition does not exist, the server is not the leader
+for the cursors partition, or the server failed to load the cursor.
+
+In the Go client example above, `FetchCursor` takes four arguments:
+
+| Argument | Type | Description | Required |
+|:----|:----|:----|:----|
+| context | context | A [context](https://golang.org/pkg/context/#Context) which is a Go idiom for passing things like a timeout, cancellation signal, and other values across API boundaries. For Liftbridge, this is primarily used for two things: request timeouts and cancellation. In other languages, this might be replaced by explicit arguments, optional named arguments, or other language-specific idioms. | language-dependent |
+| id | string | Unique cursor identifier | yes |
+| stream | string | Name of stream cursor belongs to | yes |
+| partition | int | ID of the stream partition cursor belongs to | yes |
+
+[Implementation Guidance](#fetchcursor-implementation)
 
 ### Close
 
@@ -1034,6 +1110,55 @@ func (c *client) dialBroker() (*grpc.ClientConn, error) {
 	return conn, nil
 }
 ```
+
+Additionally, RPCs such as `SetCursor`, `FetchCursor`, and
+`FetchPartitionMetadata` cannot be sent to any random server but, rather, need
+to be sent to leaders of particular partitions. Thus, it's also useful to
+implement a variant of `doResilientRPC` for sending RPCs to partition leaders
+in a fault-tolerant fashion. The Go implementation of this is called
+`doResilientLeaderRPC` and is shown below.
+
+```go
+// doResilientLeaderRPC sends the given RPC to the partition leader and
+// performs retries if it fails due to the broker being unavailable.
+func (c *client) doResilientLeaderRPC(ctx context.Context, rpc func(client proto.APIClient) error,
+	stream string, partition int32) (err error) {
+
+	var (
+		pool *connPool
+		addr string
+		conn *conn
+	)
+	for i := 0; i < 5; i++ {
+		pool, addr, err = c.getPoolAndAddr(stream, partition, false)
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			c.metadata.update(ctx)
+			continue
+		}
+		conn, err = pool.get(c.connFactory(addr))
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			c.metadata.update(ctx)
+			continue
+		}
+		err = rpc(conn)
+		pool.put(conn)
+		if err != nil {
+			if status.Code(err) == codes.Unavailable {
+				time.Sleep(50 * time.Millisecond)
+				c.metadata.update(ctx)
+				continue
+			}
+		}
+		break
+	}
+	return err
+}
+```
+
+`getPoolAndAddr` is a helper which returns a connection pool and the address
+for the leader of the given partition.
 
 ### Connection Pooling
 
@@ -1841,11 +1966,104 @@ partition metadata.
 `FetchPartitionMetadataRequest` should be sent only to the partition leader. It
 is the job of the client to figure out which broker is currently the partition
 leader. `Metadata` can be used to figure out which broker is currently the
-leader of the requested partition*
+leader of the requested partition*. In Go, this is implemented using a variant
+of the [resilient RPC method](#rpcs) described above.
 
 The object contains information of the partition, notably the high watermark
 and newest offset, which is necessary in case the client wants tighter control
 over the subscription/publication of messages.
+
+### SetCursor Implementation
+
+The `SetCursor` implementation simply constructs a gRPC request and
+executes it using the [resilient leader RPC method](#rpcs) described above.
+This requires mapping the cursor to a partition in the internal `__cursors`
+stream. A cursor is mapped to a partition using its key. The cursor key
+consists of `<cursorID>.<stream>.<partition>`. This key is then hashed using
+IEEE CRC32 and modded by the number of partitions in the `__cursors` stream.
+The Go implementation of this is shown below.
+
+```go
+// SetCursor persists a cursor position for a particular stream partition.
+// This can be used to checkpoint a consumer's position in a stream to resume
+// processing later.
+func (c *client) SetCursor(ctx context.Context, id, stream string, partition int32, offset int64) error {
+	req := &proto.SetCursorRequest{
+		Stream:    stream,
+		Partition: partition,
+		CursorId:  id,
+		Offset:    offset,
+	}
+	cursorsPartition, err := c.getCursorsPartition(ctx, c.getCursorKey(id, stream, partition))
+	if err != nil {
+		return err
+	}
+	return c.doResilientLeaderRPC(ctx, func(client proto.APIClient) error {
+		_, err := client.SetCursor(ctx, req)
+		return err
+	}, cursorsStream, cursorsPartition)
+}
+
+func (c *client) getCursorKey(cursorID, streamName string, partitionID int32) []byte {
+	return []byte(fmt.Sprintf("%s,%s,%d", cursorID, streamName, partitionID))
+}
+
+func (c *client) getCursorsPartition(ctx context.Context, cursorKey []byte) (int32, error) {
+	// Make sure we have metadata for the cursors stream and, if not, update it.
+	metadata, err := c.waitForStreamMetadata(ctx, cursorsStream)
+	if err != nil {
+		return 0, err
+	}
+
+	stream := metadata.GetStream(cursorsStream)
+	if stream == nil {
+		return 0, errors.New("cursors stream does not exist")
+	}
+
+	return int32(hasher(cursorKey) % uint32(len(stream.Partitions()))), nil
+}
+```
+
+### FetchCursor Implementation
+
+The `FetchCursor` implementation simply constructs a gRPC request and
+executes it using the [resilient leader RPC method](#rpcs) described above.
+This requires mapping the cursor to a partition in the internal `__cursors`
+stream. A cursor is mapped to a partition using its key. The cursor key
+consists of `<cursorID>.<stream>.<partition>`. This key is then hashed using
+IEEE CRC32 and modded by the number of partitions in the `__cursors` stream.
+The Go implementation of this is shown below.
+
+```go
+// FetchCursor retrieves a cursor position for a particular stream partition.
+// It returns -1 if the cursor does not exist.
+func (c *client) FetchCursor(ctx context.Context, id, stream string, partition int32) (int64, error) {
+	var (
+		req = &proto.FetchCursorRequest{
+			Stream:    stream,
+			Partition: partition,
+			CursorId:  id,
+		}
+		offset int64
+	)
+	cursorsPartition, err := c.getCursorsPartition(ctx, c.getCursorKey(id, stream, partition))
+	if err != nil {
+		return 0, err
+	}
+	err = c.doResilientLeaderRPC(ctx, func(client proto.APIClient) error {
+		resp, err := client.FetchCursor(ctx, req)
+		if err != nil {
+			return err
+		}
+		offset = resp.Offset
+		return nil
+	}, cursorsStream, cursorsPartition)
+	return offset, err
+}
+```
+
+The `getCursorKey` and `getCursorsPartition` helper implementations are shown
+[above](#setcursor-implementation).
 
 ### Close Implementation
 

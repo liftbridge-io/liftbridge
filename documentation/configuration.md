@@ -216,3 +216,4 @@ the configuration file.
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
 | stream.partitions | | Sets the number of partitions for the internal `__cursors` stream which stores consumer cursors. A value of 0 disables the cursors stream. This cannot be changed once it is set. | int | 0 | |
+| stream.auto.pause.time | | The amount of time a partition in the internal `__cursors` stream can go idle, i.e. not receive a cursor update or fetch, before it is automatically paused. A value of 0 disables auto pausing. | duration | 1m | |

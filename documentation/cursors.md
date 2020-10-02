@@ -87,3 +87,12 @@ set the number of partitions to something greater than 0:
 ```yaml
 cursors.stream.partitions: 10
 ```
+
+Additionally, partitions in the `__cursors` stream automatically pause when
+they go idle (i.e. do not receive a cursor update or fetch) for 1 minute by
+default. This can be changed or disabled with the
+`cursors.stream.auto.pause.time` setting:
+
+```yaml
+cursors.stream.auto.pause.time: 0
+```
