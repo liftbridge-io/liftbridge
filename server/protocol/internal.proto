@@ -104,16 +104,17 @@ message NullableBool {
 }
 
 message StreamConfig  {
-    NullableInt64 RetentionMaxBytes             = 1;
-    NullableInt64 RetentionMaxMessages          = 2;
-    NullableInt64 RetentionMaxAge               = 3;  
-    NullableInt64 CleanerInterval               = 4;
-    NullableInt64 SegmentMaxBytes               = 5;
-    NullableInt64 SegmentMaxAge                 = 6;
-    NullableInt32 CompactMaxGoroutines          = 7;
-    NullableBool  CompactEnabled                = 8;
-    NullableInt64 AutoPauseTime                 = 9;
-    NullableBool  AutoPauseDisableIfSubscribers = 10;
+    NullableInt64 retentionMaxBytes             = 1;
+    NullableInt64 retentionMaxMessages          = 2;
+    NullableInt64 retentionMaxAge               = 3;  
+    NullableInt64 cleanerInterval               = 4;
+    NullableInt64 segmentMaxBytes               = 5;
+    NullableInt64 segmentMaxAge                 = 6;
+    NullableInt32 compactMaxGoroutines          = 7;
+    NullableBool  compactEnabled                = 8;
+    NullableInt64 autoPauseTime                 = 9;
+    NullableBool  autoPauseDisableIfSubscribers = 10;
+    NullableInt32 minIsr                        = 11;
 }
 
 message Stream {

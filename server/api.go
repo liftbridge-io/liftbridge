@@ -803,6 +803,9 @@ func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
 	if req.AutoPauseDisableIfSubscribers != nil {
 		config.AutoPauseDisableIfSubscribers = &proto.NullableBool{Value: req.AutoPauseDisableIfSubscribers.Value}
 	}
+	if req.MinIsr != nil {
+		config.MinIsr = &proto.NullableInt32{Value: req.MinIsr.Value}
+	}
 	return config
 }
 
