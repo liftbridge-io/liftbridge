@@ -24,7 +24,9 @@ RUN GRPC_HEALTH_PROBE_VERSION=v0.3.1 && \
 
 FROM alpine:latest
 RUN apk update && apk add --no-cache bash
-COPY --from=build-base /workspace/liftbridge /usr/local/bin/liftbridge
-COPY --from=build-base /bin/grpc_health_probe /bin/grpc_health_probe
+RUN addgroup -g 1001 -S liftbridge && adduser -u 1001 -S liftbridge -G liftbridge
+COPY --chown=liftbridge:liftbridge --from=build-base /workspace/liftbridge /usr/local/bin/liftbridge
+COPY --chown=liftbridge:liftbridge --from=build-base /bin/grpc_health_probe /bin/grpc_health_probe
 COPY k8s/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
+USER liftbridge

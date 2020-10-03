@@ -93,6 +93,33 @@ jobs:
             docker push "liftbridge/liftbridge:${VERSION}"
             docker push 'liftbridge/liftbridge:latest'
 
+  # Build and publish release k8s Docker image
+  build-and-push-release-k8s-image:
+    docker:
+      - image: circleci/buildpack-deps:stretch
+    steps:
+      - setup_remote_docker
+      - checkout
+      - run:
+          name: Set image version
+          command: |
+            if [ -n "$CIRCLE_TAG" ]; then
+                echo "export VERSION='${CIRCLE_TAG}'" >> $BASH_ENV
+            else
+                echo "export VERSION='${CIRCLE_SHA1}'" >> $BASH_ENV
+            fi
+      - run:
+          name: Build image
+          command: |
+            docker build -t "liftbridge/liftbridge-k8s:${VERSION}" -f k8s/Dockerfile.k8s .
+            docker tag "liftbridge/liftbridge-k8s:${VERSION}" 'liftbridge/liftbridge-k8s:latest'
+      - run:
+          name: Publish image
+          command: |
+            echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker push "liftbridge/liftbridge-k8s:${VERSION}"
+            docker push 'liftbridge/liftbridge-k8s:latest'
+
   # Create GitHub release and upload artifacts
   release:
     docker:
@@ -151,6 +178,13 @@ workflows:
             tags:
               only: /^v.*/
       - build-and-push-release-image:
+          context: docker-push
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /v[0-9]+(\.[0-9]+)*(-.*)*/
+      - build-and-push-release-k8s-image:
           context: docker-push
           filters:
             branches:

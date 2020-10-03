@@ -10,7 +10,9 @@ ENV GOOS linux
 RUN go build -mod=readonly -o liftbridge
 
 FROM alpine:latest
-COPY --from=build-base /go/src/github.com/liftbridge-io/liftbridge/liftbridge /usr/local/bin/liftbridge
+RUN addgroup -g 1001 -S liftbridge && adduser -u 1001 -S liftbridge -G liftbridge
+COPY --chown=liftbridge:liftbridge --from=build-base /go/src/github.com/liftbridge-io/liftbridge/liftbridge /usr/local/bin/liftbridge
 EXPOSE 9292
 VOLUME "/tmp/liftbridge/liftbridge-default"
 ENTRYPOINT ["liftbridge"]
+USER liftbridge
