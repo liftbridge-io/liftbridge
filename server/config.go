@@ -174,6 +174,7 @@ type StreamsConfig struct {
 	CompactMaxGoroutines          int
 	AutoPauseTime                 time.Duration
 	AutoPauseDisableIfSubscribers bool
+	MinISR                        int
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -258,6 +259,10 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 
 	if autoPauseDisableIfSubscribers := c.AutoPauseDisableIfSubscribers; autoPauseDisableIfSubscribers != nil {
 		l.AutoPauseDisableIfSubscribers = autoPauseDisableIfSubscribers.Value
+	}
+
+	if minISR := c.MinIsr; minISR != nil {
+		l.MinISR = int(minISR.Value)
 	}
 }
 

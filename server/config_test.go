@@ -166,6 +166,7 @@ func TestStreamsConfigApplyOverrides(t *testing.T) {
 		CompactMaxGoroutines:          &proto.NullableInt32{Value: 10},
 		AutoPauseTime:                 &proto.NullableInt64{Value: 1000000},
 		AutoPauseDisableIfSubscribers: &proto.NullableBool{Value: true},
+		MinIsr:                        &proto.NullableInt32{Value: 11},
 	}
 	streamConfig := StreamsConfig{}
 
@@ -183,6 +184,7 @@ func TestStreamsConfigApplyOverrides(t *testing.T) {
 	require.Equal(t, 10, streamConfig.CompactMaxGoroutines)
 	require.Equal(t, s, streamConfig.AutoPauseTime)
 	require.True(t, streamConfig.AutoPauseDisableIfSubscribers)
+	require.Equal(t, 11, streamConfig.MinISR)
 }
 
 // Ensure default stream configs are always present. This should be the case
@@ -196,6 +198,7 @@ func TestStreamsConfigApplyOverridesDefault(t *testing.T) {
 		SegmentMaxBytes: 2048,
 		SegmentMaxAge:   s,
 		AutoPauseTime:   autoPauseTime,
+		MinISR:          2,
 	}
 
 	// Given custom configs
@@ -214,6 +217,7 @@ func TestStreamsConfigApplyOverridesDefault(t *testing.T) {
 	require.Equal(t, int64(2048), streamConfig.SegmentMaxBytes)
 	require.Equal(t, s, streamConfig.SegmentMaxAge)
 	require.Equal(t, autoPauseTime, streamConfig.AutoPauseTime)
+	require.Equal(t, 2, streamConfig.MinISR)
 
 	// Ensure values from custom configs overwrite default configs
 	require.Equal(t, int64(1024), streamConfig.RetentionMaxBytes)

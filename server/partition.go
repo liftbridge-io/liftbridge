@@ -76,6 +76,7 @@ type partition struct {
 	isClosed                      bool
 	replicas                      map[string]struct{}
 	isr                           map[string]*replica
+	minISR                        int
 	replicators                   map[string]*replicator
 	commitQueue                   *queue.Queue
 	commitCheck                   chan struct{}
@@ -112,6 +113,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		CompactMaxGoroutines:          s.config.Streams.CompactMaxGoroutines,
 		AutoPauseTime:                 s.config.Streams.AutoPauseTime,
 		AutoPauseDisableIfSubscribers: s.config.Streams.AutoPauseDisableIfSubscribers,
+		MinISR:                        s.config.Clustering.MinISR,
 	}
 	streamsConfig.ApplyOverrides(config)
 	var (
@@ -159,6 +161,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		srv:                           s,
 		replicas:                      replicas,
 		isr:                           isr,
+		minISR:                        streamsConfig.MinISR,
 		commitCheck:                   make(chan struct{}, len(protoPartition.Replicas)),
 		notify:                        make(chan struct{}, 1),
 		recovered:                     recovered,
@@ -839,15 +842,12 @@ func (p *partition) commitLoop(stop chan struct{}) {
 
 		// Check if the ISR size is below the minimum ISR size. If it is, we
 		// cannot commit any messages.
-		var (
-			minISR  = p.srv.config.Clustering.MinISR
-			isrSize = len(p.isr)
-		)
-		if isrSize < minISR {
+		isrSize := len(p.isr)
+		if isrSize < p.minISR {
 			p.mu.RUnlock()
 			p.srv.logger.Errorf(
 				"Unable to commit messages for partition %s, ISR size (%d) below minimum (%d)",
-				p, isrSize, minISR)
+				p, isrSize, p.minISR)
 			continue
 		}
 
@@ -1123,13 +1123,10 @@ func (p *partition) RemoveFromISR(replica string) error {
 
 	// Check if ISR went below minimum ISR size. This is important for
 	// operators to be aware of.
-	var (
-		minISR  = p.srv.config.Clustering.MinISR
-		isrSize = len(p.isr)
-	)
-	if !p.belowMinISR && isrSize < minISR {
+	isrSize := len(p.isr)
+	if !p.belowMinISR && isrSize < p.minISR {
 		p.srv.logger.Errorf("ISR for partition %s has shrunk below minimum size %d, currently %d",
-			p, minISR, isrSize)
+			p, p.minISR, isrSize)
 		p.belowMinISR = true
 	}
 
@@ -1161,13 +1158,10 @@ func (p *partition) AddToISR(rep string) error {
 	}
 
 	// Check if ISR recovered from being below the minimum ISR size.
-	var (
-		minISR  = p.srv.config.Clustering.MinISR
-		isrSize = len(p.isr)
-	)
-	if p.belowMinISR && isrSize >= minISR {
+	isrSize := len(p.isr)
+	if p.belowMinISR && isrSize >= p.minISR {
 		p.srv.logger.Infof("ISR for partition %s has recovered from being below minimum size %d, currently %d",
-			p, minISR, isrSize)
+			p, p.minISR, isrSize)
 		p.belowMinISR = false
 	}
 

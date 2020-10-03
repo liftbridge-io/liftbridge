@@ -856,6 +856,7 @@ func TestGetStreamConfig(t *testing.T) {
 		CompactEnabled:                &proto.NullableBool{Value: true},
 		AutoPauseTime:                 &proto.NullableInt64{Value: 8},
 		AutoPauseDisableIfSubscribers: &proto.NullableBool{Value: true},
+		MinIsr:                        &proto.NullableInt32{Value: 9},
 	}
 
 	config := getStreamConfig(req)
@@ -870,6 +871,7 @@ func TestGetStreamConfig(t *testing.T) {
 	require.True(t, config.CompactEnabled.Value)
 	require.Equal(t, int64(8), config.AutoPauseTime.Value)
 	require.True(t, config.AutoPauseDisableIfSubscribers.Value)
+	require.Equal(t, int32(9), config.MinIsr.Value)
 }
 
 // Ensure SetCursor stores cursors and FetchCursor retrieves them.
