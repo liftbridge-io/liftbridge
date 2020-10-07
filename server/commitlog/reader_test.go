@@ -272,6 +272,39 @@ func TestReaderCommittedWaitOnEmptyLog(t *testing.T) {
 	compareMessages(t, msg, m)
 }
 
+func TestReaderCommittedWaitOnEmptyLogWithHW(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 1024,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	// Simulate a log that had retention limits applied past a HW.
+	l.SetHighWatermark(9)
+	l.segments[0].BaseOffset = 10
+
+	r, err := l.NewReader(0, false)
+	require.NoError(t, err)
+
+	msg := &Message{
+		Value:       []byte("hello"),
+		Timestamp:   1,
+		LeaderEpoch: 42,
+	}
+
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		_, err := l.Append([]*Message{msg})
+		require.NoError(t, err)
+		l.SetHighWatermark(10)
+	}()
+
+	headers := make([]byte, 28)
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.NoError(t, err)
+}
+
 func TestReaderCommittedRead(t *testing.T) {
 	for _, test := range segmentSizeTests {
 		t.Run(test.name, func(t *testing.T) {
