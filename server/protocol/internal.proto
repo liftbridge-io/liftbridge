@@ -136,6 +136,7 @@ message Partition {
     uint64          leaderEpoch       = 9;
     uint64          epoch             = 10;
     bool            paused            = 11; // Only used for snapshotting.
+    bool            readonly          = 12;
 }
 
 // RaftJoinRequest is a request to join a Raft group.

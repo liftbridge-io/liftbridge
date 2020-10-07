@@ -172,9 +172,10 @@ func (m *metadataAPI) FetchPartitionMetadata(ctx context.Context, req *client.Fe
 		Leader:        leader,
 		Replicas:      partition.GetReplicas(),
 		Isr:           partition.GetISR(),
-		Paused:        partition.GetPaused(),
 		HighWatermark: partition.log.HighWatermark(),
 		NewestOffset:  partition.log.NewestOffset(),
+		Paused:        partition.GetPaused(),
+		Readonly:      partition.GetReadonly(),
 	}
 	return &client.FetchPartitionMetadataResponse{Metadata: metadata}, nil
 }
@@ -289,9 +290,10 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 					Leader:        leader,
 					Replicas:      partition.GetReplicas(),
 					Isr:           partition.GetISR(),
-					Paused:        partition.GetPaused(),
 					HighWatermark: partition.log.HighWatermark(),
 					NewestOffset:  partition.log.NewestOffset(),
+					Paused:        partition.GetPaused(),
+					Readonly:      partition.GetReadonly(),
 				}
 			}
 			metadata[i] = &client.StreamMetadata{
