@@ -346,7 +346,7 @@ func (l *commitLog) newReaderCommitted(offset int64) (contextReader, error) {
 
 	// If offset exceeds HW, wait for the next message. This also covers the
 	// case when the log is empty.
-	if offset > hw {
+	if offset > hw || l.OldestOffset() == -1 {
 		return &committedReader{
 			cl:    l,
 			seg:   nil,
