@@ -259,6 +259,19 @@ func (s *Server) IsRunning() bool {
 	return s.running
 }
 
+// GetListenPort returns the port the server is listening to. Returns 0 if the
+// server is not listening.
+func (s *Server) GetListenPort() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.listener == nil {
+		return 0
+	}
+
+	return s.listener.Addr().(*net.TCPAddr).Port
+}
+
 // recoverAndPersistState recovers any existing server metadata state from disk
 // to initialize the server then writes the metadata back to disk.
 func (s *Server) recoverAndPersistState() error {
