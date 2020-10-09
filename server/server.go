@@ -264,12 +264,23 @@ func (s *Server) IsRunning() bool {
 func (s *Server) GetListenPort() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.port
+}
 
-	if s.listener == nil {
-		return 0
+// getConnectionAddress returns the connection address that should be used by
+// the server. It uses the port the server is currently listening to if the
+// connection port is 0, so that an OS-assigned port can be used as a connection
+// port.
+func (s *Server) getConnectionAddress() HostPort {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	address := s.config.GetConnectionAddress()
+	if address.Port == 0 {
+		address.Port = s.port
 	}
 
-	return s.listener.Addr().(*net.TCPAddr).Port
+	return address
 }
 
 // recoverAndPersistState recovers any existing server metadata state from disk
@@ -819,7 +830,7 @@ func (s *Server) handleServerInfoRequest(m *nats.Msg) {
 		return
 	}
 
-	connectionAddress := s.config.GetConnectionAddress()
+	connectionAddress := s.getConnectionAddress()
 	data, err := proto.MarshalServerInfoResponse(&proto.ServerInfoResponse{
 		Id:   s.config.Clustering.ServerID,
 		Host: connectionAddress.Host,
