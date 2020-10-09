@@ -264,12 +264,7 @@ func (s *Server) IsRunning() bool {
 func (s *Server) GetListenPort() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	if s.listener == nil {
-		return 0
-	}
-
-	return s.listener.Addr().(*net.TCPAddr).Port
+	return s.port
 }
 
 // recoverAndPersistState recovers any existing server metadata state from disk
