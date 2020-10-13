@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -10,22 +11,24 @@ import (
 // stream is a message stream consisting of one or more partitions. Each
 // partition maps to a NATS subject and is the unit of replication.
 type stream struct {
-	name       string
-	subject    string
-	config     *proto.StreamConfig
-	partitions map[int32]*partition
-	resumeAll  bool // When partition(s) are paused, this indicates if all should be resumed
-	mu         sync.RWMutex
+	name         string
+	subject      string
+	config       *proto.StreamConfig
+	partitions   map[int32]*partition
+	resumeAll    bool // When partition(s) are paused, this indicates if all should be resumed
+	creationTime time.Time
+	mu           sync.RWMutex
 }
 
 // newStream creates a stream for the given NATS subject. All stream
 // interactions should only go through the exported functions.
 func newStream(name, subject string, config *proto.StreamConfig) *stream {
 	return &stream{
-		name:       name,
-		subject:    subject,
-		config:     config,
-		partitions: make(map[int32]*partition),
+		name:         name,
+		subject:      subject,
+		config:       config,
+		partitions:   make(map[int32]*partition),
+		creationTime: time.Now(),
 	}
 }
 
@@ -96,6 +99,13 @@ func (s *stream) SetPartition(id int32, p *partition) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.partitions[id] = p
+}
+
+// GetCreationTime returns the steam's creation time.
+func (s *stream) GetCreationTime() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.creationTime
 }
 
 // Close the stream by closing each of its partitions.

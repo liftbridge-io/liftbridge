@@ -53,6 +53,22 @@ func (r *replica) getLatestOffset() int64 {
 	return r.offset
 }
 
+// eventTimestamps contains the first and latest times when an event has
+// occurred.
+type eventTimestamps struct {
+	firstTime time.Time // Time when the first event occurred.
+	lastTime  time.Time // Time when the latest event occurred.
+}
+
+// update should be called when an event has occurred. It updates the first and
+// latest timestamps.
+func (e *eventTimestamps) update() {
+	if e.firstTime.IsZero() {
+		e.firstTime = time.Now()
+	}
+	e.lastTime = time.Now()
+}
+
 // partition represents a replicated message stream partition backed by a
 // durable commit log. A partition is attached to a NATS subject and stores
 // messages on that subject in a file-backed log. A partition has a set of
@@ -91,6 +107,9 @@ type partition struct {
 	autoPauseTime                 time.Duration
 	autoPauseDisableIfSubscribers bool
 	subscriberCount               int64
+	messagesTimestamps            eventTimestamps // First and latest time a message was received on this partition
+	pauseTimestamps               eventTimestamps // First and latest time this partition was paused or resumed
+	readonlyTimestamps            eventTimestamps // First and latest time this partition had its read-only status changed
 	*proto.Partition
 }
 
@@ -172,6 +191,18 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 	return st, nil
 }
 
+// replacePartition creates a new stream partition to replace another one. The
+// old partition's events timestamps are kept.
+func (s *Server) replacePartition(oldPartition *partition, recovered bool, config *proto.StreamConfig) (*partition, error) {
+	st, err := s.newPartition(oldPartition.Partition, recovered, config)
+
+	st.messagesTimestamps = oldPartition.messagesTimestamps
+	st.pauseTimestamps = oldPartition.pauseTimestamps
+	st.readonlyTimestamps = oldPartition.readonlyTimestamps
+
+	return st, err
+}
+
 // String returns a human-readable string representation of the partition.
 func (p *partition) String() string {
 	return fmt.Sprintf("[subject=%s, stream=%s, partition=%d]", p.Subject, p.Stream, p.Id)
@@ -214,6 +245,7 @@ func (p *partition) Pause() error {
 	defer p.mu.Unlock()
 
 	p.paused = true
+	p.pauseTimestamps.update()
 
 	return p.close()
 }
@@ -230,6 +262,10 @@ func (p *partition) IsPaused() bool {
 // they reach the end of the log. This does not affect replication.
 func (p *partition) SetReadonly(readonly bool) {
 	p.log.SetReadonly(readonly)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.readonlyTimestamps.update()
 }
 
 // IsReadonly indicates if the partition is currently readonly.
@@ -723,6 +759,9 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		}
 
 		atomic.StoreInt64(&p.lastReceived, time.Now().UnixNano())
+		p.mu.Lock()
+		p.messagesTimestamps.update()
+		p.mu.Unlock()
 
 		m := natsToProtoMessage(msg, leaderEpoch)
 		msgBatch = append(msgBatch, m)
