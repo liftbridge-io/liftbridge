@@ -63,10 +63,11 @@ type eventTimestamps struct {
 // update should be called when an event has occurred. It updates the first and
 // latest timestamps.
 func (e *eventTimestamps) update() {
+	timestamp := time.Now()
 	if e.firstTime.IsZero() {
-		e.firstTime = time.Now()
+		e.firstTime = timestamp
 	}
-	e.lastTime = time.Now()
+	e.lastTime = timestamp
 }
 
 // partition represents a replicated message stream partition backed by a
