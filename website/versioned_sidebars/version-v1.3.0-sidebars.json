@@ -1,0 +1,32 @@
+{
+  "version-v1.3.0-docs": {
+    "Overview": [
+      "version-v1.3.0-overview",
+      "version-v1.3.0-faq",
+      "version-v1.3.0-concepts",
+      "version-v1.3.0-quick-start",
+      "version-v1.3.0-feature-comparison",
+      "version-v1.3.0-roadmap"
+    ],
+    "Configuration": [
+      "version-v1.3.0-configuration",
+      "version-v1.3.0-ha-and-consistency-configuration"
+    ],
+    "Deployment": [
+      "version-v1.3.0-deployment"
+    ],
+    "Developing With Liftbridge": [
+      "version-v1.3.0-activity",
+      "version-v1.3.0-pausing-streams",
+      "version-v1.3.0-cursors"
+    ],
+    "Technical Deep Dive": [
+      "version-v1.3.0-replication-protocol",
+      "version-v1.3.0-envelope-protocol"
+    ],
+    "Client Libraries": [
+      "version-v1.3.0-clients",
+      "version-v1.3.0-client-implementation"
+    ]
+  }
+}
