@@ -1312,7 +1312,7 @@ func ensureTimeout(ctx context.Context, defaultTimeout time.Duration) (context.C
 
 // eventTimestampsToProto returns a client proto's partition event timestamps
 // from a partition's event timestamps struct.
-func eventTimestampsToProto(timestamps eventTimestamps) *client.PartitionEventTimestamps {
+func eventTimestampsToProto(timestamps EventTimestamps) *client.PartitionEventTimestamps {
 	first, latest := timestamps.firstTime, timestamps.lastTime
 	result := &client.PartitionEventTimestamps{}
 
@@ -1340,8 +1340,8 @@ func getPartitionMetadata(partitionId int32, partition *partition) *client.Parti
 		NewestOffset:       partition.log.NewestOffset(),
 		Paused:             partition.GetPaused(),
 		Readonly:           partition.GetReadonly(),
-		MessageTimestamps:  eventTimestampsToProto(partition.messagesTimestamps),
-		PauseTimestamps:    eventTimestampsToProto(partition.pauseTimestamps),
-		ReadonlyTimestamps: eventTimestampsToProto(partition.readonlyTimestamps),
+		MessageTimestamps:  eventTimestampsToProto(partition.MessagesTimestamps()),
+		PauseTimestamps:    eventTimestampsToProto(partition.PauseTimestamps()),
+		ReadonlyTimestamps: eventTimestampsToProto(partition.ReadonlyTimestamps()),
 	}
 }

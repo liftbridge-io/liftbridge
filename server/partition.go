@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
@@ -53,16 +52,16 @@ func (r *replica) getLatestOffset() int64 {
 	return r.offset
 }
 
-// eventTimestamps contains the first and latest times when an event has
+// EventTimestamps contains the first and latest times when an event has
 // occurred.
-type eventTimestamps struct {
+type EventTimestamps struct {
 	firstTime time.Time // Time when the first event occurred.
 	lastTime  time.Time // Time when the latest event occurred.
 }
 
 // update should be called when an event has occurred. It updates the first and
 // latest timestamps.
-func (e *eventTimestamps) update() {
+func (e *EventTimestamps) update() {
 	timestamp := time.Now()
 	if e.firstTime.IsZero() {
 		e.firstTime = timestamp
@@ -80,7 +79,6 @@ func (e *eventTimestamps) update() {
 // leader's log by fetching messages from it. All partition access should go
 // through exported methods.
 type partition struct {
-	lastReceived                  int64 // Atomic Unix time last message was received on partition
 	mu                            sync.RWMutex
 	closeMu                       sync.Mutex
 	sub                           *nats.Subscription // Subscription to partition NATS subject
@@ -108,9 +106,9 @@ type partition struct {
 	autoPauseTime                 time.Duration
 	autoPauseDisableIfSubscribers bool
 	subscriberCount               int64
-	messagesTimestamps            eventTimestamps // First and latest time a message was received on this partition
-	pauseTimestamps               eventTimestamps // First and latest time this partition was paused or resumed
-	readonlyTimestamps            eventTimestamps // First and latest time this partition had its read-only status changed
+	messagesTimestamps            EventTimestamps // First and latest time a message was received on this partition
+	pauseTimestamps               EventTimestamps // First and latest time this partition was paused or resumed
+	readonlyTimestamps            EventTimestamps // First and latest time this partition had its read-only status changed
 	*proto.Partition
 }
 
@@ -197,9 +195,11 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 func (s *Server) replacePartition(oldPartition *partition, recovered bool, config *proto.StreamConfig) (*partition, error) {
 	st, err := s.newPartition(oldPartition.Partition, recovered, config)
 
-	st.messagesTimestamps = oldPartition.messagesTimestamps
-	st.pauseTimestamps = oldPartition.pauseTimestamps
-	st.readonlyTimestamps = oldPartition.readonlyTimestamps
+	if err == nil {
+		st.messagesTimestamps = oldPartition.MessagesTimestamps()
+		st.pauseTimestamps = oldPartition.PauseTimestamps()
+		st.readonlyTimestamps = oldPartition.ReadonlyTimestamps()
+	}
 
 	return st, err
 }
@@ -309,6 +309,33 @@ func (p *partition) DecreaseSubscriberCount() {
 		p.subscriberCount = 0
 		p.srv.logger.Errorf("Negative partition subscriber count for partition %s: %d", p, p.subscriberCount)
 	}
+}
+
+// MessagesTimestamps returns the first and latest times a message was received
+// on this partition.
+func (p *partition) MessagesTimestamps() EventTimestamps {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.messagesTimestamps
+}
+
+// PauseTimestamps returns the first and latest time this partition was paused
+// or resumed.
+func (p *partition) PauseTimestamps() EventTimestamps {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.pauseTimestamps
+}
+
+// ReadonlyTimestamps returns the first and latest time this partition had its
+// read-only status changed.
+func (p *partition) ReadonlyTimestamps() EventTimestamps {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.readonlyTimestamps
 }
 
 // Notify is used to short circuit the sleep backoff a partition uses when it
@@ -694,7 +721,6 @@ func (p *partition) getLeaderOffsetRequestInbox() string {
 // autoPauseLoop is a long-running loop the leader runs to check if the
 // partition should be automatically paused due to inactivity.
 func (p *partition) autoPauseLoop(stop <-chan struct{}) {
-	atomic.StoreInt64(&p.lastReceived, time.Now().UnixNano())
 	timer := time.NewTimer(p.autoPauseTime)
 	defer timer.Stop()
 	for {
@@ -704,10 +730,8 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 		case <-timer.C:
 		}
 
-		ns := atomic.LoadInt64(&p.lastReceived)
-		lastReceivedElapsed := time.Since(time.Unix(0, ns))
-
 		p.mu.RLock()
+		lastReceivedElapsed := time.Since(p.messagesTimestamps.lastTime)
 		subsAllowPausing := !p.autoPauseDisableIfSubscribers || p.subscriberCount == 0
 		p.mu.RUnlock()
 
@@ -759,7 +783,6 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		case msg = <-recvChan:
 		}
 
-		atomic.StoreInt64(&p.lastReceived, time.Now().UnixNano())
 		p.mu.Lock()
 		p.messagesTimestamps.update()
 		p.mu.Unlock()
