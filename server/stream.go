@@ -22,13 +22,13 @@ type stream struct {
 
 // newStream creates a stream for the given NATS subject. All stream
 // interactions should only go through the exported functions.
-func newStream(name, subject string, config *proto.StreamConfig) *stream {
+func newStream(name, subject string, config *proto.StreamConfig, creationTime time.Time) *stream {
 	return &stream{
 		name:         name,
 		subject:      subject,
 		config:       config,
 		partitions:   make(map[int32]*partition),
-		creationTime: time.Now(),
+		creationTime: creationTime,
 	}
 }
 

@@ -326,6 +326,8 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *proto.CreateStreamO
 		partition.Leader = leader
 	}
 
+	req.Stream.CreationTimestamp = time.Now().UnixNano()
+
 	// Replicate stream create through Raft.
 	op := &proto.RaftLog{
 		Op:             proto.Op_CREATE_STREAM,
@@ -699,7 +701,8 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 	}
 
 	config := protoStream.GetConfig()
-	stream := newStream(protoStream.Name, protoStream.Subject, config)
+	creationTime := time.Unix(0, protoStream.CreationTimestamp)
+	stream := newStream(protoStream.Name, protoStream.Subject, config, creationTime)
 	m.streams[protoStream.Name] = stream
 
 	for _, partition := range protoStream.Partitions {

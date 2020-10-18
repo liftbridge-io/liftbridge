@@ -296,6 +296,10 @@ func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 				Partitions: make([]*proto.Partition, len(partitions)),
 			}
 		)
+		creationTime := stream.GetCreationTime()
+		if !creationTime.IsZero() {
+			protoStream.CreationTimestamp = creationTime.UnixNano()
+		}
 		for j, partition := range partitions {
 			protoStream.Partitions[j] = partition.Partition
 		}
