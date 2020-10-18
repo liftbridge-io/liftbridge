@@ -297,8 +297,6 @@ func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 			}
 		)
 		for j, partition := range partitions {
-			// Set paused flag on protobuf since it's only held in memory.
-			partition.Paused = partition.IsPaused()
 			protoStream.Partitions[j] = partition.Partition
 		}
 		protoStreams[i] = protoStream

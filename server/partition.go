@@ -246,6 +246,7 @@ func (p *partition) Pause() error {
 	defer p.mu.Unlock()
 
 	p.paused = true
+	p.Paused = true // Also set the protobuf value (used for snapshotting)
 	p.pauseTimestamps.update()
 
 	return p.close()
@@ -266,6 +267,8 @@ func (p *partition) SetReadonly(readonly bool) {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	p.Readonly = readonly // Also set the protobuf value (used for snapshotting)
 	p.readonlyTimestamps.update()
 }
 
