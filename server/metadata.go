@@ -1343,7 +1343,7 @@ func getPartitionMetadata(partitionId int32, partition *partition) *client.Parti
 		NewestOffset:       partition.log.NewestOffset(),
 		Paused:             partition.GetPaused(),
 		Readonly:           partition.GetReadonly(),
-		MessageTimestamps:  eventTimestampsToProto(partition.MessagesTimestamps()),
+		MessageTimestamps:  eventTimestampsToProto(partition.MessagesReceivedTimestamps()),
 		PauseTimestamps:    eventTimestampsToProto(partition.PauseTimestamps()),
 		ReadonlyTimestamps: eventTimestampsToProto(partition.ReadonlyTimestamps()),
 	}

@@ -106,7 +106,7 @@ type partition struct {
 	autoPauseTime                 time.Duration
 	autoPauseDisableIfSubscribers bool
 	subscriberCount               int64
-	messagesTimestamps            EventTimestamps // First and latest time a message was received on this partition
+	messagesReceivedTimestamps    EventTimestamps // First and latest time a message was received on this partition
 	pauseTimestamps               EventTimestamps // First and latest time this partition was paused or resumed
 	readonlyTimestamps            EventTimestamps // First and latest time this partition had its read-only status changed
 	*proto.Partition
@@ -196,7 +196,7 @@ func (s *Server) replacePartition(oldPartition *partition, recovered bool, confi
 	st, err := s.newPartition(oldPartition.Partition, recovered, config)
 
 	if err == nil {
-		st.messagesTimestamps = oldPartition.MessagesTimestamps()
+		st.messagesReceivedTimestamps = oldPartition.MessagesReceivedTimestamps()
 		st.pauseTimestamps = oldPartition.PauseTimestamps()
 		st.readonlyTimestamps = oldPartition.ReadonlyTimestamps()
 	}
@@ -314,13 +314,13 @@ func (p *partition) DecreaseSubscriberCount() {
 	}
 }
 
-// MessagesTimestamps returns the first and latest times a message was received
-// on this partition.
-func (p *partition) MessagesTimestamps() EventTimestamps {
+// MessagesReceivedTimestamps returns the first and latest times a message was
+// received on this partition.
+func (p *partition) MessagesReceivedTimestamps() EventTimestamps {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	return p.messagesTimestamps
+	return p.messagesReceivedTimestamps
 }
 
 // PauseTimestamps returns the first and latest time this partition was paused
@@ -734,7 +734,7 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 		}
 
 		p.mu.RLock()
-		lastReceivedElapsed := time.Since(p.messagesTimestamps.lastTime)
+		lastReceivedElapsed := time.Since(p.messagesReceivedTimestamps.lastTime)
 		subsAllowPausing := !p.autoPauseDisableIfSubscribers || p.subscriberCount == 0
 		p.mu.RUnlock()
 
@@ -787,7 +787,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		}
 
 		p.mu.Lock()
-		p.messagesTimestamps.update()
+		p.messagesReceivedTimestamps.update()
 		p.mu.Unlock()
 
 		m := natsToProtoMessage(msg, leaderEpoch)
