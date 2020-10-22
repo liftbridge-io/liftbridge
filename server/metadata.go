@@ -1316,7 +1316,7 @@ func ensureTimeout(ctx context.Context, defaultTimeout time.Duration) (context.C
 // eventTimestampsToProto returns a client proto's partition event timestamps
 // from a partition's event timestamps struct.
 func eventTimestampsToProto(timestamps EventTimestamps) *client.PartitionEventTimestamps {
-	first, latest := timestamps.firstTime, timestamps.lastTime
+	first, latest := timestamps.firstTime, timestamps.latestTime
 	result := &client.PartitionEventTimestamps{}
 
 	// Calling UnixNano() on a zero time is undefined, so we need to make these

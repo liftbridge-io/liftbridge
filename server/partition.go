@@ -55,8 +55,8 @@ func (r *replica) getLatestOffset() int64 {
 // EventTimestamps contains the first and latest times when an event has
 // occurred.
 type EventTimestamps struct {
-	firstTime time.Time // Time when the first event occurred.
-	lastTime  time.Time // Time when the latest event occurred.
+	firstTime  time.Time // Time when the first event occurred.
+	latestTime time.Time // Time when the latest event occurred.
 }
 
 // update should be called when an event has occurred. It updates the first and
@@ -66,7 +66,7 @@ func (e *EventTimestamps) update() {
 	if e.firstTime.IsZero() {
 		e.firstTime = timestamp
 	}
-	e.lastTime = timestamp
+	e.latestTime = timestamp
 }
 
 // partition represents a replicated message stream partition backed by a
@@ -734,11 +734,11 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 		}
 
 		p.mu.RLock()
-		lastReceivedElapsed := time.Since(p.messagesReceivedTimestamps.lastTime)
+		latestReceivedElapsed := time.Since(p.messagesReceivedTimestamps.latestTime)
 		subsAllowPausing := !p.autoPauseDisableIfSubscribers || p.subscriberCount == 0
 		p.mu.RUnlock()
 
-		if lastReceivedElapsed > p.autoPauseTime && subsAllowPausing {
+		if latestReceivedElapsed > p.autoPauseTime && subsAllowPausing {
 			p.srv.logger.Infof("Partition %s has not received a message in over %s, "+
 				"auto pausing partition", p, p.autoPauseTime)
 			if err := p.requestPause(); err != nil {
@@ -746,7 +746,7 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 			}
 		}
 
-		timer.Reset(computeTick(lastReceivedElapsed, p.autoPauseTime))
+		timer.Reset(computeTick(latestReceivedElapsed, p.autoPauseTime))
 	}
 }
 
