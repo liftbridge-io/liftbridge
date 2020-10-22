@@ -984,3 +984,200 @@ func TestSetFetchCursorNoCache(t *testing.T) {
 	_, err = client.FetchCursor(context.Background(), "123", "", 0)
 	require.Error(t, err)
 }
+
+// publishAndReceive publishes and waits for a message to arrive.
+func publishAndReceive(t *testing.T, client lift.Client, stream string) {
+	gotMsg := make(chan struct{})
+
+	// Subscribe to receive one message.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := client.Subscribe(context.Background(), stream, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		gotMsg <- struct{}{}
+		cancel()
+	})
+	require.NoError(t, err)
+
+	// Publish one message.
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, stream, []byte{}, lift.AckPolicyLeader())
+	require.NoError(t, err)
+
+	select {
+	case <-gotMsg:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected message")
+	}
+}
+
+// Ensures the message received timestamps returned by FetchPartitionMetadata
+// are updated with coherent values.
+func TestFetchPartitionMetadataMessagesReceivedTimestamps(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "foo"
+
+	err = client.CreateStream(context.Background(), "foo", stream)
+	require.NoError(t, err)
+
+	metadata, err := client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Check that the timestamps are zero.
+	require.True(t, metadata.MessagesReceivedTimestamps().FirstTime().IsZero())
+	require.True(t, metadata.MessagesReceivedTimestamps().LatestTime().IsZero())
+
+	// Publish a first message.
+	publishAndReceive(t, client, stream)
+
+	metadata, err = client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Check that the first messages received timestamp has been updated, and
+	// that the latest timestamp has the same value.
+	firstMessagesReceivedTimestamp := metadata.MessagesReceivedTimestamps().FirstTime()
+	require.False(t, firstMessagesReceivedTimestamp.IsZero())
+	require.Equal(t, firstMessagesReceivedTimestamp, metadata.MessagesReceivedTimestamps().LatestTime())
+
+	// Publish a second message.
+	publishAndReceive(t, client, stream)
+
+	metadata, err = client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Check that the first messages received timestamp still has the same value
+	// and that the latest timestamp has been updated.
+	require.Equal(t, firstMessagesReceivedTimestamp, metadata.MessagesReceivedTimestamps().FirstTime())
+	require.True(t, metadata.MessagesReceivedTimestamps().LatestTime().After(firstMessagesReceivedTimestamp))
+}
+
+// Ensures the pause timestamps returned by FetchPartitionMetadata are updated
+// with coherent values.
+func TestFetchPartitionMetadataPauseTimestamps(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "foo"
+
+	err = client.CreateStream(context.Background(), "foo", stream)
+	require.NoError(t, err)
+
+	metadata, err := client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Check that the timestamps are zero.
+	require.True(t, metadata.PauseTimestamps().FirstTime().IsZero())
+	require.True(t, metadata.PauseTimestamps().LatestTime().IsZero())
+
+	// Pause the stream.
+	err = client.PauseStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	// Check that FetchPartitionMetadata fails on a paused stream.
+	_, err = client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.Error(t, err)
+
+	// Publish a first message, unpausing the stream.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, stream, []byte{}, lift.AckPolicyLeader())
+	require.NoError(t, err)
+
+	metadata, err = client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Check that the first pause timestamp has been set, and that the latest
+	// timestamp is set after it.
+	firstPauseTimestamp := metadata.PauseTimestamps().FirstTime()
+	require.False(t, firstPauseTimestamp.IsZero())
+	require.True(t, metadata.PauseTimestamps().LatestTime().After(firstPauseTimestamp))
+}
+
+// Ensures the readonly timestamps returned by FetchPartitionMetadata are
+// updated with coherent values.
+func TestFetchPartitionMetadataReadonlyTimestamps(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "foo"
+
+	err = client.CreateStream(context.Background(), "foo", stream)
+	require.NoError(t, err)
+
+	metadata, err := client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Check that the timestamps are zero.
+	require.True(t, metadata.ReadonlyTimestamps().FirstTime().IsZero())
+	require.True(t, metadata.ReadonlyTimestamps().LatestTime().IsZero())
+
+	// Set the stream as readonly.
+	err = client.SetStreamReadonly(context.Background(), stream)
+	require.NoError(t, err)
+
+	metadata, err = client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Check that the first readonly timestamp has been updated, and that the
+	// latest timestamp has the same value.
+	firstReadonlyTimestamp := metadata.ReadonlyTimestamps().FirstTime()
+	require.False(t, firstReadonlyTimestamp.IsZero())
+	require.Equal(t, firstReadonlyTimestamp, metadata.ReadonlyTimestamps().LatestTime())
+
+	// Set the stream as non-readonly.
+	err = client.SetStreamReadonly(context.Background(), stream, lift.Readonly(false))
+	require.NoError(t, err)
+
+	metadata, err = client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Check that the first readonly timestamp still has the same value and that
+	// the latest timestamp has been updated.
+	require.Equal(t, firstReadonlyTimestamp, metadata.ReadonlyTimestamps().FirstTime())
+	require.True(t, metadata.ReadonlyTimestamps().LatestTime().After(firstReadonlyTimestamp))
+}
