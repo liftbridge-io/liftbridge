@@ -19,8 +19,8 @@ github.com/DataDog/datadog-go v3.2.0+incompatible/go.mod h1:LButxg5PwREeZtORoXG3
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/Workiva/go-datastructures v1.0.52 h1:PLSK6pwn8mYdaoaCZEMsXBpBotr4HHn9abU0yMQt0NI=
 github.com/Workiva/go-datastructures v1.0.52/go.mod h1:Z+F2Rca0qCsVYDS8z7bAGm8f3UkzuWYS/oBZz5a7VVA=
-github.com/ably-forks/go-liftbridge/v2 v2.9.6-0.20201022150531-859a4d045ced h1:FtvX8AVBRA7/b07mqod4i4YVMDFGnKAgP1rJ2aZyJa4=
-github.com/ably-forks/go-liftbridge/v2 v2.9.6-0.20201022150531-859a4d045ced/go.mod h1:zhsZ5NCYJAvi1AdPyCtYiXfBsy3KX3BJ3VLaOL4aqTQ=
+github.com/ably-forks/go-liftbridge/v2 v2.9.6-0.20201023090524-374d6229bceb h1:Eztn6QsDX9MpxD9hAGpckBPBC3S7Au8cYir668EIfHc=
+github.com/ably-forks/go-liftbridge/v2 v2.9.6-0.20201023090524-374d6229bceb/go.mod h1:4s+8qz5Y9qen5Sd6VV7JNdUTXfrPnK0O7VoqRKrTJsA=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
@@ -185,8 +185,6 @@ github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORN
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
-github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201013172531-1648f4f48521 h1:9FDy3Mocq4/kw9AVgcpEgh/2n+Z2ax+Q/CryiRCpjv0=
-github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201013172531-1648f4f48521/go.mod h1:6IFEFZ4ncnOgeDVjSt0vh1lKNhlJ5YT9xnG1eRa9LC8=
 github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201022201130-7ae2595b40b7 h1:xrF+cDIKVXEzs3dizCDU8SCgC9prT3X562D72iU4W/I=
 github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201022201130-7ae2595b40b7/go.mod h1:6IFEFZ4ncnOgeDVjSt0vh1lKNhlJ5YT9xnG1eRa9LC8=
 github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3 h1:O4mg1NEmukgY8hxen3grrG5RY34LadMTzpbjf8kM2tA=

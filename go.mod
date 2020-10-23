@@ -2,7 +2,7 @@ module github.com/liftbridge-io/liftbridge
 
 go 1.14
 
-replace github.com/liftbridge-io/go-liftbridge/v2 => github.com/ably-forks/go-liftbridge/v2 v2.9.6-0.20201022150531-859a4d045ced
+replace github.com/liftbridge-io/go-liftbridge/v2 => github.com/ably-forks/go-liftbridge/v2 v2.9.6-0.20201023090524-374d6229bceb
 
 require (
 	github.com/Workiva/go-datastructures v1.0.52
