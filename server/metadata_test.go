@@ -333,8 +333,8 @@ func TestFetchPartitionMetadata(t *testing.T) {
 	require.Equal(t, resp.Metadata.GetNewestOffset(), int64(-1))
 
 	// Expect zero timestamps.
-	require.Equal(t, int64(0), resp.Metadata.MessageTimestamps.FirstTimestamp)
-	require.Equal(t, int64(0), resp.Metadata.MessageTimestamps.LatestTimestamp)
+	require.Equal(t, int64(0), resp.Metadata.MessagesReceivedTimestamps.FirstTimestamp)
+	require.Equal(t, int64(0), resp.Metadata.MessagesReceivedTimestamps.LatestTimestamp)
 	require.Equal(t, int64(0), resp.Metadata.PauseTimestamps.FirstTimestamp)
 	require.Equal(t, int64(0), resp.Metadata.PauseTimestamps.LatestTimestamp)
 	require.Equal(t, int64(0), resp.Metadata.ReadonlyTimestamps.FirstTimestamp)

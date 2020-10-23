@@ -1335,16 +1335,16 @@ func eventTimestampsToProto(timestamps EventTimestamps) *client.PartitionEventTi
 func getPartitionMetadata(partitionId int32, partition *partition) *client.PartitionMetadata {
 	leader, _ := partition.GetLeader()
 	return &client.PartitionMetadata{
-		Id:                 partitionId,
-		Leader:             leader,
-		Replicas:           partition.GetReplicas(),
-		Isr:                partition.GetISR(),
-		HighWatermark:      partition.log.HighWatermark(),
-		NewestOffset:       partition.log.NewestOffset(),
-		Paused:             partition.GetPaused(),
-		Readonly:           partition.GetReadonly(),
-		MessageTimestamps:  eventTimestampsToProto(partition.MessagesReceivedTimestamps()),
-		PauseTimestamps:    eventTimestampsToProto(partition.PauseTimestamps()),
-		ReadonlyTimestamps: eventTimestampsToProto(partition.ReadonlyTimestamps()),
+		Id:                         partitionId,
+		Leader:                     leader,
+		Replicas:                   partition.GetReplicas(),
+		Isr:                        partition.GetISR(),
+		HighWatermark:              partition.log.HighWatermark(),
+		NewestOffset:               partition.log.NewestOffset(),
+		Paused:                     partition.GetPaused(),
+		Readonly:                   partition.GetReadonly(),
+		MessagesReceivedTimestamps: eventTimestampsToProto(partition.MessagesReceivedTimestamps()),
+		PauseTimestamps:            eventTimestampsToProto(partition.PauseTimestamps()),
+		ReadonlyTimestamps:         eventTimestampsToProto(partition.ReadonlyTimestamps()),
 	}
 }

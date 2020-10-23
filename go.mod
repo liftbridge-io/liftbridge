@@ -2,6 +2,8 @@ module github.com/liftbridge-io/liftbridge
 
 go 1.14
 
+replace github.com/liftbridge-io/go-liftbridge/v2 => github.com/ably-forks/go-liftbridge/v2 v2.9.6-0.20201022150531-859a4d045ced
+
 require (
 	github.com/Workiva/go-datastructures v1.0.52
 	github.com/armon/go-metrics v0.3.4 // indirect
@@ -16,7 +18,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/raft v1.1.2
 	github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201012180103-d50f52d2e164
-	github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201013172531-1648f4f48521
+	github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201022201130-7ae2595b40b7
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73
 	github.com/mattn/go-colorable v0.1.7 // indirect
