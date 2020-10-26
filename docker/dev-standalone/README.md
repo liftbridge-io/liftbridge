@@ -44,7 +44,6 @@ If you want to advertise a docker host that is not localhost:
 docker run -d --add-host registry:0.0.0.0 --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 -eLIFTBRIDGE_HOST=registry liftbridge/standalone-dev
 ```
 
-
 ### Volume
 
 Optionally you can specify the mount point with:
@@ -98,6 +97,5 @@ cluster {
 Go to the root directory of the Liftbridge source code and run:
 
 ```
-$ make build-dev
-$ docker build -t liftbridge/standalone-dev -f docker/dev-image/Dockerfile .
+$ docker build -t liftbridge/standalone-dev -f docker/dev-standalone/Dockerfile .
 ```
