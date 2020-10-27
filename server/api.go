@@ -16,6 +16,8 @@ import (
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
+const waitForNewMessages int64 = -1
+
 var hasher = crc32.ChecksumIEEE
 
 // apiServer implements the gRPC server interface clients interact with.
@@ -663,7 +665,10 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		return nil, nil, st
 	}
 
-	endOffset := partition.log.NewestOffset()
+	stopOffset := waitForNewMessages
+	if partition.IsReadonly() {
+		stopOffset = partition.log.NewestOffset()
+	}
 
 	var (
 		ch          = make(chan *client.Message)
@@ -724,8 +729,8 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			case <-cancel:
 				return
 			}
-			if partition.IsReadonly() && offset == endOffset {
-				s := status.New(codes.ResourceExhausted, fmt.Sprintf("End of readonly partition"))
+			if stopOffset != waitForNewMessages && offset == stopOffset {
+				s := status.New(codes.ResourceExhausted, fmt.Sprintf("Stop offset reached"))
 
 				select {
 				case errCh <- s:
