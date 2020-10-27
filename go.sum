@@ -183,12 +183,10 @@ github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORN
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
-github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201002231334-dd0ae5b3c895 h1:DhX7mzzYKycJyg3+Ghk/UnLDJ5aV3SjeTCMN7q2wMqQ=
-github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201002231334-dd0ae5b3c895/go.mod h1:QXKAmhIXSirSOmAMSIeuPNpVv2b4VtgiP2AR/2RtY44=
-github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201002201157-e2dab4dd9a52 h1:OttlOlaJhSg5hn9PevyBi+Rfno7RGXpoKcRxTNcbceg=
-github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201002201157-e2dab4dd9a52/go.mod h1:6IFEFZ4ncnOgeDVjSt0vh1lKNhlJ5YT9xnG1eRa9LC8=
-github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201003172511-d603f70cc6a1 h1:tHXrZCYAg5Yp6JdtaloZeY/rQqXExrv+jSW1dTbCHm8=
-github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201003172511-d603f70cc6a1/go.mod h1:6IFEFZ4ncnOgeDVjSt0vh1lKNhlJ5YT9xnG1eRa9LC8=
+github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201026195646-f7afc15d3aec h1:oP+ZkkSmdlLow/colBEiw3n9VG+TRF8su392KtposEw=
+github.com/liftbridge-io/go-liftbridge/v2 v2.0.2-0.20201026195646-f7afc15d3aec/go.mod h1:4s+8qz5Y9qen5Sd6VV7JNdUTXfrPnK0O7VoqRKrTJsA=
+github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201022201130-7ae2595b40b7 h1:xrF+cDIKVXEzs3dizCDU8SCgC9prT3X562D72iU4W/I=
+github.com/liftbridge-io/liftbridge-api v1.1.1-0.20201022201130-7ae2595b40b7/go.mod h1:6IFEFZ4ncnOgeDVjSt0vh1lKNhlJ5YT9xnG1eRa9LC8=
 github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3 h1:O4mg1NEmukgY8hxen3grrG5RY34LadMTzpbjf8kM2tA=
 github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3/go.mod h1:wmIIYVq+psahPlB1rvtTkGiltdihsKJbqwE1DkIPwj4=
 github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73 h1:8r/ReB1ns87pVDwSnPj87HIbOu/5y0uDyGChx9mUGSQ=
@@ -377,7 +375,6 @@ golang.org/x/net v0.0.0-20190503192946-f4e77d36d62c/go.mod h1:t9HGtf8HONx5eT2rtn
 golang.org/x/net v0.0.0-20190603091049-60506f45cf65/go.mod h1:HSz+uSET+XFnRR8LxR5pz3Of3rY3CfYBVs4xY44aLks=
 golang.org/x/net v0.0.0-20190613194153-d28f0bde5980/go.mod h1:z5CRVTTTmAJ677TzLLGU+0bjPO0LkuOLi4/5GtJWs/s=
 golang.org/x/net v0.0.0-20190620200207-3b0461eec859/go.mod h1:z5CRVTTTmAJ677TzLLGU+0bjPO0LkuOLi4/5GtJWs/s=
-golang.org/x/net v0.0.0-20200930145003-4acb6c075d10/go.mod h1:/O7V0waA8r7cgGh81Ro3o1hOxt32SMVPicZroKQ2sZA=
 golang.org/x/net v0.0.0-20201002202402-0a1ea396d57c h1:dk0ukUIHmGHqASjP0iue2261isepFCC6XRCSd1nHgDw=
 golang.org/x/net v0.0.0-20201002202402-0a1ea396d57c/go.mod h1:iQL9McJNjoIa5mjH6nYTCTZXUN6RP+XW3eib7Ya3XcI=
 golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=
@@ -415,7 +412,6 @@ golang.org/x/sys v0.0.0-20200122134326-e047566fdf82/go.mod h1:h1NjWce9XRLGQEsW7w
 golang.org/x/sys v0.0.0-20200202164722-d101bd2416d5/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20200223170610-d5e6a3e2c0ae/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20200302150141-5c8b2ff67527/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
-golang.org/x/sys v0.0.0-20200323222414-85ca7c5b95cd/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f h1:+Nyd8tzPX9R7BWHguqsrbFdRx3WQ/1ib8I44HXV5yTA=
 golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=

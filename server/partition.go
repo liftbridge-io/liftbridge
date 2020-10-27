@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
@@ -53,6 +52,23 @@ func (r *replica) getLatestOffset() int64 {
 	return r.offset
 }
 
+// EventTimestamps contains the first and latest times when an event has
+// occurred.
+type EventTimestamps struct {
+	firstTime  time.Time // Time when the first event occurred.
+	latestTime time.Time // Time when the latest event occurred.
+}
+
+// update should be called when an event has occurred. It updates the first and
+// latest timestamps.
+func (e *EventTimestamps) update() {
+	timestamp := time.Now()
+	if e.firstTime.IsZero() {
+		e.firstTime = timestamp
+	}
+	e.latestTime = timestamp
+}
+
 // partition represents a replicated message stream partition backed by a
 // durable commit log. A partition is attached to a NATS subject and stores
 // messages on that subject in a file-backed log. A partition has a set of
@@ -63,7 +79,6 @@ func (r *replica) getLatestOffset() int64 {
 // leader's log by fetching messages from it. All partition access should go
 // through exported methods.
 type partition struct {
-	lastReceived                  int64 // Atomic Unix time last message was received on partition
 	mu                            sync.RWMutex
 	closeMu                       sync.Mutex
 	sub                           *nats.Subscription // Subscription to partition NATS subject
@@ -91,6 +106,9 @@ type partition struct {
 	autoPauseTime                 time.Duration
 	autoPauseDisableIfSubscribers bool
 	subscriberCount               int64
+	messagesReceivedTimestamps    EventTimestamps // First and latest time a message was received on this partition
+	pauseTimestamps               EventTimestamps // First and latest time this partition was paused or resumed
+	readonlyTimestamps            EventTimestamps // First and latest time this partition had its read-only status changed
 	*proto.Partition
 }
 
@@ -172,6 +190,20 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 	return st, nil
 }
 
+// replacePartition creates a new stream partition to replace another one. The
+// old partition's events timestamps are kept.
+func (s *Server) replacePartition(oldPartition *partition, recovered bool, config *proto.StreamConfig) (*partition, error) {
+	st, err := s.newPartition(oldPartition.Partition, recovered, config)
+
+	if err == nil {
+		st.messagesReceivedTimestamps = oldPartition.MessagesReceivedTimestamps()
+		st.pauseTimestamps = oldPartition.PauseTimestamps()
+		st.readonlyTimestamps = oldPartition.ReadonlyTimestamps()
+	}
+
+	return st, err
+}
+
 // String returns a human-readable string representation of the partition.
 func (p *partition) String() string {
 	return fmt.Sprintf("[subject=%s, stream=%s, partition=%d]", p.Subject, p.Stream, p.Id)
@@ -214,6 +246,8 @@ func (p *partition) Pause() error {
 	defer p.mu.Unlock()
 
 	p.paused = true
+	p.Paused = true // Also set the protobuf value (used for snapshotting)
+	p.pauseTimestamps.update()
 
 	return p.close()
 }
@@ -230,6 +264,12 @@ func (p *partition) IsPaused() bool {
 // they reach the end of the log. This does not affect replication.
 func (p *partition) SetReadonly(readonly bool) {
 	p.log.SetReadonly(readonly)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.Readonly = readonly // Also set the protobuf value (used for snapshotting)
+	p.readonlyTimestamps.update()
 }
 
 // IsReadonly indicates if the partition is currently readonly.
@@ -272,6 +312,33 @@ func (p *partition) DecreaseSubscriberCount() {
 		p.subscriberCount = 0
 		p.srv.logger.Errorf("Negative partition subscriber count for partition %s: %d", p, p.subscriberCount)
 	}
+}
+
+// MessagesReceivedTimestamps returns the first and latest times a message was
+// received on this partition.
+func (p *partition) MessagesReceivedTimestamps() EventTimestamps {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.messagesReceivedTimestamps
+}
+
+// PauseTimestamps returns the first and latest time this partition was paused
+// or resumed.
+func (p *partition) PauseTimestamps() EventTimestamps {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.pauseTimestamps
+}
+
+// ReadonlyTimestamps returns the first and latest time this partition had its
+// read-only status changed.
+func (p *partition) ReadonlyTimestamps() EventTimestamps {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.readonlyTimestamps
 }
 
 // Notify is used to short circuit the sleep backoff a partition uses when it
@@ -657,7 +724,6 @@ func (p *partition) getLeaderOffsetRequestInbox() string {
 // autoPauseLoop is a long-running loop the leader runs to check if the
 // partition should be automatically paused due to inactivity.
 func (p *partition) autoPauseLoop(stop <-chan struct{}) {
-	atomic.StoreInt64(&p.lastReceived, time.Now().UnixNano())
 	timer := time.NewTimer(p.autoPauseTime)
 	defer timer.Stop()
 	for {
@@ -667,14 +733,12 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 		case <-timer.C:
 		}
 
-		ns := atomic.LoadInt64(&p.lastReceived)
-		lastReceivedElapsed := time.Since(time.Unix(0, ns))
-
 		p.mu.RLock()
+		latestReceivedElapsed := time.Since(p.messagesReceivedTimestamps.latestTime)
 		subsAllowPausing := !p.autoPauseDisableIfSubscribers || p.subscriberCount == 0
 		p.mu.RUnlock()
 
-		if lastReceivedElapsed > p.autoPauseTime && subsAllowPausing {
+		if latestReceivedElapsed > p.autoPauseTime && subsAllowPausing {
 			p.srv.logger.Infof("Partition %s has not received a message in over %s, "+
 				"auto pausing partition", p, p.autoPauseTime)
 			if err := p.requestPause(); err != nil {
@@ -682,7 +746,7 @@ func (p *partition) autoPauseLoop(stop <-chan struct{}) {
 			}
 		}
 
-		timer.Reset(computeTick(lastReceivedElapsed, p.autoPauseTime))
+		timer.Reset(computeTick(latestReceivedElapsed, p.autoPauseTime))
 	}
 }
 
@@ -722,7 +786,9 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		case msg = <-recvChan:
 		}
 
-		atomic.StoreInt64(&p.lastReceived, time.Now().UnixNano())
+		p.mu.Lock()
+		p.messagesReceivedTimestamps.update()
+		p.mu.Unlock()
 
 		m := natsToProtoMessage(msg, leaderEpoch)
 		msgBatch = append(msgBatch, m)

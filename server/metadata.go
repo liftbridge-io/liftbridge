@@ -166,16 +166,7 @@ func (m *metadataAPI) FetchPartitionMetadata(ctx context.Context, req *client.Fe
 	if !partition.IsLeader() {
 		return nil, status.New(codes.FailedPrecondition, "The request should be sent to partition leader")
 	}
-	leader, _ := partition.GetLeader()
-	metadata := &client.PartitionMetadata{
-		Id:            req.Partition,
-		Leader:        leader,
-		Replicas:      partition.GetReplicas(),
-		Isr:           partition.GetISR(),
-		Paused:        partition.GetPaused(),
-		HighWatermark: partition.log.HighWatermark(),
-		NewestOffset:  partition.log.NewestOffset(),
-	}
+	metadata := getPartitionMetadata(req.Partition, partition)
 	return &client.FetchPartitionMetadataResponse{Metadata: metadata}, nil
 }
 
@@ -283,21 +274,13 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 		} else {
 			partitions := make(map[int32]*client.PartitionMetadata)
 			for id, partition := range stream.GetPartitions() {
-				leader, _ := partition.GetLeader()
-				partitions[id] = &client.PartitionMetadata{
-					Id:            id,
-					Leader:        leader,
-					Replicas:      partition.GetReplicas(),
-					Isr:           partition.GetISR(),
-					Paused:        partition.GetPaused(),
-					HighWatermark: partition.log.HighWatermark(),
-					NewestOffset:  partition.log.NewestOffset(),
-				}
+				partitions[id] = getPartitionMetadata(id, partition)
 			}
 			metadata[i] = &client.StreamMetadata{
-				Name:       name,
-				Subject:    stream.GetSubject(),
-				Partitions: partitions,
+				Name:              name,
+				Subject:           stream.GetSubject(),
+				Partitions:        partitions,
+				CreationTimestamp: stream.GetCreationTime().UnixNano(),
 			}
 		}
 	}
@@ -342,6 +325,8 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *proto.CreateStreamO
 		partition.Isr = replicas
 		partition.Leader = leader
 	}
+
+	req.Stream.CreationTimestamp = time.Now().UnixNano()
 
 	// Replicate stream create through Raft.
 	op := &proto.RaftLog{
@@ -716,7 +701,8 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 	}
 
 	config := protoStream.GetConfig()
-	stream := newStream(protoStream.Name, protoStream.Subject, config)
+	creationTime := time.Unix(0, protoStream.CreationTimestamp)
+	stream := newStream(protoStream.Name, protoStream.Subject, config, creationTime)
 	m.streams[protoStream.Name] = stream
 
 	for _, partition := range protoStream.Partitions {
@@ -778,10 +764,13 @@ func (m *metadataAPI) ResumePartition(streamName string, id int32, recovered boo
 	}
 
 	// Resume the partition by replacing it.
-	partition, err := m.newPartition(partition.Partition, recovered, stream.GetConfig())
+	partition, err := m.replacePartition(partition, recovered, stream.GetConfig())
 	if err != nil {
 		return nil, err
 	}
+	// Update latest pause status change timestamp.
+	partition.pauseTimestamps.update()
+
 	stream.SetPartition(id, partition)
 
 	// Start leader/follower loop if necessary.
@@ -1322,4 +1311,40 @@ func ensureTimeout(ctx context.Context, defaultTimeout time.Duration) (context.C
 		ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
 	}
 	return ctx, cancel
+}
+
+// eventTimestampsToProto returns a client proto's partition event timestamps
+// from a partition's event timestamps struct.
+func eventTimestampsToProto(timestamps EventTimestamps) *client.PartitionEventTimestamps {
+	first, latest := timestamps.firstTime, timestamps.latestTime
+	result := &client.PartitionEventTimestamps{}
+
+	// Calling UnixNano() on a zero time is undefined, so we need to make these
+	// checks.
+	if !first.IsZero() {
+		result.FirstTimestamp = first.UnixNano()
+	}
+	if !latest.IsZero() {
+		result.LatestTimestamp = latest.UnixNano()
+	}
+
+	return result
+}
+
+// getPartitionMetadata returns a partition's metadata.
+func getPartitionMetadata(partitionId int32, partition *partition) *client.PartitionMetadata {
+	leader, _ := partition.GetLeader()
+	return &client.PartitionMetadata{
+		Id:                         partitionId,
+		Leader:                     leader,
+		Replicas:                   partition.GetReplicas(),
+		Isr:                        partition.GetISR(),
+		HighWatermark:              partition.log.HighWatermark(),
+		NewestOffset:               partition.log.NewestOffset(),
+		Paused:                     partition.GetPaused(),
+		Readonly:                   partition.GetReadonly(),
+		MessagesReceivedTimestamps: eventTimestampsToProto(partition.MessagesReceivedTimestamps()),
+		PauseTimestamps:            eventTimestampsToProto(partition.PauseTimestamps()),
+		ReadonlyTimestamps:         eventTimestampsToProto(partition.ReadonlyTimestamps()),
+	}
 }
