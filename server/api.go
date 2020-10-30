@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
@@ -16,7 +18,10 @@ import (
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
-const waitForNewMessages int64 = -1
+const (
+	waitForNewMessages int64 = -1
+	asyncAckTimeout          = 5 * time.Second
+)
 
 var hasher = crc32.ChecksumIEEE
 
@@ -306,27 +311,17 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 // Asynchronously publish messages to a stream. This returns a stream which
 // will yield PublishResponses for messages whose AckPolicy is not NONE.
 func (a *apiServer) PublishAsync(stream client.API_PublishAsyncServer) error {
-	ackInbox := a.getAckInbox()
-	sub, err := a.ncPublishes.Subscribe(ackInbox, func(m *nats.Msg) {
-		ack, err := proto.UnmarshalAck(m.Data)
-		if err != nil {
-			a.logger.Errorf("api: Invalid ack received on ack inbox: %v", err)
-			return
-		}
-		if err := stream.Send(&client.PublishResponse{CorrelationId: ack.CorrelationId, Ack: ack}); err != nil {
-			a.logger.Errorf("api: Failed to send PublishAsync response: %v", err)
-		}
-	})
-	if err != nil {
+	session := a.newPublishAsyncSession(stream)
+	if err := session.dispatchAcks(); err != nil {
 		return err
 	}
-	sub.SetPendingLimits(-1, -1)
-	defer sub.Unsubscribe()
+	defer session.close()
 
-	if err := a.publishAsyncLoop(stream, ackInbox); err != nil {
+	if err := session.publishLoop(); err != nil {
 		a.logger.Errorf("api: Failed to publish async message: %v", err)
 		return err
 	}
+
 	return nil
 }
 
@@ -500,87 +495,6 @@ func (a *apiServer) getPublishSubject(req *client.PublishRequest) (string, *clie
 		subject = fmt.Sprintf("%s.%d", subject, req.Partition)
 	}
 	return subject, nil
-}
-
-func (a *apiServer) publishAsyncLoop(stream client.API_PublishAsyncServer, ackInbox string) error {
-	for {
-		req, err := stream.Recv()
-		if err != nil {
-			if err == io.EOF || status.Code(err) == codes.Canceled {
-				return nil
-			}
-			return err
-		}
-
-		if e := a.ensureStreamNotReadonly(req.Stream, req.Partition); e != nil {
-			a.logger.Errorf("api: Failed to publish async message: %v", e.Message)
-			a.sendPublishAsyncError(stream, req.CorrelationId, e)
-			continue
-		}
-
-		req.AckInbox = ackInbox
-
-		a.logger.Debugf("api: PublishAsync [stream=%s, partition=%d]", req.Stream, req.Partition)
-
-		subject, e := a.getPublishSubject(req)
-		if e != nil {
-			a.logger.Errorf("api: Failed to publish async message: %v", e.Message)
-			a.sendPublishAsyncError(stream, req.CorrelationId, e)
-			continue
-		}
-		if err := a.resumeStream(stream.Context(), req.Stream, req.Partition); err != nil {
-			err = errors.Wrap(err, "failed to resume stream")
-			a.logger.Errorf("api: Failed to publish async message: %v", err)
-			a.sendPublishAsyncError(stream, req.CorrelationId, &client.PublishAsyncError{
-				Code:    client.PublishAsyncError_INTERNAL,
-				Message: err.Error(),
-			})
-			continue
-		}
-		msg, err := proto.MarshalPublish(&client.Message{
-			Key:           req.Key,
-			Value:         req.Value,
-			Stream:        req.Stream,
-			Subject:       subject,
-			Headers:       req.Headers,
-			AckInbox:      req.AckInbox,
-			CorrelationId: req.CorrelationId,
-			AckPolicy:     req.AckPolicy,
-		})
-		if err != nil {
-			err = errors.Wrap(err, "failed to marshal message")
-			a.logger.Errorf("api: Failed to publish async message: %v", err)
-			a.sendPublishAsyncError(stream, req.CorrelationId, &client.PublishAsyncError{
-				Code:    client.PublishAsyncError_INTERNAL,
-				Message: err.Error(),
-			})
-			continue
-		}
-		if err := a.ncPublishes.Publish(subject, msg); err != nil {
-			err = errors.Wrap(err, "failed to publish to NATS")
-			a.logger.Errorf("api: Failed to publish async message: %v", err)
-			a.sendPublishAsyncError(stream, req.CorrelationId, &client.PublishAsyncError{
-				Code:    client.PublishAsyncError_INTERNAL,
-				Message: err.Error(),
-			})
-		}
-	}
-}
-
-func (a *apiServer) sendPublishAsyncError(stream client.API_PublishAsyncServer,
-	correlationID string, err *client.PublishAsyncError) {
-
-	resp := &client.PublishResponse{
-		CorrelationId: correlationID,
-		// Set an Ack with an empty correlation id so we don't break older
-		// clients that are unaware of AsyncError. TODO (2.0.0): Remove when
-		// clients are expected to check for AsyncError.
-		Ack:        &client.Ack{CorrelationId: ""},
-		AsyncError: err,
-	}
-	if err := stream.Send(resp); err != nil {
-		a.logger.Errorf("api: Failed to send PublishAsync error response: %v", err)
-	}
 }
 
 func (a *apiServer) publish(ctx context.Context, subject, ackInbox string,
@@ -833,4 +747,163 @@ func convertPublishAsyncError(err *client.PublishAsyncError) error {
 	}
 
 	return status.Error(code, err.Message)
+}
+
+// publishAsyncSession maintains state for long-lived PublishAsync RPCs.
+type publishAsyncSession struct {
+	*apiServer
+	mu       sync.Mutex
+	inflight int32
+	stream   client.API_PublishAsyncServer
+	ackInbox string
+	sub      *nats.Subscription
+}
+
+func (a *apiServer) newPublishAsyncSession(stream client.API_PublishAsyncServer) *publishAsyncSession {
+	return &publishAsyncSession{
+		apiServer: a,
+		stream:    stream,
+		ackInbox:  a.getAckInbox(),
+	}
+}
+
+// dispatchAcks sets up a subscription on the ack inbox to dispatch acks for
+// published messages back to the client.
+func (p *publishAsyncSession) dispatchAcks() error {
+	sub, err := p.ncPublishes.Subscribe(p.ackInbox, func(m *nats.Msg) {
+		ack, err := proto.UnmarshalAck(m.Data)
+		if err != nil {
+			p.logger.Errorf("api: Invalid ack received on ack inbox: %v", err)
+			return
+		}
+		p.mu.Lock()
+		p.inflight--
+		if p.inflight < 0 {
+			p.inflight = 0
+		}
+		p.mu.Unlock()
+		if err := p.stream.Send(&client.PublishResponse{CorrelationId: ack.CorrelationId, Ack: ack}); err != nil {
+			p.logger.Errorf("api: Failed to send PublishAsync response: %v", err)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	sub.SetPendingLimits(-1, -1)
+	p.sub = sub
+	return nil
+}
+
+// publishLoop is a long-lived loop that receives messages from the client and
+// publishes them. It returns nil on completion or an error which is terminal.
+// If the client closes the stream, this will attempt to wait for remaining
+// acks for any in-flight messages before ending the session.
+func (p *publishAsyncSession) publishLoop() error {
+	for {
+		req, err := p.stream.Recv()
+		if err != nil {
+			if err == io.EOF || status.Code(err) == codes.Canceled {
+				p.waitForInflight()
+				return nil
+			}
+			return err
+		}
+
+		if e := p.ensureStreamNotReadonly(req.Stream, req.Partition); e != nil {
+			p.logger.Errorf("api: Failed to publish async message: %v", e.Message)
+			p.sendPublishAsyncError(req.CorrelationId, e)
+			continue
+		}
+
+		req.AckInbox = p.ackInbox
+
+		p.logger.Debugf("api: PublishAsync [stream=%s, partition=%d]", req.Stream, req.Partition)
+
+		subject, e := p.getPublishSubject(req)
+		if e != nil {
+			p.logger.Errorf("api: Failed to publish async message: %v", e.Message)
+			p.sendPublishAsyncError(req.CorrelationId, e)
+			continue
+		}
+		if err := p.resumeStream(p.stream.Context(), req.Stream, req.Partition); err != nil {
+			err = errors.Wrap(err, "failed to resume stream")
+			p.logger.Errorf("api: Failed to publish async message: %v", err)
+			p.sendPublishAsyncError(req.CorrelationId, &client.PublishAsyncError{
+				Code:    client.PublishAsyncError_INTERNAL,
+				Message: err.Error(),
+			})
+			continue
+		}
+		msg, err := proto.MarshalPublish(&client.Message{
+			Key:           req.Key,
+			Value:         req.Value,
+			Stream:        req.Stream,
+			Subject:       subject,
+			Headers:       req.Headers,
+			AckInbox:      req.AckInbox,
+			CorrelationId: req.CorrelationId,
+			AckPolicy:     req.AckPolicy,
+		})
+		if err != nil {
+			err = errors.Wrap(err, "failed to marshal message")
+			p.logger.Errorf("api: Failed to publish async message: %v", err)
+			p.sendPublishAsyncError(req.CorrelationId, &client.PublishAsyncError{
+				Code:    client.PublishAsyncError_INTERNAL,
+				Message: err.Error(),
+			})
+			continue
+		}
+		if err := p.ncPublishes.Publish(subject, msg); err != nil {
+			err = errors.Wrap(err, "failed to publish to NATS")
+			p.logger.Errorf("api: Failed to publish async message: %v", err)
+			p.sendPublishAsyncError(req.CorrelationId, &client.PublishAsyncError{
+				Code:    client.PublishAsyncError_INTERNAL,
+				Message: err.Error(),
+			})
+		}
+
+		// Increment in-flight count if we're expecting an ack.
+		if req.AckPolicy != client.AckPolicy_NONE {
+			p.mu.Lock()
+			p.inflight++
+			p.mu.Unlock()
+		}
+	}
+}
+
+// sendPublishAsyncError sends a PublishResponse containing an error back to
+// the client.
+func (p *publishAsyncSession) sendPublishAsyncError(correlationID string, err *client.PublishAsyncError) {
+	resp := &client.PublishResponse{
+		CorrelationId: correlationID,
+		// Set an Ack with an empty correlation id so we don't break older
+		// clients that are unaware of AsyncError. TODO (2.0.0): Remove when
+		// clients are expected to check for AsyncError.
+		Ack:        &client.Ack{CorrelationId: ""},
+		AsyncError: err,
+	}
+	if err := p.stream.Send(resp); err != nil {
+		p.logger.Errorf("api: Failed to send PublishAsync error response: %v", err)
+	}
+}
+
+// waitForInflight attempts to wait for remaining acks for any in-flight
+// messages.
+func (p *publishAsyncSession) waitForInflight() {
+	deadline := time.Now().Add(asyncAckTimeout)
+	for time.Now().Before(deadline) {
+		p.mu.Lock()
+		inflight := p.inflight
+		p.mu.Unlock()
+		if inflight == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func (p *publishAsyncSession) close() {
+	if p.sub != nil {
+		p.sub.Unsubscribe()
+	}
 }
