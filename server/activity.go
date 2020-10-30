@@ -84,7 +84,9 @@ func (a *activityManager) BecomeFollower() error {
 		return nil
 	}
 
-	close(a.leadershipLostCh)
+	if a.leadershipLostCh != nil {
+		close(a.leadershipLostCh)
+	}
 	return nil
 }
 

@@ -163,7 +163,7 @@ func (s *Server) Start() (err error) {
 		s.config.Streams.SegmentMaxAge = time.Second
 	}
 
-	if err := s.startMetadataRaft(); err != nil {
+	if err := s.setupMetadataRaft(); err != nil {
 		return errors.Wrap(err, "failed to start Raft node")
 	}
 
@@ -187,7 +187,12 @@ func (s *Server) Start() (err error) {
 		return errors.Wrap(err, "failed to start API server")
 	}
 
-	return errors.Wrap(s.createLoopbackClient(), "failed to create loopback client")
+	if err := s.createLoopbackClient(); err != nil {
+		return errors.Wrap(err, "failed to create loopback client")
+	}
+
+	s.startRaftLeadershipLoop()
+	return nil
 }
 
 // Stop will attempt to gracefully shut the Server down by signaling the stop
@@ -515,16 +520,10 @@ func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 	return opts.Connect()
 }
 
-// startMetadataRaft creates and starts an embedded Raft node to participate in
-// the metadata cluster. This will bootstrap using the configured server
-// settings and start a goroutine for automatically responding to Raft
-// leadership changes.
-func (s *Server) startMetadataRaft() error {
-	if err := s.setupMetadataRaft(); err != nil {
-		return err
-	}
+// startRaftLeadershipLoop start a goroutine for automatically responding to
+// Raft leadership changes.
+func (s *Server) startRaftLeadershipLoop() {
 	node := s.getRaft()
-
 	s.startGoroutine(func() {
 		for {
 			select {
@@ -558,7 +557,6 @@ func (s *Server) startMetadataRaft() error {
 			}
 		}
 	})
-	return nil
 }
 
 // setRaft sets the Raft node for the server. This should only be called once
