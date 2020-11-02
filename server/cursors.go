@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru"
-	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	client "github.com/liftbridge-io/liftbridge-api/go"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
@@ -112,8 +112,13 @@ func (c *cursorManager) SetCursor(ctx context.Context, streamName, cursorID stri
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	_, err = c.getLoopbackClient().Publish(ctx, cursorsStream, serializedCursor,
-		lift.ToPartition(cursorsPartitionID), lift.Key(cursorKey), lift.AckPolicyAll())
+	_, err = c.api.Publish(ctx, &client.PublishRequest{
+		Key:       cursorKey,
+		Value:     serializedCursor,
+		Stream:    cursorsStream,
+		Partition: cursorsPartitionID,
+		AckPolicy: client.AckPolicy_ALL,
+	})
 	if err != nil {
 		return status.New(codes.Internal, err.Error())
 	}
@@ -200,49 +205,35 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 	// TODO: This can likely be made more efficient.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var (
-		errC = make(chan error, 1)
-		msgC = make(chan *lift.Message, 1)
-	)
-	err := c.getLoopbackClient().Subscribe(ctx, cursorsStream, func(msg *lift.Message, err error) {
-		defer func() {
-			if msg != nil && msg.Offset() == hw {
-				close(msgC)
-			}
-		}()
-		if err != nil {
-			errC <- err
-			return
-		}
-		if !bytes.Equal(msg.Key(), cursorKey) {
-			return
-		}
-		msgC <- msg
-
-	}, lift.Partition(partitionID), lift.StartAtEarliestReceived(), lift.Resume())
+	msgC, errC, cancel, err := c.api.SubscribeInternal(ctx, &client.SubscribeRequest{
+		Stream:        cursorsStream,
+		Partition:     partitionID,
+		StartPosition: client.StartPosition_EARLIEST,
+		Resume:        true,
+	})
 	if err != nil {
 		return 0, err
 	}
-
+	defer cancel()
 	var (
 		latestOffset = int64(-1)
 		cursor       = new(proto.Cursor)
 	)
 	for {
 		select {
-		case msg, ok := <-msgC:
-			if !ok {
+		case msg := <-msgC:
+			if bytes.Equal(msg.Key, cursorKey) {
+				if err := cursor.Unmarshal(msg.Value); err != nil {
+					c.logger.Errorf("Invalid cursor message in cursors stream: %v", err)
+				} else if cursor.Offset > latestOffset {
+					latestOffset = cursor.Offset
+				}
+			}
+			if msg.Offset == hw {
 				return latestOffset, nil
 			}
-			if err := cursor.Unmarshal(msg.Value()); err != nil {
-				c.logger.Errorf("Invalid cursor message in cursors stream: %v", err)
-				continue
-			}
-			if cursor.Offset > latestOffset {
-				latestOffset = cursor.Offset
-			}
 		case err := <-errC:
-			return 0, err
+			return 0, err.Err()
 		case <-ctx.Done():
 			return 0, ctx.Err()
 		}
