@@ -491,6 +491,51 @@ func TestBootstrapMisconfiguration(t *testing.T) {
 	}
 }
 
+// Ensure servers with activity stream enabled can be bootstrapped
+// concurrently.
+func TestBootstrapConcurrentWithActivityStream(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Start three servers concurrently with activity stream enabled.
+	ids := []string{"s1", "s2", "s3"}
+	type result struct {
+		server *Server
+		err    error
+	}
+	results := make(chan *result, 3)
+	done := make(chan struct{})
+	defer close(done)
+	for _, id := range ids {
+		go func(id string) {
+			config := getTestConfig(id, false, 0)
+			config.Clustering.ServerID = id
+			config.Clustering.RaftBootstrapPeers = ids
+			config.ActivityStream.Enabled = true
+
+			server, err := RunServerWithConfig(config)
+
+			select {
+			case results <- &result{server, err}:
+			case <-done:
+			}
+		}(id)
+	}
+
+	// Wait for the servers to start.
+	for i := 0; i < 3; i++ {
+		res := <-results
+		if res.err != nil {
+			t.Error(res.err)
+		} else {
+			defer res.server.Stop()
+		}
+	}
+}
+
 // Ensure when the metadata leader fails, a new one is elected.
 func TestMetadataLeaderFailover(t *testing.T) {
 	defer cleanupStorage(t)

@@ -171,6 +171,39 @@ func (a *apiServer) SetStreamReadonly(ctx context.Context, req *client.SetStream
 // messages when it reaches the end of the partition. Use the request context
 // to close the subscription.
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
+	msgC, errC, cancel, err := a.SubscribeInternal(out.Context(), req)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
+	// Send an empty message which signals the subscription was successfully
+	// created.
+	if err := out.Send(&client.Message{}); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-out.Context().Done():
+			return nil
+		case m := <-msgC:
+			if err := out.Send(m); err != nil {
+				return err
+			}
+		case err := <-errC:
+			return err.Err()
+		}
+	}
+}
+
+// Subscribe creates an ephemeral subscription for the given stream partition.
+// It begins to receive messages starting at the given offset and waits for new
+// messages when it reaches the end of the partition. Use the request context
+// to close the subscription. This is a non-gRPC API for internal use.
+func (a *apiServer) SubscribeInternal(ctx context.Context, req *client.SubscribeRequest) (
+	<-chan *client.Message, <-chan *status.Status, func(), error) {
+
 	a.logger.Debugf("api: Subscribe [stream=%s, partition=%d, start=%s, offset=%d, timestamp=%d]",
 		req.Stream, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp)
 
@@ -179,7 +212,7 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 		a.logger.Errorf("api: Failed to subscribe to partition "+
 			"[stream=%s, partition=%d]: no such partition",
 			req.Stream, req.Partition)
-		return status.Error(codes.NotFound, "No such partition")
+		return nil, nil, nil, status.Error(codes.NotFound, "No such partition")
 	}
 
 	leader, _ := partition.GetLeader()
@@ -188,40 +221,18 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 			a.logger.Info("api: Accepting subscription to partition %s: server not stream leader", partition)
 		} else {
 			a.logger.Errorf("api: Failed to subscribe to partition %s: server not stream leader", partition)
-			return status.Error(codes.FailedPrecondition, "Server not partition leader")
+			return nil, nil, nil, status.Error(codes.FailedPrecondition, "Server not partition leader")
 		}
 	}
 
 	cancel := make(chan struct{})
-	defer close(cancel)
-	ch, errCh, err := a.subscribe(out.Context(), partition, req, cancel)
+	ch, errCh, err := a.subscribe(ctx, partition, req, cancel)
 	if err != nil {
 		a.logger.Errorf("api: Failed to subscribe to partition %s: %v", partition, err.Err())
-		return err.Err()
+		return nil, nil, nil, err.Err()
 	}
 
-	// Send an empty message which signals the subscription was successfully
-	// created.
-	if err := out.Send(&client.Message{}); err != nil {
-		return err
-	}
-
-	// Update the active subscriber count.
-	partition.IncreaseSubscriberCount()
-	defer partition.DecreaseSubscriberCount()
-
-	for {
-		select {
-		case <-out.Context().Done():
-			return nil
-		case m := <-ch:
-			if err := out.Send(m); err != nil {
-				return err
-			}
-		case err := <-errCh:
-			return err.Err()
-		}
-	}
+	return ch, errCh, func() { close(cancel) }, nil
 }
 
 // FetchMetadata retrieves the latest cluster metadata, including stream broker
@@ -595,6 +606,10 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 	}
 
 	a.startGoroutine(func() {
+		// Update the active subscriber count.
+		partition.IncreaseSubscriberCount()
+		defer partition.DecreaseSubscriberCount()
+
 		headersBuf := make([]byte, 28)
 		for {
 			// TODO: this could be more efficient.

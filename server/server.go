@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
@@ -55,7 +54,8 @@ type Server struct {
 	ncPublishes        *nats.Conn
 	logger             logger.Logger
 	loggerOut          io.Writer
-	api                *grpc.Server
+	grpcServer         *grpc.Server
+	api                *apiServer
 	metadata           *metadataAPI
 	shutdownCh         chan struct{}
 	raft               atomic.Value
@@ -66,7 +66,6 @@ type Server struct {
 	shutdown           bool
 	running            bool
 	goroutineWait      sync.WaitGroup
-	client             atomic.Value
 	activity           *activityManager
 	cursors            *cursorManager
 }
@@ -163,7 +162,7 @@ func (s *Server) Start() (err error) {
 		s.config.Streams.SegmentMaxAge = time.Second
 	}
 
-	if err := s.startMetadataRaft(); err != nil {
+	if err := s.setupMetadataRaft(); err != nil {
 		return errors.Wrap(err, "failed to start Raft node")
 	}
 
@@ -187,7 +186,8 @@ func (s *Server) Start() (err error) {
 		return errors.Wrap(err, "failed to start API server")
 	}
 
-	return errors.Wrap(s.createLoopbackClient(), "failed to create loopback client")
+	s.startRaftLeadershipLoop()
+	return nil
 }
 
 // Stop will attempt to gracefully shut the Server down by signaling the stop
@@ -203,8 +203,8 @@ func (s *Server) Stop() error {
 	s.logger.Info("Shutting down...")
 
 	close(s.shutdownCh)
-	if s.api != nil {
-		s.api.Stop()
+	if s.grpcServer != nil {
+		s.grpcServer.Stop()
 	}
 
 	if s.listener != nil {
@@ -220,13 +220,6 @@ func (s *Server) Stop() error {
 
 	if raft := s.getRaft(); raft != nil {
 		if err := raft.shutdown(); err != nil {
-			s.mu.Unlock()
-			return err
-		}
-	}
-
-	if client := s.getLoopbackClient(); client != nil {
-		if err := client.Close(); err != nil {
 			s.mu.Unlock()
 			return err
 		}
@@ -408,18 +401,19 @@ func (s *Server) startAPIServer() error {
 		opts = append(opts, grpc.Creds(creds))
 	}
 
-	api := grpc.NewServer(opts...)
-	s.api = api
-	client.RegisterAPIServer(api, &apiServer{s})
+	grpcServer := grpc.NewServer(opts...)
+	s.grpcServer = grpcServer
+	s.api = &apiServer{s}
+	client.RegisterAPIServer(grpcServer, s.api)
 
-	health.Register(api)
+	health.Register(grpcServer)
 
 	s.mu.Lock()
 	s.running = true
 	s.mu.Unlock()
 	s.startGoroutine(func() {
 		health.SetServing()
-		err := api.Serve(s.listener)
+		err := grpcServer.Serve(s.listener)
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
@@ -434,51 +428,6 @@ func (s *Server) startAPIServer() error {
 	})
 
 	return nil
-}
-
-// createLoopbackClient creates a Liftbridge client connected to this server's
-// loopback address used for internal purposes.
-func (s *Server) createLoopbackClient() error {
-	var (
-		addr     = s.listener.Addr()
-		deadline = time.Now().Add(10 * time.Second)
-		conn     net.Conn
-		err      error
-	)
-	for time.Now().Before(deadline) {
-		conn, err = net.Dial("tcp", addr.String())
-		if err == nil {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if conn == nil {
-		return err
-	}
-	if err := conn.Close(); err != nil {
-		return err
-	}
-	opts := []lift.ClientOption{}
-	if s.config.TLSCert != "" {
-		// Skip TLS verification since we're just connecting to loopback.
-		tlsConfig := &tls.Config{InsecureSkipVerify: true}
-		opts = append(opts, lift.TLSConfig(tlsConfig))
-	}
-	client, err := lift.Connect([]string{addr.String()}, opts...)
-	if err != nil {
-		return err
-	}
-	s.client.Store(client)
-	return nil
-}
-
-// getLoopbackClient returns the Liftbridge client connected to this server.
-func (s *Server) getLoopbackClient() lift.Client {
-	client := s.client.Load()
-	if client == nil {
-		return nil
-	}
-	return client.(lift.Client)
 }
 
 // createNATSConn creates a new NATS connection with the given name.
@@ -515,16 +464,10 @@ func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 	return opts.Connect()
 }
 
-// startMetadataRaft creates and starts an embedded Raft node to participate in
-// the metadata cluster. This will bootstrap using the configured server
-// settings and start a goroutine for automatically responding to Raft
-// leadership changes.
-func (s *Server) startMetadataRaft() error {
-	if err := s.setupMetadataRaft(); err != nil {
-		return err
-	}
+// startRaftLeadershipLoop start a goroutine for automatically responding to
+// Raft leadership changes.
+func (s *Server) startRaftLeadershipLoop() {
 	node := s.getRaft()
-
 	s.startGoroutine(func() {
 		for {
 			select {
@@ -558,7 +501,6 @@ func (s *Server) startMetadataRaft() error {
 			}
 		}
 	})
-	return nil
 }
 
 // setRaft sets the Raft node for the server. This should only be called once

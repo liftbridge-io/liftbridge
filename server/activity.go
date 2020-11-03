@@ -2,14 +2,14 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/hashicorp/raft"
-	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -84,7 +84,9 @@ func (a *activityManager) BecomeFollower() error {
 		return nil
 	}
 
-	close(a.leadershipLostCh)
+	if a.leadershipLostCh != nil {
+		close(a.leadershipLostCh)
+	}
 	return nil
 }
 
@@ -207,12 +209,12 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 // createActivityStream creates the activity stream and connects a local client
 // that will be subscribed to it.
 func (a *activityManager) createActivityStream() error {
-	err := a.getLoopbackClient().CreateStream(context.Background(),
-		a.getActivityStreamSubject(),
-		activityStream,
-		lift.MaxReplication(),
-	)
-	if err != nil && err != lift.ErrStreamExists {
+	_, err := a.api.CreateStream(context.Background(), &client.CreateStreamRequest{
+		Subject:           a.getActivityStreamSubject(),
+		Name:              activityStream,
+		ReplicationFactor: -1,
+	})
+	if err != nil && status.Convert(err).Code() != codes.AlreadyExists {
 		return errors.Wrap(err, "failed to create an activity stream")
 	}
 
@@ -229,25 +231,11 @@ func (a *activityManager) publishActivityEvent(event *client.ActivityStreamEvent
 	ctx, cancel := context.WithTimeout(context.Background(), a.config.ActivityStream.PublishTimeout)
 	defer cancel()
 
-	var messageOption lift.MessageOption
-	ackPolicy := a.config.ActivityStream.PublishAckPolicy
-	switch ackPolicy {
-	case client.AckPolicy_LEADER:
-		messageOption = lift.AckPolicyLeader()
-	case client.AckPolicy_ALL:
-		messageOption = lift.AckPolicyAll()
-	case client.AckPolicy_NONE:
-		messageOption = lift.AckPolicyNone()
-	default:
-		panic(fmt.Sprintf("Unknown ack policy: %v", ackPolicy))
-	}
-
-	_, err = a.getLoopbackClient().Publish(
-		ctx,
-		activityStream,
-		data,
-		messageOption,
-	)
+	_, err = a.api.Publish(ctx, &client.PublishRequest{
+		Value:     data,
+		Stream:    activityStream,
+		AckPolicy: a.config.ActivityStream.PublishAckPolicy,
+	})
 	if err != nil {
 		return errors.Wrap(err, "failed to publish event to stream")
 	}
