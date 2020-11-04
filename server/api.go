@@ -590,9 +590,9 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		return nil, nil, st
 	}
 
-	stopOffset := waitForNewMessages
-	if partition.IsReadonly() {
-		stopOffset = partition.log.NewestOffset()
+	stopOffset, st := getStopOffset(req, partition.log)
+	if st != nil {
+		return nil, nil, st
 	}
 
 	var (
@@ -658,7 +658,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			case <-cancel:
 				return
 			}
-			if stopOffset != waitForNewMessages && offset == stopOffset {
+			if offset == stopOffset {
 				s := status.New(codes.ResourceExhausted, fmt.Sprintf("Stop offset reached"))
 
 				select {
@@ -703,6 +703,37 @@ func getStartOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int6
 	}
 
 	return startOffset, nil
+}
+
+func getStopOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int64, *status.Status) {
+	var stopOffset int64
+	switch req.StopPosition {
+	case client.StopPosition_STOP_ON_CANCEL:
+		stopOffset = waitForNewMessages
+		if log.IsReadonly() {
+			stopOffset = log.NewestOffset()
+		}
+	case client.StopPosition_STOP_OFFSET:
+		stopOffset = req.StopOffset
+	case client.StopPosition_STOP_TIMESTAMP:
+		var err error
+		stopOffset, err = log.OffsetForTimestamp(req.StopTimestamp)
+		if err != nil {
+			return stopOffset, status.New(
+				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
+		}
+	case client.StopPosition_STOP_LATEST:
+		stopOffset = log.NewestOffset()
+		if stopOffset == -1 {
+			return stopOffset, status.New(codes.ResourceExhausted, "Stream is empty %s")
+		}
+	default:
+		return stopOffset, status.New(
+			codes.InvalidArgument,
+			fmt.Sprintf("Unknown StopPosition %s", req.StopPosition))
+	}
+
+	return stopOffset, nil
 }
 
 func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
