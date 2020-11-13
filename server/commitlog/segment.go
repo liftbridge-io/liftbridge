@@ -383,7 +383,7 @@ func (s *segment) findEntry(offset int64) (e *entry, err error) {
 }
 
 // findEntryByTimestamp returns the first entry whose timestamp is greater than
-// or equal to the given offset.
+// or equal to the given timestamp.
 func (s *segment) findEntryByTimestamp(timestamp int64) (e *entry, err error) {
 	s.RLock()
 	defer s.RUnlock()

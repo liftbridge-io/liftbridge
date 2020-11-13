@@ -285,9 +285,9 @@ func (l *commitLog) OldestOffset() int64 {
 	return l.segments[0].FirstOffset()
 }
 
-// OffsetForTimestamp returns the earliest offset whose timestamp is greater
-// than or equal to the given timestamp.
-func (l *commitLog) OffsetForTimestamp(timestamp int64) (int64, error) {
+// EarliestOffsetAfterTimestamp returns the earliest offset whose timestamp is
+// greater than or equal to the given timestamp.
+func (l *commitLog) EarliestOffsetAfterTimestamp(timestamp int64) (int64, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -326,6 +326,55 @@ func (l *commitLog) OffsetForTimestamp(timestamp int64) (int64, error) {
 		return entry.Offset, nil
 	}
 	return l.segments[len(l.segments)-1].NextOffset(), nil
+}
+
+// LatestOffsetBeforeTimestamp returns the latest offset whose timestamp is less
+// than or equal to the given timestamp.
+func (l *commitLog) LatestOffsetBeforeTimestamp(timestamp int64) (int64, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	// Find the first segment whose base timestamp is greater than the given
+	// timestamp.
+	idx, err := findSegmentIndexByTimestamp(l.segments, timestamp)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to find log segment for timestamp")
+	}
+	// Search the previous segment for the first entry whose timestamp is
+	// greater than or equal to the given timestamp. If this is the first
+	// segment, just search it.
+	var seg *segment
+	if idx == 0 {
+		seg = l.segments[0]
+	} else {
+		seg = l.segments[idx-1]
+	}
+
+	// Check that the given timestamp is not less than the first entry in the
+	// segment
+	var firstEntry entry
+	if err := seg.Index.ReadEntryAtLogOffset(&firstEntry, 0); err != nil {
+		return 0, errors.Wrap(err, "failed to find log segment for timestamp")
+	}
+	if timestamp < firstEntry.Timestamp {
+		return 0, errors.New("timestamp is before the beginning of the log")
+	}
+
+	// Find entry equal to or greater than the given timestamp
+	entry, err := seg.findEntryByTimestamp(timestamp)
+	if err != nil {
+		if err == ErrEntryNotFound {
+			return seg.lastOffset, nil
+		}
+		return 0, errors.Wrap(err, "failed to find segment entry for timestamp")
+	}
+
+	// If it's not an exist match, then we want the previous offset
+	if entry.Timestamp != timestamp {
+		return entry.Offset - 1, nil
+	}
+
+	return entry.Offset, nil
 }
 
 // SetHighWatermark sets the high watermark on the log. All messages up to and

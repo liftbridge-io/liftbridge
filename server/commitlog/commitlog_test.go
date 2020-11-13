@@ -372,9 +372,9 @@ func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
 	require.Equal(t, int64(14), l.LastOffsetForLeaderEpoch(3))
 }
 
-// Ensures OffsetForTimestamp returns the earliest offset whose timestamp is
-// greater than or equal to the given timestamp.
-func TestOffsetForTimestamp(t *testing.T) {
+// Ensures EarliestOffsetAfterTimestamp returns the earliest offset whose
+// timestamp is greater than or equal to the given timestamp.
+func TestEarliestOffsetAfterTimestamp(t *testing.T) {
 	opts := Options{
 		Path:            tempDir(t),
 		MaxSegmentBytes: 100,
@@ -394,35 +394,92 @@ func TestOffsetForTimestamp(t *testing.T) {
 	}
 
 	// Underflowed timestamp should return the first offset.
-	offset, err := l.OffsetForTimestamp(-1)
+	offset, err := l.EarliestOffsetAfterTimestamp(-1)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), offset)
 
 	// Find offset in the first segment.
-	offset, err = l.OffsetForTimestamp(20)
+	offset, err = l.EarliestOffsetAfterTimestamp(20)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), offset)
 
 	// Find offset in an inner segment.
-	offset, err = l.OffsetForTimestamp(30)
+	offset, err = l.EarliestOffsetAfterTimestamp(30)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), offset)
 
 	// Find offset in the last segment.
-	offset, err = l.OffsetForTimestamp(90)
+	offset, err = l.EarliestOffsetAfterTimestamp(90)
 	require.NoError(t, err)
 	require.Equal(t, int64(9), offset)
 
 	// Overflowed timestamp should return the next offset.
-	offset, err = l.OffsetForTimestamp(500)
+	offset, err = l.EarliestOffsetAfterTimestamp(500)
 	require.NoError(t, err)
 	require.Equal(t, int64(10), offset)
 
 	// Find offset for timestamp not present in log. Should return offset with
 	// next highest timestamp.
-	offset, err = l.OffsetForTimestamp(25)
+	offset, err = l.EarliestOffsetAfterTimestamp(25)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), offset)
+}
+
+// Ensures LatestOffsetBeforeTimestamp returns the latest offset whose
+// timestamp is less than or equal to the given timestamp.
+func TestLatestOffsetBeforeTimestamp(t *testing.T) {
+	opts := Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	}
+	l, cleanup := setupWithOptions(t, opts)
+	defer cleanup()
+
+	// Append some messages.
+	numMsgs := 10
+	msgs := make([]*Message, numMsgs)
+	for i := 0; i < numMsgs; i++ {
+		msgs[i] = &Message{Value: []byte(strconv.Itoa(i)), Timestamp: int64(i * 10)}
+	}
+	for _, msg := range msgs {
+		_, err := l.Append([]*Message{msg})
+		require.NoError(t, err)
+	}
+
+	// Underflowed timestamp should return an error.
+	_, err := l.LatestOffsetBeforeTimestamp(-1)
+	require.Error(t, err)
+
+	// Find offset for timestamp right after first entry.
+	offset, err := l.LatestOffsetBeforeTimestamp(5)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), offset)
+
+	// Find offset in the first segment.
+	offset, err = l.LatestOffsetBeforeTimestamp(20)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), offset)
+
+	// Find offset in an inner segment.
+	offset, err = l.LatestOffsetBeforeTimestamp(30)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), offset)
+
+	// Find offset in the last segment.
+	offset, err = l.LatestOffsetBeforeTimestamp(90)
+	require.NoError(t, err)
+	require.Equal(t, int64(9), offset)
+
+	// Overflowed timestamp should return high water mark.
+	offset, err = l.LatestOffsetBeforeTimestamp(500)
+	require.NoError(t, err)
+	require.Equal(t, int64(9), offset)
+
+	// Find offset for timestamp not present in log. Should return offset with
+	// next lowest timestamp.
+	offset, err = l.LatestOffsetBeforeTimestamp(25)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), offset)
 }
 
 // Ensure Truncate removes log entries up to the given offset and that the

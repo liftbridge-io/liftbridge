@@ -595,6 +595,11 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		return nil, nil, st
 	}
 
+	if stopOffset != waitForNewMessages && stopOffset < startOffset {
+		return nil, nil, status.New(
+			codes.Internal, fmt.Sprintf("Stop offset is before start offset: %d < %d", stopOffset, startOffset))
+	}
+
 	var (
 		ch          = make(chan *client.Message)
 		errCh       = make(chan *status.Status)
@@ -628,7 +633,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 					s = status.New(code, err.Error())
 				} else if err == commitlog.ErrCommitLogReadonly {
 					// Partition was set to readonly while subscribed.
-					s = status.New(codes.ResourceExhausted, fmt.Sprintf("End of readonly partition"))
+					s = status.New(codes.ResourceExhausted, "End of readonly partition")
 				} else {
 					s = status.Convert(err)
 				}
@@ -659,7 +664,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 				return
 			}
 			if offset == stopOffset {
-				s := status.New(codes.ResourceExhausted, fmt.Sprintf("Stop offset reached"))
+				s := status.New(codes.ResourceExhausted, "Stop offset reached")
 
 				select {
 				case errCh <- s:
@@ -679,7 +684,7 @@ func getStartOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int6
 	case client.StartPosition_OFFSET:
 		startOffset = req.StartOffset
 	case client.StartPosition_TIMESTAMP:
-		offset, err := log.OffsetForTimestamp(req.StartTimestamp)
+		offset, err := log.EarliestOffsetAfterTimestamp(req.StartTimestamp)
 		if err != nil {
 			return startOffset, status.New(
 				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
@@ -717,7 +722,7 @@ func getStopOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int64
 		stopOffset = req.StopOffset
 	case client.StopPosition_STOP_TIMESTAMP:
 		var err error
-		stopOffset, err = log.OffsetForTimestamp(req.StopTimestamp)
+		stopOffset, err = log.LatestOffsetBeforeTimestamp(req.StopTimestamp)
 		if err != nil {
 			return stopOffset, status.New(
 				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
@@ -725,7 +730,7 @@ func getStopOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int64
 	case client.StopPosition_STOP_LATEST:
 		stopOffset = log.NewestOffset()
 		if stopOffset == -1 {
-			return stopOffset, status.New(codes.ResourceExhausted, "Stream is empty %s")
+			return stopOffset, status.New(codes.ResourceExhausted, "Stream is empty")
 		}
 	default:
 		return stopOffset, status.New(

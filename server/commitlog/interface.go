@@ -22,9 +22,13 @@ type CommitLog interface {
 	// empty.
 	OldestOffset() int64
 
-	// OffsetForTimestamp returns the earliest offset whose timestamp is
-	// greater than or equal to the given timestamp.
-	OffsetForTimestamp(timestamp int64) (int64, error)
+	// EarliestOffsetAfterTimestamp returns the earliest offset whose timestamp
+	// is greater than or equal to the given timestamp.
+	EarliestOffsetAfterTimestamp(timestamp int64) (int64, error)
+
+	// LatestOffsetBeforeTimestamp returns the latest offset whose timestamp is
+	// less than or equal to the given timestamp.
+	LatestOffsetBeforeTimestamp(timestamp int64) (int64, error)
 
 	// SetHighWatermark sets the high watermark on the log. All messages up to
 	// and including the high watermark are considered committed.
