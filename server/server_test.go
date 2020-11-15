@@ -1792,7 +1792,7 @@ func TestSetStreamReadonlySubscription(t *testing.T) {
 			return
 		}
 
-		require.EqualError(t, err, lift.ErrReadonlyPartition.Error())
+		require.EqualError(t, err, lift.ErrStreamExhausted.Error())
 		msgs <- msg
 		cancel()
 	}, lift.StartAtEarliestReceived())

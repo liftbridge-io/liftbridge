@@ -388,9 +388,9 @@ func (s *segment) findEntryByTimestamp(timestamp int64) (e *entry, err error) {
 	s.RLock()
 	defer s.RUnlock()
 	e = &entry{}
-	n := int(s.Index.Position() / entryWidth)
+	n := int(s.Index.CountEntries())
 	idx := sort.Search(n, func(i int) bool {
-		if err := s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth)); err != nil {
+		if err := s.Index.ReadEntryAtLogOffset(e, int64(i)); err != nil {
 			panic(err)
 		}
 		return e.Timestamp >= timestamp
@@ -398,7 +398,7 @@ func (s *segment) findEntryByTimestamp(timestamp int64) (e *entry, err error) {
 	if idx == n {
 		return nil, ErrEntryNotFound
 	}
-	err = s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth))
+	err = s.Index.ReadEntryAtLogOffset(e, int64(idx))
 	return e, err
 }
 

@@ -346,35 +346,32 @@ func (l *commitLog) LatestOffsetBeforeTimestamp(timestamp int64) (int64, error) 
 	var seg *segment
 	if idx == 0 {
 		seg = l.segments[0]
+		// if the given timestamp is before the start of the stream return an
+		// error.
+		if timestamp < seg.firstWriteTime {
+			return 0, errors.New("timestamp is before the beginning of the log")
+		}
 	} else {
 		seg = l.segments[idx-1]
 	}
 
-	// Check that the given timestamp is not less than the first entry in the
-	// segment
-	var firstEntry entry
-	if err := seg.Index.ReadEntryAtLogOffset(&firstEntry, 0); err != nil {
-		return 0, errors.Wrap(err, "failed to find log segment for timestamp")
-	}
-	if timestamp < firstEntry.Timestamp {
-		return 0, errors.New("timestamp is before the beginning of the log")
-	}
-
-	// Find entry equal to or greater than the given timestamp
+	// Find entry equal to or greater than the given timestamp.
 	entry, err := seg.findEntryByTimestamp(timestamp)
-	if err != nil {
-		if err == ErrEntryNotFound {
-			return seg.lastOffset, nil
+	if err == nil {
+		// If it's an exact match, return the offset.
+		if entry.Timestamp == timestamp {
+			return entry.Offset, nil
 		}
-		return 0, errors.Wrap(err, "failed to find segment entry for timestamp")
-	}
 
-	// If it's not an exist match, then we want the previous offset
-	if entry.Timestamp != timestamp {
+		// Otherwise we want the previous offset.
 		return entry.Offset - 1, nil
 	}
 
-	return entry.Offset, nil
+	if err != ErrEntryNotFound && err != io.EOF {
+		return 0, errors.Wrap(err, "failed to find log entry for timestamp")
+	}
+
+	return seg.lastOffset, nil
 }
 
 // SetHighWatermark sets the high watermark on the log. All messages up to and
