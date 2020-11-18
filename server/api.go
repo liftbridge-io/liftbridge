@@ -597,7 +597,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 
 	if stopOffset != waitForNewMessages && stopOffset < startOffset {
 		return nil, nil, status.New(
-			codes.Internal, fmt.Sprintf("Stop offset is before start offset: %d < %d", stopOffset, startOffset))
+			codes.InvalidArgument, fmt.Sprintf("Stop offset is before start offset: %d < %d", stopOffset, startOffset))
 	}
 
 	var (
@@ -607,7 +607,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 	)
 	if err != nil {
 		return nil, nil, status.New(
-			codes.InvalidArgument, fmt.Sprintf("Failed to create stream reader: %v", err))
+			codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
 	}
 
 	a.startGoroutine(func() {
