@@ -348,7 +348,7 @@ func (l *commitLog) LatestOffsetBeforeTimestamp(timestamp int64) (int64, error) 
 		seg = l.segments[0]
 		// if the given timestamp is before the start of the stream return an
 		// error.
-		if timestamp < seg.firstWriteTime {
+		if timestamp < seg.FirstWriteTime() {
 			return 0, errors.New("timestamp is before the beginning of the log")
 		}
 	} else {

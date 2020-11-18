@@ -868,7 +868,7 @@ func TestSubscribeStopPosition(t *testing.T) {
 	// subscription to empty stream errors
 	err = client.Subscribe(ctx, stream, nil, lift.StopAtLatestReceived())
 	require.Error(t, err)
-	require.Equal(t, lift.ErrStreamExhausted, err)
+	require.Equal(t, lift.ErrReadonlyPartition, err)
 
 	// publish messages to stream
 	numMessages := 10
@@ -889,7 +889,7 @@ func TestSubscribeStopPosition(t *testing.T) {
 		// we've recieved all messages so this must be a resource exhaused error
 		if receivedCount > numMessages {
 			require.Error(t, err)
-			require.Equal(t, lift.ErrStreamExhausted, err)
+			require.Equal(t, lift.ErrReadonlyPartition, err)
 			exhausted <- struct{}{}
 		}
 	},
@@ -904,11 +904,13 @@ func TestSubscribeStopPosition(t *testing.T) {
 		t.Fatal("Stream was not exhausted")
 	}
 
-	// Get all messages between the timestamps of messages that have already
-	// been acknowledged.
+	// Get all messages between the timestamps of two already acknowledged
+	// messages. Inclusive of the bounds:
+	// 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+	//      |_____________|
 	start := acks[2]
 	stop := acks[6]
-	expectedCount := 4
+	expectedCount := 5
 	expectedOffset := start.Offset()
 
 	receivedCount = 0
@@ -923,12 +925,12 @@ func TestSubscribeStopPosition(t *testing.T) {
 		// we've recieved all messages so this must be a resource exhaused error
 		if receivedCount > expectedCount {
 			require.Error(t, err)
-			require.Equal(t, lift.ErrStreamExhausted, err)
+			require.Equal(t, lift.ErrReadonlyPartition, err)
 			exhausted <- struct{}{}
 		}
 	},
-		lift.StartAtTime(start.CommitTimestamp()),
-		lift.StopAtTime(stop.CommitTimestamp()),
+		lift.StartAtTime(start.ReceptionTimestamp()),
+		lift.StopAtTime(stop.ReceptionTimestamp()),
 	)
 	require.NoError(t, err)
 

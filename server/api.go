@@ -607,7 +607,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 	)
 	if err != nil {
 		return nil, nil, status.New(
-			codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
+			codes.InvalidArgument, fmt.Sprintf("Failed to create stream reader: %v", err))
 	}
 
 	a.startGoroutine(func() {

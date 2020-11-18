@@ -185,6 +185,12 @@ func (s *segment) FirstOffset() int64 {
 	return s.firstOffset
 }
 
+func (s *segment) FirstWriteTime() int64 {
+	s.RLock()
+	defer s.RUnlock()
+	return s.firstWriteTime
+}
+
 func (s *segment) LastOffset() int64 {
 	s.RLock()
 	defer s.RUnlock()
