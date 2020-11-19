@@ -1332,10 +1332,10 @@ func eventTimestampsToProto(timestamps EventTimestamps) *client.PartitionEventTi
 }
 
 // getPartitionMetadata returns a partition's metadata.
-func getPartitionMetadata(partitionId int32, partition *partition) *client.PartitionMetadata {
+func getPartitionMetadata(partitionID int32, partition *partition) *client.PartitionMetadata {
 	leader, _ := partition.GetLeader()
 	return &client.PartitionMetadata{
-		Id:                         partitionId,
+		Id:                         partitionID,
 		Leader:                     leader,
 		Replicas:                   partition.GetReplicas(),
 		Isr:                        partition.GetISR(),

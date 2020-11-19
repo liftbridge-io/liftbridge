@@ -842,6 +842,105 @@ func TestSubscribePartitionClosed(t *testing.T) {
 	}
 }
 
+func TestSubscribeStopPosition(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "foo"
+	ctx := context.Background()
+	err = client.CreateStream(ctx, "foo", stream)
+	require.NoError(t, err)
+
+	// subscription to empty stream errors
+	err = client.Subscribe(ctx, stream, nil, lift.StopAtLatestReceived())
+	require.Error(t, err)
+	require.Equal(t, lift.ErrReadonlyPartition, err)
+
+	// publish messages to stream
+	numMessages := 10
+	acks := make([]*lift.Ack, 0, numMessages)
+	for i := 0; i < numMessages; i++ {
+		ack, err := client.Publish(ctx, stream, []byte(strconv.Itoa(i)))
+		require.NoError(t, err)
+		acks = append(acks, ack)
+	}
+
+	exhausted := make(chan struct{})
+
+	// stream should return all message then close
+	receivedCount := 0
+	err = client.Subscribe(ctx, stream, func(msg *lift.Message, err error) {
+		receivedCount++
+
+		// we've recieved all messages so this must be a resource exhaused error
+		if receivedCount > numMessages {
+			require.Error(t, err)
+			require.Equal(t, lift.ErrReadonlyPartition, err)
+			exhausted <- struct{}{}
+		}
+	},
+		lift.StartAtEarliestReceived(),
+		lift.StopAtLatestReceived(),
+	)
+	require.NoError(t, err)
+
+	select {
+	case <-exhausted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stream was not exhausted")
+	}
+
+	// Get all messages between the timestamps of two already acknowledged
+	// messages. Inclusive of the bounds:
+	// 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+	//      |_____________|
+	start := acks[2]
+	stop := acks[6]
+	expectedCount := 5
+	expectedOffset := start.Offset()
+
+	receivedCount = 0
+	err = client.Subscribe(ctx, stream, func(msg *lift.Message, err error) {
+		receivedCount++
+
+		if msg != nil {
+			require.Equal(t, expectedOffset, msg.Offset())
+			expectedOffset++
+		}
+
+		// we've recieved all messages so this must be a resource exhaused error
+		if receivedCount > expectedCount {
+			require.Error(t, err)
+			require.Equal(t, lift.ErrReadonlyPartition, err)
+			exhausted <- struct{}{}
+		}
+	},
+		lift.StartAtTime(start.ReceptionTimestamp()),
+		lift.StopAtTime(stop.ReceptionTimestamp()),
+	)
+	require.NoError(t, err)
+
+	select {
+	case <-exhausted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stream was not exhausted")
+	}
+}
+
 // Ensure getStreamConfig applies non-nil values from the CreateStreamRequest
 // to the StreamConfig.
 func TestGetStreamConfig(t *testing.T) {
