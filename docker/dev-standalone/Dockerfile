@@ -1,7 +1,7 @@
 FROM golang:1.14-alpine as build-base
 
 ENV GO111MODULE on
-RUN go get github.com/liftbridge-io/liftbridge
+RUN go get github.com/liftbridge-io/liftbridge@master
 RUN go get github.com/nats-io/nats-server/v2
 
 FROM alpine:latest
