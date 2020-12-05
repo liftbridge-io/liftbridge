@@ -833,6 +833,25 @@ func (p *publishAsyncSession) dispatchAcks() error {
 			p.inflight = 0
 		}
 		p.mu.Unlock()
+
+		// AckError indicates that an error is sent back via AckInbox
+		switch ack.AckError {
+		case client.Ack_OK:
+			break
+		case client.Ack_INCORRECT_OFFSET:
+			p.sendPublishAsyncError(ack.CorrelationId, &client.PublishAsyncError{
+				Code:    client.PublishAsyncError_INTERNAL,
+				Message: "incorrect expected offset",
+			})
+			return
+		case client.Ack_UNKNOWN:
+			p.sendPublishAsyncError(ack.CorrelationId, &client.PublishAsyncError{
+				Code:    client.PublishAsyncError_INTERNAL,
+				Message: "publish async error",
+			})
+			return
+		}
+
 		if err := p.stream.Send(&client.PublishResponse{CorrelationId: ack.CorrelationId, Ack: ack}); err != nil {
 			p.logger.Errorf("api: Failed to send PublishAsync response: %v", err)
 		}

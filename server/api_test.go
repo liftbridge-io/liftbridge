@@ -1280,3 +1280,46 @@ func TestFetchPartitionMetadataReadonlyTimestamps(t *testing.T) {
 	require.Equal(t, firstReadonlyTimestamp, metadata.ReadonlyTimestamps().FirstTime())
 	require.True(t, metadata.ReadonlyTimestamps().LatestTime().After(firstReadonlyTimestamp))
 }
+
+// TestPublishAsync ensures publish async with AckHandler is able to handle async error
+func TestPublishAsync(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+	stream := "foo"
+
+	err = client.CreateStream(context.Background(), "foo", stream)
+	require.NoError(t, err)
+
+	// channel for async error handler
+	errorC := make(chan error)
+
+	// Publish message to subject.
+	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader())
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should be no error
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+}
