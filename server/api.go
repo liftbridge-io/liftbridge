@@ -305,6 +305,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 			AckInbox:      req.AckInbox,
 			CorrelationId: req.CorrelationId,
 			AckPolicy:     req.AckPolicy,
+			Offset:        req.ExpectedOffset,
 		}
 		resp = new(client.PublishResponse)
 	)
@@ -913,6 +914,7 @@ func (p *publishAsyncSession) publishLoop() error {
 			AckInbox:      req.AckInbox,
 			CorrelationId: req.CorrelationId,
 			AckPolicy:     req.AckPolicy,
+			Offset:        req.ExpectedOffset,
 		})
 		if err != nil {
 			err = errors.Wrap(err, "failed to marshal message")

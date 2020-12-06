@@ -778,6 +778,9 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		batchWait = p.srv.config.BatchMaxTime
 		msgBatch  = make([]*commitlog.Message, 0, batchSize)
 	)
+	//[TODO] replace with config
+	batchSize = 1
+
 	for {
 		msgBatch = msgBatch[:0]
 		select {
@@ -825,6 +828,23 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		// Write uncommitted messages to log.
 		offsets, err := p.log.Append(msgBatch)
 		if err != nil {
+
+			// [TODO] Send ACK
+			if err == commitlog.ErrIncorrectOffset {
+				msg := msgBatch[0]
+				ack := &client.Ack{
+					Stream:             p.Stream,
+					PartitionSubject:   p.Subject,
+					MsgSubject:         string(msg.Headers["subject"]),
+					AckInbox:           msg.AckInbox,
+					CorrelationId:      msg.CorrelationID,
+					AckPolicy:          msg.AckPolicy,
+					ReceptionTimestamp: msg.Timestamp,
+					AckError:           client.Ack_INCORRECT_OFFSET,
+				}
+
+				p.sendAck(ack)
+			}
 			p.srv.logger.Errorf("Failed to append to log %s: %v", p, err)
 			continue
 		}
@@ -1373,6 +1393,7 @@ func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 		m.AckInbox = message.AckInbox
 		m.CorrelationID = message.CorrelationId
 		m.AckPolicy = message.AckPolicy
+		m.Offset = message.Offset
 	} else {
 		m.Value = msg.Data
 	}

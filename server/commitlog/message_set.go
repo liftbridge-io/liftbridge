@@ -66,6 +66,12 @@ func newMessageSetFromProto(baseOffset, basePos int64, msgs []*Message) (
 			relPos = int64(n)
 			offset = int64(i) + baseOffset
 		)
+
+		// Check expected offset for concurrency in case of Optimistic Concurrency Control
+		if offset != m.Offset {
+			return nil, nil, ErrIncorrectOffset
+		}
+
 		if err := binary.Write(buf, encoding, uint64(offset)); err != nil {
 			return nil, nil, err
 		}

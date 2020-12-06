@@ -17,6 +17,7 @@ type Message struct {
 	Key        []byte
 	Value      []byte
 	Headers    map[string][]byte
+	Offset     int64
 
 	// Transient fields
 	Timestamp     int64
