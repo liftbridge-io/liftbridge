@@ -48,7 +48,7 @@ func entriesForMessageSet(basePos int64, ms []byte) []*entry {
 	return entries
 }
 
-func newMessageSetFromProto(baseOffset, basePos int64, msgs []*Message) (
+func newMessageSetFromProto(baseOffset, basePos int64, msgs []*Message, concurrencyControl bool) (
 	messageSet, []*entry, error) {
 
 	var (
@@ -68,8 +68,10 @@ func newMessageSetFromProto(baseOffset, basePos int64, msgs []*Message) (
 		)
 
 		// Check expected offset for concurrency in case of Optimistic Concurrency Control
-		if offset != m.Offset {
-			return nil, nil, ErrIncorrectOffset
+		if concurrencyControl == true {
+			if offset != m.Offset {
+				return nil, nil, ErrIncorrectOffset
+			}
 		}
 
 		if err := binary.Write(buf, encoding, uint64(offset)); err != nil {

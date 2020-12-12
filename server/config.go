@@ -175,6 +175,7 @@ type StreamsConfig struct {
 	AutoPauseTime                 time.Duration
 	AutoPauseDisableIfSubscribers bool
 	MinISR                        int
+	ConcurrencyControl            bool
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -263,6 +264,10 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 
 	if minISR := c.MinIsr; minISR != nil {
 		l.MinISR = int(minISR.Value)
+	}
+
+	if optimisticConcurrencyControl := c.OptimisticConcurrencyControl; optimisticConcurrencyControl != nil {
+		l.ConcurrencyControl = optimisticConcurrencyControl.Value
 	}
 }
 

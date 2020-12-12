@@ -60,7 +60,7 @@ func TestAppendMessageSet(t *testing.T) {
 	defer l.Close()
 	defer cleanup()
 
-	set, _, err := newMessageSetFromProto(0, 0, msgs)
+	set, _, err := newMessageSetFromProto(0, 0, msgs, false)
 	require.NoError(t, err)
 
 	offsets, err := l.AppendMessageSet(set)

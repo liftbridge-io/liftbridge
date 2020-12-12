@@ -152,6 +152,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 			Compact:              streamsConfig.Compact,
 			CompactMaxGoroutines: streamsConfig.CompactMaxGoroutines,
 			Logger:               s.logger,
+			ConcurrencyControl:   streamsConfig.ConcurrencyControl,
 		})
 	)
 	if err != nil {
@@ -778,8 +779,11 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		batchWait = p.srv.config.BatchMaxTime
 		msgBatch  = make([]*commitlog.Message, 0, batchSize)
 	)
-	//[TODO] replace with config
-	batchSize = 1
+	// If Concurrency Control is enabled, then the message will be appended one by one.
+	// This is to ensure no conflict between each message
+	if p.log.IsConcurrencyControlEnabled() == true {
+		batchSize = 1
+	}
 
 	for {
 		msgBatch = msgBatch[:0]
@@ -829,7 +833,9 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		offsets, err := p.log.Append(msgBatch)
 		if err != nil {
 
-			// [TODO] Send ACK
+			// If ErrIncorrectOffset is raised, then
+			// and AckErr should be dispatched
+
 			if err == commitlog.ErrIncorrectOffset {
 				msg := msgBatch[0]
 				ack := &client.Ack{

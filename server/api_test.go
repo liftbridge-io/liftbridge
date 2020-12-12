@@ -1324,8 +1324,8 @@ func TestPublishAsync(t *testing.T) {
 	}
 }
 
-// TestPublishAsyncWithConcurrencyError ensures an error is trigger in case of concurrent publishes
-func TestPublishAsyncWithConcurrencyError(t *testing.T) {
+// TestPublishAsyncWithConcurrencyErrorWrongOffset ensures an error is trigger in case of concurrent publishes
+func TestPublishAsyncWithConcurrencyErrorWrongOffset(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Use a central NATS server.
@@ -1344,7 +1344,8 @@ func TestPublishAsyncWithConcurrencyError(t *testing.T) {
 	defer client.Close()
 	stream := "foo"
 
-	err = client.CreateStream(context.Background(), "foo", stream)
+	// Create a stream and enable Optimistic Concurrency Control
+	err = client.CreateStream(context.Background(), "foo", stream, lift.OptimisticConcurrencyControl(true))
 	require.NoError(t, err)
 
 	// channel for async error handler
@@ -1356,6 +1357,7 @@ func TestPublishAsyncWithConcurrencyError(t *testing.T) {
 			errorC <- err
 		},
 		lift.AckPolicyLeader(),
+		// Wrong offset
 		lift.SetExpectedOffset(100),
 	)
 	require.NoError(t, err)
@@ -1364,8 +1366,293 @@ func TestPublishAsyncWithConcurrencyError(t *testing.T) {
 	case err := <-errorC:
 		require.Error(t, err)
 		st := status.Convert(err)
+		// Expect error
 		require.Equal(t, "incorrect expected offset", st.Message())
 	case <-time.After(time.Second):
 		t.Fatal("Did not receive expected error")
 	}
+}
+
+// TestPublishAsyncWithConcurrencyCorrectOffset ensures an that publish messages
+// work with correct expected offset provided
+func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+	stream := "foo"
+
+	// Create a stream and enable Optimistic Concurrency Control
+	err = client.CreateStream(context.Background(), "foo", stream, lift.OptimisticConcurrencyControl(true))
+	require.NoError(t, err)
+
+	// channel for async error handler
+	errorC := make(chan error)
+
+	// Publish Async with expected offfset
+	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+		// Correct offset is 0 (first message)
+		lift.SetExpectedOffset(0),
+	)
+	require.NoError(t, err)
+
+	// Publish Async with expected offfset (2nd times)
+	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+		// Correct offset is 1 (second message)
+		lift.SetExpectedOffset(0),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should be no error
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+}
+
+// TestMultiplePublishAsyncWithConcurrency ensures that in the scenario
+// where multiple publishes are epxected, the concurrency control should raise error
+// on conflicts
+func TestMultiplePublishAsyncWithConcurrency(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Client 1
+	client1, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client1.Close()
+
+	client2, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client2.Close()
+
+	stream := "foo"
+
+	// Create a stream and enable Optimistic Concurrency Control
+	err = client1.CreateStream(context.Background(), "foo", stream, lift.OptimisticConcurrencyControl(true))
+	require.NoError(t, err)
+
+	// channel for async error handler
+	errorC := make(chan error)
+
+	// Client 1 publish first
+	err = client1.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+		// expected offset is 0 for cilent 1
+		lift.SetExpectedOffset(0),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should be no error for client 1
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+
+	// Client 2 publish late
+	err = client2.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+		// expected offset is 0 for the client 2
+		lift.SetExpectedOffset(0),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should have concurrency error for client 2
+		require.Error(t, err)
+		st := status.Convert(err)
+		// Expect error
+		require.Equal(t, "incorrect expected offset", st.Message())
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+
+	// Client 2 publish again with correct offset
+	err = client1.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+		// expected offset is 1 for cilent 2
+		lift.SetExpectedOffset(1),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should be no error for client 2
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+}
+
+// TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata ensures that in the scenario
+// where multiple publishes are epxected, the concurrency control should raise error
+// on conflicts. Client may try to fetch latest message offset using FetchPartitionMetadata endpoint and retry
+// publishing
+func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Client 1
+	client1, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client1.Close()
+
+	client2, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client2.Close()
+
+	stream := "foo"
+
+	// Create a stream and enable Optimistic Concurrency Control
+	err = client1.CreateStream(context.Background(), "foo", stream, lift.OptimisticConcurrencyControl(true))
+	require.NoError(t, err)
+
+	// channel for async error handler
+	errorC := make(chan error)
+
+	// Client 1 publish first
+	err = client1.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+		// expected offset is 0 for cilent 1
+		lift.SetExpectedOffset(0),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should be no error for client 1
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+
+	// Client 2 publish late
+	err = client2.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+		// expected offset is 0 for the client 2
+		lift.SetExpectedOffset(0),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should have concurrency error for client 2
+		require.Error(t, err)
+		st := status.Convert(err)
+		// Expect error
+		require.Equal(t, "incorrect expected offset", st.Message())
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+
+	// Client 2 fetches metadata to know what position available
+	metadata, err := client2.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	latestOffet := metadata.NewestOffset()
+	// In this scenario, only one message is published, so the expected offset should be 1
+	expectedOffset := latestOffet + 1
+
+	// Client 2 publish again with correct offset
+	err = client1.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+		lift.SetExpectedOffset(expectedOffset),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should be no error for client 2
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+
+	// A client 3 that publishes without expected offset
+	client3, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client3.Close()
+
+	err = client3.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		lift.AckPolicyLeader(),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		// should have concurrency error for client 3
+		require.Error(t, err)
+		st := status.Convert(err)
+		// Expect error
+		require.Equal(t, "incorrect expected offset", st.Message())
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+
 }

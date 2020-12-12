@@ -777,6 +777,9 @@ func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
 	if req.MinIsr != nil {
 		config.MinIsr = &proto.NullableInt32{Value: req.MinIsr.Value}
 	}
+	if req.OptimisticConcurrencyControl != nil {
+		config.OptimisticConcurrencyControl = &proto.NullableBool{Value: req.OptimisticConcurrencyControl.Value}
+	}
 	return config
 }
 
