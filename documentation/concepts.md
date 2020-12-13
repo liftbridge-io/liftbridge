@@ -370,6 +370,18 @@ serializing their messages into [*envelopes*](./envelope_protocol.md). An
 envelope allows publishers to set things like the `AckInbox`, `Key`, `Headers`,
 and other pieces of metadata.
 
+## Concurrency Control
+Streams support control concurrency publishes. This is achieved by sending `ExpectedOffset`
+on every publish request. The server may check and only approve message that has correct
+`ExpectedOffset`. It faciliates the control when multiple clients publish to the same stream.
+
+This feature enables complex design such as :
+
+- Idempotemt publish
+- Use the stream as commitlog
+
+This behavior may be enabled by [*configuration*](./configuration.md)
+
 ## Further Reading
 
 A final note is to read ["Designing Event-Driven
