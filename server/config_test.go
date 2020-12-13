@@ -38,6 +38,7 @@ func TestNewConfigFromFile(t *testing.T) {
 	require.Equal(t, time.Minute, config.Streams.SegmentMaxAge)
 	require.True(t, config.Streams.Compact)
 	require.Equal(t, 2, config.Streams.CompactMaxGoroutines)
+	require.Equal(t, false, config.Streams.ConcurrencyControl)
 
 	require.Equal(t, "foo", config.Clustering.ServerID)
 	require.Equal(t, "bar", config.Clustering.Namespace)

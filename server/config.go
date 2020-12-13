@@ -51,6 +51,7 @@ const (
 	defaultActivityStreamPublishTimeout   = 5 * time.Second
 	defaultActivityStreamPublishAckPolicy = client.AckPolicy_ALL
 	defaultCursorsStreamAutoPauseTime     = time.Minute
+	defaultConcurrencyControl             = false
 )
 
 // Config setting key names.
@@ -90,6 +91,7 @@ const (
 	configStreamsCompactMaxGoroutines          = "streams.compact.max.goroutines"
 	configStreamsAutoPauseTime                 = "streams.auto.pause.time"
 	configStreamsAutoPauseDisableIfSubscribers = "streams.auto.pause.disable.if.subscribers"
+	configStreamsConcurrencyControl            = "streams.concurrencycontrol"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"
@@ -140,6 +142,7 @@ var configKeys = map[string]struct{}{
 	configStreamsSegmentMaxBytes:               {},
 	configStreamsSegmentMaxAge:                 {},
 	configStreamsCompactEnabled:                {},
+	configStreamsConcurrencyControl:            {},
 	configStreamsCompactMaxGoroutines:          {},
 	configStreamsAutoPauseTime:                 {},
 	configStreamsAutoPauseDisableIfSubscribers: {},
@@ -348,6 +351,7 @@ func NewDefaultConfig() *Config {
 	config.Streams.SegmentMaxAge = defaultMaxSegmentAge
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
 	config.Streams.CleanerInterval = defaultCleanerInterval
+	config.Streams.ConcurrencyControl = defaultConcurrencyControl
 	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
@@ -626,7 +630,9 @@ func parseStreamsConfig(config *Config, v *viper.Viper) error {
 	if v.IsSet(configStreamsAutoPauseDisableIfSubscribers) {
 		config.Streams.AutoPauseDisableIfSubscribers = v.GetBool(configStreamsAutoPauseDisableIfSubscribers)
 	}
-
+	if v.IsSet(configStreamsConcurrencyControl) {
+		config.Streams.ConcurrencyControl = v.GetBool(configStreamsConcurrencyControl)
+	}
 	return nil
 }
 
