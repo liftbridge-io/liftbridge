@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -236,11 +238,17 @@ func TestDeleteStream(t *testing.T) {
 	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
 	require.NoError(t, err)
 
+	_, err = os.Stat(filepath.Join(s1Config.DataDir, "streams", "foo"))
+	require.NoError(t, err)
+
 	stream := s1.metadata.GetStream("foo")
 	require.NotNil(t, stream)
 
 	err = client.DeleteStream(context.Background(), "foo")
 	require.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(s1Config.DataDir, "streams", "foo"))
+	require.True(t, os.IsNotExist(err))
 
 	stream = s1.metadata.GetStream("foo")
 	require.Nil(t, stream)
