@@ -835,9 +835,9 @@ func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
 		return errors.Wrap(err, "failed to delete stream")
 	}
 
-	// Remove the (now empty) stream data directory
+	// Remove the stream data directory
 	streamDataDir := filepath.Join(m.Server.config.DataDir, "streams", stream.GetName())
-	err = os.Remove(streamDataDir)
+	err = os.RemoveAll(streamDataDir)
 	if err != nil {
 		return errors.Wrap(err, "failed to delete stream data directory")
 	}
