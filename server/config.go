@@ -91,7 +91,7 @@ const (
 	configStreamsCompactMaxGoroutines          = "streams.compact.max.goroutines"
 	configStreamsAutoPauseTime                 = "streams.auto.pause.time"
 	configStreamsAutoPauseDisableIfSubscribers = "streams.auto.pause.disable.if.subscribers"
-	configStreamsConcurrencyControl            = "streams.concurrencycontrol"
+	configStreamsConcurrencyControl            = "streams.concurrency.control"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"

@@ -51,6 +51,11 @@ func entriesForMessageSet(basePos int64, ms []byte) []*entry {
 func newMessageSetFromProto(baseOffset, basePos int64, msgs []*Message, concurrencyControl bool) (
 	messageSet, []*entry, error) {
 
+	// When concurrency control is enabled, messages shall be processed on by one
+	if concurrencyControl && len(msgs) > 1 {
+		panic(fmt.Errorf("Concurrency Control is enabled, unable to process a batch of messages"))
+	}
+
 	var (
 		buf     = new(bytes.Buffer)
 		entries = make([]*entry, len(msgs))
@@ -68,7 +73,7 @@ func newMessageSetFromProto(baseOffset, basePos int64, msgs []*Message, concurre
 		)
 
 		// Check expected offset for concurrency in case of Optimistic Concurrency Control
-		if concurrencyControl == true {
+		if concurrencyControl && m.Offset != -1 {
 			if offset != m.Offset {
 				return nil, nil, ErrIncorrectOffset
 			}

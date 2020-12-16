@@ -176,8 +176,7 @@ overriding these settings.
 | compact.max.goroutines | | The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if `compact.enabled` is `true`). | int | 10 | |
 | auto.pause.time | | The amount of time a stream partition can go idle, i.e. not receive a message, before it is automatically paused. A value of 0 disables auto pausing. | duration | 0 | |
 | auto.pause.disable.if.subscribers | | Disables automatic stream partition pausing when there are subscribers. | bool | false | |
-| concurrencycontrol | | Enable Optimistic Concurrency Control on message publishing for all streams. | bool | false | |
-
+| concurrency.control | | Enable Optimistic Concurrency Control on message publishing for all streams. | bool | false | |
 
 ### Clustering Configuration Settings
 
