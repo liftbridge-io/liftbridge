@@ -1324,6 +1324,57 @@ func TestPublishAsync(t *testing.T) {
 	}
 }
 
+// TestPublishAsyncWithConcurrencyNoAckPolicy ensures an error is trigger in case of concurrent publishes
+// and no AckPolicy is set
+func TestPublishAsyncWithConcurrencyNoAckPolicy(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Use a central NATS server.
+	ns := natsdTest.RunDefaultServer()
+	defer ns.Shutdown()
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+	stream := "foo"
+
+	// Create a stream and enable Optimistic Concurrency Control
+	err = client.CreateStream(context.Background(), "foo", stream, lift.OptimisticConcurrencyControl(true))
+	require.NoError(t, err)
+
+	// channel for async error handler
+	errorC := make(chan error)
+
+	// Publish Async with expected offfset
+	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
+		func(ack *lift.Ack, err error) {
+			errorC <- err
+		},
+		// Set AckPolicy to NONE
+		lift.AckPolicyNone(),
+		// expected offset
+		lift.SetExpectedOffset(0),
+	)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errorC:
+		require.Error(t, err)
+		st := status.Convert(err)
+		// Expect error
+		require.Equal(t, "stream with concurrency control must have AckPolicy set", st.Message())
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+}
+
 // TestPublishAsyncWithConcurrencyErrorWrongOffset ensures an error is trigger in case of concurrent publishes
 func TestPublishAsyncWithConcurrencyErrorWrongOffset(t *testing.T) {
 	defer cleanupStorage(t)
