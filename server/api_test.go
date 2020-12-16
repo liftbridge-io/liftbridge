@@ -1281,7 +1281,7 @@ func TestFetchPartitionMetadataReadonlyTimestamps(t *testing.T) {
 	require.True(t, metadata.ReadonlyTimestamps().LatestTime().After(firstReadonlyTimestamp))
 }
 
-// TestPublishAsync ensures publish async with AckHandler is able to handle async error
+// TestPublishAsync ensures async publish with AckHandler is able to handle async error.
 func TestPublishAsync(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -1324,7 +1324,7 @@ func TestPublishAsync(t *testing.T) {
 	}
 }
 
-// TestPublishAsyncWithConcurrencyErrorWrongOffset ensures an error is trigger in case of concurrent publishes
+// TestPublishAsyncWithConcurrencyErrorWrongOffset ensures an error is trigger in case of concurrent publishes.
 func TestPublishAsyncWithConcurrencyErrorWrongOffset(t *testing.T) {
 	defer cleanupStorage(t)
 

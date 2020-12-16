@@ -375,9 +375,9 @@ Streams support control concurrency publishes. This is achieved by sending `Expe
 on every publish request. The server may check and only approve message that has correct
 `ExpectedOffset`. It faciliates the control when multiple clients publish to the same stream.
 
-This feature enables complex design such as :
+This feature enables complex use cases such as:
 
-- Idempotemt publish
+- Idempotent publish
 - Use the stream as commitlog
 
 This behavior may be enabled by [*configuration*](./configuration.md)
