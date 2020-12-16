@@ -23,8 +23,8 @@ import (
 var ErrSegmentNotFound = errors.New("segment not found")
 
 // ErrIncorrectOffset is returned if the offset is incorrect. This is used in case Optimistic
-// Concurrency Control is activated
-var ErrIncorrectOffset = errors.New("Incorrect offset")
+// Concurrency Control is activated.
+var ErrIncorrectOffset = errors.New("incorrect offset")
 
 const (
 	logFileSuffix               = ".log"

@@ -1242,10 +1242,9 @@ explicitly, the servier will use the default configuration and that may be to
 disable compaction on the service side, which renders `CompactMaxGoroutines` to
 be unused.
 
-Note: if `OptimisticConcurrencyControl` is configured, you have to make sure manually
-that at least one `AckPolicy` is set. Otherwise, in case of concurrent publish, as the
-server dispatches error on `Ack`, failing to enable `AckPolicy` will result in the case
-where publishes are rejected by the server but the errors are not indicated on client side.
+Note: if `OptimisticConcurrencyControl` is configured, you should to make sure
+that at least one `AckPolicy` is set. A `PublishRequest` with `AckPolicy` is set to `AckPolicy_NONE`
+will be rejected explicity by the server.
 
 
 ```go

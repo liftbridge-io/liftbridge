@@ -780,8 +780,8 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		msgBatch  = make([]*commitlog.Message, 0, batchSize)
 	)
 	// If Concurrency Control is enabled, then the message will be appended one by one.
-	// This is to ensure no conflict between each message
-	if p.log.IsConcurrencyControlEnabled() == true {
+	// This is to ensure no conflict between each message.
+	if p.log.IsConcurrencyControlEnabled() {
 		batchSize = 1
 	}
 
@@ -833,10 +833,8 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		offsets, err := p.log.Append(msgBatch)
 		if err != nil {
 
-			// If ErrIncorrectOffset is raised, then
-			// and AckErr should be dispatched
-
-			if err == commitlog.ErrIncorrectOffset {
+			// AckErr should be dispatched if ErrIncorrectOffset is raised.
+			if errors.Is(err, commitlog.ErrIncorrectOffset) {
 				msg := msgBatch[0]
 				ack := &client.Ack{
 					Stream:             p.Stream,
