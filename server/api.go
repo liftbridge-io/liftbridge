@@ -859,7 +859,7 @@ func (p *publishAsyncSession) dispatchAcks() error {
 		switch ack.AckError {
 		case client.Ack_INCORRECT_OFFSET:
 			p.sendPublishAsyncError(ack.CorrelationId, &client.PublishAsyncError{
-				Code:    client.PublishAsyncError_INTERNAL,
+				Code:    client.PublishAsyncError_INCORRECT_OFFSET,
 				Message: "incorrect expected offset",
 			})
 			return

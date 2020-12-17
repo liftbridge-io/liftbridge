@@ -1352,7 +1352,7 @@ func TestPublishAsyncWithConcurrencyNoAckPolicy(t *testing.T) {
 	// channel for async error handler
 	errorC := make(chan error)
 
-	// Publish Async with expected offfset
+	// Publish Async with expected offset
 	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
 		func(ack *lift.Ack, err error) {
 			errorC <- err
@@ -1402,7 +1402,7 @@ func TestPublishAsyncWithConcurrencyErrorWrongOffset(t *testing.T) {
 	// channel for async error handler
 	errorC := make(chan error)
 
-	// Publish Async with expected offfset
+	// Publish Async with expected offset
 	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
 		func(ack *lift.Ack, err error) {
 			errorC <- err
@@ -1452,7 +1452,7 @@ func TestPublishAsyncWithConcurrencyIgnoreOffset(t *testing.T) {
 	// channel for async error handler
 	errorC := make(chan error)
 
-	// Publish Async with expected offfset
+	// Publish Async with expected offset
 	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
 		func(ack *lift.Ack, err error) {
 			errorC <- err
@@ -1500,7 +1500,7 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 	// channel for async error handler
 	errorC := make(chan error)
 
-	// Publish Async with expected offfset
+	// Publish Async with expected offset
 	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
 		func(ack *lift.Ack, err error) {
 			errorC <- err
@@ -1511,7 +1511,7 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Publish Async with expected offfset (2nd times)
+	// Publish Async with expected offset (2nd times)
 	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
 		func(ack *lift.Ack, err error) {
 			errorC <- err

@@ -17,7 +17,6 @@ type Message struct {
 	Key        []byte
 	Value      []byte
 	Headers    map[string][]byte
-	Offset     int64
 
 	// Transient fields
 	Timestamp     int64
@@ -25,6 +24,7 @@ type Message struct {
 	AckInbox      string
 	CorrelationID string
 	AckPolicy     client.AckPolicy
+	Offset        int64
 }
 
 // Encode the Message into the packetEncoder.
