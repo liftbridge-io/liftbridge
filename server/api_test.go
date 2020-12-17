@@ -1360,7 +1360,7 @@ func TestPublishAsyncWithConcurrencyNoAckPolicy(t *testing.T) {
 		// Set AckPolicy to NONE
 		lift.AckPolicyNone(),
 		// expected offset
-		lift.SetExpectedOffset(0),
+		lift.ExpectedOffset(0),
 	)
 	require.NoError(t, err)
 
@@ -1409,7 +1409,7 @@ func TestPublishAsyncWithConcurrencyErrorWrongOffset(t *testing.T) {
 		},
 		lift.AckPolicyLeader(),
 		// Wrong offset
-		lift.SetExpectedOffset(100),
+		lift.ExpectedOffset(100),
 	)
 	require.NoError(t, err)
 
@@ -1459,7 +1459,7 @@ func TestPublishAsyncWithConcurrencyIgnoreOffset(t *testing.T) {
 		},
 		lift.AckPolicyLeader(),
 		// expected offset -1 to indicate next offset
-		lift.SetExpectedOffset(-1),
+		lift.ExpectedOffset(-1),
 	)
 	require.NoError(t, err)
 
@@ -1507,7 +1507,7 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 		},
 		lift.AckPolicyLeader(),
 		// Correct offset is 0 (first message)
-		lift.SetExpectedOffset(0),
+		lift.ExpectedOffset(0),
 	)
 	require.NoError(t, err)
 
@@ -1518,7 +1518,7 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 		},
 		lift.AckPolicyLeader(),
 		// Correct offset is 1 (second message)
-		lift.SetExpectedOffset(0),
+		lift.ExpectedOffset(0),
 	)
 	require.NoError(t, err)
 
@@ -1573,7 +1573,7 @@ func TestMultiplePublishAsyncWithConcurrency(t *testing.T) {
 		},
 		lift.AckPolicyLeader(),
 		// expected offset is 0 for cilent 1
-		lift.SetExpectedOffset(0),
+		lift.ExpectedOffset(0),
 	)
 	require.NoError(t, err)
 
@@ -1592,7 +1592,7 @@ func TestMultiplePublishAsyncWithConcurrency(t *testing.T) {
 		},
 		lift.AckPolicyLeader(),
 		// expected offset is 0 for the client 2
-		lift.SetExpectedOffset(0),
+		lift.ExpectedOffset(0),
 	)
 	require.NoError(t, err)
 
@@ -1614,7 +1614,7 @@ func TestMultiplePublishAsyncWithConcurrency(t *testing.T) {
 		},
 		lift.AckPolicyLeader(),
 		// expected offset is 1 for cilent 2
-		lift.SetExpectedOffset(1),
+		lift.ExpectedOffset(1),
 	)
 	require.NoError(t, err)
 
@@ -1670,7 +1670,7 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 		},
 		lift.AckPolicyLeader(),
 		// expected offset is 0 for cilent 1
-		lift.SetExpectedOffset(0),
+		lift.ExpectedOffset(0),
 	)
 	require.NoError(t, err)
 
@@ -1689,7 +1689,7 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 		},
 		lift.AckPolicyLeader(),
 		// expected offset is 0 for the client 2
-		lift.SetExpectedOffset(0),
+		lift.ExpectedOffset(0),
 	)
 	require.NoError(t, err)
 
@@ -1718,7 +1718,7 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 			errorC <- err
 		},
 		lift.AckPolicyLeader(),
-		lift.SetExpectedOffset(expectedOffset),
+		lift.ExpectedOffset(expectedOffset),
 	)
 	require.NoError(t, err)
 
