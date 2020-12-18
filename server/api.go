@@ -255,7 +255,7 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // newest offset for a partition.
 func (a *apiServer) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (
 	*client.FetchPartitionMetadataResponse, error) {
-	a.logger.Debugf("api: FetchPartitionMetadata [stream=%s, partition=%s]", req.Stream, req.Partition)
+	a.logger.Debugf("api: FetchPartitionMetadata [stream=%s, partition=%d]", req.Stream, req.Partition)
 
 	resp, err := a.metadata.FetchPartitionMetadata(ctx, req)
 	if err != nil {
