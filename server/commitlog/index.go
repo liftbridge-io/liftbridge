@@ -31,6 +31,7 @@ type index struct {
 	size     int64
 	mu       sync.RWMutex
 	position int64
+	closed   bool
 }
 
 type entry struct {
@@ -133,9 +134,14 @@ func (idx *index) writeEntries(entries []*entry) (err error) {
 		}
 	}
 	idx.mu.Lock()
-	idx.writeAt(b.Bytes(), idx.position)
+	defer idx.mu.Unlock()
+	if idx.closed {
+		return ErrSegmentClosed
+	}
+	if err := idx.writeAt(b.Bytes(), idx.position); err != nil {
+		return errors.Wrap(err, "index write failed")
+	}
 	idx.position += entryWidth * int64(len(entries))
-	idx.mu.Unlock()
 	return nil
 }
 
@@ -168,6 +174,9 @@ func (idx *index) ReadEntryAtLogOffset(e *entry, logOffset int64) error {
 func (idx *index) ReadAt(p []byte, offset int64) (n int, err error) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
+	if idx.closed {
+		return 0, ErrSegmentClosed
+	}
 	if idx.position < offset+entryWidth {
 		return 0, io.EOF
 	}
@@ -175,7 +184,7 @@ func (idx *index) ReadAt(p []byte, offset int64) (n int, err error) {
 	return n, nil
 }
 
-func (idx *index) writeAt(p []byte, offset int64) (n int) {
+func (idx *index) writeAt(p []byte, offset int64) error {
 	// Check if we need to expand the index file.
 	if pSize := int64(len(p)); offset+pSize >= idx.size {
 		// Expand the index file.
@@ -190,18 +199,31 @@ func (idx *index) writeAt(p []byte, offset int64) (n int) {
 		idx.size = newSize
 
 		// Re-mmap the index.
+		oldMmap := idx.mmap
 		idx.mmap, err = gommap.Map(idx.file.Fd(), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
 		if err != nil {
 			panic(errors.Wrap(err, "failed to mmap expanded index file"))
 		}
+		// Unmap the old index.
+		if err := oldMmap.UnsafeUnmap(); err != nil {
+			return errors.Wrap(err, "failed to unmap memory mapped index file")
+		}
 	}
 
-	return copy(idx.mmap[offset:], p)
+	copy(idx.mmap[offset:], p)
+	return nil
 }
 
 func (idx *index) Sync() error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
+	return idx.sync()
+}
+
+func (idx *index) sync() error {
+	if idx.closed {
+		return ErrSegmentClosed
+	}
 	if err := idx.file.Sync(); err != nil {
 		return errors.Wrap(err, "file sync failed")
 	}
@@ -212,19 +234,35 @@ func (idx *index) Sync() error {
 }
 
 func (idx *index) Close() error {
-	if err := idx.Sync(); err != nil {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	if idx.closed {
+		return nil
+	}
+	if err := idx.sync(); err != nil {
 		return err
 	}
-	if err := idx.Shrink(); err != nil {
+	if err := idx.shrink(); err != nil {
 		return err
 	}
-	return idx.file.Close()
+	if err := idx.file.Close(); err != nil {
+		return err
+	}
+	if err := idx.mmap.UnsafeUnmap(); err != nil {
+		return err
+	}
+	idx.closed = true
+	return nil
 }
 
 // Shrink truncates the memory-mapped index file to the size of its contents.
 func (idx *index) Shrink() error {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
+	return idx.shrink()
+}
+
+func (idx *index) shrink() error {
 	return idx.file.Truncate(idx.position)
 }
 
