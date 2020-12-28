@@ -18,6 +18,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	client "github.com/liftbridge-io/liftbridge-api/go"
+	gnatsd "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"
@@ -47,6 +48,7 @@ type Server struct {
 	config             *Config
 	listener           net.Listener
 	port               int
+	embeddedNATS       *gnatsd.Server
 	nc                 *nats.Conn
 	ncRaft             *nats.Conn
 	ncRepl             *nats.Conn
@@ -111,6 +113,21 @@ func (s *Server) Start() (err error) {
 
 	rand.Seed(time.Now().UnixNano())
 
+	// Start embedded NATS server if configured.
+	if s.config.EmbeddedNATS {
+		opts, err := gnatsd.ProcessConfigFile(s.config.EmbeddedNATSConfig)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parse embedded NATS server config %s",
+				s.config.EmbeddedNATSConfig)
+		}
+		s.embeddedNATS, err = gnatsd.NewServer(opts)
+		if err != nil {
+			return errors.Wrap(err, "failed to initialize embedded NATS server")
+		}
+		s.embeddedNATS.ConfigureLogger() // TODO: Use Liftbridge logger
+		s.startGoroutine(s.embeddedNATS.Start)
+	}
+
 	// Remove server's ID from the cluster peers list if present.
 	if len(s.config.Clustering.RaftBootstrapPeers) > 0 {
 		peers := make([]string, 0, len(s.config.Clustering.RaftBootstrapPeers))
@@ -148,6 +165,7 @@ func (s *Server) Start() (err error) {
 	s.logger.Infof("Liftbridge Version:        %s", Version)
 	s.logger.Infof("Server ID:                 %s", s.config.Clustering.ServerID)
 	s.logger.Infof("Namespace:                 %s", s.config.Clustering.Namespace)
+	s.logger.Infof("NATS Servers:              %s", s.config.NATSServersString())
 	s.logger.Infof("Default Retention Policy:  %s", s.config.Streams.RetentionString())
 	s.logger.Infof("Default Partition Pausing: %s", s.config.Streams.AutoPauseString())
 	s.logger.Infof("Starting server on %s...",
@@ -226,6 +244,10 @@ func (s *Server) Stop() error {
 	}
 
 	s.closeNATSConns()
+	if s.embeddedNATS != nil {
+		s.embeddedNATS.Shutdown()
+	}
+
 	s.running = false
 	s.shutdown = true
 	s.mu.Unlock()

@@ -89,6 +89,13 @@ func overrideFromFlags(c *cli.Context, config *server.Config) error {
 		}
 		config.NATS.Servers = natsServers
 	}
+	if c.IsSet("embedded-nats") {
+		config.EmbeddedNATS = true
+	}
+	if c.IsSet("embedded-nats-config") {
+		config.EmbeddedNATS = true
+		config.EmbeddedNATSConfig = c.String("embedded-nats-config")
+	}
 	return nil
 }
 
@@ -113,6 +120,14 @@ func getFlags() []cli.Flag {
 			// NOTE: cannot use Value here as urfave/cli has another bug
 			// where it does not replace this value with the specified values but appends them:-(
 			// Value: &cli.StringSlice{nats.DefaultURL},
+		},
+		cli.BoolFlag{
+			Name:  "embedded-nats, e",
+			Usage: "run a NATS server embedded in this process",
+		},
+		cli.StringFlag{
+			Name:  "embedded-nats-config, nc",
+			Usage: "load configuration for embedded NATS server from `FILE`",
 		},
 		cli.StringFlag{
 			Name:  "data-dir, d",
