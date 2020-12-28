@@ -319,7 +319,9 @@ func (s *Server) detectBootstrapMisconfig() {
 		case <-s.shutdownCh:
 			return
 		case <-ticker.C:
-			s.ncRaft.PublishRequest(subj, inbox, srvID)
+			if err := s.ncRaft.PublishRequest(subj, inbox, srvID); err != nil {
+				s.logger.Errorf("Error publishing bootstrap misconfiguration detection message: %v", err)
+			}
 		}
 	}
 }

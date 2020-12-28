@@ -38,6 +38,7 @@ const (
 	defaultReplicaMaxLagTime              = 15 * time.Second
 	defaultReplicaMaxLeaderTimeout        = 15 * time.Second
 	defaultReplicaMaxIdleWait             = 10 * time.Second
+	defaultReplicationMaxBytes            = 1024 * 1024 // 1MB
 	defaultRaftSnapshots                  = 2
 	defaultRaftCacheSize                  = 512
 	defaultMetadataCacheMaxAge            = 2 * time.Minute
@@ -103,6 +104,7 @@ const (
 	configClusteringReplicaMaxIdleWait      = "clustering.replica.max.idle.wait"
 	configClusteringReplicaFetchTimeout     = "clustering.replica.fetch.timeout"
 	configClusteringMinInsyncReplicas       = "clustering.min.insync.replicas"
+	configClusteringReplicationMaxBytes     = "clustering.replication.max.bytes"
 
 	configActivityStreamEnabled          = "activity.stream.enabled"
 	configActivityStreamPublishTimeout   = "activity.stream.publish.timeout"
@@ -155,6 +157,7 @@ var configKeys = map[string]struct{}{
 	configClusteringReplicaMaxIdleWait:         {},
 	configClusteringReplicaFetchTimeout:        {},
 	configClusteringMinInsyncReplicas:          {},
+	configClusteringReplicationMaxBytes:        {},
 	configActivityStreamEnabled:                {},
 	configActivityStreamPublishTimeout:         {},
 	configActivityStreamPublishAckPolicy:       {},
@@ -280,6 +283,7 @@ type ClusteringConfig struct {
 	ReplicaFetchTimeout     time.Duration
 	ReplicaMaxIdleWait      time.Duration
 	MinISR                  int
+	ReplicationMaxBytes     int64
 }
 
 // ActivityStreamConfig contains settings for controlling activity stream
@@ -339,6 +343,7 @@ func NewDefaultConfig() *Config {
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Clustering.RaftCacheSize = defaultRaftCacheSize
 	config.Clustering.MinISR = defaultMinInsyncReplicas
+	config.Clustering.ReplicationMaxBytes = defaultReplicationMaxBytes
 	config.Streams.SegmentMaxBytes = defaultMaxSegmentBytes
 	config.Streams.SegmentMaxAge = defaultMaxSegmentAge
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
@@ -674,6 +679,10 @@ func parseClusteringConfig(config *Config, v *viper.Viper) error { // nolint: go
 
 	if v.IsSet(configClusteringMinInsyncReplicas) {
 		config.Clustering.MinISR = v.GetInt(configClusteringMinInsyncReplicas)
+	}
+
+	if v.IsSet(configClusteringReplicationMaxBytes) {
+		config.Clustering.ReplicationMaxBytes = v.GetInt64(configClusteringReplicationMaxBytes)
 	}
 
 	return nil

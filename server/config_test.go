@@ -50,6 +50,7 @@ func TestNewConfigFromFile(t *testing.T) {
 	require.Equal(t, 2*time.Second, config.Clustering.ReplicaMaxIdleWait)
 	require.Equal(t, 3*time.Second, config.Clustering.ReplicaFetchTimeout)
 	require.Equal(t, 1, config.Clustering.MinISR)
+	require.Equal(t, int64(1024), config.Clustering.ReplicationMaxBytes)
 
 	require.Equal(t, true, config.ActivityStream.Enabled)
 	require.Equal(t, time.Minute, config.ActivityStream.PublishTimeout)
