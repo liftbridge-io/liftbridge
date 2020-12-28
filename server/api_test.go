@@ -549,6 +549,7 @@ func TestStreamPublishSubscribe(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicationMaxBytes = 1024
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -647,6 +648,13 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Did not receive all expected messages")
 	}
+
+	// Publishing a message whose size is larger than max replication size
+	// returns an error.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, make([]byte, 1024+1))
+	require.Error(t, err)
 }
 
 // Ensure legacy Publish endpoint works.
@@ -659,6 +667,7 @@ func TestLegacyPublish(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicationMaxBytes = 1024
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -708,6 +717,17 @@ func TestLegacyPublish(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Nil(t, resp.Ack)
+
+	// Publishing a message whose size is larger than max replication size
+	// returns an error.
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = apiClient.Publish(ctx, &proto.PublishRequest{
+		Stream:    "foo",
+		Partition: 1,
+		Value:     make([]byte, 1024+1),
+	})
+	require.Error(t, err)
 }
 
 // Ensure publishing to a NATS subject works.

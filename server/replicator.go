@@ -13,16 +13,9 @@ import (
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
-const (
-	// replicationMaxSize is the max payload size to send in replication
-	// messages to followers. The default NATS max message size is 1MB, so
-	// we'll use that.
-	replicationMaxSize = 1024 * 1024
-
-	// replicationOverhead is the non-data size overhead of replication
-	// messages: 8 bytes for the leader epoch and 8 bytes for the HW.
-	replicationOverhead = 16
-)
+// replicationOverhead is the non-data size overhead of replication messages: 8
+// bytes for the leader epoch and 8 bytes for the HW.
+const replicationOverhead = 16
 
 // replicationRequest wraps a ReplicationRequest protobuf and a NATS subject
 // where responses should be sent.
@@ -231,7 +224,7 @@ func (r *replicator) replicate(
 		message      commitlog.SerializedMessage
 		err          error
 	)
-	for offset < newestOffset && r.writer.Len() < replicationMaxSize {
+	for offset < newestOffset && int64(r.writer.Len()) < r.partition.srv.config.Clustering.ReplicationMaxBytes {
 		message, offset, _, _, err = reader.ReadMessage(ctx, r.headersBuf[:])
 		if err != nil {
 			r.partition.srv.logger.Errorf("Failed to read message while replicating: %v", err)
@@ -240,7 +233,8 @@ func (r *replicator) replicate(
 
 		// Check if this message will put us over the batch size limit. If it
 		// does, flush the batch now.
-		if uint32(len(message))+uint32(len(r.headersBuf))+uint32(r.writer.Len()) > replicationMaxSize {
+		batchSize := int64(len(message)) + int64(len(r.headersBuf)) + int64(r.writer.Len())
+		if batchSize > r.partition.srv.config.Clustering.ReplicationMaxBytes {
 			break
 		}
 

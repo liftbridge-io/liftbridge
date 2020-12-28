@@ -44,6 +44,7 @@ clustering:
       idle.wait: 2s
     fetch.timeout: 3s
   min.insync.replicas: '1'
+  replication.max.bytes: 1024
 
 activity.stream:
   enabled: true

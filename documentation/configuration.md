@@ -196,6 +196,7 @@ the configuration file.
 | replica.max.idle.wait | | The maximum amount of time a follower will wait before making a replication request once the follower is caught up with the leader. This value should always be less than `replica.max.lag.time` to avoid frequent shrinking of ISR for low-throughput streams. | duration | 10s | |
 | replica.fetch.timeout | | Timeout duration for follower replication requests. | duration | 3s | |
 | min.insync.replicas | | Specifies the minimum number of replicas that must acknowledge a stream write before it can be committed. If the ISR drops below this size, messages cannot be committed. | int | 1 | [1,...] |
+| replication.max.bytes | | The maximum payload size, in bytes, a leader can send to followers for replication messages. This controls the amount of data that can be transferred for individual replication requests. If a leader receives a published message larger than this size, it will return an ack error to the client. Because replication is done over NATS, this cannot exceed the [`max_payload`](https://docs.nats.io/nats-server/configuration#limits) limit configured on the NATS cluster. Thus, this defaults to 1MB, which is the default value for `max_payload`. This should generally be set to match the value of `max_payload`. Setting it too low will preclude the replication of messages larger than it and negatively impact performance. This value should also be the same for all servers in the cluster. | int | 1048576 | |
 
 ### Activity Configuration Settings
 

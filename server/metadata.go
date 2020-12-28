@@ -226,7 +226,9 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 	if err != nil {
 		panic(err)
 	}
-	m.ncRaft.PublishRequest(m.getServerInfoInbox(), inbox, queryReq)
+	if err := m.ncRaft.PublishRequest(m.getServerInfoInbox(), inbox, queryReq); err != nil {
+		return nil, status.New(codes.Internal, err.Error())
+	}
 
 	// Gather responses.
 	for i := 0; i < numPeers; i++ {
