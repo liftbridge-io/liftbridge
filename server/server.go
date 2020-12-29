@@ -498,7 +498,15 @@ func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 		return nil, err
 	}
 
-	return opts.Connect()
+	var conn *nats.Conn
+	for i := 0; i < 5; i++ {
+		conn, err = opts.Connect()
+		if err == nil {
+			return conn, nil
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return nil, err
 }
 
 // startRaftLeadershipLoop start a goroutine for automatically responding to
