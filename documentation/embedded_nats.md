@@ -16,11 +16,14 @@ how this can be done.
 
 To run an embedded NATS server with the [default configuration](https://docs.nats.io/nats-server/configuration#configuration-properties),
 simply enable the `embedded` setting in the [`nats`](./configuration.md#nats-configuration-settings)
-configuration (or equivalent `--embedded-nats` command-line flag).
+configuration (or equivalent `--embedded-nats` command-line flag). Set
+`logging.nats` to enable logging for the NATS server.
 
 ```yaml
 nats:
   embedded: true
+
+logging.nats: true
 ```
 
 This will start a NATS server bound to `0.0.0.0:4222` with default settings.
@@ -31,11 +34,14 @@ To run an embedded NATS server with custom configuration, use the
 [`embedded.config`](./configuration.md#nats-configuration-settings) setting (or
 equivalent `--embedded-nats-config` command-line flag) to specify a [NATS
 configuration file](https://docs.nats.io/nats-server/configuration) to use. By
-specifying this, the `embedded` setting will be automatically enabled.
+specifying this, the `embedded` setting will be automatically enabled. Set
+`logging.nats` to enable logging for the NATS server.
 
 ```yaml
 nats:
   embedded.config: nats.conf
+
+logging.nats: true
 ```
 
 This will start a NATS server using the specified configuration file.
