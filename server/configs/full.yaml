@@ -12,6 +12,7 @@ logging:
   level: debug
   recovery: true
   raft: true
+  nats: true
 
 streams:
   retention.max:
@@ -52,6 +53,8 @@ activity.stream:
   publish.ack.policy: leader
 
 nats:
+  embedded: true
+  embedded.config: nats.conf
   servers:
     - nats://localhost:4222
   user: user

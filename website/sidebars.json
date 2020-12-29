@@ -10,7 +10,8 @@
     ],
     "Configuration": [
         "configuration",
-        "ha-and-consistency-configuration"
+        "ha-and-consistency-configuration",
+        "embedded-nats"
     ],
     "Deployment": [
         "deployment"
