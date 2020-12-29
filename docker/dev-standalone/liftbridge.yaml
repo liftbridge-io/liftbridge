@@ -1,2 +1,5 @@
 ---
 host: 0.0.0.0
+clustering.raft.bootstrap.seed: true
+nats.embedded.config: nats-server.conf
+logging.nats: true

@@ -7,7 +7,6 @@ import (
 
 	"github.com/Workiva/go-datastructures/queue"
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
-	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 
@@ -15,9 +14,8 @@ import (
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
-func createServer(leader bool) *Server {
-	config := getTestConfig("a", leader, 0)
-	config.Clustering.RaftBootstrapSeed = true
+func createServer() *Server {
+	config := getTestConfig("a", true, 0)
 	return New(config)
 }
 
@@ -50,19 +48,15 @@ func waitForPause(t *testing.T, timeout time.Duration, partition *partition) {
 func TestPartitionCommitLoopCommitNoAck(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Start NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
+	// Start Liftbridge server.
+	server := createServer()
+	require.NoError(t, server.Start())
+	defer server.Stop()
 
 	// Create NATS connection.
 	nc, err := nats.GetDefaultOptions().Connect()
 	require.NoError(t, err)
 	defer nc.Close()
-
-	// Start Liftbridge server.
-	server := createServer(false)
-	require.NoError(t, server.Start())
-	defer server.Stop()
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
@@ -118,19 +112,15 @@ func TestPartitionCommitLoopCommitNoAck(t *testing.T) {
 func TestPartitionCommitLoopCommitAck(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Start NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
+	// Start Liftbridge server.
+	server := createServer()
+	require.NoError(t, server.Start())
+	defer server.Stop()
 
 	// Create NATS connection.
 	nc, err := nats.GetDefaultOptions().Connect()
 	require.NoError(t, err)
 	defer nc.Close()
-
-	// Start Liftbridge server.
-	server := createServer(false)
-	require.NoError(t, server.Start())
-	defer server.Stop()
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
@@ -185,19 +175,15 @@ func TestPartitionCommitLoopCommitAck(t *testing.T) {
 func TestPartitionCommitLoopEmptyQueue(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Start NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
+	// Start Liftbridge server.
+	server := createServer()
+	require.NoError(t, server.Start())
+	defer server.Stop()
 
 	// Create NATS connection.
 	nc, err := nats.GetDefaultOptions().Connect()
 	require.NoError(t, err)
 	defer nc.Close()
-
-	// Start Liftbridge server.
-	server := createServer(false)
-	require.NoError(t, server.Start())
-	defer server.Stop()
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
@@ -248,19 +234,15 @@ func TestPartitionCommitLoopEmptyQueue(t *testing.T) {
 func TestPartitionCommitLoopDisposedQueue(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Start NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
+	// Start Liftbridge server.
+	server := createServer()
+	require.NoError(t, server.Start())
+	defer server.Stop()
 
 	// Create NATS connection.
 	nc, err := nats.GetDefaultOptions().Connect()
 	require.NoError(t, err)
 	defer nc.Close()
-
-	// Start Liftbridge server.
-	server := createServer(false)
-	require.NoError(t, server.Start())
-	defer server.Stop()
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
@@ -321,7 +303,7 @@ func TestPartitionCommitLoopDisposedQueue(t *testing.T) {
 func TestPartitionCommitLoopNoCommitBelowMinISR(t *testing.T) {
 	defer cleanupStorage(t)
 
-	server := createServer(false)
+	server := createServer()
 	server.config.Clustering.MinISR = 2
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
@@ -373,7 +355,7 @@ func TestPartitionCommitLoopNoCommitBelowMinISR(t *testing.T) {
 // replica.
 func TestPartitionRemoveFromISRNotReplica(t *testing.T) {
 	defer cleanupStorage(t)
-	server := createServer(false)
+	server := createServer()
 	p, err := server.newPartition(&proto.Partition{
 		Subject: "foo",
 		Stream:  "foo",
@@ -387,7 +369,7 @@ func TestPartitionRemoveFromISRNotReplica(t *testing.T) {
 // commit check on the follower.
 func TestPartitionRemoveFromISRFollower(t *testing.T) {
 	defer cleanupStorage(t)
-	server := createServer(false)
+	server := createServer()
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Stream:   "foo",
@@ -414,7 +396,7 @@ func TestPartitionRemoveFromISRFollower(t *testing.T) {
 // check on the leader.
 func TestPartitionRemoveFromISRLeader(t *testing.T) {
 	defer cleanupStorage(t)
-	server := createServer(false)
+	server := createServer()
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Stream:   "foo",
@@ -444,7 +426,7 @@ func TestPartitionRemoveFromISRLeader(t *testing.T) {
 // as below the minimum ISR when the ISR shrinks below the minimum.
 func TestPartitionRemoveFromISRBelowMin(t *testing.T) {
 	defer cleanupStorage(t)
-	server := createServer(false)
+	server := createServer()
 	server.config.Clustering.MinISR = 3
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
@@ -464,7 +446,7 @@ func TestPartitionRemoveFromISRBelowMin(t *testing.T) {
 // Ensure AddToISR returns an error if the replica is not a stream replica.
 func TestPartitionAddToISRNotReplica(t *testing.T) {
 	defer cleanupStorage(t)
-	server := createServer(false)
+	server := createServer()
 	p, err := server.newPartition(&proto.Partition{
 		Subject: "foo",
 		Stream:  "foo",
@@ -477,7 +459,7 @@ func TestPartitionAddToISRNotReplica(t *testing.T) {
 // Ensure AddToISR adds the replica to the ISR.
 func TestPartitionAddToISR(t *testing.T) {
 	defer cleanupStorage(t)
-	server := createServer(false)
+	server := createServer()
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
 		Stream:   "foo",
@@ -499,7 +481,7 @@ func TestPartitionAddToISR(t *testing.T) {
 // minimum ISR and has recovered, marks the stream ISR as recovered.
 func TestPartitionAddToISRRecoverMin(t *testing.T) {
 	defer cleanupStorage(t)
-	server := createServer(false)
+	server := createServer()
 	server.config.Clustering.MinISR = 3
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
@@ -525,21 +507,17 @@ func TestPartitionAddToISRRecoverMin(t *testing.T) {
 func TestPartitionReplicationRequestLoopPreempt(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Start NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
-	// Create NATS connection.
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
 	// Start Liftbridge server.
 	config := getTestConfig("a", true, 5050)
 	// Set idle wait long enough that it shouldn't be reached.
 	config.Clustering.ReplicaMaxIdleWait = time.Hour
 	server := runServerWithConfig(t, config)
 	defer server.Stop()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
 
 	p, err := server.newPartition(&proto.Partition{
 		Subject:  "foo",
@@ -588,7 +566,7 @@ func TestPartitionReplicationRequestLoopPreempt(t *testing.T) {
 // Ensure that a new partition can be created with custom StreamConfig.
 func TestPartitionWithCustomConfigNoError(t *testing.T) {
 	defer cleanupStorage(t)
-	server := createServer(false)
+	server := createServer()
 	customStreamConfig := &proto.StreamConfig{
 		RetentionMaxMessages: &proto.NullableInt64{Value: 1000},
 	}
@@ -608,21 +586,17 @@ func TestPartitionWithCustomConfigNoError(t *testing.T) {
 func TestPartitionAutoPause(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Start NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
-	// Create NATS connection.
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	autoPauseTime := 100 * time.Millisecond
 	s1Config.Streams.AutoPauseTime = autoPauseTime
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
 
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
@@ -664,15 +638,6 @@ func TestPartitionAutoPause(t *testing.T) {
 func TestPartitionAutoPauseDisableIfSubscribers(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Start NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
-	// Create NATS connection.
-	nc, err := nats.GetDefaultOptions().Connect()
-	require.NoError(t, err)
-	defer nc.Close()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	autoPauseTime := 100 * time.Millisecond
@@ -680,6 +645,11 @@ func TestPartitionAutoPauseDisableIfSubscribers(t *testing.T) {
 	s1Config.Streams.AutoPauseDisableIfSubscribers = true
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
+
+	// Create NATS connection.
+	nc, err := nats.GetDefaultOptions().Connect()
+	require.NoError(t, err)
+	defer nc.Close()
 
 	// Wait for server to elect itself leader.
 	getMetadataLeader(t, 10*time.Second, s1)
