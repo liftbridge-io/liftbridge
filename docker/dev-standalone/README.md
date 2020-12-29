@@ -25,21 +25,26 @@ We can check the logs to see if the container booted properly:
 
 ```
 $ docker logs liftbridge-main
-[6] 2019/08/21 11:26:09.366043 [INF] Starting nats-server version 2.0.4
-[6] 2019/08/21 11:26:09.366094 [INF] Git commit [not set]
-[6] 2019/08/21 11:26:09.366274 [INF] Starting http monitor on 0.0.0.0:8222
-[6] 2019/08/21 11:26:09.366333 [INF] Listening for client connections on 0.0.0.0:4222
-[6] 2019/08/21 11:26:09.366354 [INF] Server id is NAI5VLHK3IWC5ENOS3HARMNGZTWNRLXQCYPHTKNXXCGW5EJWR4JXCNVZ
-[6] 2019/08/21 11:26:09.366358 [INF] Server is ready
-[6] 2019/08/21 11:26:09.366761 [INF] Listening for route connections on 0.0.0.0:6222
-time="2019-08-21 11:26:14" level=info msg="Server ID:        MSQaSobS9afF1aN4E8oTIJ"
-time="2019-08-21 11:26:14" level=info msg="Namespace:        liftbridge-default"
-time="2019-08-21 11:26:14" level=info msg="Retention Policy: [Age: 1 week, Compact: false]"
-time="2019-08-21 11:26:14" level=info msg="Starting server on :9292..."
-time="2019-08-21 11:26:15" level=info msg="Server became metadata leader, performing leader promotion actions"
+time="2020-12-29 21:30:09" level=info msg="Liftbridge Version:        v1.5.0"
+time="2020-12-29 21:30:09" level=info msg="Server ID:                 3qPpmKQXnP0J6xDOsIhsVb"
+time="2020-12-29 21:30:09" level=info msg="Namespace:                 liftbridge-default"
+time="2020-12-29 21:30:09" level=info msg="NATS Servers:              [nats://127.0.0.1:4222]"
+time="2020-12-29 21:30:09" level=info msg="Default Retention Policy:  [Age: 1 week, Compact: false]"
+time="2020-12-29 21:30:09" level=info msg="Default Partition Pausing: disabled"
+time="2020-12-29 21:30:09" level=info msg="Starting embedded NATS server on 0.0.0.0:4222"
+time="2020-12-29 21:30:09" level=info msg="nats: Starting nats-server version 2.1.9"
+time="2020-12-29 21:30:09" level=info msg="nats: Git commit [not set]"
+time="2020-12-29 21:30:09" level=info msg="nats: Starting http monitor on 0.0.0.0:8222"
+time="2020-12-29 21:30:09" level=info msg="nats: Listening for client connections on 0.0.0.0:4222"
+time="2020-12-29 21:30:09" level=info msg="nats: Server id is NDFWAP5HYPXXI52CKFACDHLEV2V3U4SBFDUKDPOHQ2LNIXYE2SUASBH6"
+time="2020-12-29 21:30:09" level=info msg="nats: Server is ready"
+time="2020-12-29 21:30:09" level=info msg="nats: Listening for route connections on 0.0.0.0:6222"
+time="2020-12-29 21:30:09" level=info msg="Starting Liftbridge server on 0.0.0.0:9292..."
+time="2020-12-29 21:30:10" level=info msg="Server became metadata leader, performing leader promotion actions"
 ```
 
 If you want to advertise a docker host that is not localhost:
+
 ```
 docker run -d --add-host registry:0.0.0.0 --name=liftbridge-main -p 4222:4222 -p 9292:9292 -p 8222:8222 -p 6222:6222 -eLIFTBRIDGE_HOST=registry liftbridge/standalone-dev
 ```
