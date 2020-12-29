@@ -26,6 +26,9 @@
       "deployment": {
         "title": "Deployment"
       },
+      "embedded-nats": {
+        "title": "Embedded NATS"
+      },
       "envelope-protocol": {
         "title": "Envelope Protocol"
       },
