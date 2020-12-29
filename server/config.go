@@ -65,6 +65,7 @@ const (
 	configLoggingLevel    = "logging.level"
 	configLoggingRecovery = "logging.recovery"
 	configLoggingRaft     = "logging.raft"
+	configLoggingNATS     = "logging.nats"
 
 	configBatchMaxMessages = "batch.max.messages"
 	configBatchMaxTime     = "batch.max.time"
@@ -125,6 +126,7 @@ var configKeys = map[string]struct{}{
 	configLoggingLevel:                         {},
 	configLoggingRecovery:                      {},
 	configLoggingRaft:                          {},
+	configLoggingNATS:                          {},
 	configBatchMaxMessages:                     {},
 	configBatchMaxTime:                         {},
 	configTLSKey:                               {},
@@ -313,6 +315,7 @@ type Config struct {
 	LogLevel            uint32
 	LogRecovery         bool
 	LogRaft             bool
+	LogNATS             bool
 	LogSilent           bool
 	DataDir             string
 	BatchMaxMessages    int
@@ -494,6 +497,10 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 
 	if v.IsSet(configLoggingRaft) {
 		config.LogRaft = v.GetBool(configLoggingRaft)
+	}
+
+	if v.IsSet(configLoggingNATS) {
+		config.LogNATS = v.GetBool(configLoggingNATS)
 	}
 
 	if v.IsSet(configDataDir) {

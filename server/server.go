@@ -113,21 +113,6 @@ func (s *Server) Start() (err error) {
 
 	rand.Seed(time.Now().UnixNano())
 
-	// Start embedded NATS server if configured.
-	if s.config.EmbeddedNATS {
-		opts, err := gnatsd.ProcessConfigFile(s.config.EmbeddedNATSConfig)
-		if err != nil {
-			return errors.Wrapf(err, "failed to parse embedded NATS server config %s",
-				s.config.EmbeddedNATSConfig)
-		}
-		s.embeddedNATS, err = gnatsd.NewServer(opts)
-		if err != nil {
-			return errors.Wrap(err, "failed to initialize embedded NATS server")
-		}
-		s.embeddedNATS.ConfigureLogger() // TODO: Use Liftbridge logger
-		s.startGoroutine(s.embeddedNATS.Start)
-	}
-
 	// Remove server's ID from the cluster peers list if present.
 	if len(s.config.Clustering.RaftBootstrapPeers) > 0 {
 		peers := make([]string, 0, len(s.config.Clustering.RaftBootstrapPeers))
@@ -149,6 +134,20 @@ func (s *Server) Start() (err error) {
 		return errors.Wrap(err, "failed to recover or persist metadata state")
 	}
 
+	s.logger.Infof("Liftbridge Version:        %s", Version)
+	s.logger.Infof("Server ID:                 %s", s.config.Clustering.ServerID)
+	s.logger.Infof("Namespace:                 %s", s.config.Clustering.Namespace)
+	s.logger.Infof("NATS Servers:              %s", s.config.NATSServersString())
+	s.logger.Infof("Default Retention Policy:  %s", s.config.Streams.RetentionString())
+	s.logger.Infof("Default Partition Pausing: %s", s.config.Streams.AutoPauseString())
+
+	// Start embedded NATS server if configured.
+	if s.config.EmbeddedNATS {
+		if err := s.startEmbeddedNATS(); err != nil {
+			return errors.Wrap(err, "failed to start embedded NATS server")
+		}
+	}
+
 	if err := s.createNATSConns(); err != nil {
 		return errors.Wrap(err, "failed to connect to NATS")
 	}
@@ -162,13 +161,7 @@ func (s *Server) Start() (err error) {
 	s.listener = l
 	s.port = l.Addr().(*net.TCPAddr).Port
 
-	s.logger.Infof("Liftbridge Version:        %s", Version)
-	s.logger.Infof("Server ID:                 %s", s.config.Clustering.ServerID)
-	s.logger.Infof("Namespace:                 %s", s.config.Clustering.Namespace)
-	s.logger.Infof("NATS Servers:              %s", s.config.NATSServersString())
-	s.logger.Infof("Default Retention Policy:  %s", s.config.Streams.RetentionString())
-	s.logger.Infof("Default Partition Pausing: %s", s.config.Streams.AutoPauseString())
-	s.logger.Infof("Starting server on %s...",
+	s.logger.Infof("Starting Liftbridge server on %s...",
 		net.JoinHostPort(listenAddress.Host, strconv.Itoa(s.port)))
 
 	// Set a lower bound of one second for SegmentMaxAge to avoid frequent log
@@ -319,6 +312,28 @@ func (s *Server) recoverAndPersistState() error {
 		panic(err)
 	}
 	return ioutil.WriteFile(file, data, 0666)
+}
+
+// startEmbeddedNATS starts a NATS server embedded in this process. It returns
+// once the server is ready to accept connections.
+func (s *Server) startEmbeddedNATS() error {
+	opts, err := gnatsd.ProcessConfigFile(s.config.EmbeddedNATSConfig)
+	if err != nil {
+		return err
+	}
+	s.embeddedNATS, err = gnatsd.NewServer(opts)
+	if err != nil {
+		return err
+	}
+	s.embeddedNATS.SetLogger(logger.NewNATSLogger(s.logger, s.config.LogNATS),
+		opts.Debug, opts.Trace)
+	s.logger.Infof("Starting embedded NATS server on %s",
+		net.JoinHostPort(opts.Host, strconv.Itoa(opts.Port)))
+	s.startGoroutine(s.embeddedNATS.Start)
+	if !s.embeddedNATS.ReadyForConnections(10 * time.Second) {
+		return errors.New("unable to start embedded NATS server")
+	}
+	return nil
 }
 
 // createNATSConns creates various NATS connections used by the server,

@@ -89,7 +89,7 @@ Provide an API that exposes monitoring information and metrics about the server
 to better support Liftbridge operations. This paves the way for future
 monitoring and observability integrations.
 
-### Embedded NATS Server ([#19](https://github.com/liftbridge-io/liftbridge/issues/19))
+### ~~Embedded NATS Server ([#19](https://github.com/liftbridge-io/liftbridge/issues/19))~~
 
 Allow the Liftbridge server to run an embedded instance of NATS rather than
 relying on an external NATS server. This allows Liftbridge to run as a fully

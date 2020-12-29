@@ -135,6 +135,7 @@ the setting in the configuration file and the CLI flag if it exists.
 | logging.level | level, l | The logging level. | string | info | [debug, info, warn, error] |
 | logging.recovery | | Log messages resulting from the replay of the Raft log on server recovery. | bool | false | |
 | logging.raft | | Enables logging in the Raft subsystem. | bool | false | |
+| logging.nats | | Enables logging for the embedded NATS server, if enabled (see [`nats.embedded`](#nats-configuration-settings)). | bool | false | |
 | data.dir | data-dir, d | The directory to store data in. | string | /tmp/liftbridge/namespace | |
 | batch.max.messages | | The maximum number of messages to batch when writing to disk. | int | 1024 |
 | batch.max.time | | The maximum time to wait to batch more messages when writing to disk. | duration | 0 | |
