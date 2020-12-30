@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/raft"
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	log "github.com/sirupsen/logrus"
@@ -231,14 +232,10 @@ func TestAssignedDurableServerID(t *testing.T) {
 	leader := getMetadataLeader(t, 10*time.Second, s1)
 
 	future := leader.getRaft().GetConfiguration()
-	if err := future.Error(); err != nil {
-		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
-	}
+	require.NoError(t, future.Error())
 	id := future.Configuration().Servers[0].ID
 
-	if id == "" {
-		t.Fatal("Expected non-empty cluster server id")
-	}
+	require.NotEqual(t, "", id)
 
 	// Restart server without setting ID.
 	s1.Stop()
@@ -250,13 +247,9 @@ func TestAssignedDurableServerID(t *testing.T) {
 	leader = getMetadataLeader(t, 10*time.Second, s1)
 
 	future = leader.getRaft().GetConfiguration()
-	if err := future.Error(); err != nil {
-		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
-	}
+	require.NoError(t, future.Error())
 	newID := future.Configuration().Servers[0].ID
-	if id != newID {
-		t.Fatalf("Incorrect cluster server id, expected: %s, got: %s", id, newID)
-	}
+	require.Equal(t, id, newID)
 }
 
 // Ensure server ID is stored and recovered on server restart.
@@ -273,14 +266,10 @@ func TestDurableServerID(t *testing.T) {
 	leader := getMetadataLeader(t, 10*time.Second, s1)
 
 	future := leader.getRaft().GetConfiguration()
-	if err := future.Error(); err != nil {
-		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
-	}
+	require.NoError(t, future.Error())
 	id := future.Configuration().Servers[0].ID
 
-	if id != "a" {
-		t.Fatalf("Incorrect cluster server id, expected: a, got: %s", id)
-	}
+	require.Equal(t, raft.ServerID("a"), id)
 
 	// Restart server without setting ID.
 	s1.Stop()
@@ -292,13 +281,9 @@ func TestDurableServerID(t *testing.T) {
 	leader = getMetadataLeader(t, 10*time.Second, s1)
 
 	future = leader.getRaft().GetConfiguration()
-	if err := future.Error(); err != nil {
-		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
-	}
+	require.NoError(t, future.Error())
 	newID := future.Configuration().Servers[0].ID
-	if newID != "a" {
-		t.Fatalf("Incorrect cluster server id, expected: a, got: %s", newID)
-	}
+	require.Equal(t, raft.ServerID("a"), newID)
 }
 
 // Ensure server starts the gRPC health service correctly.
@@ -320,9 +305,7 @@ func TestHealthServerStartedCorrectly(t *testing.T) {
 	healthClient := grpc_health_v1.NewHealthClient(conn)
 	healthCheckReply, err := healthClient.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{Service: "proto.API"})
 	require.NoError(t, err)
-	if healthCheckReply.Status != grpc_health_v1.HealthCheckResponse_SERVING {
-		t.Fatalf("API service is not healthy when it should be: %v", err)
-	}
+	require.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, healthCheckReply.Status)
 }
 
 // Ensure starting a cluster with auto configuration works when we start one
@@ -347,13 +330,59 @@ func TestBootstrapAutoConfig(t *testing.T) {
 
 	// Verify configuration.
 	future := leader.getRaft().GetConfiguration()
-	if err := future.Error(); err != nil {
-		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
-	}
+	require.NoError(t, future.Error())
 	configServers := future.Configuration().Servers
-	if len(configServers) != 2 {
-		t.Fatalf("Expected 2 servers, got %d", len(configServers))
+	require.Equal(t, 2, len(configServers))
+}
+
+// Ensure the max quorum limit is enforced when nodes automatically join the
+// cluster.
+func TestAutoConfigMaxQuorum(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 0)
+	s1Config.Clustering.RaftMaxQuorumSize = 2
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Configure second server which should automatically join the first as a
+	// voter.
+	s2Config := getTestConfig("b", false, 0)
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// Configure third server which should automatically join the first as a
+	// non-voter.
+	s3Config := getTestConfig("c", false, 0)
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	var (
+		servers = []*Server{s1, s2, s3}
+		leader  = getMetadataLeader(t, 10*time.Second, servers...)
+	)
+
+	// Verify configuration.
+	future := leader.getRaft().GetConfiguration()
+	require.NoError(t, future.Error())
+	configServers := future.Configuration().Servers
+	require.Equal(t, 3, len(configServers))
+
+	// Ensure there are 2 voters and 1 non-voter.
+	var (
+		voters    = 0
+		nonVoters = 0
+	)
+	for _, server := range configServers {
+		if server.Suffrage == raft.Staging || server.Suffrage == raft.Voter {
+			voters++
+		} else {
+			nonVoters++
+		}
 	}
+	require.Equal(t, 2, voters)
+	require.Equal(t, 1, nonVoters)
 }
 
 // Ensure starting a cluster with manual configuration works when we provide
@@ -364,14 +393,12 @@ func TestBootstrapManualConfig(t *testing.T) {
 	// Configure first server.
 	s1Config := getTestConfig("a", false, 0)
 	s1Config.EmbeddedNATS = true
-	s1Config.Clustering.ServerID = "a"
 	s1Config.Clustering.RaftBootstrapPeers = []string{"b"}
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Configure second server.
 	s2Config := getTestConfig("b", false, 0)
-	s2Config.Clustering.ServerID = "b"
 	s2Config.Clustering.RaftBootstrapPeers = []string{"a"}
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
@@ -383,13 +410,9 @@ func TestBootstrapManualConfig(t *testing.T) {
 
 	// Verify configuration.
 	future := leader.getRaft().GetConfiguration()
-	if err := future.Error(); err != nil {
-		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
-	}
+	require.NoError(t, future.Error())
 	configServers := future.Configuration().Servers
-	if len(configServers) != 2 {
-		t.Fatalf("Expected 2 servers, got %d", len(configServers))
-	}
+	require.Equal(t, 2, len(configServers))
 
 	// Ensure new servers can automatically join once the cluster is formed.
 	s3Config := getTestConfig("c", false, 0)
@@ -397,12 +420,72 @@ func TestBootstrapManualConfig(t *testing.T) {
 	defer s3.Stop()
 
 	future = leader.getRaft().GetConfiguration()
+	require.NoError(t, future.Error())
+	configServers = future.Configuration().Servers
+	require.Equal(t, 3, len(configServers))
+}
+
+// Ensure starting a cluster with manual configuration works when we provide
+// the cluster configuration to each server and quorum limit is enforced when
+// set.
+func TestBootstrapManualConfigMaxQuorum(t *testing.T) {
+	defer cleanupStorage(t)
+
+	var (
+		serverIDs = []string{"a", "b", "c"}
+		servers   = make([]*Server, len(serverIDs))
+	)
+
+	for i, id := range serverIDs {
+		config := getTestConfig(id, false, 0)
+		if id == "a" {
+			config.EmbeddedNATS = true
+		}
+		config.Clustering.RaftBootstrapPeers = []string{"a", "b", "c"}
+		config.Clustering.RaftMaxQuorumSize = 2
+		server := runServerWithConfig(t, config)
+		servers[i] = server
+		defer server.Stop()
+	}
+
+	leader := getMetadataLeader(t, 10*time.Second, servers...)
+
+	// Verify configuration.
+	future := leader.getRaft().GetConfiguration()
+	require.NoError(t, future.Error())
+	configServers := future.Configuration().Servers
+	require.Equal(t, 3, len(configServers))
+
+	// Ensure there are 2 voters and 1 non-voter.
+	var (
+		voters    = 0
+		nonVoters = 0
+	)
+	for _, server := range configServers {
+		if server.Suffrage == raft.Staging || server.Suffrage == raft.Voter {
+			voters++
+		} else {
+			nonVoters++
+		}
+	}
+	require.Equal(t, 2, voters)
+	require.Equal(t, 1, nonVoters)
+
+	// Ensure new servers are added as non-voters.
+	config := getTestConfig("d", false, 0)
+	newServer := runServerWithConfig(t, config)
+	defer newServer.Stop()
+
+	future = leader.getRaft().GetConfiguration()
 	if err := future.Error(); err != nil {
 		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
 	}
 	configServers = future.Configuration().Servers
-	if len(configServers) != 3 {
-		t.Fatalf("Expected 3 servers, got %d", len(configServers))
+	require.Equal(t, 4, len(configServers))
+	for _, server := range configServers {
+		if server.ID == "d" {
+			require.Equal(t, raft.Nonvoter, server.Suffrage)
+		}
 	}
 }
 

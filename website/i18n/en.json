@@ -56,6 +56,9 @@
       "roadmap": {
         "title": "Product Roadmap"
       },
+      "scalability-configuration": {
+        "title": "Configuring for Scalability"
+      },
       "version-v0.0.1-alpha/version-v0.0.1-alpha-client-implementation": {
         "title": "Client Implementation Guidance"
       },

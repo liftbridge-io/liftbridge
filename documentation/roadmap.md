@@ -99,7 +99,7 @@ which turns NATS into an opt-in implementation detail. Eventually, Liftbridge
 can be used fully on its own without NATS by allowing clients to transition to
 the Liftbridge API.
 
-### Quorum Size Limit ([#41](https://github.com/liftbridge-io/liftbridge/issues/41))
+### ~~Quorum Size Limit ([#41](https://github.com/liftbridge-io/liftbridge/issues/41))~~
 
 Currently, all servers in a cluster participate in the metadata Raft quorum.
 This severely limits scalability of the cluster. Allow having a subset of

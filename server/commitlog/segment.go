@@ -370,42 +370,56 @@ func (s *segment) Replace(old *segment) error {
 
 // findEntry returns the first entry whose offset is greater than or equal to
 // the given offset.
-func (s *segment) findEntry(offset int64) (e *entry, err error) {
+func (s *segment) findEntry(offset int64) (*entry, error) {
 	s.RLock()
 	defer s.RUnlock()
-	e = &entry{}
-	n := int(s.Index.Position() / entryWidth)
+	var (
+		entry = &entry{}
+		n     = int(s.Index.Position() / entryWidth)
+		err   error
+	)
 	idx := sort.Search(n, func(i int) bool {
-		if err := s.Index.ReadEntryAtFileOffset(e, int64(i*entryWidth)); err != nil {
-			panic(err)
+		if e := s.Index.ReadEntryAtFileOffset(entry, int64(i*entryWidth)); e != nil {
+			err = e
+			return true
 		}
-		return e.Offset >= offset
+		return entry.Offset >= offset
 	})
+	if err != nil {
+		return nil, err
+	}
 	if idx == n {
 		return nil, ErrEntryNotFound
 	}
-	err = s.Index.ReadEntryAtFileOffset(e, int64(idx*entryWidth))
-	return e, err
+	err = s.Index.ReadEntryAtFileOffset(entry, int64(idx*entryWidth))
+	return entry, err
 }
 
 // findEntryByTimestamp returns the first entry whose timestamp is greater than
 // or equal to the given timestamp.
-func (s *segment) findEntryByTimestamp(timestamp int64) (e *entry, err error) {
+func (s *segment) findEntryByTimestamp(timestamp int64) (*entry, error) {
 	s.RLock()
 	defer s.RUnlock()
-	e = &entry{}
-	n := int(s.Index.CountEntries())
+	var (
+		entry = &entry{}
+		n     = int(s.Index.CountEntries())
+		err   error
+	)
 	idx := sort.Search(n, func(i int) bool {
-		if err := s.Index.ReadEntryAtLogOffset(e, int64(i)); err != nil {
-			panic(err)
+		if e := s.Index.ReadEntryAtLogOffset(entry, int64(i)); e != nil {
+			err = e
+			return true
 		}
-		return e.Timestamp >= timestamp
+		return entry.Timestamp >= timestamp
 	})
+	if err != nil {
+		return nil, err
+	}
 	if idx == n {
 		return nil, ErrEntryNotFound
 	}
-	err = s.Index.ReadEntryAtLogOffset(e, int64(idx))
-	return e, err
+	err = s.Index.ReadEntryAtLogOffset(entry, int64(idx))
+	return entry, err
 }
 
 // Delete closes the segment and then deletes its log and index files.

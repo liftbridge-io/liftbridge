@@ -113,17 +113,6 @@ func (s *Server) Start() (err error) {
 
 	rand.Seed(time.Now().UnixNano())
 
-	// Remove server's ID from the cluster peers list if present.
-	if len(s.config.Clustering.RaftBootstrapPeers) > 0 {
-		peers := make([]string, 0, len(s.config.Clustering.RaftBootstrapPeers))
-		for _, peer := range s.config.Clustering.RaftBootstrapPeers {
-			if peer != s.config.Clustering.ServerID {
-				peers = append(peers, peer)
-			}
-		}
-		s.config.Clustering.RaftBootstrapPeers = peers
-	}
-
 	// Create the data directory if it doesn't exist.
 	if err := os.MkdirAll(s.config.DataDir, os.ModePerm); err != nil {
 		return errors.Wrap(err, "failed to create data path directories")
