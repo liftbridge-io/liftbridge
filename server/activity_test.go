@@ -7,17 +7,12 @@ import (
 
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	liftApi "github.com/liftbridge-io/liftbridge-api/go"
-	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/stretchr/testify/require"
 )
 
 // Ensure activity stream creation event occurs.
 func TestActivityStreamCreateStream(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -63,10 +58,6 @@ func TestActivityStreamCreateStream(t *testing.T) {
 // Ensure activity stream deletion event occurs.
 func TestActivityStreamDeleteStream(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -116,10 +107,6 @@ func TestActivityStreamDeleteStream(t *testing.T) {
 // Ensure activity stream pause event occurs.
 func TestActivityStreamPauseStream(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -171,10 +158,6 @@ func TestActivityStreamPauseStream(t *testing.T) {
 // Ensure activity stream resume event occurs.
 func TestActivityStreamResumeStream(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -230,10 +213,6 @@ func TestActivityStreamResumeStream(t *testing.T) {
 func TestActivityStreamSetStreamReadonly(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.ActivityStream.Enabled = true
@@ -284,10 +263,6 @@ func TestActivityStreamSetStreamReadonly(t *testing.T) {
 // Ensure activity stream set readonly (off) event occurs.
 func TestActivityStreamSetStreamReadwrite(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)

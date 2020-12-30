@@ -47,7 +47,7 @@ func getTestConfig(id string, bootstrap bool, port int) *Config {
 	config.LogRaft = true
 	config.Clustering.ServerID = id
 	config.LogLevel = uint32(log.DebugLevel)
-	config.NATS.Servers = []string{"nats://localhost:4222"}
+	config.EmbeddedNATS = bootstrap
 	config.LogSilent = true
 	config.Port = port
 	return config
@@ -204,10 +204,6 @@ func forceLogClean(t *testing.T, subject, name string, s *Server) {
 func TestNoSeed(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure first server. Starting this should fail because there is no
 	// seed node.
 	raftJoinAttempts = 1
@@ -215,6 +211,7 @@ func TestNoSeed(t *testing.T) {
 		raftJoinAttempts = defaultRaftJoinAttempts
 	}()
 	s1Config := getTestConfig("a", false, 0)
+	s1Config.EmbeddedNATS = true
 	server := New(s1Config)
 	err := server.Start()
 	require.Error(t, err)
@@ -224,10 +221,6 @@ func TestNoSeed(t *testing.T) {
 // server restart.
 func TestAssignedDurableServerID(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 0)
@@ -269,10 +262,6 @@ func TestAssignedDurableServerID(t *testing.T) {
 // Ensure server ID is stored and recovered on server restart.
 func TestDurableServerID(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 0)
@@ -316,10 +305,6 @@ func TestDurableServerID(t *testing.T) {
 func TestHealthServerStartedCorrectly(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure the first server as a seed.
 	s1Config := getTestConfig("a", true, 20000)
 	s1 := runServerWithConfig(t, s1Config)
@@ -344,10 +329,6 @@ func TestHealthServerStartedCorrectly(t *testing.T) {
 // node in bootstrap mode.
 func TestBootstrapAutoConfig(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure the first server as a seed.
 	s1Config := getTestConfig("a", true, 0)
@@ -380,12 +361,9 @@ func TestBootstrapAutoConfig(t *testing.T) {
 func TestBootstrapManualConfig(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure first server.
 	s1Config := getTestConfig("a", false, 0)
+	s1Config.EmbeddedNATS = true
 	s1Config.Clustering.ServerID = "a"
 	s1Config.Clustering.RaftBootstrapPeers = []string{"b"}
 	s1 := runServerWithConfig(t, s1Config)
@@ -438,10 +416,6 @@ func TestBootstrapMisconfiguration(t *testing.T) {
 		bootstrapMisconfigInterval = defaultBootstrapMisconfigInterval
 	}()
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	s1Config := getTestConfig("a", true, 0)
 	s1 := New(s1Config)
 	s1FatalLogger := &captureFatalLogger{}
@@ -455,6 +429,7 @@ func TestBootstrapMisconfiguration(t *testing.T) {
 	// Configure second server on same cluster as a seed too. Servers should
 	// stop.
 	s2Config := getTestConfig("b", true, 0)
+	s2Config.EmbeddedNATS = false
 	s2 := New(s2Config)
 	s2FatalLogger := &captureFatalLogger{}
 	s2.logger = s2FatalLogger
@@ -496,10 +471,6 @@ func TestBootstrapMisconfiguration(t *testing.T) {
 func TestBootstrapConcurrentWithActivityStream(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Start three servers concurrently with activity stream enabled.
 	ids := []string{"s1", "s2", "s3"}
 	type result struct {
@@ -512,6 +483,9 @@ func TestBootstrapConcurrentWithActivityStream(t *testing.T) {
 	for _, id := range ids {
 		go func(id string) {
 			config := getTestConfig(id, false, 0)
+			if id == "s1" {
+				config.EmbeddedNATS = true
+			}
 			config.Clustering.ServerID = id
 			config.Clustering.RaftBootstrapPeers = ids
 			config.ActivityStream.Enabled = true
@@ -540,12 +514,13 @@ func TestBootstrapConcurrentWithActivityStream(t *testing.T) {
 func TestMetadataLeaderFailover(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
+	// Use an external NATS server.
 	ns := natsdTest.RunDefaultServer()
 	defer ns.Shutdown()
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 0)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -581,10 +556,6 @@ func TestMetadataLeaderFailover(t *testing.T) {
 // new messages.
 func TestSubscribeOffsetOverflow(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -642,10 +613,6 @@ func TestSubscribeOffsetOverflow(t *testing.T) {
 func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -692,10 +659,6 @@ func TestSubscribeOffsetOverflowEmptyStream(t *testing.T) {
 // offset is set to the oldest offset.
 func TestSubscribeOffsetUnderflow(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -755,10 +718,6 @@ func TestSubscribeOffsetUnderflow(t *testing.T) {
 func TestStreamRetentionBytes(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Streams.SegmentMaxBytes = 1
@@ -816,10 +775,6 @@ func TestStreamRetentionBytes(t *testing.T) {
 func TestStreamRetentionMessages(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.Streams.SegmentMaxBytes = 1
@@ -876,10 +831,6 @@ func TestStreamRetentionMessages(t *testing.T) {
 // segments exceed the TTL.
 func TestStreamRetentionAge(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -939,10 +890,6 @@ func TestStreamRetentionAge(t *testing.T) {
 func TestSubscribeEarliest(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	// Set these to force deletion.
@@ -1000,10 +947,6 @@ func TestSubscribeEarliest(t *testing.T) {
 func TestSubscribeLatest(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1053,10 +996,6 @@ func TestSubscribeLatest(t *testing.T) {
 // waits for new messages.
 func TestSubscribeNewOnly(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -1130,10 +1069,6 @@ func TestSubscribeStartTime(t *testing.T) {
 		timestamp = timestampBefore
 	}()
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1190,18 +1125,11 @@ func TestSubscribeStartTime(t *testing.T) {
 func TestTLS(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server with TLS.
 	s1Config, err := NewConfig("./configs/tls.yaml")
 	require.NoError(t, err)
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
-
-	// Wait for server to elect itself leader.
-	getMetadataLeader(t, 10*time.Second, s1)
 
 	// Connect with TLS.
 	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSCert("./configs/certs/server.crt"))
@@ -1315,10 +1243,6 @@ func TestDefaultListenHost(t *testing.T) {
 func TestMetadataLeadershipLifecycle(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 0)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1354,10 +1278,6 @@ func TestMetadataLeadershipLifecycle(t *testing.T) {
 // correctly.
 func TestPropagatedShrinkExpandISR(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -1431,10 +1351,6 @@ func TestPropagatedShrinkExpandISR(t *testing.T) {
 func TestPauseStreamAllPartitions(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1503,10 +1419,6 @@ func TestPauseStreamAllPartitions(t *testing.T) {
 func TestPauseStreamSomePartitions(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1572,10 +1484,6 @@ func TestPauseStreamSomePartitions(t *testing.T) {
 func TestPauseStreamPropagate(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 0)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1619,10 +1527,6 @@ func TestPauseStreamPropagate(t *testing.T) {
 // to.
 func TestSetStreamReadonlyAllPartitions(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -1668,10 +1572,6 @@ func TestSetStreamReadonlyAllPartitions(t *testing.T) {
 // the other one can still be published to.
 func TestSetStreamReadonlySomePartitions(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -1751,10 +1651,6 @@ func TestSetStreamReadonlySomePartitions(t *testing.T) {
 func TestSetStreamReadonlySubscription(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1812,10 +1708,6 @@ func TestSetStreamReadonlySubscription(t *testing.T) {
 func TestSetStreamReadonlyPropagate(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 0)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1856,10 +1748,6 @@ func TestSetStreamReadonlyPropagate(t *testing.T) {
 func TestPublishNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1881,10 +1769,6 @@ func TestPublishNoSuchStream(t *testing.T) {
 // Ensure publishing to a non-existent stream partition returns an error.
 func TestPublishNoSuchPartition(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)

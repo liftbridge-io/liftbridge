@@ -38,6 +38,7 @@ const (
 	defaultReplicaMaxLagTime              = 15 * time.Second
 	defaultReplicaMaxLeaderTimeout        = 15 * time.Second
 	defaultReplicaMaxIdleWait             = 10 * time.Second
+	defaultReplicationMaxBytes            = 1024 * 1024 // 1MB
 	defaultRaftSnapshots                  = 2
 	defaultRaftCacheSize                  = 512
 	defaultMetadataCacheMaxAge            = 2 * time.Minute
@@ -65,6 +66,7 @@ const (
 	configLoggingLevel    = "logging.level"
 	configLoggingRecovery = "logging.recovery"
 	configLoggingRaft     = "logging.raft"
+	configLoggingNATS     = "logging.nats"
 
 	configBatchMaxMessages = "batch.max.messages"
 	configBatchMaxTime     = "batch.max.time"
@@ -74,12 +76,14 @@ const (
 	configTLSClientAuthEnabled = "tls.client.auth.enabled"
 	configTLSClientAuthCA      = "tls.client.auth.ca"
 
-	configNATSServers  = "nats.servers"
-	configNATSUser     = "nats.user"
-	configNATSPassword = "nats.password"
-	configNATSCert     = "nats.tls.cert"
-	configNATSKey      = "nats.tls.key"
-	configNATSCA       = "nats.tls.ca"
+	configNATSServers        = "nats.servers"
+	configNATSUser           = "nats.user"
+	configNATSPassword       = "nats.password"
+	configNATSCert           = "nats.tls.cert"
+	configNATSKey            = "nats.tls.key"
+	configNATSCA             = "nats.tls.ca"
+	configNATSEmbedded       = "nats.embedded"
+	configNATSEmbeddedConfig = "nats.embedded.config"
 
 	configStreamsRetentionMaxBytes             = "streams.retention.max.bytes"
 	configStreamsRetentionMaxMessages          = "streams.retention.max.messages"
@@ -105,6 +109,7 @@ const (
 	configClusteringReplicaMaxIdleWait      = "clustering.replica.max.idle.wait"
 	configClusteringReplicaFetchTimeout     = "clustering.replica.fetch.timeout"
 	configClusteringMinInsyncReplicas       = "clustering.min.insync.replicas"
+	configClusteringReplicationMaxBytes     = "clustering.replication.max.bytes"
 
 	configActivityStreamEnabled          = "activity.stream.enabled"
 	configActivityStreamPublishTimeout   = "activity.stream.publish.timeout"
@@ -123,6 +128,7 @@ var configKeys = map[string]struct{}{
 	configLoggingLevel:                         {},
 	configLoggingRecovery:                      {},
 	configLoggingRaft:                          {},
+	configLoggingNATS:                          {},
 	configBatchMaxMessages:                     {},
 	configBatchMaxTime:                         {},
 	configTLSKey:                               {},
@@ -135,6 +141,8 @@ var configKeys = map[string]struct{}{
 	configNATSCert:                             {},
 	configNATSKey:                              {},
 	configNATSCA:                               {},
+	configNATSEmbedded:                         {},
+	configNATSEmbeddedConfig:                   {},
 	configStreamsRetentionMaxBytes:             {},
 	configStreamsRetentionMaxMessages:          {},
 	configStreamsRetentionMaxAge:               {},
@@ -158,6 +166,7 @@ var configKeys = map[string]struct{}{
 	configClusteringReplicaMaxIdleWait:         {},
 	configClusteringReplicaFetchTimeout:        {},
 	configClusteringMinInsyncReplicas:          {},
+	configClusteringReplicationMaxBytes:        {},
 	configActivityStreamEnabled:                {},
 	configActivityStreamPublishTimeout:         {},
 	configActivityStreamPublishAckPolicy:       {},
@@ -288,6 +297,7 @@ type ClusteringConfig struct {
 	ReplicaFetchTimeout     time.Duration
 	ReplicaMaxIdleWait      time.Duration
 	MinISR                  int
+	ReplicationMaxBytes     int64
 }
 
 // ActivityStreamConfig contains settings for controlling activity stream
@@ -313,6 +323,7 @@ type Config struct {
 	LogLevel            uint32
 	LogRecovery         bool
 	LogRaft             bool
+	LogNATS             bool
 	LogSilent           bool
 	DataDir             string
 	BatchMaxMessages    int
@@ -323,6 +334,8 @@ type Config struct {
 	TLSClientAuth       bool
 	TLSClientAuthCA     string
 	NATS                nats.Options
+	EmbeddedNATS        bool
+	EmbeddedNATSConfig  string
 	Streams             StreamsConfig
 	Clustering          ClusteringConfig
 	ActivityStream      ActivityStreamConfig
@@ -338,6 +351,7 @@ func NewDefaultConfig() *Config {
 	config.LogLevel = uint32(log.InfoLevel)
 	config.BatchMaxMessages = defaultBatchMaxMessages
 	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
+	config.NATS.Servers = []string{nats.DefaultURL}
 	config.Clustering.ServerID = nuid.Next()
 	config.Clustering.Namespace = DefaultNamespace
 	config.Clustering.ReplicaMaxLagTime = defaultReplicaMaxLagTime
@@ -347,6 +361,7 @@ func NewDefaultConfig() *Config {
 	config.Clustering.RaftSnapshots = defaultRaftSnapshots
 	config.Clustering.RaftCacheSize = defaultRaftCacheSize
 	config.Clustering.MinISR = defaultMinInsyncReplicas
+	config.Clustering.ReplicationMaxBytes = defaultReplicationMaxBytes
 	config.Streams.SegmentMaxBytes = defaultMaxSegmentBytes
 	config.Streams.SegmentMaxAge = defaultMaxSegmentAge
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
@@ -356,6 +371,12 @@ func NewDefaultConfig() *Config {
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
 	return config
+}
+
+// NATSServersString returns a human-readable string representation of the
+// list of NATS servers.
+func (c Config) NATSServersString() string {
+	return "[" + strings.Join(c.NATS.Servers, ", ") + "]"
 }
 
 // GetListenAddress returns the address and port to listen to.
@@ -487,6 +508,10 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 		config.LogRaft = v.GetBool(configLoggingRaft)
 	}
 
+	if v.IsSet(configLoggingNATS) {
+		config.LogNATS = v.GetBool(configLoggingNATS)
+	}
+
 	if v.IsSet(configDataDir) {
 		config.DataDir = v.GetString(configDataDir)
 	}
@@ -519,11 +544,21 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 		config.TLSClientAuthCA = v.GetString(configTLSClientAuthCA)
 	}
 
-	parseNATSConfig(&config.NATS, v)
-	parseStreamsConfig(config, v)
-	parseClusteringConfig(config, v)
-	parseActivityStreamConfig(config, v)
-	parseCursorsStreamConfig(config, v)
+	if err := parseNATSConfig(config, v); err != nil {
+		return nil, err
+	}
+	if err := parseStreamsConfig(config, v); err != nil {
+		return nil, err
+	}
+	if err := parseClusteringConfig(config, v); err != nil {
+		return nil, err
+	}
+	if err := parseActivityStreamConfig(config, v); err != nil {
+		return nil, err
+	}
+	if err := parseCursorsStreamConfig(config, v); err != nil {
+		return nil, err
+	}
 
 	// If SegmentMaxAge is not set, default it to the retention time.
 	if config.Streams.SegmentMaxAge == 0 {
@@ -535,18 +570,27 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 
 // parseNATSConfig parses the `nats` section of a config file and populates the
 // given nats.Options.
-func parseNATSConfig(opts *nats.Options, v *viper.Viper) error {
+func parseNATSConfig(config *Config, v *viper.Viper) error {
+	if v.IsSet(configNATSEmbeddedConfig) {
+		config.EmbeddedNATS = true
+		config.EmbeddedNATSConfig = v.GetString(configNATSEmbeddedConfig)
+	}
+
+	if v.IsSet(configNATSEmbedded) {
+		config.EmbeddedNATS = true
+	}
+
 	if v.IsSet(configNATSServers) {
 		servers := v.GetStringSlice(configNATSServers)
-		opts.Servers = servers
+		config.NATS.Servers = servers
 	}
 
 	if v.IsSet(configNATSUser) {
-		opts.User = v.GetString(configNATSUser)
+		config.NATS.User = v.GetString(configNATSUser)
 	}
 
 	if v.IsSet(configNATSPassword) {
-		opts.Password = v.GetString(configNATSPassword)
+		config.NATS.Password = v.GetString(configNATSPassword)
 	}
 
 	// NATS TLS config
@@ -563,7 +607,7 @@ func parseNATSConfig(opts *nats.Options, v *viper.Viper) error {
 			return err
 		}
 
-		config := &tls.Config{
+		tlsConfig := &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
 		}
@@ -580,9 +624,9 @@ func parseNATSConfig(opts *nats.Options, v *viper.Viper) error {
 			caCertPool := x509.NewCertPool()
 			caCertPool.AppendCertsFromPEM(caCert)
 
-			config.RootCAs = caCertPool
+			tlsConfig.RootCAs = caCertPool
 		}
-		opts.TLSConfig = config
+		config.NATS.TLSConfig = tlsConfig
 	}
 
 	return nil
@@ -685,6 +729,10 @@ func parseClusteringConfig(config *Config, v *viper.Viper) error { // nolint: go
 
 	if v.IsSet(configClusteringMinInsyncReplicas) {
 		config.Clustering.MinISR = v.GetInt(configClusteringMinInsyncReplicas)
+	}
+
+	if v.IsSet(configClusteringReplicationMaxBytes) {
+		config.Clustering.ReplicationMaxBytes = v.GetInt64(configClusteringReplicationMaxBytes)
 	}
 
 	return nil

@@ -1,6 +1,7 @@
 ---
-id: configuration
+id: version-v1.4.0-configuration
 title: Configuration
+original_id: configuration
 ---
 
 Liftbridge provides limited configuration through command-line flags and full
@@ -24,7 +25,7 @@ USAGE:
    liftbridge [global options] command [command options] [arguments...]
 
 VERSION:
-   v1.5.0
+   v1.4.0
 
 COMMANDS:
    help, h  Shows a list of commands or help for one command
@@ -34,8 +35,6 @@ GLOBAL OPTIONS:
    --server-id value, --id value               ID of the server in the cluster if there is no stored ID (default: random ID)
    --namespace value, --ns value               cluster namespace (default: "liftbridge-default")
    --nats-servers ADDR[,ADDR], -n ADDR[,ADDR]  connect to NATS cluster at ADDR[,ADDR] (default: "nats://127.0.0.1:4222")
-   --embedded-nats, -e                         run a NATS server embedded in this process
-   --embedded-nats-config FILE, --nc FILE      load configuration for embedded NATS server from FILE
    --data-dir DIR, -d DIR                      store data in DIR (default: "/tmp/liftbridge/<namespace>")
    --port value, -p value                      port to bind to (default: 9292)
    --tls-cert value                            server certificate file
@@ -103,7 +102,7 @@ clustering:
   replica.max.lag.time: 20s
 ```
 
-## Overriding Configuration Settings with Environment Variables
+## Overriding configuration settings with environment variables
 
 For configuration set in the configuration file the value can be overridden
 with environment variables prefixed with `LIFTBRIDGE_`. The key must exist in
@@ -127,16 +126,15 @@ the setting in the configuration file and the CLI flag if it exists.
 |:----|:----|:----|:----|:----|:----|
 | listen | | The server listen host/port. This is the host and port the server will bind to. If this is not specified but `host` and `port` are specified, these values will be used. If neither `listen` nor `host`/`port` are specified, the default listen address will be used. | string | 0:0:0:0:9292  | |
 | host | | The server host that is advertised to clients, i.e. the address clients will attempt to connect to based on metadata API responses. If not set, `listen` will be returned to clients. This value may differ from `listen` in situations where the external address differs from the internal address, e.g. when running in a container. If `listen` is not specified, the server will also bind to this host. | string | localhost | |
-| port | port, p | The server port that is advertised to clients. See `host` for more information on how this behaves. | int | 9292 | |
+| port | port | The server port that is advertised to clients. See `host` for more information on how this behaves. | int | 9292 | |
 | tls.key | tls-key | The private key file for server certificate. This must be set in combination with `tls.cert` to enable TLS. | string | |
 | tls.cert | tls-cert | The server certificate file. This must be set in combination with `tls.key` to enable TLS. | string | |
 | tls.client.auth.enabled | tls-client-auth | Enforce client-side authentication via certificate. | bool | false |
 | tls.client.auth.ca | tls-client-auth-ca | The CA certificate file to use when authenticating clients. | string | |
-| logging.level | level, l | The logging level. | string | info | [debug, info, warn, error] |
+| logging.level | level | The logging level. | string | info | [debug, info, warn, error] |
 | logging.recovery | | Log messages resulting from the replay of the Raft log on server recovery. | bool | false | |
 | logging.raft | | Enables logging in the Raft subsystem. | bool | false | |
-| logging.nats | | Enables logging for the embedded NATS server, if enabled (see [`nats.embedded`](#nats-configuration-settings)). | bool | false | |
-| data.dir | data-dir, d | The directory to store data in. | string | /tmp/liftbridge/namespace | |
+| data.dir | data-dir | The directory to store data in. | string | /tmp/liftbridge/namespace | |
 | batch.max.messages | | The maximum number of messages to batch when writing to disk. | int | 1024 |
 | batch.max.time | | The maximum time to wait to batch more messages when writing to disk. | duration | 0 | |
 | metadata.cache.max.age | | The maximum age of cached broker metadata. | duration | 2m | |
@@ -153,14 +151,12 @@ the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
-| servers | nats-servers, n | List of NATS hosts to connect to. | list | nats://localhost:4222 | |
+| servers | nats-servers | List of NATS hosts to connect to. | list | nats://localhost:4222 | |
 | user | | Username to use to connect to NATS servers. | string | | |
 | password | | Password to use to connect to NATS servers. | string | | |
 | tls.cert | | Path to NATS certificate file. | string | | |
 | tls.key | | Path to NATS key file. | string | | |
 | tls.ca  | | Path to NATS CA Root file. | string | | |
-| embedded | embedded-nats, e | Run a NATS server embedded in the process. | bool | false | |
-| embedded.config | embedded-nats-config, nc | Path to [configuration file](https://docs.nats.io/nats-server/configuration) for embedded NATS server. | string | | |
 
 ### Streams Configuration Settings
 
@@ -181,7 +177,6 @@ overriding these settings.
 | compact.max.goroutines | | The maximum number of concurrent goroutines to use for compaction on a stream log (only applicable if `compact.enabled` is `true`). | int | 10 | |
 | auto.pause.time | | The amount of time a stream partition can go idle, i.e. not receive a message, before it is automatically paused. A value of 0 disables auto pausing. | duration | 0 | |
 | auto.pause.disable.if.subscribers | | Disables automatic stream partition pausing when there are subscribers. | bool | false | |
-| concurrency.control | | Enable Optimistic Concurrency Control on message publishing for all streams. | bool | false | |
 
 ### Clustering Configuration Settings
 
@@ -190,8 +185,8 @@ the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
-| server.id | server-id, id | ID of the server in the cluster. | string | random id | string with no spaces or periods |
-| namespace | namespace, ns | Cluster namespace. | string | liftbridge-default | string with no spaces or periods |
+| server.id | server-id | ID of the server in the cluster. | string | random id | string with no spaces or periods |
+| namespace | namespace | Cluster namespace. | string | liftbridge-default | string with no spaces or periods |
 | raft.snapshot.retain | | The number Raft log snapshots to retain on disk. | int | 2 | |
 | raft.snapshot.threshold | | Controls how many outstanding logs there must be before taking a snapshot. This prevents excessive snapshots when a small set of logs can be replayed. | int | 8192 | |
 | raft.cache.size | | The number of Raft logs to hold in memory for quick lookup. | int | 512 | |
@@ -202,7 +197,6 @@ the configuration file.
 | replica.max.idle.wait | | The maximum amount of time a follower will wait before making a replication request once the follower is caught up with the leader. This value should always be less than `replica.max.lag.time` to avoid frequent shrinking of ISR for low-throughput streams. | duration | 10s | |
 | replica.fetch.timeout | | Timeout duration for follower replication requests. | duration | 3s | |
 | min.insync.replicas | | Specifies the minimum number of replicas that must acknowledge a stream write before it can be committed. If the ISR drops below this size, messages cannot be committed. | int | 1 | [1,...] |
-| replication.max.bytes | | The maximum payload size, in bytes, a leader can send to followers for replication messages. This controls the amount of data that can be transferred for individual replication requests. If a leader receives a published message larger than this size, it will return an ack error to the client. Because replication is done over NATS, this cannot exceed the [`max_payload`](https://docs.nats.io/nats-server/configuration#limits) limit configured on the NATS cluster. Thus, this defaults to 1MB, which is the default value for `max_payload`. This should generally be set to match the value of `max_payload`. Setting it too low will preclude the replication of messages larger than it and negatively impact performance. This value should also be the same for all servers in the cluster. | int | 1048576 | |
 
 ### Activity Configuration Settings
 

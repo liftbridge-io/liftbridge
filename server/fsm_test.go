@@ -6,17 +6,12 @@ import (
 	"time"
 
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
-	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/stretchr/testify/require"
 )
 
 // Ensure Raft FSM properly snapshots and restores state.
 func TestFSMSnapshotRestore(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure the server as a seed.
 	s1Config := getTestConfig("a", true, 5050)

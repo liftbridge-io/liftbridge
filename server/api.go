@@ -255,7 +255,7 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 // newest offset for a partition.
 func (a *apiServer) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (
 	*client.FetchPartitionMetadataResponse, error) {
-	a.logger.Debugf("api: FetchPartitionMetadata [stream=%s, partition=%s]", req.Stream, req.Partition)
+	a.logger.Debugf("api: FetchPartitionMetadata [stream=%s, partition=%d]", req.Stream, req.Partition)
 
 	resp, err := a.metadata.FetchPartitionMetadata(ctx, req)
 	if err != nil {
@@ -314,6 +314,13 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	if err != nil {
 		a.logger.Errorf("api: Failed to publish message: %v", err)
 		return nil, err
+	}
+
+	if ack != nil {
+		if e := convertAckError(ack.AckError); e != nil {
+			a.logger.Errorf("api: Published message was rejected: %v", e.Message)
+			return nil, convertPublishAsyncError(e)
+		}
 	}
 
 	resp.Ack = ack
@@ -821,6 +828,30 @@ func convertPublishAsyncError(err *client.PublishAsyncError) error {
 	return status.Error(code, err.Message)
 }
 
+func convertAckError(ackError client.Ack_Error) *client.PublishAsyncError {
+	var (
+		code    client.PublishAsyncError_Code
+		message string
+	)
+	switch ackError {
+	case client.Ack_OK:
+		return nil
+	case client.Ack_INCORRECT_OFFSET:
+		code = client.PublishAsyncError_INCORRECT_OFFSET
+		message = "incorrect expected offset"
+	case client.Ack_TOO_LARGE:
+		code = client.PublishAsyncError_BAD_REQUEST
+		message = "message exceeds max replication size"
+	default:
+		code = client.PublishAsyncError_UNKNOWN
+		message = "unknown error"
+	}
+	return &client.PublishAsyncError{
+		Code:    code,
+		Message: message,
+	}
+}
+
 // publishAsyncSession maintains state for long-lived PublishAsync RPCs.
 type publishAsyncSession struct {
 	*apiServer
@@ -871,6 +902,12 @@ func (p *publishAsyncSession) dispatchAcks() error {
 			return
 		default:
 			break
+		}
+
+		if e := convertAckError(ack.AckError); e != nil {
+			p.logger.Errorf("api: Published async message was rejected: %v", e.Message)
+			p.sendPublishAsyncError(ack.CorrelationId, e)
+			return
 		}
 
 		if err := p.stream.Send(&client.PublishResponse{CorrelationId: ack.CorrelationId, Ack: ack}); err != nil {

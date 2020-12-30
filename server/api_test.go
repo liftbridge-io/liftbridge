@@ -3,19 +3,20 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
+	proto "github.com/liftbridge-io/liftbridge-api/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	proto "github.com/liftbridge-io/liftbridge-api/go"
 
 	"github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -36,10 +37,6 @@ func assertMsg(t *testing.T, expected *message, msg *lift.Message) {
 // same stream.
 func TestCreateStream(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -64,10 +61,6 @@ func TestCreateStream(t *testing.T) {
 // follower, and it returns an error when creating the same stream.
 func TestCreateStreamPropagate(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 0)
@@ -98,12 +91,13 @@ func TestCreateStreamPropagate(t *testing.T) {
 func TestCreateStreamNoMetadataLeader(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
+	// Use an external NATS server.
 	ns := natsdTest.RunDefaultServer()
 	defer ns.Shutdown()
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 0)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -135,10 +129,6 @@ func TestCreateStreamNoMetadataLeader(t *testing.T) {
 func TestCreateStreamInsufficientReplicas(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -159,10 +149,6 @@ func TestCreateStreamInsufficientReplicas(t *testing.T) {
 // are made.
 func TestCreateStreamPartitioned(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -186,10 +172,6 @@ func TestCreateStreamPartitioned(t *testing.T) {
 // Ensure subscribing to a non-existent stream returns an error.
 func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -215,10 +197,6 @@ func TestSubscribeStreamNoSuchStream(t *testing.T) {
 func TestDeleteStream(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -236,11 +214,17 @@ func TestDeleteStream(t *testing.T) {
 	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
 	require.NoError(t, err)
 
+	_, err = os.Stat(filepath.Join(s1Config.DataDir, "streams", "foo"))
+	require.NoError(t, err)
+
 	stream := s1.metadata.GetStream("foo")
 	require.NotNil(t, stream)
 
 	err = client.DeleteStream(context.Background(), "foo")
 	require.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(s1Config.DataDir, "streams", "foo"))
+	require.True(t, os.IsNotExist(err))
 
 	stream = s1.metadata.GetStream("foo")
 	require.Nil(t, stream)
@@ -253,10 +237,6 @@ func TestDeleteStream(t *testing.T) {
 // follower.
 func TestDeleteStreamPropagate(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 0)
@@ -286,10 +266,6 @@ func TestDeleteStreamPropagate(t *testing.T) {
 // with an explication opt-in to requestion from a random ISR replica
 func TestSubscribeStreamNotLeader(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -345,10 +321,6 @@ func TestSubscribeStreamNotLeader(t *testing.T) {
 // returns an error. By default, do not take subscription to stream's replica.
 func TestSubscribeStreamNotLeaderDefaultBehavior(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -406,14 +378,11 @@ func TestSubscribeStreamNotLeaderDefaultBehavior(t *testing.T) {
 func TestStreamReceiveMsgFromReplica(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
+
 	// Configure second server.
 	s2Config := getTestConfig("b", false, 5051)
 	s2 := runServerWithConfig(t, s2Config)
@@ -535,12 +504,9 @@ func TestStreamReceiveMsgFromReplica(t *testing.T) {
 func TestStreamPublishSubscribe(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicationMaxBytes = 1024
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -639,18 +605,22 @@ func TestStreamPublishSubscribe(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Did not receive all expected messages")
 	}
+
+	// Publishing a message whose size is larger than max replication size
+	// returns an error.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, make([]byte, 1024+1))
+	require.Error(t, err)
 }
 
 // Ensure legacy Publish endpoint works.
 func TestLegacyPublish(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicationMaxBytes = 1024
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -700,15 +670,22 @@ func TestLegacyPublish(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Nil(t, resp.Ack)
+
+	// Publishing a message whose size is larger than max replication size
+	// returns an error.
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = apiClient.Publish(ctx, &proto.PublishRequest{
+		Stream:    "foo",
+		Partition: 1,
+		Value:     make([]byte, 1024+1),
+	})
+	require.Error(t, err)
 }
 
 // Ensure publishing to a NATS subject works.
 func TestPublishToSubject(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -845,10 +822,6 @@ func TestSubscribePartitionClosed(t *testing.T) {
 func TestSubscribeStopPosition(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -977,10 +950,6 @@ func TestGetStreamConfig(t *testing.T) {
 func TestSetFetchCursor(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1Config.CursorsStream.Partitions = 5
@@ -1034,10 +1003,6 @@ func TestSetFetchCursor(t *testing.T) {
 // cache is empty.
 func TestSetFetchCursorNoCache(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -1116,10 +1081,6 @@ func publishAndReceive(t *testing.T, client lift.Client, stream string) {
 func TestFetchPartitionMetadataMessagesReceivedTimestamps(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1172,10 +1133,6 @@ func TestFetchPartitionMetadataMessagesReceivedTimestamps(t *testing.T) {
 func TestFetchPartitionMetadataPauseTimestamps(t *testing.T) {
 	defer cleanupStorage(t)
 
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
-
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
 	s1 := runServerWithConfig(t, s1Config)
@@ -1227,10 +1184,6 @@ func TestFetchPartitionMetadataPauseTimestamps(t *testing.T) {
 // updated with coherent values.
 func TestFetchPartitionMetadataReadonlyTimestamps(t *testing.T) {
 	defer cleanupStorage(t)
-
-	// Use a central NATS server.
-	ns := natsdTest.RunDefaultServer()
-	defer ns.Shutdown()
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)

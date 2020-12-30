@@ -25,6 +25,7 @@ func TestNewConfigFromFile(t *testing.T) {
 	require.Equal(t, uint32(5), config.LogLevel)
 	require.True(t, config.LogRecovery)
 	require.True(t, config.LogRaft)
+	require.True(t, config.LogNATS)
 	require.Equal(t, "/foo", config.DataDir)
 	require.Equal(t, 10, config.BatchMaxMessages)
 	require.Equal(t, time.Second, config.BatchMaxTime)
@@ -51,11 +52,14 @@ func TestNewConfigFromFile(t *testing.T) {
 	require.Equal(t, 2*time.Second, config.Clustering.ReplicaMaxIdleWait)
 	require.Equal(t, 3*time.Second, config.Clustering.ReplicaFetchTimeout)
 	require.Equal(t, 1, config.Clustering.MinISR)
+	require.Equal(t, int64(1024), config.Clustering.ReplicationMaxBytes)
 
 	require.Equal(t, true, config.ActivityStream.Enabled)
 	require.Equal(t, time.Minute, config.ActivityStream.PublishTimeout)
 	require.Equal(t, client.AckPolicy_LEADER, config.ActivityStream.PublishAckPolicy)
 
+	require.True(t, config.EmbeddedNATS)
+	require.Equal(t, "nats.conf", config.EmbeddedNATSConfig)
 	require.Equal(t, []string{"nats://localhost:4222"}, config.NATS.Servers)
 	require.Equal(t, "user", config.NATS.User)
 	require.Equal(t, "pass", config.NATS.Password)
