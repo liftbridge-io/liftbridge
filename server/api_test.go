@@ -1730,7 +1730,7 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 		t.Fatal("Did not receive expected error")
 	}
 
-	// A client 3 that publishes without expected offset
+	// A client 3 that publishes with incorrect expected offset
 	client3, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)
 	defer client3.Close()
@@ -1740,6 +1740,7 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 			errorC <- err
 		},
 		lift.AckPolicyLeader(),
+		lift.ExpectedOffset(100),
 	)
 	require.NoError(t, err)
 
