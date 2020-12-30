@@ -11,6 +11,7 @@
     "Configuration": [
         "configuration",
         "ha-and-consistency-configuration",
+        "scalability-configuration",
         "embedded-nats"
     ],
     "Deployment": [

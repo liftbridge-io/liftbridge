@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -276,6 +277,10 @@ func (s *Server) bootstrapCluster(node *raft.Raft) error {
 		// Bootstrap using provided cluster configuration.
 		s.logger.Debug("Bootstrapping metadata Raft group using provided configuration")
 		for _, peer := range s.config.Clustering.RaftBootstrapPeers {
+			if peer == s.config.Clustering.ServerID {
+				// Don't add ourselves twice.
+				continue
+			}
 			servers = append(servers, raft.Server{
 				ID:      raft.ServerID(peer),
 				Address: raft.ServerAddress(peer), // NATS transport uses ID as addr.
@@ -285,6 +290,21 @@ func (s *Server) bootstrapCluster(node *raft.Raft) error {
 		// Bootstrap as a seed node.
 		s.logger.Debug("Bootstrapping metadata Raft group as seed node")
 	}
+
+	// Enforce quorum size limit. Any servers beyond the limit are non-voters.
+	maxQuorum := s.config.Clustering.RaftMaxQuorumSize
+	if maxQuorum == 0 || maxQuorum > uint(len(servers)) {
+		maxQuorum = uint(len(servers))
+	}
+	sort.SliceStable(servers, func(i, j int) bool { return servers[i].ID < servers[j].ID })
+	for i, server := range servers[maxQuorum:] {
+		servers[i+int(maxQuorum)] = raft.Server{
+			ID:       server.ID,
+			Address:  server.Address,
+			Suffrage: raft.Nonvoter,
+		}
+	}
+
 	config := raft.Configuration{Servers: servers}
 	return node.BootstrapCluster(config).Error()
 }
@@ -395,39 +415,7 @@ func (s *Server) createRaftNode() (bool, error) {
 
 	// Handle requests to join the cluster.
 	subj := fmt.Sprintf("%s.join", s.baseMetadataRaftSubject())
-	sub, err := s.ncRaft.Subscribe(subj, func(msg *nats.Msg) {
-		// Drop the request if we're not the leader. There's no race condition
-		// after this check because even if we proceed with the cluster add, it
-		// will fail if the node is not the leader as cluster changes go
-		// through the Raft log.
-		if node.State() != raft.Leader {
-			return
-		}
-		req, err := proto.UnmarshalRaftJoinRequest(msg.Data)
-		if err != nil {
-			s.logger.Warn("Invalid join request for metadata Raft group")
-			return
-		}
-
-		// Add the node as a voter. This is idempotent. No-op if the request
-		// came from ourselves.
-		resp := &proto.RaftJoinResponse{}
-		if req.NodeID != s.config.Clustering.ServerID {
-			future := node.AddVoter(
-				raft.ServerID(req.NodeID),
-				raft.ServerAddress(req.NodeAddr), 0, 0)
-			if err := future.Error(); err != nil {
-				resp.Error = err.Error()
-			}
-		}
-
-		// Send the response.
-		r, err := proto.MarshalRaftJoinResponse(resp)
-		if err != nil {
-			panic(err)
-		}
-		msg.Respond(r)
-	})
+	sub, err := s.ncRaft.Subscribe(subj, s.newClusterJoinRequestHandler(node))
 	if err != nil {
 		node.Shutdown()
 		tr.Close()
@@ -445,6 +433,95 @@ func (s *Server) createRaftNode() (bool, error) {
 	})
 
 	return existingState, nil
+}
+
+// newClusterJoinRequestHandler creates a NATS handler for handling requests
+// to join the Raft cluster.
+func (s *Server) newClusterJoinRequestHandler(node *raft.Raft) func(*nats.Msg) {
+	return func(msg *nats.Msg) {
+		// Drop the request if we're not the leader. There's no race condition
+		// after this check because even if we proceed with the cluster add, it
+		// will fail if the node is not the leader as cluster changes go
+		// through the Raft log.
+		if node.State() != raft.Leader {
+			return
+		}
+		req, err := proto.UnmarshalRaftJoinRequest(msg.Data)
+		if err != nil {
+			s.logger.Warn("Invalid join request for metadata Raft group")
+			return
+		}
+
+		resp := &proto.RaftJoinResponse{}
+
+		// No-op if the request came from ourselves.
+		if req.NodeID == s.config.Clustering.ServerID {
+			r, err := proto.MarshalRaftJoinResponse(resp)
+			if err != nil {
+				panic(err)
+			}
+			msg.Respond(r)
+			return
+		}
+
+		// Add the node to the cluster with appropriate suffrage. This is
+		// idempotent.
+		isVoter, err := s.addAsVoter(node)
+		if err != nil {
+			resp.Error = err.Error()
+		} else {
+			var future raft.IndexFuture
+			if isVoter {
+				s.logger.Debugf("Adding server %s to metadata Raft group as voter", req.NodeID)
+				future = node.AddVoter(
+					raft.ServerID(req.NodeID),
+					raft.ServerAddress(req.NodeAddr), 0, 0)
+			} else {
+				s.logger.Debugf("Adding server %s to metadata Raft group as non-voter", req.NodeID)
+				future = node.AddNonvoter(
+					raft.ServerID(req.NodeID),
+					raft.ServerAddress(req.NodeAddr), 0, 0)
+			}
+			if err := future.Error(); err != nil {
+				resp.Error = err.Error()
+			}
+		}
+
+		if resp.Error != "" {
+			s.logger.Errorf("Failed to add server %s to metadata Raft group: %s", req.NodeID, resp.Error)
+		}
+
+		// Send the response.
+		r, err := proto.MarshalRaftJoinResponse(resp)
+		if err != nil {
+			panic(err)
+		}
+		msg.Respond(r)
+	}
+}
+
+// addAsVoter returns a bool indicating if a new node to be added to the
+// cluster should be added as a voter or not based on current configuration. If
+// we are below the max quorum size or there is no quorum limit, the new node
+// will be added as a voter.  Otherwise, it's added as a non-voter.
+func (s *Server) addAsVoter(node *raft.Raft) (bool, error) {
+	maxQuorum := s.config.Clustering.RaftMaxQuorumSize
+	if maxQuorum == 0 {
+		return true, nil
+	}
+	// If there is a quorum limit, count the number of voting members.
+	future := node.GetConfiguration()
+	if err := future.Error(); err != nil {
+		return false, err
+	}
+	voters := uint(0)
+	for _, server := range future.Configuration().Servers {
+		if server.Suffrage == raft.Voter || server.Suffrage == raft.Staging {
+			voters++
+		}
+	}
+
+	return voters < maxQuorum, nil
 }
 
 // baseMetadataRaftSubject returns the base NATS subject used for Raft-related

@@ -79,6 +79,10 @@ Each partition has its own message log, leader, and set of followers. To reduce
 resource consumption, partitions can be [paused](./pausing_streams.md). Paused
 partitions are subsequently resumed once they are published to.
 
+Message streams and partitions are sometimes referred to as the _data plane_.
+This is in contrast to the _control plane_, which refers to the metadata
+[controller](#controller).
+
 ### Write-Ahead Log
 
 Each stream partition is backed by a durable write-ahead log. All reads and
@@ -219,6 +223,10 @@ Partitions in yellow indicate the server is the leader for the partition.
 
 ![cluster](assets/cluster.png)
 
+Refer to [Configuring for
+Scalability](./scalability_configuration.md#scaling-the-control-plane) for
+details on scaling the control plane.
+
 ### In-Sync Replica Set (ISR)
 
 The In-Sync Replica set (ISR) is a key aspect of the replication protocol in
@@ -347,19 +355,25 @@ the brokers must be running.
 
 Controller is also referred to as "metadata leader" in some contexts. There is
 only a single controller (i.e. leader) at a given time which is elected by the
-Liftbridge cluster.
+Liftbridge cluster. The concept of the metadata cluster is sometimes referred
+to as the _control plane_. This is in contrast to the _data plane_, which
+refers to actual message data, i.e. [streams and
+partitions](#streams-and-partitions).
 
 > **Architect's Note**
 >
-> Guidance on cluster size depends, but one important point here is that,
-> currently, all servers in the cluster participate in the Raft consensus
-> group. This has implications on the scalability of the cluster control plane,
-> which there are [plans to address](https://github.com/liftbridge-io/liftbridge/issues/41)
-> in the future.
+> Guidance on cluster size is use-case specific, but it is recommended to run
+> an odd number of servers in the cluster, e.g. 3 or 5, depending on scaling
+> needs. Ideally, cluster members are run in different availability zones or
+> racks for improved fault-tolerance.
 >
-> General advice is to run an odd number of servers in the cluster, e.g. 3 or
-> 5, depending on scaling needs. Ideally, cluster members are run in different
-> availability zones or racks for improved fault-tolerance.
+> It is also important to note that, by default, all servers in the cluster
+> participate in the Raft consensus group. This has implications on the
+> scalability of the cluster control plane, which can be addressed by setting
+> [`clustering.raft.max.quorum.size`](./configuration.md#clustering-configuration-settings)
+> to limit the number of nodes that participate in the Raft group. See
+> [Configuring for Scalability](./scalability_configuration.md#scaling-the-control-plane) for
+> more information.
 
 ## Message Envelope
 
