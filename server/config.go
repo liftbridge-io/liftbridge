@@ -104,6 +104,7 @@ const (
 	configClusteringRaftCacheSize           = "clustering.raft.cache.size"
 	configClusteringRaftBootstrapSeed       = "clustering.raft.bootstrap.seed"
 	configClusteringRaftBootstrapPeers      = "clustering.raft.bootstrap.peers"
+	configClusteringRaftMaxQuorumSize       = "clustering.raft.max.quorum.size"
 	configClusteringReplicaMaxLagTime       = "clustering.replica.max.lag.time"
 	configClusteringReplicaMaxLeaderTimeout = "clustering.replica.max.leader.timeout"
 	configClusteringReplicaMaxIdleWait      = "clustering.replica.max.idle.wait"
@@ -161,6 +162,7 @@ var configKeys = map[string]struct{}{
 	configClusteringRaftCacheSize:              {},
 	configClusteringRaftBootstrapSeed:          {},
 	configClusteringRaftBootstrapPeers:         {},
+	configClusteringRaftMaxQuorumSize:          {},
 	configClusteringReplicaMaxLagTime:          {},
 	configClusteringReplicaMaxLeaderTimeout:    {},
 	configClusteringReplicaMaxIdleWait:         {},
@@ -292,6 +294,7 @@ type ClusteringConfig struct {
 	RaftCacheSize           int
 	RaftBootstrapSeed       bool
 	RaftBootstrapPeers      []string
+	RaftMaxQuorumSize       uint
 	ReplicaMaxLagTime       time.Duration
 	ReplicaMaxLeaderTimeout time.Duration
 	ReplicaFetchTimeout     time.Duration
@@ -709,6 +712,10 @@ func parseClusteringConfig(config *Config, v *viper.Viper) error { // nolint: go
 
 	if v.IsSet(configClusteringRaftBootstrapPeers) {
 		config.Clustering.RaftBootstrapPeers = v.GetStringSlice(configClusteringRaftBootstrapPeers)
+	}
+
+	if v.IsSet(configClusteringRaftMaxQuorumSize) {
+		config.Clustering.RaftMaxQuorumSize = v.GetUint(configClusteringRaftMaxQuorumSize)
 	}
 
 	if v.IsSet(configClusteringReplicaMaxLagTime) {
