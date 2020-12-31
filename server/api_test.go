@@ -1244,6 +1244,7 @@ func TestPublishAsync(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -1288,6 +1289,7 @@ func TestPublishAsyncWithConcurrencyNoAckPolicy(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -1338,6 +1340,7 @@ func TestPublishAsyncWithConcurrencyErrorWrongOffset(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -1388,6 +1391,7 @@ func TestPublishAsyncWithConcurrencyIgnoreOffset(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -1436,6 +1440,7 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -1496,6 +1501,7 @@ func TestMultiplePublishAsyncWithConcurrency(t *testing.T) {
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
@@ -1593,6 +1599,7 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
+	s1Config.EmbeddedNATS = false
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
