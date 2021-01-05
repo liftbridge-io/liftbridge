@@ -230,6 +230,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 
 	// Configure second server.
 	s2Config := getTestConfig("b", false, 5051)
+	s2Config.EmbeddedNATS = false
 	s2Config.Clustering.ReplicaMaxLagTime = time.Second
 	s2Config.Clustering.ReplicaFetchTimeout = 100 * time.Millisecond
 	s2 := runServerWithConfig(t, s2Config)
@@ -237,6 +238,7 @@ func TestCommitOnISRShrink(t *testing.T) {
 
 	// Configure third server.
 	s3Config := getTestConfig("c", false, 5052)
+	s3Config.EmbeddedNATS = false
 	s3Config.Clustering.ReplicaMaxLagTime = time.Second
 	s3Config.Clustering.ReplicaFetchTimeout = 100 * time.Millisecond
 	s3 := runServerWithConfig(t, s3Config)

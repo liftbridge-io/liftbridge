@@ -22,6 +22,10 @@ import (
 // ErrSegmentNotFound is returned if the segment could not be found.
 var ErrSegmentNotFound = errors.New("segment not found")
 
+// ErrIncorrectOffset is returned if the offset is incorrect. This is used in case Optimistic
+// Concurrency Control is activated.
+var ErrIncorrectOffset = errors.New("incorrect offset")
+
 const (
 	logFileSuffix               = ".log"
 	indexFileSuffix             = ".index"
@@ -62,6 +66,7 @@ type Options struct {
 	CompactMaxGoroutines int           // Max number of goroutines to use in a log compaction
 	CleanerInterval      time.Duration // Frequency to enforce retention policy
 	HWCheckpointInterval time.Duration // Frequency to checkpoint HW to disk
+	ConcurrencyControl   bool          // Optimistic Concurrency Control
 	Logger               logger.Logger
 }
 
@@ -225,7 +230,7 @@ func (l *commitLog) Append(msgs []*Message) ([]int64, error) {
 		segment          = l.activeSegment()
 		basePosition     = segment.Position()
 		baseOffset       = segment.NextOffset()
-		ms, entries, err = newMessageSetFromProto(baseOffset, basePosition, msgs)
+		ms, entries, err = newMessageSetFromProto(baseOffset, basePosition, msgs, l.IsConcurrencyControlEnabled())
 	)
 	if err != nil {
 		return nil, err
@@ -645,6 +650,11 @@ func (l *commitLog) SetReadonly(readonly bool) {
 // IsReadonly indicates if the log is in readonly mode.
 func (l *commitLog) IsReadonly() bool {
 	return atomic.LoadInt32(&l.readonly) == 1
+}
+
+// IsConcurrencyControlEnabled indicates if the log should check for concurrency before appending messages
+func (l *commitLog) IsConcurrencyControlEnabled() bool {
+	return l.Options.ConcurrencyControl
 }
 
 // checkAndPerformSplit determines if a new log segment should be rolled out

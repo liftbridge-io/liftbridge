@@ -89,6 +89,9 @@ type CommitLog interface {
 	// IsReadonly indicates if the log is in readonly mode.
 	IsReadonly() bool
 
+	// IsConcurrencyControlEnabled indicates if the log should check for concurrency before appending messages
+	IsConcurrencyControlEnabled() bool
+
 	// Close closes each log segment file and stops the background goroutine
 	// checkpointing the high watermark to disk.
 	Close() error

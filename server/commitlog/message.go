@@ -24,6 +24,7 @@ type Message struct {
 	AckInbox      string
 	CorrelationID string
 	AckPolicy     client.AckPolicy
+	Offset        int64
 }
 
 // Encode the Message into the packetEncoder.

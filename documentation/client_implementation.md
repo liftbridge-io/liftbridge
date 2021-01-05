@@ -1210,6 +1210,7 @@ SegmentMaxBytes
 SegmentMaxAge
 CompactEnabled
 CompactMaxGoroutines
+OptimisticConcurrencyControl
 ```
 
 Refer to [Stream Configuration](configuration.md#streams-configuration-settings)
@@ -1240,6 +1241,11 @@ that `CompactEnabled` is also set. The reason is that if this is not enabled
 explicitly, the servier will use the default configuration and that may be to
 disable compaction on the service side, which renders `CompactMaxGoroutines` to
 be unused.
+
+Note: if `OptimisticConcurrencyControl` is configured, you should to make sure
+that at least one `AckPolicy` is set. A `PublishRequest` with `AckPolicy` is set to `AckPolicy_NONE`
+will be rejected explicity by the server.
+
 
 ```go
 // CreateStream creates a new stream attached to a NATS subject. Subject is the

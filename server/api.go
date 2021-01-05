@@ -282,8 +282,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 		return nil, convertPublishAsyncError(e)
 	}
 
-	if e := a.ensureStreamNotReadonly(req.Stream, req.Partition); e != nil {
-		a.logger.Errorf("api: Failed to publish message: %v", e.Message)
+	if e := a.ensurePublishPreconditions(req); e != nil {
 		return nil, convertPublishAsyncError(e)
 	}
 
@@ -306,6 +305,7 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 			AckInbox:      req.AckInbox,
 			CorrelationId: req.CorrelationId,
 			AckPolicy:     req.AckPolicy,
+			Offset:        req.ExpectedOffset,
 		}
 		resp = new(client.PublishResponse)
 	)
@@ -425,14 +425,21 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 	return &client.FetchCursorResponse{Offset: offset}, nil
 }
 
-func (a *apiServer) ensureStreamNotReadonly(name string, partitionID int32) *client.PublishAsyncError {
+func (a *apiServer) ensurePublishPreconditions(req *client.PublishRequest) *client.PublishAsyncError {
+	name := req.Stream
+	partitionID := req.Partition
+
 	stream := a.metadata.GetStream(name)
+
+	// Verify stream exists
 	if stream == nil {
 		return &client.PublishAsyncError{
 			Code:    client.PublishAsyncError_NOT_FOUND,
 			Message: fmt.Sprintf("no such stream: %s", name),
 		}
 	}
+
+	// Verify partition exists
 	partition := stream.GetPartition(partitionID)
 	if partition == nil {
 		return &client.PublishAsyncError{
@@ -440,10 +447,20 @@ func (a *apiServer) ensureStreamNotReadonly(name string, partitionID int32) *cli
 			Message: fmt.Sprintf("no such partition: %d", partitionID),
 		}
 	}
+
+	// Verify stream is not read only
 	if partition.IsReadonly() {
 		return &client.PublishAsyncError{
 			Code:    client.PublishAsyncError_READONLY,
 			Message: fmt.Sprintf("readonly partition: %d", partitionID),
+		}
+	}
+
+	// Verify AckPolicy is set for streams with Optimistic Concurrency Control
+	if partition.log.IsConcurrencyControlEnabled() && req.AckPolicy == client.AckPolicy_NONE {
+		return &client.PublishAsyncError{
+			Code:    client.PublishAsyncError_BAD_REQUEST,
+			Message: fmt.Sprintf("stream with concurrency control must have AckPolicy set"),
 		}
 	}
 
@@ -784,6 +801,9 @@ func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
 	if req.MinIsr != nil {
 		config.MinIsr = &proto.NullableInt32{Value: req.MinIsr.Value}
 	}
+	if req.OptimisticConcurrencyControl != nil {
+		config.OptimisticConcurrencyControl = &proto.NullableBool{Value: req.OptimisticConcurrencyControl.Value}
+	}
 	return config
 }
 
@@ -899,7 +919,7 @@ func (p *publishAsyncSession) publishLoop() error {
 			return err
 		}
 
-		if e := p.ensureStreamNotReadonly(req.Stream, req.Partition); e != nil {
+		if e := p.ensurePublishPreconditions(req); e != nil {
 			p.logger.Errorf("api: Failed to publish async message: %v", e.Message)
 			p.sendPublishAsyncError(req.CorrelationId, e)
 			continue
@@ -933,6 +953,7 @@ func (p *publishAsyncSession) publishLoop() error {
 			AckInbox:      req.AckInbox,
 			CorrelationId: req.CorrelationId,
 			AckPolicy:     req.AckPolicy,
+			Offset:        req.ExpectedOffset,
 		})
 		if err != nil {
 			err = errors.Wrap(err, "failed to marshal message")

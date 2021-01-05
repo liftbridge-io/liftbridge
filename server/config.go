@@ -52,6 +52,7 @@ const (
 	defaultActivityStreamPublishTimeout   = 5 * time.Second
 	defaultActivityStreamPublishAckPolicy = client.AckPolicy_ALL
 	defaultCursorsStreamAutoPauseTime     = time.Minute
+	defaultConcurrencyControl             = false
 )
 
 // Config setting key names.
@@ -94,6 +95,7 @@ const (
 	configStreamsCompactMaxGoroutines          = "streams.compact.max.goroutines"
 	configStreamsAutoPauseTime                 = "streams.auto.pause.time"
 	configStreamsAutoPauseDisableIfSubscribers = "streams.auto.pause.disable.if.subscribers"
+	configStreamsConcurrencyControl            = "streams.concurrency.control"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"
@@ -149,6 +151,7 @@ var configKeys = map[string]struct{}{
 	configStreamsSegmentMaxBytes:               {},
 	configStreamsSegmentMaxAge:                 {},
 	configStreamsCompactEnabled:                {},
+	configStreamsConcurrencyControl:            {},
 	configStreamsCompactMaxGoroutines:          {},
 	configStreamsAutoPauseTime:                 {},
 	configStreamsAutoPauseDisableIfSubscribers: {},
@@ -186,6 +189,7 @@ type StreamsConfig struct {
 	AutoPauseTime                 time.Duration
 	AutoPauseDisableIfSubscribers bool
 	MinISR                        int
+	ConcurrencyControl            bool
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -275,6 +279,10 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 	if minISR := c.MinIsr; minISR != nil {
 		l.MinISR = int(minISR.Value)
 	}
+
+	if optimisticConcurrencyControl := c.OptimisticConcurrencyControl; optimisticConcurrencyControl != nil {
+		l.ConcurrencyControl = optimisticConcurrencyControl.Value
+	}
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.
@@ -361,6 +369,7 @@ func NewDefaultConfig() *Config {
 	config.Streams.SegmentMaxAge = defaultMaxSegmentAge
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
 	config.Streams.CleanerInterval = defaultCleanerInterval
+	config.Streams.ConcurrencyControl = defaultConcurrencyControl
 	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
@@ -668,7 +677,9 @@ func parseStreamsConfig(config *Config, v *viper.Viper) error {
 	if v.IsSet(configStreamsAutoPauseDisableIfSubscribers) {
 		config.Streams.AutoPauseDisableIfSubscribers = v.GetBool(configStreamsAutoPauseDisableIfSubscribers)
 	}
-
+	if v.IsSet(configStreamsConcurrencyControl) {
+		config.Streams.ConcurrencyControl = v.GetBool(configStreamsConcurrencyControl)
+	}
 	return nil
 }
 
