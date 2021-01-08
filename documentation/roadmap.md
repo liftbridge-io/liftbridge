@@ -58,14 +58,6 @@ primitives will enable higher-level functionality like [Consumer
 Groups](#consumer-groups-46httpsgithubcomliftbridge-ioliftbridgeissues46),
 which will provide managed checkpointing and consumer coordination.
 
-### Consumer Groups ([#46](https://github.com/liftbridge-io/liftbridge/issues/46))
-
-Provide high-level consumer functionality to allow for durable subscriptions,
-balanced stream consumption, and fault-tolerant consumers. The first step to
-this will be providing support for single-member consumer groups, which will
-effectively provide a durable subscription, then generalizing to multi-member
-groups. The latter will require a mechanism for group coordination.
-
 ### ~~Expose Offset Information in Metadata ([#111](https://github.com/liftbridge-io/liftbridge/issues/111))~~
 
 Include partition offset information, such as the log-end offset (LEO) and high
@@ -74,7 +66,7 @@ use cases, such as allowing single-producer streams to know when the
 end-of-stream has been reached and to support [Optimistic Concurrency
 Control](#optimistic-concurrency-control-54httpsgithubcomliftbridge-ioliftbridgeissues54).
 
-### Optimistic Concurrency Control ([#54](https://github.com/liftbridge-io/liftbridge/issues/54))
+### ~~Optimistic Concurrency Control ([#54](https://github.com/liftbridge-io/liftbridge/issues/54))~~
 
 Implement a CAS primitive for optimistic concurrency control on publishes. This
 enables several use cases where there is one (or a small number) of publishers
@@ -82,6 +74,14 @@ for a given partition, such as idempotent publishes, monotonic writes, and
 transaction logs.
 
 ## H1 2021
+
+### Consumer Groups ([#46](https://github.com/liftbridge-io/liftbridge/issues/46))
+
+Provide high-level consumer functionality to allow for durable subscriptions,
+balanced stream consumption, and fault-tolerant consumers. The first step to
+this will be providing support for single-member consumer groups, which will
+effectively provide a durable subscription, then generalizing to multi-member
+groups. The latter will require a mechanism for group coordination.
 
 ### Monitoring API ([#222](https://github.com/liftbridge-io/liftbridge/issues/222))
 
