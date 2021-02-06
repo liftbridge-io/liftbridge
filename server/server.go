@@ -60,6 +60,7 @@ type Server struct {
 	api                *apiServer
 	metadata           *metadataAPI
 	shutdownCh         chan struct{}
+	raftInitialized    chan struct{}
 	raft               atomic.Value
 	leaderSub          *nats.Subscription
 	recoveryStarted    bool
@@ -92,9 +93,10 @@ func New(config *Config) *Server {
 		logger.SetWriter(ioutil.Discard)
 	}
 	s := &Server{
-		config:     config,
-		logger:     logger,
-		shutdownCh: make(chan struct{}),
+		config:          config,
+		logger:          logger,
+		shutdownCh:      make(chan struct{}),
+		raftInitialized: make(chan struct{}),
 	}
 	s.metadata = newMetadataAPI(s)
 	s.activity = newActivityManager(s)
@@ -162,7 +164,8 @@ func (s *Server) Start() (err error) {
 		s.config.Streams.SegmentMaxAge = time.Second
 	}
 
-	if err := s.setupMetadataRaft(); err != nil {
+	raftNode, err := s.setupMetadataRaft()
+	if err != nil {
 		return errors.Wrap(err, "failed to start Raft node")
 	}
 
@@ -186,7 +189,7 @@ func (s *Server) Start() (err error) {
 		return errors.Wrap(err, "failed to start API server")
 	}
 
-	s.startRaftLeadershipLoop()
+	s.startRaftLeadershipLoop(raftNode)
 	return nil
 }
 
@@ -201,6 +204,14 @@ func (s *Server) Stop() error {
 	}
 
 	s.logger.Info("Shutting down...")
+
+	// Close the raftInitialized channel in case the Raft node was never
+	// initialized to prevent a deadlock.
+	select {
+	case <-s.raftInitialized:
+	default:
+		close(s.raftInitialized)
+	}
 
 	close(s.shutdownCh)
 	if s.grpcServer != nil {
@@ -246,7 +257,11 @@ func (s *Server) Stop() error {
 // it's leader when it's not, the operation it proposes to the Raft cluster
 // will fail.
 func (s *Server) IsLeader() bool {
-	return s.getRaft().isLeader()
+	raft := s.getRaft()
+	if raft == nil {
+		panic("Attempted to access Raft node but it was not initialized")
+	}
+	return raft.isLeader()
 }
 
 // IsRunning indicates if the server is currently running or has been stopped.
@@ -500,14 +515,13 @@ func (s *Server) createNATSConn(name string) (*nats.Conn, error) {
 
 // startRaftLeadershipLoop start a goroutine for automatically responding to
 // Raft leadership changes.
-func (s *Server) startRaftLeadershipLoop() {
-	node := s.getRaft()
+func (s *Server) startRaftLeadershipLoop(node *raftNode) {
 	s.startGoroutine(func() {
 		for {
 			select {
 			case isLeader := <-node.notifyCh:
 				if isLeader {
-					if err := s.leadershipAcquired(); err != nil {
+					if err := s.leadershipAcquired(node); err != nil {
 						s.logger.Errorf("Error on metadata leadership acquired: %v", err)
 						switch {
 						case err == raft.ErrRaftShutdown:
@@ -526,7 +540,7 @@ func (s *Server) startRaftLeadershipLoop() {
 						}
 					}
 				} else {
-					if err := s.leadershipLost(); err != nil {
+					if err := s.leadershipLost(node); err != nil {
 						s.logger.Errorf("Error on metadata leadership lost: %v", err)
 					}
 				}
@@ -541,23 +555,27 @@ func (s *Server) startRaftLeadershipLoop() {
 // on server start.
 func (s *Server) setRaft(r *raftNode) {
 	s.raft.Store(r)
+	close(s.raftInitialized)
+	s.logger.Debug("Raft node initialized")
 }
 
 // getRaft returns the Raft node for the server.
 func (s *Server) getRaft() *raftNode {
+	<-s.raftInitialized
 	r := s.raft.Load()
 	if r == nil {
+		s.logger.Warn("Attempted to access Raft node but it was not initialized")
 		return nil
 	}
 	return r.(*raftNode)
 }
 
 // leadershipAcquired should be called when this node is elected leader.
-func (s *Server) leadershipAcquired() error {
+func (s *Server) leadershipAcquired(raft *raftNode) error {
 	s.logger.Infof("Server became metadata leader, performing leader promotion actions")
 
 	// Use a barrier to ensure all preceding operations are applied to the FSM.
-	if err := s.getRaft().Barrier(0).Error(); err != nil {
+	if err := raft.Barrier(0).Error(); err != nil {
 		return err
 	}
 
@@ -576,12 +594,12 @@ func (s *Server) leadershipAcquired() error {
 		return err
 	}
 
-	s.getRaft().setLeader(true)
+	raft.setLeader(true)
 	return nil
 }
 
 // leadershipLost should be called when this node loses leadership.
-func (s *Server) leadershipLost() error {
+func (s *Server) leadershipLost(raft *raftNode) error {
 	s.logger.Warn("Server lost metadata leadership, performing leader stepdown actions")
 
 	// Unsubscribe from leader NATS subject for propagated requests.
@@ -598,7 +616,7 @@ func (s *Server) leadershipLost() error {
 		return err
 	}
 
-	s.getRaft().setLeader(false)
+	raft.setLeader(false)
 	return nil
 }
 
