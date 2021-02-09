@@ -394,3 +394,204 @@ func TestFetchPartitionMetadataPartitionNotFound(t *testing.T) {
 	require.Equal(t, codes.NotFound, status.Code())
 
 }
+
+// Ensure getPartitionReplicas selects replicas based on the amount of
+// partition load they have.
+func TestMetadataGetPartitionReplicas(t *testing.T) {
+	defer cleanupStorage(t)
+
+	s1 := New(getTestConfig("a", true, 0))
+	metadata := newMetadataAPI(s1)
+	defer metadata.Reset()
+	require.NoError(t, s1.Start())
+	defer s1.Stop()
+
+	s2 := New(getTestConfig("b", false, 0))
+	require.NoError(t, s2.Start())
+	defer s2.Stop()
+
+	s3 := New(getTestConfig("c", false, 0))
+	require.NoError(t, s3.Start())
+	defer s3.Stop()
+
+	_, err := metadata.AddStream(&proto.Stream{
+		Name:    "foo",
+		Subject: "foo",
+		Partitions: []*proto.Partition{
+			{
+				Stream:   "foo",
+				Subject:  "foo",
+				Id:       0,
+				Replicas: []string{"a", "b"},
+				Leader:   "a",
+			},
+			{
+				Stream:   "foo",
+				Subject:  "foo",
+				Id:       1,
+				Replicas: []string{"a", "b"},
+				Leader:   "b",
+			},
+		},
+	}, true)
+	require.NoError(t, err)
+
+	_, err = metadata.AddStream(&proto.Stream{
+		Name:    "bar",
+		Subject: "bar",
+		Partitions: []*proto.Partition{
+			{
+				Stream:   "bar",
+				Subject:  "bar",
+				Id:       0,
+				Replicas: []string{"a"},
+				Leader:   "a",
+			},
+			{
+				Stream:   "bar",
+				Subject:  "bar",
+				Id:       1,
+				Replicas: []string{"a"},
+				Leader:   "a",
+			},
+			{
+				Stream:   "bar",
+				Subject:  "bar",
+				Id:       2,
+				Replicas: []string{"a"},
+				Leader:   "a",
+			},
+		},
+	}, true)
+	require.NoError(t, err)
+
+	_, err = metadata.AddStream(&proto.Stream{
+		Name:    "baz",
+		Subject: "baz",
+		Partitions: []*proto.Partition{
+			{
+				Stream:   "baz",
+				Subject:  "baz",
+				Id:       0,
+				Replicas: []string{"a", "b", "c"},
+				Leader:   "c",
+			},
+		},
+	}, true)
+	require.NoError(t, err)
+
+	// Partition load:
+	// a = 6
+	// b = 3
+	// c = 1
+
+	_, status := metadata.getPartitionReplicas(0)
+	require.NotNil(t, status)
+
+	replicas, status := metadata.getPartitionReplicas(-1)
+	require.Nil(t, status)
+	require.Equal(t, []string{"c", "b", "a"}, replicas)
+
+	replicas, status = metadata.getPartitionReplicas(1)
+	require.Nil(t, status)
+	require.Equal(t, []string{"c"}, replicas)
+
+	replicas, status = metadata.getPartitionReplicas(2)
+	require.Nil(t, status)
+	require.Equal(t, []string{"c", "b"}, replicas)
+
+	replicas, status = metadata.getPartitionReplicas(3)
+	require.Nil(t, status)
+	require.Equal(t, []string{"c", "b", "a"}, replicas)
+
+	_, status = metadata.getPartitionReplicas(4)
+	require.NotNil(t, status)
+}
+
+// Ensure selectPartitionLeader selects the leader based on the least partition
+// leadership load.
+func TestMetadataSelectPartitionLeader(t *testing.T) {
+	defer cleanupStorage(t)
+
+	s1 := New(getTestConfig("a", true, 0))
+	metadata := newMetadataAPI(s1)
+	defer metadata.Reset()
+	require.NoError(t, s1.Start())
+	defer s1.Stop()
+
+	s2 := New(getTestConfig("b", false, 0))
+	require.NoError(t, s2.Start())
+	defer s2.Stop()
+
+	s3 := New(getTestConfig("c", false, 0))
+	require.NoError(t, s3.Start())
+	defer s3.Stop()
+
+	_, err := metadata.AddStream(&proto.Stream{
+		Name:    "foo",
+		Subject: "foo",
+		Partitions: []*proto.Partition{
+			{
+				Stream:   "foo",
+				Subject:  "foo",
+				Id:       0,
+				Replicas: []string{"a", "b"},
+				Leader:   "a",
+			},
+			{
+				Stream:   "foo",
+				Subject:  "foo",
+				Id:       1,
+				Replicas: []string{"a", "b"},
+				Leader:   "b",
+			},
+		},
+	}, true)
+	require.NoError(t, err)
+
+	// Partition leader load:
+	// a = 1
+	// b = 1
+	// c = 0
+
+	replicas := []string{"a", "b", "c"}
+	leader := metadata.selectPartitionLeader(replicas)
+	require.Equal(t, "c", leader)
+
+	_, err = metadata.AddStream(&proto.Stream{
+		Name:    "bar",
+		Subject: "bar",
+		Partitions: []*proto.Partition{
+			{
+				Stream:   "bar",
+				Subject:  "bar",
+				Id:       0,
+				Replicas: []string{"b", "c"},
+				Leader:   "c",
+			},
+			{
+				Stream:   "bar",
+				Subject:  "bar",
+				Id:       1,
+				Replicas: []string{"b", "c"},
+				Leader:   "c",
+			},
+			{
+				Stream:   "bar",
+				Subject:  "bar",
+				Id:       2,
+				Replicas: []string{"b", "c"},
+				Leader:   "b",
+			},
+		},
+	}, true)
+	require.NoError(t, err)
+
+	// Partition leader load:
+	// a = 1
+	// b = 2
+	// c = 2
+
+	leader = metadata.selectPartitionLeader(replicas)
+	require.Equal(t, "a", leader)
+}

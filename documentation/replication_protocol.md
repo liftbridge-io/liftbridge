@@ -17,8 +17,9 @@ back up, it rejoins the ISR. The general partition replication process is as
 follows:
 
 1. Client creates a partition with a `ReplicationFactor` of `n`.
-1. Metadata leader selects `n` replicas to participate and one leader at random
-   (this comprises the initial ISR).
+1. Metadata leader selects `n` replicas to participate and one leader,
+   attempting to select the replicas and leader who have the minimum partitions
+   already assigned (this comprises the initial ISR).
 1. Metadata leader replicates the partition via Raft to the entire cluster. This
    process also assigns a monotonically increasing `Epoch` to the partition as
    well as a `LeaderEpoch`. All replicas store a durable cache of each
