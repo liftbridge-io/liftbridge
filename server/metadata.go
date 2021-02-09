@@ -3,9 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -98,19 +98,23 @@ func (l *leaderReport) cancel() {
 // stream access should go through the exported methods of the metadataAPI.
 type metadataAPI struct {
 	*Server
-	streams         map[string]*stream
-	mu              sync.RWMutex
-	leaderReports   map[*partition]*leaderReport
-	cachedBrokers   []*client.Broker
-	cachedServerIDs map[string]struct{}
-	lastCached      time.Time
+	streams             map[string]*stream
+	mu                  sync.RWMutex
+	leaderReports       map[*partition]*leaderReport
+	cachedBrokers       []*client.Broker
+	cachedServerIDs     map[string]struct{}
+	lastCached          time.Time
+	brokerPartitionLoad map[string]int
+	brokerLeaderLoad    map[string]int
 }
 
 func newMetadataAPI(s *Server) *metadataAPI {
 	return &metadataAPI{
-		Server:        s,
-		streams:       make(map[string]*stream),
-		leaderReports: make(map[*partition]*leaderReport),
+		Server:              s,
+		streams:             make(map[string]*stream),
+		leaderReports:       make(map[*partition]*leaderReport),
+		brokerPartitionLoad: make(map[string]int),
+		brokerLeaderLoad:    make(map[string]int),
 	}
 }
 
@@ -321,7 +325,7 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *proto.CreateStreamO
 		}
 
 		// Select a leader at random.
-		leader := selectRandomReplica(replicas)
+		leader := m.selectPartitionLeader(replicas)
 
 		partition.Replicas = replicas
 		partition.Isr = replicas
@@ -714,6 +718,14 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 		}
 	}
 
+	// Update broker load counts.
+	for _, partition := range stream.GetPartitions() {
+		for _, broker := range partition.Replicas {
+			m.brokerPartitionLoad[broker]++
+		}
+		m.brokerLeaderLoad[partition.Leader]++
+	}
+
 	return stream, nil
 }
 
@@ -854,6 +866,20 @@ func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
 		}
 	}
 
+	// Update broker load counts.
+	for _, partition := range stream.GetPartitions() {
+		for _, broker := range partition.Replicas {
+			m.brokerPartitionLoad[broker]--
+			if m.brokerPartitionLoad[broker] < 0 {
+				m.brokerPartitionLoad[broker] = 0
+			}
+		}
+		m.brokerLeaderLoad[partition.Leader]--
+		if m.brokerLeaderLoad[partition.Leader] < 0 {
+			m.brokerLeaderLoad[partition.Leader] = 0
+		}
+	}
+
 	return nil
 }
 
@@ -876,14 +902,14 @@ func (m *metadataAPI) getStreams() []*stream {
 }
 
 // getPartitionReplicas selects replicationFactor replicas to participate in
-// the stream partition.
+// the stream partition. Replicas are selected based on the amount of partition
+// load they have.
 func (m *metadataAPI) getPartitionReplicas(replicationFactor int32) ([]string, *status.Status) {
-	// TODO: Currently this selection is random but could be made more
-	// intelligent, e.g. selecting based on current load.
 	ids, err := m.getClusterServerIDs()
 	if err != nil {
 		return nil, status.New(codes.Internal, err.Error())
 	}
+
 	if replicationFactor == maxReplicationFactor {
 		replicationFactor = int32(len(ids))
 	}
@@ -894,14 +920,15 @@ func (m *metadataAPI) getPartitionReplicas(replicationFactor int32) ([]string, *
 		return nil, status.Newf(codes.InvalidArgument, "Invalid replicationFactor %d, cluster size %d",
 			replicationFactor, len(ids))
 	}
-	var (
-		indexes  = rand.Perm(len(ids))
-		replicas = make([]string, replicationFactor)
-	)
-	for i := int32(0); i < replicationFactor; i++ {
-		replicas[i] = ids[indexes[i]]
-	}
-	return replicas, nil
+
+	// Order servers by partition load.
+	m.mu.RLock()
+	sort.SliceStable(ids, func(i, j int) bool {
+		return m.brokerPartitionLoad[ids[i]] < m.brokerPartitionLoad[ids[j]]
+	})
+	m.mu.RUnlock()
+
+	return ids[:replicationFactor], nil
 }
 
 // getClusterServerIDs returns a list of all the broker IDs in the cluster.
@@ -944,8 +971,8 @@ func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Stat
 		return status.New(codes.FailedPrecondition, "No ISR candidates")
 	}
 
-	// Select a new leader at random.
-	leader = selectRandomReplica(candidates)
+	// Select a new leader.
+	leader = m.selectPartitionLeader(candidates)
 
 	// Replicate leader change through Raft.
 	op := &proto.RaftLog{
@@ -1297,9 +1324,18 @@ func (m *metadataAPI) partitionExists(streamName string, partitionID int32) erro
 	return nil
 }
 
-// selectRandomReplica selects a random replica from the list of replicas.
-func selectRandomReplica(replicas []string) string {
-	return replicas[rand.Intn(len(replicas))]
+// selectPartitionLeader selects a replica from the list of replicas to act as
+// leader by attempting to select the replica with the least partition
+// leadership load.
+func (m *metadataAPI) selectPartitionLeader(replicas []string) string {
+	// Order servers by leader load.
+	m.mu.RLock()
+	sort.SliceStable(replicas, func(i, j int) bool {
+		return m.brokerLeaderLoad[replicas[i]] < m.brokerLeaderLoad[replicas[j]]
+	})
+	m.mu.RUnlock()
+
+	return replicas[0]
 }
 
 // ensureTimeout ensures there is a timeout on the Context. If there is, it
