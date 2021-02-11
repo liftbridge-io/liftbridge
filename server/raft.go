@@ -199,12 +199,11 @@ func (r *raftLogger) Close() error { return nil }
 // seed node, or bootstrap using a predefined cluster configuration. If joining
 // an existing cluster, this will attempt to join for up to 30 seconds before
 // giving up and returning an error.
-func (s *Server) setupMetadataRaft() error {
-	existingState, err := s.createRaftNode()
+func (s *Server) setupMetadataRaft() (*raftNode, error) {
+	node, existingState, err := s.createRaftNode()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	node := s.getRaft()
 
 	// Bootstrap if there is no previous state and we are starting this node as
 	// a seed or a cluster configuration is provided.
@@ -213,7 +212,7 @@ func (s *Server) setupMetadataRaft() error {
 	if bootstrap {
 		if err := s.bootstrapCluster(node.Raft); err != nil {
 			node.shutdown()
-			return err
+			return nil, err
 		}
 		s.logger.Debug("Successfully bootstrapped metadata Raft group")
 	} else if !existingState {
@@ -251,7 +250,7 @@ func (s *Server) setupMetadataRaft() error {
 			s.logger.Debug("Successfully joined metadata Raft group")
 		} else {
 			node.shutdown()
-			return errors.New("failed to join metadata Raft group")
+			return nil, errors.New("failed to join metadata Raft group")
 		}
 	}
 	if s.config.Clustering.RaftBootstrapSeed {
@@ -261,7 +260,7 @@ func (s *Server) setupMetadataRaft() error {
 		s.startGoroutine(s.detectBootstrapMisconfig)
 	}
 
-	return nil
+	return node, nil
 }
 
 // bootstrapCluster bootstraps the node for the provided Raft group either as a
@@ -349,7 +348,7 @@ func (s *Server) detectBootstrapMisconfig() {
 // createRaftNode creates and starts an embedded Raft node for replicating
 // cluster metadata. It returns a bool indicating if the Raft node had existing
 // state that was loaded.
-func (s *Server) createRaftNode() (bool, error) {
+func (s *Server) createRaftNode() (*raftNode, bool, error) {
 	path := filepath.Join(s.config.DataDir, "raft")
 
 	// Configure Raft.
@@ -369,27 +368,27 @@ func (s *Server) createRaftNode() (bool, error) {
 	tr, err := natslog.NewNATSTransport(s.config.Clustering.ServerID, s.baseMetadataRaftSubject()+".",
 		s.ncRaft, 2*time.Second, logWriter)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 
 	// Create the snapshot store. This allows Raft to truncate the log.
 	snapshots, err := raft.NewFileSnapshotStore(path, s.config.Clustering.RaftSnapshots, logWriter)
 	if err != nil {
 		tr.Close()
-		return false, fmt.Errorf("file snapshot store: %s", err)
+		return nil, false, fmt.Errorf("file snapshot store: %s", err)
 	}
 
 	// Create the log store and cache.
 	logStore, err := raftboltdb.NewBoltStore(filepath.Join(path, "raft.db"))
 	if err != nil {
 		tr.Close()
-		return false, fmt.Errorf("new bolt store: %s", err)
+		return nil, false, fmt.Errorf("new bolt store: %s", err)
 	}
 	cacheStore, err := raft.NewLogCache(s.config.Clustering.RaftCacheSize, logStore)
 	if err != nil {
 		tr.Close()
 		logStore.Close()
-		return false, err
+		return nil, false, err
 	}
 
 	// Instantiate the Raft node.
@@ -397,7 +396,7 @@ func (s *Server) createRaftNode() (bool, error) {
 	if err != nil {
 		tr.Close()
 		logStore.Close()
-		return false, fmt.Errorf("new raft: %s", err)
+		return nil, false, fmt.Errorf("new raft: %s", err)
 	}
 
 	// Check if there is existing state.
@@ -406,7 +405,7 @@ func (s *Server) createRaftNode() (bool, error) {
 		node.Shutdown()
 		tr.Close()
 		logStore.Close()
-		return false, err
+		return nil, false, err
 	}
 
 	if existingState {
@@ -420,19 +419,20 @@ func (s *Server) createRaftNode() (bool, error) {
 		node.Shutdown()
 		tr.Close()
 		logStore.Close()
-		return false, err
+		return nil, false, err
 	}
 
-	s.setRaft(&raftNode{
+	raftNode := &raftNode{
 		Raft:      node,
 		store:     logStore,
 		transport: tr,
 		logInput:  logWriter,
 		notifyCh:  raftNotifyCh,
 		joinSub:   sub,
-	})
+	}
+	s.setRaft(raftNode)
 
-	return existingState, nil
+	return raftNode, existingState, nil
 }
 
 // newClusterJoinRequestHandler creates a NATS handler for handling requests
