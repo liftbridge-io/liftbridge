@@ -128,6 +128,20 @@ func TestStreamLeaderFailover(t *testing.T) {
 	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
 
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
+
+	// Check partition load counts.
+	for _, server := range servers {
+		partitionCounts := server.metadata.BrokerPartitionCounts()
+		require.Len(t, partitionCounts, 3)
+		for _, s := range servers {
+			require.Equal(t, 1, partitionCounts[s.config.Clustering.ServerID])
+		}
+		leaderCounts := server.metadata.BrokerLeaderCounts()
+		require.Len(t, leaderCounts, 1)
+		require.Equal(t, 1, leaderCounts[leader.config.Clustering.ServerID])
+	}
+
 	num := 100
 	expected := make([]*message, num)
 	for i := 0; i < num; i++ {
@@ -173,7 +187,6 @@ func TestStreamLeaderFailover(t *testing.T) {
 	waitForHW(t, 5*time.Second, name, 0, int64(num-1), servers...)
 
 	// Kill the stream leader.
-	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	leader.Stop()
 	followers := []*Server{}
 	for _, s := range servers {
@@ -184,7 +197,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	}
 
 	// Wait for new leader to be elected.
-	getPartitionLeader(t, 10*time.Second, name, 0, followers...)
+	leader = getPartitionLeader(t, 10*time.Second, name, 0, followers...)
 
 	// Make sure the new leader's log is consistent.
 	i = 0
@@ -209,6 +222,13 @@ func TestStreamLeaderFailover(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Did not receive all expected messages")
 	}
+
+	// Check partition load counts.
+	partitionCounts := leader.metadata.BrokerPartitionCounts()
+	require.Len(t, partitionCounts, 3)
+	require.Equal(t, 1, partitionCounts[leader.config.Clustering.ServerID])
+	leaderCounts := leader.metadata.BrokerLeaderCounts()
+	require.Equal(t, 1, leaderCounts[leader.config.Clustering.ServerID])
 }
 
 // Ensure the leader commits when the ISR shrinks if it causes pending messages

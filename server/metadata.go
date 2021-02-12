@@ -118,6 +118,30 @@ func newMetadataAPI(s *Server) *metadataAPI {
 	}
 }
 
+// BrokerPartitionCounts returns a map of broker IDs to the number of
+// partitions they are hosting.
+func (m *metadataAPI) BrokerPartitionCounts() map[string]int {
+	m.mu.RLock()
+	counts := make(map[string]int, len(m.brokerPartitionLoad))
+	for broker, count := range m.brokerPartitionLoad {
+		counts[broker] = count
+	}
+	m.mu.RUnlock()
+	return counts
+}
+
+// BrokerLeaderCounts returns a map of broker IDs to the number of
+// partitions they are leading.
+func (m *metadataAPI) BrokerLeaderCounts() map[string]int {
+	m.mu.RLock()
+	counts := make(map[string]int, len(m.brokerLeaderLoad))
+	for broker, count := range m.brokerLeaderLoad {
+		counts[broker] = count
+	}
+	m.mu.RUnlock()
+	return counts
+}
+
 // FetchMetadata retrieves the cluster metadata for the given request. If the
 // request specifies streams, it will only return metadata for those particular
 // streams. If not, it will return metadata for all streams.
@@ -790,7 +814,136 @@ func (m *metadataAPI) ResumePartition(streamName string, id int32, recovered boo
 	// Start leader/follower loop if necessary.
 	leader, epoch := partition.GetLeader()
 	err = partition.SetLeader(leader, epoch)
+
+	// Update broker load counts.
+	for _, broker := range partition.GetReplicas() {
+		m.brokerPartitionLoad[broker]++
+	}
+	m.brokerLeaderLoad[leader]++
+
 	return partition, err
+}
+
+// RemoveFromISR removes the given replica from the partition's ISR if the
+// given epoch is greater than the current epoch.
+func (m *metadataAPI) RemoveFromISR(streamName, replica string, partitionID int32, epoch uint64) error {
+	partition := m.GetPartition(streamName, partitionID)
+	if partition == nil {
+		return fmt.Errorf("No such partition [stream=%s, partition=%d]", streamName, partitionID)
+	}
+
+	// Idempotency check.
+	if partition.GetEpoch() >= epoch {
+		return nil
+	}
+
+	if err := partition.RemoveFromISR(replica); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to remove %s from ISR for partition %s",
+			replica, partition))
+	}
+
+	partition.SetEpoch(epoch)
+	return nil
+}
+
+// AddToISR adds the given replica to the partition's ISR if the given epoch is
+// greater than the current epoch.
+func (m *metadataAPI) AddToISR(streamName, replica string, partitionID int32, epoch uint64) error {
+	partition := m.GetPartition(streamName, partitionID)
+	if partition == nil {
+		return fmt.Errorf("No such partition [stream=%s, partition=%d]", streamName, partitionID)
+	}
+
+	// Idempotency check.
+	if partition.GetEpoch() >= epoch {
+		return nil
+	}
+
+	if err := partition.AddToISR(replica); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to add %s to ISR for partition %s",
+			replica, partition))
+	}
+
+	partition.SetEpoch(epoch)
+	return nil
+}
+
+// ChangeLeader changes the partition's leader to the given replica if the
+// given epoch is greater than the current epoch.
+func (m *metadataAPI) ChangeLeader(streamName, leader string, partitionID int32, epoch uint64) error {
+	partition := m.GetPartition(streamName, partitionID)
+	if partition == nil {
+		return fmt.Errorf("No such partition [stream=%s, partition=%d]", streamName, partitionID)
+	}
+
+	// Idempotency check.
+	if partition.GetEpoch() >= epoch {
+		return nil
+	}
+
+	oldLeader, _ := partition.GetLeader()
+
+	if err := partition.SetLeader(leader, epoch); err != nil {
+		return errors.Wrap(err, "failed to change partition leader")
+	}
+
+	partition.SetEpoch(epoch)
+
+	// Update broker load counts.
+	m.mu.Lock()
+	if m.brokerLeaderLoad[oldLeader] > 0 {
+		m.brokerLeaderLoad[oldLeader]--
+	}
+	m.brokerLeaderLoad[leader]++
+	m.mu.Unlock()
+
+	return nil
+}
+
+// PausePartitions pauses the given partitions for the stream. If the list of
+// partitions is empty, this pauses all partitions.
+func (m *metadataAPI) PausePartitions(streamName string, partitions []int32, resumeAll bool) error {
+	stream := m.GetStream(streamName)
+	if stream == nil {
+		return ErrStreamNotFound
+	}
+
+	paused, err := stream.Pause(partitions, resumeAll)
+	if err != nil {
+		return errors.Wrap(err, "failed to pause stream")
+	}
+
+	// Update broker load counts.
+	m.mu.Lock()
+	for _, partition := range paused {
+		for _, broker := range partition.Replicas {
+			if m.brokerPartitionLoad[broker] > 0 {
+				m.brokerPartitionLoad[broker]--
+			}
+		}
+		if m.brokerLeaderLoad[partition.Leader] > 0 {
+			m.brokerLeaderLoad[partition.Leader]--
+		}
+	}
+	m.mu.Unlock()
+
+	return nil
+}
+
+// SetReadonly changes the stream partitions' readonly flag in the metadata
+// store.
+func (m *metadataAPI) SetReadonly(streamName string, partitions []int32, readonly bool) error {
+	stream := m.GetStream(streamName)
+	if stream == nil {
+		return ErrStreamNotFound
+	}
+
+	err := stream.SetReadonly(partitions, readonly)
+	if err != nil {
+		return errors.Wrap(err, "failed to set stream as readonly")
+	}
+
+	return nil
 }
 
 // GetStreams returns all streams from the metadata store.
@@ -869,14 +1022,12 @@ func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
 	// Update broker load counts.
 	for _, partition := range stream.GetPartitions() {
 		for _, broker := range partition.Replicas {
-			m.brokerPartitionLoad[broker]--
-			if m.brokerPartitionLoad[broker] < 0 {
-				m.brokerPartitionLoad[broker] = 0
+			if m.brokerPartitionLoad[broker] > 0 {
+				m.brokerPartitionLoad[broker]--
 			}
 		}
-		m.brokerLeaderLoad[partition.Leader]--
-		if m.brokerLeaderLoad[partition.Leader] < 0 {
-			m.brokerLeaderLoad[partition.Leader] = 0
+		if m.brokerLeaderLoad[partition.Leader] > 0 {
+			m.brokerLeaderLoad[partition.Leader]--
 		}
 	}
 

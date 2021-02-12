@@ -1452,6 +1452,14 @@ func TestPauseStreamAllPartitions(t *testing.T) {
 	err = client.CreateStream(context.Background(), subject, name, lift.Partitions(2))
 	require.NoError(t, err)
 
+	// Check partition load counts.
+	partitionCounts := s1.metadata.BrokerPartitionCounts()
+	require.Len(t, partitionCounts, 1)
+	require.Equal(t, 2, partitionCounts[s1.config.Clustering.ServerID])
+	leaderCounts := s1.metadata.BrokerLeaderCounts()
+	require.Len(t, leaderCounts, 1)
+	require.Equal(t, 2, leaderCounts[s1.config.Clustering.ServerID])
+
 	// Try to pause a non-existing stream.
 	err = client.PauseStream(context.Background(), "bar")
 	require.Error(t, err)
@@ -1467,6 +1475,14 @@ func TestPauseStreamAllPartitions(t *testing.T) {
 	// Check that both partitions are paused.
 	checkPartitionPaused(t, 5*time.Second, name, 0, true, s1)
 	checkPartitionPaused(t, 5*time.Second, name, 1, true, s1)
+
+	// Check partition load counts.
+	partitionCounts = s1.metadata.BrokerPartitionCounts()
+	require.Len(t, partitionCounts, 1)
+	require.Equal(t, 0, partitionCounts[s1.config.Clustering.ServerID])
+	leaderCounts = s1.metadata.BrokerLeaderCounts()
+	require.Len(t, leaderCounts, 1)
+	require.Equal(t, 0, leaderCounts[s1.config.Clustering.ServerID])
 
 	// Publish a message to partition 0.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1494,6 +1510,14 @@ func TestPauseStreamAllPartitions(t *testing.T) {
 	// Check that partition 0 was resumed but partition 1 is still paused.
 	checkPartitionPaused(t, 5*time.Second, name, 0, false, s1)
 	checkPartitionPaused(t, 5*time.Second, name, 1, true, s1)
+
+	// Check partition load counts.
+	partitionCounts = s1.metadata.BrokerPartitionCounts()
+	require.Len(t, partitionCounts, 1)
+	require.Equal(t, 1, partitionCounts[s1.config.Clustering.ServerID])
+	leaderCounts = s1.metadata.BrokerLeaderCounts()
+	require.Len(t, leaderCounts, 1)
+	require.Equal(t, 1, leaderCounts[s1.config.Clustering.ServerID])
 }
 
 // Test stream pausing and resuming. A paused stream should re-activate itself

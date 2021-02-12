@@ -120,8 +120,9 @@ func (s *stream) Close() error {
 	return nil
 }
 
-// Pause some or all the partitions of this stream.
-func (s *stream) Pause(partitions []int32, resumeAll bool) error {
+// Pause some or all the partitions of this stream. Returns a list of the
+// partitions that were paused.
+func (s *stream) Pause(partitions []int32, resumeAll bool) ([]*partition, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -134,7 +135,7 @@ func (s *stream) Pause(partitions []int32, resumeAll bool) error {
 		for _, partitionID := range partitions {
 			partition, ok := s.partitions[partitionID]
 			if !ok {
-				return ErrPartitionNotFound
+				return nil, ErrPartitionNotFound
 			}
 			toPause = append(toPause, partition)
 		}
@@ -142,12 +143,12 @@ func (s *stream) Pause(partitions []int32, resumeAll bool) error {
 
 	for _, partition := range toPause {
 		if err := partition.Pause(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	s.resumeAll = resumeAll
-	return nil
+	return toPause, nil
 }
 
 // Delete the stream by closing and deleting each of its partitions.
