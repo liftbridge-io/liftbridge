@@ -1,0 +1,34 @@
+{
+  "version-v1.5.0-docs": {
+    "Overview": [
+      "version-v1.5.0-overview",
+      "version-v1.5.0-faq",
+      "version-v1.5.0-concepts",
+      "version-v1.5.0-quick-start",
+      "version-v1.5.0-feature-comparison",
+      "version-v1.5.0-roadmap"
+    ],
+    "Configuration": [
+      "version-v1.5.0-configuration",
+      "version-v1.5.0-ha-and-consistency-configuration",
+      "version-v1.5.0-scalability-configuration",
+      "version-v1.5.0-embedded-nats"
+    ],
+    "Deployment": [
+      "version-v1.5.0-deployment"
+    ],
+    "Developing With Liftbridge": [
+      "version-v1.5.0-activity",
+      "version-v1.5.0-pausing-streams",
+      "version-v1.5.0-cursors"
+    ],
+    "Technical Deep Dive": [
+      "version-v1.5.0-replication-protocol",
+      "version-v1.5.0-envelope-protocol"
+    ],
+    "Client Libraries": [
+      "version-v1.5.0-clients",
+      "version-v1.5.0-client-implementation"
+    ]
+  }
+}
