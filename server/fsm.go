@@ -368,24 +368,12 @@ func (s *Server) applyCreateStream(protoStream *proto.Stream, recovered bool) er
 // partition epoch. If the partition epoch is greater than or equal to the
 // specified epoch, this does nothing.
 func (s *Server) applyShrinkISR(stream, replica string, partitionID int32, epoch uint64) error {
-	partition := s.metadata.GetPartition(stream, partitionID)
-	if partition == nil {
-		return fmt.Errorf("No such partition [stream=%s, partition=%d]", stream, partitionID)
+	if err := s.metadata.RemoveFromISR(stream, replica, partitionID, epoch); err != nil {
+		return errors.Wrap(err, "failed to shrink ISR")
 	}
 
-	// Idempotency check.
-	if partition.GetEpoch() >= epoch {
-		return nil
-	}
-
-	if err := partition.RemoveFromISR(replica); err != nil {
-		return errors.Wrap(err, fmt.Sprintf("failed to remove %s from ISR for partition %s",
-			replica, partition))
-	}
-
-	partition.SetEpoch(epoch)
-
-	s.logger.Warnf("fsm: Removed replica %s from ISR for partition %s", replica, partition)
+	s.logger.Warnf("fsm: Removed replica %s from ISR for partition [stream=%s, partition=%d]",
+		replica, stream, partitionID)
 	return nil
 }
 
@@ -393,24 +381,12 @@ func (s *Server) applyShrinkISR(stream, replica string, partitionID int32, epoch
 // partition epoch. If the partition epoch is greater than or equal to the
 // specified epoch, this does nothing.
 func (s *Server) applyExpandISR(stream, replica string, partitionID int32, epoch uint64) error {
-	partition := s.metadata.GetPartition(stream, partitionID)
-	if partition == nil {
-		return fmt.Errorf("No such partition [stream=%s, partition=%d]", stream, partitionID)
+	if err := s.metadata.AddToISR(stream, replica, partitionID, epoch); err != nil {
+		return errors.Wrap(err, "failed to expand ISR")
 	}
 
-	// Idempotency check.
-	if partition.GetEpoch() >= epoch {
-		return nil
-	}
-
-	if err := partition.AddToISR(replica); err != nil {
-		return errors.Wrap(err, fmt.Sprintf("failed to add %s to ISR for partition %s",
-			replica, partition))
-	}
-
-	partition.SetEpoch(epoch)
-
-	s.logger.Infof("fsm: Added replica %s to ISR for partition %s", replica, partition)
+	s.logger.Infof("fsm: Added replica %s to ISR for partition [stream=%s, partition=%d]",
+		replica, stream, partitionID)
 	return nil
 }
 
@@ -418,23 +394,12 @@ func (s *Server) applyExpandISR(stream, replica string, partitionID int32, epoch
 // and updates the partition epoch. If the partition epoch is greater than or
 // equal to the specified epoch, this does nothing.
 func (s *Server) applyChangePartitionLeader(stream, leader string, partitionID int32, epoch uint64) error {
-	partition := s.metadata.GetPartition(stream, partitionID)
-	if partition == nil {
-		return fmt.Errorf("No such partition [stream=%s, partition=%d]", stream, partitionID)
-	}
-
-	// Idempotency check.
-	if partition.GetEpoch() >= epoch {
-		return nil
-	}
-
-	if err := partition.SetLeader(leader, epoch); err != nil {
+	if err := s.metadata.ChangeLeader(stream, leader, partitionID, epoch); err != nil {
 		return errors.Wrap(err, "failed to change partition leader")
 	}
 
-	partition.SetEpoch(epoch)
-
-	s.logger.Debugf("fsm: Changed leader for partition %s to %s", partition, leader)
+	s.logger.Debugf("fsm: Changed leader for partition [stream=%s, partition=%d] to %s",
+		stream, partitionID, leader)
 	return nil
 }
 
@@ -455,25 +420,19 @@ func (s *Server) applyDeleteStream(streamName string) error {
 }
 
 // applyPauseStream pauses the given stream partitions.
-func (s *Server) applyPauseStream(streamName string, partitions []int32, resumeAll bool) error {
-	stream := s.metadata.GetStream(streamName)
-	if stream == nil {
-		return ErrStreamNotFound
-	}
-
-	err := stream.Pause(partitions, resumeAll)
-	if err != nil {
+func (s *Server) applyPauseStream(stream string, partitions []int32, resumeAll bool) error {
+	if err := s.metadata.PausePartitions(stream, partitions, resumeAll); err != nil {
 		return errors.Wrap(err, "failed to pause stream")
 	}
 
-	s.logger.Debugf("fsm: Paused stream %s", streamName)
+	s.logger.Debugf("fsm: Paused stream %s", stream)
 	return nil
 }
 
 // applyResumeStream unpauses the given stream partitions in the metadata
-// store.  If the partitions are being recovered, they will not be started
-// until after the recovery process completes. If they are not being recovered,
-// the partitions will be started as a leader or follower if applicable.
+// store. If the partitions are being recovered, they will not be started until
+// after the recovery process completes. If they are not being recovered, the
+// partitions will be started as a leader or follower if applicable.
 func (s *Server) applyResumeStream(streamName string, partitionIDs []int32, recovered bool) error {
 	for _, id := range partitionIDs {
 		partition, err := s.metadata.ResumePartition(streamName, id, recovered)
@@ -488,14 +447,8 @@ func (s *Server) applyResumeStream(streamName string, partitionIDs []int32, reco
 // applySetStreamReadonly changes the stream partitions readonly flag in the
 // metadata store.
 func (s *Server) applySetStreamReadonly(streamName string, partitions []int32, readonly bool) error {
-	stream := s.metadata.GetStream(streamName)
-	if stream == nil {
-		return ErrStreamNotFound
-	}
-
-	err := stream.SetReadonly(partitions, readonly)
-	if err != nil {
-		return errors.Wrap(err, "failed to set stream as readonly")
+	if err := s.metadata.SetReadonly(streamName, partitions, readonly); err != nil {
+		return errors.Wrap(err, "failed to set stream readonly flag")
 	}
 
 	s.logger.Debugf("fsm: Set stream %s readonly flag as %v", streamName, readonly)

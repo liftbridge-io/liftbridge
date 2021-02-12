@@ -167,6 +167,14 @@ func TestCreateStreamPartitioned(t *testing.T) {
 	stream := s1.metadata.GetStream("foo")
 	require.NotNil(t, stream)
 	require.Len(t, stream.partitions, 3)
+
+	// Check partition load counts.
+	partitionCounts := s1.metadata.BrokerPartitionCounts()
+	require.Len(t, partitionCounts, 1)
+	require.Equal(t, 3, partitionCounts[s1.config.Clustering.ServerID])
+	leaderCounts := s1.metadata.BrokerLeaderCounts()
+	require.Len(t, leaderCounts, 1)
+	require.Equal(t, 3, leaderCounts[s1.config.Clustering.ServerID])
 }
 
 // Ensure subscribing to a non-existent stream returns an error.
@@ -220,6 +228,14 @@ func TestDeleteStream(t *testing.T) {
 	stream := s1.metadata.GetStream("foo")
 	require.NotNil(t, stream)
 
+	// Check partition load counts.
+	partitionCounts := s1.metadata.BrokerPartitionCounts()
+	require.Len(t, partitionCounts, 1)
+	require.Equal(t, 3, partitionCounts[s1.config.Clustering.ServerID])
+	leaderCounts := s1.metadata.BrokerLeaderCounts()
+	require.Len(t, leaderCounts, 1)
+	require.Equal(t, 3, leaderCounts[s1.config.Clustering.ServerID])
+
 	err = client.DeleteStream(context.Background(), "foo")
 	require.NoError(t, err)
 
@@ -228,6 +244,14 @@ func TestDeleteStream(t *testing.T) {
 
 	stream = s1.metadata.GetStream("foo")
 	require.Nil(t, stream)
+
+	// Check partition load counts.
+	partitionCounts = s1.metadata.BrokerPartitionCounts()
+	require.Len(t, partitionCounts, 1)
+	require.Equal(t, 0, partitionCounts[s1.config.Clustering.ServerID])
+	leaderCounts = s1.metadata.BrokerLeaderCounts()
+	require.Len(t, leaderCounts, 1)
+	require.Equal(t, 0, leaderCounts[s1.config.Clustering.ServerID])
 
 	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
 	require.NoError(t, err)
@@ -776,7 +800,8 @@ func TestSubscribePartitionPaused(t *testing.T) {
 	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
 	require.Nil(t, status)
 
-	require.NoError(t, stream.Pause(nil, true))
+	_, err = stream.Pause(nil, true)
+	require.NoError(t, err)
 
 	select {
 	case status := <-statusCh:
@@ -1429,8 +1454,8 @@ func TestPublishAsyncWithConcurrencyIgnoreOffset(t *testing.T) {
 	}
 }
 
-// TestPublishAsyncWithConcurrencyCorrectOffset ensures an that publish messages
-// work with correct expected offset provided
+// TestPublishAsyncWithConcurrencyCorrectOffset ensures that published messages
+// work with correct expected offset provided.
 func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -1469,7 +1494,15 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Publish Async with expected offset (2nd times)
+	select {
+	case err := <-errorC:
+		// should be no error
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+
+	// Publish Async with incorrect expected offset
 	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
 		func(ack *lift.Ack, err error) {
 			errorC <- err
@@ -1482,8 +1515,7 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 
 	select {
 	case err := <-errorC:
-		// should be no error
-		require.NoError(t, err)
+		require.Error(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("Did not receive expected error")
 	}
