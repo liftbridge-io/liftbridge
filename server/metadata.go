@@ -53,9 +53,8 @@ type leaderReport struct {
 // of replicas have reported the leader, a new leader will be selected.
 // Otherwise, the expiration timer is reset. An error is returned if selecting
 // a new leader fails.
-func (l *leaderReport) addWitness(replica string) *status.Status {
+func (l *leaderReport) addWitness(ctx context.Context, replica string) *status.Status {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	l.witnessReplicas[replica] = struct{}{}
 
@@ -69,7 +68,8 @@ func (l *leaderReport) addWitness(replica string) *status.Status {
 		if l.timer != nil {
 			l.timer.Stop()
 		}
-		return l.api.electNewPartitionLeader(l.partition)
+		l.mu.Unlock()
+		return l.api.electNewPartitionLeader(ctx, l.partition)
 	}
 
 	if l.timer != nil {
@@ -82,6 +82,7 @@ func (l *leaderReport) addWitness(replica string) *status.Status {
 				l.api.mu.Unlock()
 			})
 	}
+	l.mu.Unlock()
 	return nil
 }
 
@@ -670,7 +671,7 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	}
 	m.mu.Unlock()
 
-	return reported.addWitness(req.Replica)
+	return reported.addWitness(ctx, req.Replica)
 }
 
 // SetStreamReadonly sets a stream's readonly flag if this server is the
@@ -1101,7 +1102,7 @@ func (m *metadataAPI) getClusterServerIDs() ([]string, error) {
 // electNewPartitionLeader selects a new leader for the given partition,
 // applies this update to the Raft group, and notifies the replica set. This
 // will fail if the current broker is not the metadata leader.
-func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Status {
+func (m *metadataAPI) electNewPartitionLeader(ctx context.Context, partition *partition) *status.Status {
 	isr := partition.GetISR()
 	// TODO: add support for "unclean" leader elections.
 	if len(isr) <= 1 {
@@ -1135,7 +1136,7 @@ func (m *metadataAPI) electNewPartitionLeader(partition *partition) *status.Stat
 	}
 
 	// Wait on result of replication.
-	future, err := m.getRaft().applyOperation(context.TODO(), op, m.checkChangeLeaderPreconditions)
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkChangeLeaderPreconditions)
 	if err != nil {
 		return status.Newf(codes.FailedPrecondition, err.Error())
 	}
