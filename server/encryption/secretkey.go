@@ -1,8 +1,7 @@
 package encryption
 
 import (
-	"errors"
-	"os"
+	"crypto/rand"
 )
 
 const (
@@ -12,47 +11,34 @@ const (
 )
 
 var (
-	encryptionKey = "ENV_ENCRYPTION_KEY"
-	//ErrEncryptionKeyNotFound indicates that the encryption key
-	// is not set in the environment variables
-	ErrEncryptionKeyNotFound = errors.New("encryption key is not set")
+	masterKeyVarName = "LOCAL_MASTER_KEY"
 )
 
-// SecretKeyHandler provides the necessary method to safely retrieve
+// EncryptionHandler provides the necessary method to safely retrieve
 // secret encryption key to encrypt/decrypt data at rest
-type SecretKeyHandler interface {
-	RetrieveSecretKey() (string, error)
+type EncryptionHandler interface {
+	generateDKS() ([]byte, error)
+	wrapDKS(string) (string, error)
+	ecnryptData(string, string) (string, error)
+	decryptData(string, string) (string, error)
 }
 
-// EnvKeyHandler provides functionalities to load secret key
+// LocalEncryptionHandler provides functionalities to load secret key
 // from environment variables
-type EnvKeyHandler struct {
-	keyName string
+type LocalEncryptionHandler struct {
 }
 
-// RetrieveSecretKey retrieves the pre-configurated encryption key
+// generateDKS retrieves the pre-configurated encryption key
 // from the environment variables.
-func (EnvKeyHandler) RetrieveSecretKey() (string, error) {
-	encryptionKey = os.Getenv(encryptionKey)
-	if encryptionKey == "" {
-		return "", ErrEncryptionKeyNotFound
+func (LocalEncryptionHandler) generateDKS() ([]byte, error) {
+	key := make([]byte, 128)
+
+	_, err := rand.Read(key)
+
+	if err != nil {
+		return nil, err
 	}
-	return encryptionKey, nil
 
-}
+	return key, nil
 
-// NewEnvKeyHandler initiate a new handler to retrieve key
-// from environement variables
-func NewEnvKeyHandler() EnvKeyHandler {
-	return EnvKeyHandler{keyName: encryptionKey}
-}
-
-//KeyHandlerFactory generates the appropriate key handler
-// At this moment, only handler to retrieve key from
-// environment variables is provided.
-func KeyHandlerFactory(keyType int) (SecretKeyHandler, error) {
-	if keyType == EnvironmentKeyType {
-		return NewEnvKeyHandler(), nil
-	}
-	return nil, errors.New("No encryption key handler type is provided")
 }
