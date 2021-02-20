@@ -5,18 +5,17 @@ import (
 )
 
 const (
-	// EnvironmentKeyType indicates that the encryption key
-	// is present in the environment variables.
-	EnvironmentKeyType int = 0
+	// EncryptionKeyLength provides the length for data key
+	EncryptionKeyLength int = 128
 )
 
 var (
 	masterKeyVarName = "LOCAL_MASTER_KEY"
 )
 
-// EncryptionHandler provides the necessary method to safely retrieve
+// Handler provides the necessary method to safely retrieve
 // secret encryption key to encrypt/decrypt data at rest
-type EncryptionHandler interface {
+type Handler interface {
 	generateDKS() ([]byte, error)
 	wrapDKS(string) (string, error)
 	ecnryptData(string, string) (string, error)
@@ -31,7 +30,7 @@ type LocalEncryptionHandler struct {
 // generateDKS retrieves the pre-configurated encryption key
 // from the environment variables.
 func (LocalEncryptionHandler) generateDKS() ([]byte, error) {
-	key := make([]byte, 128)
+	key := make([]byte, EncryptionKeyLength)
 
 	_, err := rand.Read(key)
 
@@ -42,3 +41,6 @@ func (LocalEncryptionHandler) generateDKS() ([]byte, error) {
 	return key, nil
 
 }
+
+// use Tinker to wrap Data Key
+// https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e

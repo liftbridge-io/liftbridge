@@ -15,5 +15,5 @@ func TestGenerateDataKeyCorrectly(t *testing.T) {
 	dks, err := keyHandler.generateDKS()
 	// Expect retrieval without error
 	require.NoError(t, err)
-	require.Equal(t, len(dks), 128)
+	require.Equal(t, len(dks), EncryptionKeyLength)
 }
