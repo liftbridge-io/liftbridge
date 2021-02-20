@@ -2,6 +2,9 @@ package encryption
 
 import (
 	"crypto/rand"
+	"os"
+
+	"github.com/google/tink/go/kwp/subtle"
 )
 
 const (
@@ -25,11 +28,25 @@ type Handler interface {
 // LocalEncryptionHandler provides functionalities to load secret key
 // from environment variables
 type LocalEncryptionHandler struct {
+	keywrappeder *subtle.KWP
+}
+
+// NewLocalEncriptionHandler generates a new instance of LocalEncryptionHandler
+func NewLocalEncriptionHandler() (*LocalEncryptionHandler, error) {
+	localEncryptionHandler := LocalEncryptionHandler{}
+	masterKeyStr := os.Getenv(masterKeyVarName)
+	masterKey := []byte(masterKeyStr)
+	kwp, err := subtle.NewKWP(masterKey)
+	if err != nil {
+		return nil, err
+	}
+	localEncryptionHandler.keywrappeder = kwp
+	return &localEncryptionHandler, nil
 }
 
 // generateDKS retrieves the pre-configurated encryption key
 // from the environment variables.
-func (LocalEncryptionHandler) generateDKS() ([]byte, error) {
+func (handler *LocalEncryptionHandler) generateDKS() ([]byte, error) {
 	key := make([]byte, EncryptionKeyLength)
 
 	_, err := rand.Read(key)
@@ -42,5 +59,17 @@ func (LocalEncryptionHandler) generateDKS() ([]byte, error) {
 
 }
 
-// use Tinker to wrap Data Key
+func (handler *LocalEncryptionHandler) wrapDKS(dks []byte) ([]byte, error) {
+
+	wrappededKey, err := handler.keywrappeder.Wrap(dks)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return wrappededKey, nil
+
+}
+
+// use Tinker to wrapped Data Key
 // https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e
