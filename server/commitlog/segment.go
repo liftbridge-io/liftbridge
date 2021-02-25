@@ -154,11 +154,15 @@ func (s *segment) CheckSplit(logRollTime time.Duration) bool {
 }
 
 // Seal a segment from being written to. This is called on the former active
-// segment after a new segment is rolled. This is a no-op if the segment is
-// already sealed.
+// segment after a new segment is rolled or when the segment is closed. This is
+// a no-op if the segment is already sealed.
 func (s *segment) Seal() {
 	s.Lock()
 	defer s.Unlock()
+	s.seal()
+}
+
+func (s *segment) seal() {
 	if s.sealed {
 		return
 	}
@@ -329,6 +333,7 @@ func (s *segment) close() error {
 		return err
 	}
 	s.closed = true
+	s.seal()
 	return nil
 }
 
