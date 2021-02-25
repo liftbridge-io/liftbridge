@@ -135,3 +135,79 @@ func TestSegmentSealIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(256), stats.Size())
 }
+
+// Ensure WaitForLEO returns a channel that is closed immediately when the
+// expected LEO differs from the actual LEO. Otherwise returns a channel that
+// is closed when the LEO changes or the segment is sealed.
+func TestSegmentWaitForLEO(t *testing.T) {
+	dir := tempDir(t)
+	defer remove(t, dir)
+
+	s := createSegment(t, dir, 0, 100)
+
+	// Channel should be closed immediately if the expected LEO differs from
+	// the actual.
+	waiter := s.WaitForLEO(struct{}{}, 0, 1)
+	select {
+	case <-waiter:
+	case <-time.After(time.Second):
+		t.Fatal("Expected channel to be closed")
+	}
+
+	require.NoError(t, s.WriteMessageSet(make([]byte, 5), []*entry{{Offset: 0, Size: 5}}))
+	require.NoError(t, s.WriteMessageSet(make([]byte, 5), []*entry{{Offset: 1, Size: 5}}))
+
+	// Channel should be closed immediately if the expected LEO and actual last
+	// known LEO are the same but the expected differs from the active
+	// segment's last offset.
+	waiter = s.WaitForLEO(struct{}{}, 0, 0)
+	select {
+	case <-waiter:
+	case <-time.After(time.Second):
+		t.Fatal("Expected channel to be closed")
+	}
+
+	// Channel should not be closed until segment is written to.
+	waiter = s.WaitForLEO(struct{}{}, 1, 1)
+	select {
+	case <-waiter:
+		t.Fatal("Channel was unexpectedly closed")
+	default:
+	}
+
+	require.NoError(t, s.WriteMessageSet(make([]byte, 5), []*entry{{Offset: 2, Size: 5}}))
+
+	// Channel should now be closed.
+	select {
+	case <-waiter:
+	case <-time.After(time.Second):
+		t.Fatal("Expected channel to be closed")
+	}
+
+	// Channel should not be closed until segment is sealed.
+	waiter = s.WaitForLEO(struct{}{}, 2, 2)
+	select {
+	case <-waiter:
+		t.Fatal("Channel was unexpectedly closed")
+	default:
+	}
+
+	s.Seal()
+
+	// Channel should now be closed.
+	select {
+	case <-waiter:
+	case <-time.After(time.Second):
+		t.Fatal("Expected channel to be closed")
+	}
+
+	require.NoError(t, s.WriteMessageSet(make([]byte, 100), []*entry{{Offset: 3, Size: 100}}))
+
+	// Channel should be closed immediately because the segment is full.
+	waiter = s.WaitForLEO(struct{}{}, 3, 3)
+	select {
+	case <-waiter:
+	case <-time.After(time.Second):
+		t.Fatal("Expected channel to be closed")
+	}
+}
