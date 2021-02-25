@@ -266,10 +266,15 @@ func (s *segment) notifyWaiters() {
 	}
 }
 
-func (s *segment) WaitForLEO(waiter interface{}, leo int64) <-chan struct{} {
+func (s *segment) WaitForLEO(waiter interface{}, expectedLEO, actualLEO int64) <-chan struct{} {
 	s.Lock()
 	defer s.Unlock()
-	if s.lastOffset != leo {
+	// Check expected LEO against last known LEO and against the current
+	// (active) segment's last offset in case the LEO changed since we last
+	// checked it. If the current segment's last offset is -1, this means the
+	// segment is empty and we should wait for data.
+	if expectedLEO != actualLEO || (expectedLEO != s.lastOffset && s.lastOffset != -1) {
+		// LEO has since changed so close channel immediately.
 		ch := make(chan struct{})
 		close(ch)
 		return ch
