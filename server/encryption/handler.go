@@ -15,7 +15,7 @@ const (
 	// It is recommended to use an authentication key with 32 or 64 bytes.
 	// The encryption key, if set, must be either
 	// 16, 24, or 32 bytes to select AES-128, AES-192, or AES-256 modes.
-	EncryptionKeyLength int = 24
+	EncryptionKeyLength int = 32
 )
 
 var (
@@ -34,19 +34,13 @@ type Handler interface {
 // LocalEncryptionHandler provides functionalities to load secret key
 // from environment variables
 type LocalEncryptionHandler struct {
-	defaultDKS   []byte
-	keywrappeder *subtle.KWP
-	blockCypher  *cipher.AEAD
+	keywrapper  *subtle.KWP
+	blockCypher *cipher.AEAD
 }
 
 // NewLocalEncriptionHandler generates a new instance of LocalEncryptionHandler
 func NewLocalEncriptionHandler() (*LocalEncryptionHandler, error) {
 	localEncryptionHandler := LocalEncryptionHandler{}
-
-	// generate default DKS
-
-	defaultDKS, err := localEncryptionHandler.generateDKS()
-	localEncryptionHandler.defaultDKS = defaultDKS
 
 	// Init key wrapper
 
@@ -57,21 +51,7 @@ func NewLocalEncriptionHandler() (*LocalEncryptionHandler, error) {
 	if err != nil {
 		return nil, err
 	}
-	localEncryptionHandler.keywrappeder = kwp
-
-	// Init cypher in GCM
-
-	block, err := aes.NewCipher(localEncryptionHandler.defaultDKS)
-	if err != nil {
-		return nil, err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-
-	if err != nil {
-		return nil, err
-	}
-	localEncryptionHandler.blockCypher = &gcm
+	localEncryptionHandler.keywrapper = kwp
 
 	return &localEncryptionHandler, nil
 }
@@ -94,7 +74,7 @@ func (handler *LocalEncryptionHandler) generateDKS() ([]byte, error) {
 func (handler *LocalEncryptionHandler) wrapDKS(dks []byte) ([]byte, error) {
 	// use Tinker to wrapped Data Key
 	// https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e
-	wrappededKey, err := handler.keywrappeder.Wrap(dks)
+	wrappededKey, err := handler.keywrapper.Wrap(dks)
 
 	if err != nil {
 		return nil, err
@@ -105,12 +85,50 @@ func (handler *LocalEncryptionHandler) wrapDKS(dks []byte) ([]byte, error) {
 }
 
 func (handler *LocalEncryptionHandler) encryptData(dks []byte, plaintextData []byte) ([]byte, error) {
-	gcm := *handler.blockCypher
+	// Init cypher in GCM
+
+	block, err := aes.NewCipher(dks)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+
+	if err != nil {
+		return nil, err
+	}
 	// init nonce
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		panic(err.Error())
 	}
-	ciphertext := gcm.Seal(nil, nonce, plaintextData, nil)
+	ciphertext := gcm.Seal(nonce, nonce, plaintextData, nil)
 	return ciphertext, nil
+}
+
+func (handler *LocalEncryptionHandler) decryptData(dks []byte, encryptedData []byte) ([]byte, error) {
+
+	block, err := aes.NewCipher(dks)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// get nonce
+	nonceSize := gcm.NonceSize()
+	nonce, ciphertext := encryptedData[:nonceSize], encryptedData[nonceSize:]
+
+	//Decrypt the data
+
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return plaintext, nil
 }
