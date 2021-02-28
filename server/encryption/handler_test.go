@@ -51,6 +51,34 @@ func TestWrapDataKeyCorrectly(t *testing.T) {
 	require.NotEqual(t, dks, wrappedDKS)
 }
 
+// Ensure that key can be unwrapped by using master key
+func TestUnWrapDataKeyCorrectly(t *testing.T) {
+	// Set a random AES key as master key
+	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+
+	// Given a key handler
+	keyHandler, err := NewLocalEncriptionHandler()
+	require.NoError(t, err)
+
+	// Generate DKS
+	dks, err := keyHandler.generateDKS()
+
+	// Expect DKS is generated without error
+	require.NoError(t, err)
+	require.Equal(t, EncryptionKeyLength, len(dks))
+
+	// Start wrapping DKS
+	wrappedDKS, err := keyHandler.wrapDKS(dks)
+	require.NoError(t, err)
+
+	// Unwrap
+	key, err := keyHandler.unwrapDKS(wrappedDKS)
+	require.NoError(t, err)
+
+	// Expect the unwrapped key is actually correct
+	require.Equal(t, dks, key)
+}
+
 // Ensure encryptions can encrypt the message
 func TestEncryption(t *testing.T) {
 	// Set a random AES key as master key
@@ -104,4 +132,56 @@ func TestDecryption(t *testing.T) {
 
 	// Expect to retrieve the same original text
 	require.Equal(t, plaintext, decryptedText)
+}
+
+// Ensure that the data data encryption process can be performed
+func TestSeal(t *testing.T) {
+	// Set a random AES key as master key
+	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+
+	// Given a key handler
+	keyHandler, err := NewLocalEncriptionHandler()
+	require.NoError(t, err)
+
+	// Given sample data
+	plaintext := []byte("exampleplaintext")
+
+	// Cipher
+	encryptedData, wrappedKey, err := keyHandler.Seal(plaintext)
+	require.NoError(t, err)
+
+	// Expect that  a default DKS key is generated
+	require.NotNil(t, keyHandler.defaultDKS)
+
+	// Expect that the data is encrypted
+	require.NotEqual(t, encryptedData, plaintext)
+
+	// Expect that the DKS key is wrapped
+	require.NotEqual(t, wrappedKey, keyHandler.defaultDKS)
+
+}
+
+// Ensure that the data data decryption process can be performed
+func TestRead(t *testing.T) {
+	// Set a random AES key as master key
+	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+
+	// Given a key handler
+	keyHandler, err := NewLocalEncriptionHandler()
+	require.NoError(t, err)
+
+	// Given sample data
+	plaintext := []byte("exampleplaintext")
+
+	// Cipher
+	encryptedData, wrappedKey, err := keyHandler.Seal(plaintext)
+	require.NoError(t, err)
+
+	// Decipher
+	deciphertext, err := keyHandler.Read(encryptedData, wrappedKey)
+	require.NoError(t, err)
+
+	// Expect the message is deciphered correctly
+	require.Equal(t, plaintext, deciphertext)
+
 }

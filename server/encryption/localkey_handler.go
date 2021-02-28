@@ -22,18 +22,10 @@ var (
 	masterKeyVarName = "LOCAL_MASTER_KEY"
 )
 
-// Handler provides the necessary method to safely retrieve
-// secret encryption key to encrypt/decrypt data at rest
-type Handler interface {
-	generateDKS() ([]byte, error)
-	wrapDKS(string) (string, error)
-	ecnryptData(string, string) (string, error)
-	decryptData(string, string) (string, error)
-}
-
 // LocalEncryptionHandler provides functionalities to load secret key
 // from environment variables
 type LocalEncryptionHandler struct {
+	defaultDKS  []byte
 	keywrapper  *subtle.KWP
 	blockCypher *cipher.AEAD
 }
@@ -72,7 +64,7 @@ func (handler *LocalEncryptionHandler) generateDKS() ([]byte, error) {
 }
 
 func (handler *LocalEncryptionHandler) wrapDKS(dks []byte) ([]byte, error) {
-	// use Tinker to wrapped Data Key
+	// use Tinker to wrap Data Key
 	// https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e
 	wrappededKey, err := handler.keywrapper.Wrap(dks)
 
@@ -82,6 +74,18 @@ func (handler *LocalEncryptionHandler) wrapDKS(dks []byte) ([]byte, error) {
 
 	return wrappededKey, nil
 
+}
+
+func (handler *LocalEncryptionHandler) unwrapDKS(wrappedDKS []byte) ([]byte, error) {
+	// use Tinker to unwrap Data Key
+	// https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e
+	key, err := handler.keywrapper.Unwrap(wrappedDKS)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return key, nil
 }
 
 func (handler *LocalEncryptionHandler) encryptData(dks []byte, plaintextData []byte) ([]byte, error) {
@@ -130,5 +134,53 @@ func (handler *LocalEncryptionHandler) decryptData(dks []byte, encryptedData []b
 		return nil, err
 	}
 
+	return plaintext, nil
+}
+
+// Seal takes data key and message, performs the encryption and return
+// the encrypted data along with the wrapped data
+func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, []byte, error) {
+	// Generate a default Data Key (DKS) if not yet available
+	if handler.defaultDKS == nil {
+		dksKey, err := handler.generateDKS()
+
+		if err != nil {
+			return nil, nil, err
+		}
+		handler.defaultDKS = dksKey
+	}
+
+	// Cipher the message
+	ciphertext, err := handler.encryptData(handler.defaultDKS, data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// wrap the data key
+
+	wrappedKey, err := handler.wrapDKS(handler.defaultDKS)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return ciphertext, wrappedKey, nil
+}
+
+// Read takes cipher text along with a wrapped data key, performs the decryption and return
+// the plaintext data
+func (handler *LocalEncryptionHandler) Read(ciphertext []byte, wrappedDKS []byte) ([]byte, error) {
+	unwrappedDKS, err := handler.unwrapDKS(wrappedDKS)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Decipher the message
+
+	plaintext, err := handler.decryptData(unwrappedDKS, ciphertext)
+
+	if err != nil {
+		return nil, err
+	}
 	return plaintext, nil
 }
