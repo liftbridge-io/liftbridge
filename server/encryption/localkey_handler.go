@@ -139,13 +139,13 @@ func (handler *LocalEncryptionHandler) decryptData(dks []byte, encryptedData []b
 
 // Seal takes data key and message, performs the encryption and return
 // the encrypted data along with the wrapped data
-func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, []byte, error) {
+func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, error) {
 	// Generate a default Data Key (DKS) if not yet available
 	if handler.defaultDKS == nil {
 		dksKey, err := handler.generateDKS()
 
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		handler.defaultDKS = dksKey
 	}
@@ -153,22 +153,37 @@ func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, []byte, error)
 	// Cipher the message
 	ciphertext, err := handler.encryptData(handler.defaultDKS, data)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// wrap the data key
 
 	wrappedKey, err := handler.wrapDKS(handler.defaultDKS)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return ciphertext, wrappedKey, nil
+	// concate wrapped key with cipyer text
+	// keySize | key | ciphertext
+	keyLength := len(wrappedKey)
+
+	// concate key size | wrapped key | ciphertext
+	keySize := []byte{byte(keyLength)}
+	dataSequence := append(keySize, wrappedKey...)
+	dataSequence = append(dataSequence, ciphertext...)
+
+	return dataSequence, nil
 }
 
 // Read takes cipher text along with a wrapped data key, performs the decryption and return
 // the plaintext data
-func (handler *LocalEncryptionHandler) Read(ciphertext []byte, wrappedDKS []byte) ([]byte, error) {
+func (handler *LocalEncryptionHandler) Read(encryptedData []byte) ([]byte, error) {
+	// Decompose wrapped key and cypher text
+	keySize := int(encryptedData[0])
+	keyEndPos := keySize + 1
+	wrappedDKS := encryptedData[1:keyEndPos]
+
+	ciphertext := encryptedData[keyEndPos:]
 	unwrappedDKS, err := handler.unwrapDKS(wrappedDKS)
 
 	if err != nil {

@@ -147,8 +147,15 @@ func TestSeal(t *testing.T) {
 	plaintext := []byte("exampleplaintext")
 
 	// Cipher
-	encryptedData, wrappedKey, err := keyHandler.Seal(plaintext)
+	data, err := keyHandler.Seal(plaintext)
 	require.NoError(t, err)
+
+	// decompose key and cipher text
+	// first  byte is the key size
+	keySize := int(data[0])
+	keyEndPos := keySize + 1
+	wrappedKey := data[1:keyEndPos]
+	encryptedData := data[keyEndPos:]
 
 	// Expect that  a default DKS key is generated
 	require.NotNil(t, keyHandler.defaultDKS)
@@ -174,11 +181,11 @@ func TestRead(t *testing.T) {
 	plaintext := []byte("exampleplaintext")
 
 	// Cipher
-	encryptedData, wrappedKey, err := keyHandler.Seal(plaintext)
+	data, err := keyHandler.Seal(plaintext)
 	require.NoError(t, err)
 
 	// Decipher
-	deciphertext, err := keyHandler.Read(encryptedData, wrappedKey)
+	deciphertext, err := keyHandler.Read(data)
 	require.NoError(t, err)
 
 	// Expect the message is deciphered correctly

@@ -15,6 +15,7 @@ import (
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
+	encryption "github.com/liftbridge-io/liftbridge/server/encryption"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
@@ -1424,8 +1425,27 @@ func getMessage(data []byte) *client.Message {
 	return msg
 }
 
+// handleEncryption performs encryption of data
+func handleEncryption(data []byte) []byte {
+	keyHandler, err := encryption.NewLocalEncriptionHandler()
+	if err != nil {
+		fmt.Printf("Failed to encrypt data, storing data without encryption %e", err)
+		return nil
+	}
+	// Cipher
+	encryptedData, err := keyHandler.Seal(data)
+
+	if err != nil {
+		fmt.Printf("Failed to encrypt data, storing data without encryption %e", err)
+		return nil
+	}
+
+	return encryptedData
+}
+
 // natsToProtoMessage converts the given NATS message to a commit log Message.
 func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
+
 	message := getMessage(msg.Data)
 	m := &commitlog.Message{
 		MagicByte:   1,
@@ -1433,9 +1453,12 @@ func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 		LeaderEpoch: leaderEpoch,
 		Headers:     make(map[string][]byte),
 	}
+
 	if message != nil {
+		// If Encryption-At-Rest is enabled, the message value must be encrypted
+		encryptedMessageValue := handleEncryption(message.Value)
 		m.Key = message.Key
-		m.Value = message.Value
+		m.Value = encryptedMessageValue
 		for key, value := range message.Headers {
 			m.Headers[key] = value
 		}
@@ -1444,7 +1467,9 @@ func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 		m.AckPolicy = message.AckPolicy
 		m.Offset = message.Offset
 	} else {
-		m.Value = msg.Data
+		// If Encryption-At-Rest is enabled, the message value must be encrypted
+		encryptedMessageValue := handleEncryption(msg.Data)
+		m.Value = encryptedMessageValue
 	}
 	m.Headers["subject"] = []byte(msg.Subject)
 	m.Headers["reply"] = []byte(msg.Reply)
