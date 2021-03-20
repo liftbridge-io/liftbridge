@@ -1716,3 +1716,120 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 	}
 
 }
+
+// Ensure publishing and receiving messages on a stream works with data Encryption-at-Rest.
+func TestStreamPublishSubscribewithDataEncryption(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Set AES key for Encryption-at-Rest
+	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicationMaxBytes = 1024
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
+	require.NoError(t, err)
+
+	num := 5
+	expected := make([]*message, num)
+	for i := 0; i < num; i++ {
+		expected[i] = &message{
+			Key:    []byte("bar"),
+			Value:  []byte(strconv.Itoa(i)),
+			Offset: int64(i),
+		}
+	}
+	i := 0
+	ch1 := make(chan struct{})
+	ch2 := make(chan struct{})
+	err = client.Subscribe(context.Background(), name, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		expect := expected[i]
+		assertMsg(t, expect, msg)
+		i++
+		if i == num {
+			close(ch1)
+		}
+		if i == num+5 {
+			close(ch2)
+		}
+	})
+	require.NoError(t, err)
+
+	// Publish messages.
+	for i := 0; i < num; i++ {
+		_, err = client.Publish(context.Background(), name, expected[i].Value,
+			lift.Key(expected[i].Key))
+		require.NoError(t, err)
+	}
+
+	// Wait to receive initial messages.
+	select {
+	case <-ch1:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+
+	// Publish some more messages.
+	for i := 0; i < 5; i++ {
+		expected = append(expected, &message{
+			Key:    []byte("baz"),
+			Value:  []byte(strconv.Itoa(i + num)),
+			Offset: int64(i + num),
+		})
+	}
+	for i := 0; i < 5; i++ {
+		_, err = client.Publish(context.Background(), name, expected[i+num].Value,
+			lift.Key(expected[i+num].Key))
+		require.NoError(t, err)
+	}
+
+	// Wait to receive remaining messages.
+	select {
+	case <-ch2:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+
+	// Make sure we can play back the log.
+	client2, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client2.Close()
+	i = num
+	ch1 = make(chan struct{})
+	err = client2.Subscribe(context.Background(), name,
+		func(msg *lift.Message, err error) {
+			require.NoError(t, err)
+			expect := expected[i]
+			assertMsg(t, expect, msg)
+			i++
+			if i == num+5 {
+				close(ch1)
+			}
+		}, lift.StartAtOffset(int64(num)))
+	require.NoError(t, err)
+
+	select {
+	case <-ch1:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+
+	// Publishing a message whose size is larger than max replication size
+	// returns an error.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, make([]byte, 1024+1))
+	require.Error(t, err)
+}

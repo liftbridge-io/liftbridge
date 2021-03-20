@@ -110,6 +110,7 @@ type partition struct {
 	messagesReceivedTimestamps    EventTimestamps // First and latest time a message was received on this partition
 	pauseTimestamps               EventTimestamps // First and latest time this partition was paused or resumed
 	readonlyTimestamps            EventTimestamps // First and latest time this partition had its read-only status changed
+	encryptionHandler             encryption.Handler
 	*proto.Partition
 }
 
@@ -188,6 +189,16 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		autoPauseTime:                 streamsConfig.AutoPauseTime,
 		autoPauseDisableIfSubscribers: streamsConfig.AutoPauseDisableIfSubscribers,
 	}
+
+	// Init handler for Encryption-at-Rest
+
+	encryptionHandler, err := encryption.NewLocalEncriptionHandler()
+
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to initialize encryption handler on partition")
+	}
+
+	st.encryptionHandler = encryptionHandler
 
 	return st, nil
 }
@@ -799,6 +810,29 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		p.mu.Unlock()
 
 		m := natsToProtoMessage(msg, leaderEpoch)
+		// Encrypt value
+
+		encryptedValue, err := p.encryptionHandler.Seal(m.Value)
+
+		if err != nil {
+			ack := &client.Ack{
+				Stream:             p.Stream,
+				PartitionSubject:   p.Subject,
+				MsgSubject:         string(m.Headers["subject"]),
+				AckInbox:           m.AckInbox,
+				CorrelationId:      m.CorrelationID,
+				AckPolicy:          m.AckPolicy,
+				ReceptionTimestamp: m.Timestamp,
+				AckError:           client.Ack_UNKNOWN,
+			}
+
+			p.sendAck(ack)
+			p.srv.logger.Errorf("Failed to encrypt message %s: %v", p, err)
+			continue
+		}
+		// Set encrypted value
+		m.Value = encryptedValue
+
 		// Reject messages that are larger than the max replication size.
 		if int64(len(msg.Data)) > p.srv.config.Clustering.ReplicationMaxBytes {
 			p.sendTooLargeNack(m)
@@ -1425,24 +1459,6 @@ func getMessage(data []byte) *client.Message {
 	return msg
 }
 
-// handleEncryption performs encryption of data
-func handleEncryption(data []byte) []byte {
-	keyHandler, err := encryption.NewLocalEncriptionHandler()
-	if err != nil {
-		fmt.Printf("Failed to encrypt data, storing data without encryption %e", err)
-		return nil
-	}
-	// Cipher
-	encryptedData, err := keyHandler.Seal(data)
-
-	if err != nil {
-		fmt.Printf("Failed to encrypt data, storing data without encryption %e", err)
-		return nil
-	}
-
-	return encryptedData
-}
-
 // natsToProtoMessage converts the given NATS message to a commit log Message.
 func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 
@@ -1455,10 +1471,8 @@ func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 	}
 
 	if message != nil {
-		// If Encryption-At-Rest is enabled, the message value must be encrypted
-		encryptedMessageValue := handleEncryption(message.Value)
 		m.Key = message.Key
-		m.Value = encryptedMessageValue
+		m.Value = message.Value
 		for key, value := range message.Headers {
 			m.Headers[key] = value
 		}
@@ -1467,9 +1481,7 @@ func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 		m.AckPolicy = message.AckPolicy
 		m.Offset = message.Offset
 	} else {
-		// If Encryption-At-Rest is enabled, the message value must be encrypted
-		encryptedMessageValue := handleEncryption(msg.Data)
-		m.Value = encryptedMessageValue
+		m.Value = msg.Data
 	}
 	m.Headers["subject"] = []byte(msg.Subject)
 	m.Headers["reply"] = []byte(msg.Reply)

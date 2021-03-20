@@ -644,6 +644,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		for {
 			// TODO: this could be more efficient.
 			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf)
+
 			if err != nil {
 				var s *status.Status
 				if err == commitlog.ErrCommitLogDeleted {
@@ -669,14 +670,28 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 				}
 				return
 			}
+
+			// Decryption of data at rest
+			decryptedMsg, err := partition.encryptionHandler.Read(m.Value())
+
+			if err != nil {
+				s := status.Convert(err)
+				select {
+				case errCh <- s:
+				case <-cancel:
+				}
+				return
+			}
+
 			headers := m.Headers()
+
 			var (
 				msg = &client.Message{
 					Stream:       partition.Stream,
 					Partition:    partition.Id,
 					Offset:       offset,
 					Key:          m.Key(),
-					Value:        m.Value(),
+					Value:        decryptedMsg,
 					Timestamp:    timestamp,
 					Headers:      headers,
 					Subject:      string(headers["subject"]),
