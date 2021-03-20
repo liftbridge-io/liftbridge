@@ -53,6 +53,7 @@ const (
 	defaultActivityStreamPublishAckPolicy = client.AckPolicy_ALL
 	defaultCursorsStreamAutoPauseTime     = time.Minute
 	defaultConcurrencyControl             = false
+	defaultEncryptionDataAtRest           = false
 )
 
 // Config setting key names.
@@ -190,6 +191,7 @@ type StreamsConfig struct {
 	AutoPauseDisableIfSubscribers bool
 	MinISR                        int
 	ConcurrencyControl            bool
+	EncryptionDataAtRest          bool
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -283,6 +285,10 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 	if optimisticConcurrencyControl := c.OptimisticConcurrencyControl; optimisticConcurrencyControl != nil {
 		l.ConcurrencyControl = optimisticConcurrencyControl.Value
 	}
+
+	if encryptionDataAtRest := c.EncryptionDataAtRest; encryptionDataAtRest != nil {
+		l.EncryptionDataAtRest = encryptionDataAtRest.Value
+	}
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.
@@ -370,6 +376,7 @@ func NewDefaultConfig() *Config {
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
 	config.Streams.CleanerInterval = defaultCleanerInterval
 	config.Streams.ConcurrencyControl = defaultConcurrencyControl
+	config.Streams.EncryptionDataAtRest = defaultEncryptionDataAtRest
 	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime

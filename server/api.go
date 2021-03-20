@@ -670,20 +670,26 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 				}
 				return
 			}
-
-			// Decryption of data at rest
-			decryptedMsg, err := partition.encryptionHandler.Read(m.Value())
-
-			if err != nil {
-				s := status.Convert(err)
-				select {
-				case errCh <- s:
-				case <-cancel:
-				}
-				return
-			}
+			msgValue := m.Value()
 
 			headers := m.Headers()
+
+			// Data decryption
+			if partition.encryptionHandler != nil {
+				// Decryption of data at rest
+				decryptedMsg, err := partition.encryptionHandler.Read(msgValue)
+
+				if err != nil {
+					s := status.Convert(err)
+					select {
+					case errCh <- s:
+					case <-cancel:
+					}
+					return
+				}
+
+				msgValue = decryptedMsg
+			}
 
 			var (
 				msg = &client.Message{
@@ -691,7 +697,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 					Partition:    partition.Id,
 					Offset:       offset,
 					Key:          m.Key(),
-					Value:        decryptedMsg,
+					Value:        msgValue,
 					Timestamp:    timestamp,
 					Headers:      headers,
 					Subject:      string(headers["subject"]),

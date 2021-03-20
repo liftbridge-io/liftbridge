@@ -1718,7 +1718,7 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 }
 
 // Ensure publishing and receiving messages on a stream works with data Encryption-at-Rest.
-func TestStreamPublishSubscribewithDataEncryption(t *testing.T) {
+func TestStreamPublishSubscribeDataEncryption(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Set AES key for Encryption-at-Rest

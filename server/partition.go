@@ -134,6 +134,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		AutoPauseTime:                 s.config.Streams.AutoPauseTime,
 		AutoPauseDisableIfSubscribers: s.config.Streams.AutoPauseDisableIfSubscribers,
 		MinISR:                        s.config.Clustering.MinISR,
+		EncryptionDataAtRest:          s.config.Streams.EncryptionDataAtRest,
 	}
 	streamsConfig.ApplyOverrides(config)
 	var (
@@ -190,15 +191,17 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		autoPauseDisableIfSubscribers: streamsConfig.AutoPauseDisableIfSubscribers,
 	}
 
-	// Init handler for Encryption-at-Rest
+	if streamsConfig.EncryptionDataAtRest {
+		// Init handler for Encryption-at-Rest
 
-	encryptionHandler, err := encryption.NewLocalEncriptionHandler()
+		encryptionHandler, err := encryption.NewLocalEncriptionHandler()
 
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to initialize encryption handler on partition")
+		if err != nil {
+			return nil, errors.Wrap(err, "Failed to initialize encryption handler on partition")
+		}
+
+		st.encryptionHandler = encryptionHandler
 	}
-
-	st.encryptionHandler = encryptionHandler
 
 	return st, nil
 }
@@ -810,28 +813,30 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		p.mu.Unlock()
 
 		m := natsToProtoMessage(msg, leaderEpoch)
-		// Encrypt value
 
-		encryptedValue, err := p.encryptionHandler.Seal(m.Value)
+		if p.encryptionHandler != nil {
+			// Encrypt value
+			encryptedValue, err := p.encryptionHandler.Seal(m.Value)
 
-		if err != nil {
-			ack := &client.Ack{
-				Stream:             p.Stream,
-				PartitionSubject:   p.Subject,
-				MsgSubject:         string(m.Headers["subject"]),
-				AckInbox:           m.AckInbox,
-				CorrelationId:      m.CorrelationID,
-				AckPolicy:          m.AckPolicy,
-				ReceptionTimestamp: m.Timestamp,
-				AckError:           client.Ack_UNKNOWN,
+			if err != nil {
+				ack := &client.Ack{
+					Stream:             p.Stream,
+					PartitionSubject:   p.Subject,
+					MsgSubject:         string(m.Headers["subject"]),
+					AckInbox:           m.AckInbox,
+					CorrelationId:      m.CorrelationID,
+					AckPolicy:          m.AckPolicy,
+					ReceptionTimestamp: m.Timestamp,
+					AckError:           client.Ack_UNKNOWN,
+				}
+
+				p.sendAck(ack)
+				p.srv.logger.Errorf("Failed to encrypt message %s: %v", p, err)
+				continue
 			}
-
-			p.sendAck(ack)
-			p.srv.logger.Errorf("Failed to encrypt message %s: %v", p, err)
-			continue
+			// Set encrypted value
+			m.Value = encryptedValue
 		}
-		// Set encrypted value
-		m.Value = encryptedValue
 
 		// Reject messages that are larger than the max replication size.
 		if int64(len(msg.Data)) > p.srv.config.Clustering.ReplicationMaxBytes {
