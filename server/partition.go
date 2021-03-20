@@ -827,7 +827,7 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 					CorrelationId:      m.CorrelationID,
 					AckPolicy:          m.AckPolicy,
 					ReceptionTimestamp: m.Timestamp,
-					AckError:           client.Ack_UNKNOWN,
+					AckError:           client.Ack_ENCRYPTION,
 				}
 
 				p.sendAck(ack)
@@ -870,6 +870,30 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 			for i := 0; i < chanLen; i++ {
 				msg = <-recvChan
 				m := natsToProtoMessage(msg, leaderEpoch)
+
+				if p.encryptionHandler != nil {
+					// Encrypt value
+					encryptedValue, err := p.encryptionHandler.Seal(m.Value)
+
+					if err != nil {
+						ack := &client.Ack{
+							Stream:             p.Stream,
+							PartitionSubject:   p.Subject,
+							MsgSubject:         string(m.Headers["subject"]),
+							AckInbox:           m.AckInbox,
+							CorrelationId:      m.CorrelationID,
+							AckPolicy:          m.AckPolicy,
+							ReceptionTimestamp: m.Timestamp,
+							AckError:           client.Ack_ENCRYPTION,
+						}
+
+						p.sendAck(ack)
+						p.srv.logger.Errorf("Failed to encrypt message %s: %v", p, err)
+						continue
+					}
+					// Set encrypted value
+					m.Value = encryptedValue
+				}
 				if int64(len(msg.Data)) > p.srv.config.Clustering.ReplicationMaxBytes {
 					p.sendTooLargeNack(m)
 					continue

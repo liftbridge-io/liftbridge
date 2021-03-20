@@ -825,6 +825,10 @@ func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
 	if req.OptimisticConcurrencyControl != nil {
 		config.OptimisticConcurrencyControl = &proto.NullableBool{Value: req.OptimisticConcurrencyControl.Value}
 	}
+	if req.EncryptionDataAtRest != nil {
+		config.EncryptionDataAtRest = &proto.NullableBool{Value: req.EncryptionDataAtRest.Value}
+	}
+
 	return config
 }
 
@@ -840,6 +844,8 @@ func convertPublishAsyncError(err *client.PublishAsyncError) error {
 		code = codes.InvalidArgument
 	case client.PublishAsyncError_READONLY:
 		code = codes.FailedPrecondition
+	case client.PublishAsyncError_ENCRYPTION_FAILED:
+		code = codes.Internal
 	case client.PublishAsyncError_UNKNOWN:
 		fallthrough
 	default:
@@ -863,6 +869,9 @@ func convertAckError(ackError client.Ack_Error) *client.PublishAsyncError {
 	case client.Ack_TOO_LARGE:
 		code = client.PublishAsyncError_BAD_REQUEST
 		message = "message exceeds max replication size"
+	case client.Ack_ENCRYPTION:
+		code = client.PublishAsyncError_ENCRYPTION_FAILED
+		message = "encryption failed on partition"
 	default:
 		code = client.PublishAsyncError_UNKNOWN
 		message = "unknown error"

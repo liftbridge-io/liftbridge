@@ -1717,8 +1717,8 @@ func TestMultiplePublishAsyncWithConcurrencyRetryWithFetchMetadata(t *testing.T)
 
 }
 
-// Ensure publishing and receiving messages on a stream works with data Encryption-at-Rest.
-func TestStreamPublishSubscribeDataEncryption(t *testing.T) {
+// TestDataEncryptionStream ensures publishing and receiving messages on a stream works with data Encryption-at-Rest.
+func TestDataEncryptionStream(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Set AES key for Encryption-at-Rest
@@ -1736,9 +1736,10 @@ func TestStreamPublishSubscribeDataEncryption(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
+	// Create stream, enable encryption-at-rest
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name)
+	err = client.CreateStream(context.Background(), subject, name, lift.EncryptionDataAtRest(true))
 	require.NoError(t, err)
 
 	num := 5
@@ -1832,4 +1833,163 @@ func TestStreamPublishSubscribeDataEncryption(t *testing.T) {
 	defer cancel()
 	_, err = client.Publish(ctx, name, make([]byte, 1024+1))
 	require.Error(t, err)
+}
+
+// TestEncryptionALongwithNoEncryptionStreams make sure that on the same server, it can have both
+// streams with data encryption-at-rest and other streams without data encryption
+func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Set AES key for Encryption-at-Rest
+	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicationMaxBytes = 1024
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// First client for encrypted streams
+	clientForEncryptedStream, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer clientForEncryptedStream.Close()
+
+	// Second client for non-encrypted streams
+	clientForNonEncryptedStream, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer clientForNonEncryptedStream.Close()
+
+	// Create stream, enable encryption-at-rest
+	encryptedStreamName := "foo_encrypted"
+	encryptedSubjectName := "foo_encrypted"
+	err = clientForEncryptedStream.CreateStream(context.Background(),
+		encryptedSubjectName, encryptedStreamName,
+		lift.EncryptionDataAtRest(true))
+	require.NoError(t, err)
+
+	// Create stream, disable encryption-at-rest
+	nonEncryptedStreamName := "fo"
+	nonEncryptedSubject := "fo"
+	err = clientForNonEncryptedStream.CreateStream(context.Background(),
+		nonEncryptedSubject, nonEncryptedStreamName)
+	require.NoError(t, err)
+
+	// Prepare message
+	num := 5
+	expected := make([]*message, num)
+	for i := 0; i < num; i++ {
+		expected[i] = &message{
+			Key:    []byte("bar"),
+			Value:  []byte(strconv.Itoa(i)),
+			Offset: int64(i),
+		}
+	}
+	i := 0
+	j := 0
+
+	ch1_encrypted := make(chan struct{})
+	ch2_encrypted := make(chan struct{})
+
+	ch1_non_encrypted := make(chan struct{})
+	ch2_non_encrypted := make(chan struct{})
+
+	// Encrypted Stream
+	err = clientForEncryptedStream.Subscribe(context.Background(), encryptedStreamName, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		expect := expected[i]
+		assertMsg(t, expect, msg)
+		i++
+		if i == num {
+			close(ch1_encrypted)
+		}
+		if i == num+5 {
+			close(ch2_encrypted)
+		}
+	})
+	require.NoError(t, err)
+
+	// Non-Encrypted Stream
+	err = clientForNonEncryptedStream.Subscribe(context.Background(), nonEncryptedStreamName, func(msg *lift.Message, err error) {
+		require.NoError(t, err)
+		expect := expected[j]
+		assertMsg(t, expect, msg)
+		j++
+		if j == num {
+			close(ch1_non_encrypted)
+		}
+		if j == num+5 {
+			close(ch2_non_encrypted)
+		}
+	})
+	require.NoError(t, err)
+
+	// Publish messages to encrypted stream
+	for i := 0; i < num; i++ {
+		_, err = clientForEncryptedStream.Publish(context.Background(), encryptedStreamName,
+			expected[i].Value,
+			lift.Key(expected[i].Key))
+		require.NoError(t, err)
+	}
+
+	// Publish messages to non-encrypted stream
+	for j := 0; j < num; j++ {
+		_, err = clientForNonEncryptedStream.Publish(context.Background(), nonEncryptedStreamName,
+			expected[j].Value,
+			lift.Key(expected[j].Key))
+		require.NoError(t, err)
+	}
+
+	// Wait to receive initial messages on encrypted stream
+	select {
+	case <-ch1_encrypted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+
+	// Wait to receive initial messages on non-encrypted stream
+	select {
+	case <-ch1_non_encrypted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+
+	// Publish some more messages.
+	for i := 0; i < 5; i++ {
+		expected = append(expected, &message{
+			Key:    []byte("baz"),
+			Value:  []byte(strconv.Itoa(i + num)),
+			Offset: int64(i + num),
+		})
+	}
+
+	// Publish on encrypted stream
+	for i := 0; i < 5; i++ {
+		_, err = clientForEncryptedStream.Publish(context.Background(), encryptedStreamName, expected[i+num].Value,
+			lift.Key(expected[i+num].Key))
+		require.NoError(t, err)
+	}
+
+	// Pubish on non-encrypted stream
+	for i := 0; i < 5; i++ {
+		_, err = clientForNonEncryptedStream.Publish(context.Background(), nonEncryptedStreamName, expected[i+num].Value,
+			lift.Key(expected[i+num].Key))
+		require.NoError(t, err)
+	}
+
+	// Wait to receive initial messages on encrypted stream
+	select {
+	case <-ch2_encrypted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+
+	// Wait to receive initial messages on non-encrypted stream
+	select {
+	case <-ch2_non_encrypted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+
 }
