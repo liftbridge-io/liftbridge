@@ -1484,13 +1484,13 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 		},
 		lift.AckPolicyLeader(),
 		// Correct offset is 1 (second message)
-		lift.ExpectedOffset(0),
+		lift.ExpectedOffset(1),
 	)
 	require.NoError(t, err)
 
 	select {
 	case err := <-errorC:
-		require.Error(t, err)
+		require.NoError(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("Did not receive expected error")
 	}
