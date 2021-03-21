@@ -97,6 +97,7 @@ const (
 	configStreamsAutoPauseTime                 = "streams.auto.pause.time"
 	configStreamsAutoPauseDisableIfSubscribers = "streams.auto.pause.disable.if.subscribers"
 	configStreamsConcurrencyControl            = "streams.concurrency.control"
+	configStreamsEncryptionDataAtRest          = "streams.encryption.control"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"
@@ -153,6 +154,7 @@ var configKeys = map[string]struct{}{
 	configStreamsSegmentMaxAge:                 {},
 	configStreamsCompactEnabled:                {},
 	configStreamsConcurrencyControl:            {},
+	configStreamsEncryptionDataAtRest:          {},
 	configStreamsCompactMaxGoroutines:          {},
 	configStreamsAutoPauseTime:                 {},
 	configStreamsAutoPauseDisableIfSubscribers: {},
@@ -686,6 +688,9 @@ func parseStreamsConfig(config *Config, v *viper.Viper) error {
 	}
 	if v.IsSet(configStreamsConcurrencyControl) {
 		config.Streams.ConcurrencyControl = v.GetBool(configStreamsConcurrencyControl)
+	}
+	if v.IsSet(configStreamsEncryptionDataAtRest) {
+		config.Streams.EncryptionDataAtRest = v.GetBool(configStreamsEncryptionDataAtRest)
 	}
 	return nil
 }

@@ -1469,7 +1469,15 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Publish Async with expected offset (2nd times)
+	select {
+	case err := <-errorC:
+		// should be no error
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Did not receive expected error")
+	}
+
+	// Publish Async with incorrect expected offset
 	err = client.PublishAsync(context.Background(), "foo", []byte("hello"),
 		func(ack *lift.Ack, err error) {
 			errorC <- err
@@ -1482,8 +1490,7 @@ func TestPublishAsyncWithConcurrencyCorrectOffset(t *testing.T) {
 
 	select {
 	case err := <-errorC:
-		// should be no error
-		require.NoError(t, err)
+		require.Error(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("Did not receive expected error")
 	}
