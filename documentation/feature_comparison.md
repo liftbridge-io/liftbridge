@@ -38,3 +38,4 @@ a few of these systems.
 | Authentication | TLS | User authentication, TLS | TLS, Kerberos, SASL | TLS, Kerberos, JWT, Athenz |
 | Authorization | | | ACLs | ACLs |
 | Storage | filesystem | memory, filesystem, SQL| filesystem | filesystem (Apache BookKeeper), tiered storage (Amazon S3, Google Cloud Storage) |
+| Encryption of data-at-rest | ✓ | ✓| ✓ | ✓ |
