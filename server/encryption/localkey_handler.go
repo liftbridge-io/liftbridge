@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	// EncryptionKeyLength provides the length for data key in bytes
+	// DataKeyLength provides the length for data key in bytes.
 	// It is recommended to use an authentication key with 32 or 64 bytes.
-	// The encryption key, if set, must be either
+	// The data key length must be either
 	// 16, 24, or 32 bytes to select AES-128, AES-192, or AES-256 modes.
-	EncryptionKeyLength int = 32
+	DataKeyLength int = 32
 )
 
 var (
@@ -51,7 +51,7 @@ func NewLocalEncriptionHandler() (*LocalEncryptionHandler, error) {
 // generateDKS retrieves the pre-configurated encryption key
 // from the environment variables.
 func (handler *LocalEncryptionHandler) generateDKS() ([]byte, error) {
-	key := make([]byte, EncryptionKeyLength)
+	key := make([]byte, DataKeyLength)
 
 	_, err := rand.Read(key)
 
@@ -137,8 +137,15 @@ func (handler *LocalEncryptionHandler) decryptData(dks []byte, encryptedData []b
 	return plaintext, nil
 }
 
-// Seal takes data key and message, performs the encryption and return
+// Seal takes the message, performs the encryption and return
 // the encrypted data along with the wrapped data
+// The encoded message contains the first byte as size of the wrapped key,
+// the wrapped key and finally the encrypted message.
+
+// |  byte 0  |   byte 1   |   byte 2   |    ...   | byte (n +1 ) |    byte (n+2)  |  ... | byte (n + m + 2) |
+// |----------|------------|------------|----------|--------------|----------------|------|------------------|
+// | key size | key byte 0 | key byte 1 |      ... | key byte n   | message byte 0 |  ... |  message byte m  |
+
 func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, error) {
 	// Generate a default Data Key (DKS) if not yet available
 	if handler.defaultDKS == nil {
@@ -164,7 +171,7 @@ func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, error) {
 	}
 
 	// concate wrapped key with cipyer text
-	// keySize | key | ciphertext
+
 	keyLength := len(wrappedKey)
 
 	// concate key size | wrapped key | ciphertext
@@ -175,8 +182,17 @@ func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, error) {
 	return dataSequence, nil
 }
 
-// Read takes cipher text along with a wrapped data key, performs the decryption and return
+// Read takes cipher text, performs the decryption and return
 // the plaintext data
+// The incoming byte array has the following structure:
+// The first byte indicates the size of the wrapped key.
+// The n next bytes contain the wrapped ky itself (n is the value of the first byte)
+// The remaining bytes are the message itself.
+
+// |  byte 0  |   byte 1   |   byte 2   |    ...   | byte (n +1 ) |    byte (n+2)  |  ... | byte (n + m + 2) |
+// |----------|------------|------------|----------|--------------|----------------|------|------------------|
+// | key size | key byte 0 | key byte 1 |      ... | key byte n   | message byte 0 |  ... |  message byte m  |
+
 func (handler *LocalEncryptionHandler) Read(encryptedData []byte) ([]byte, error) {
 	// Decompose wrapped key and cypher text
 	keySize := int(encryptedData[0])

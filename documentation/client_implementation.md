@@ -1211,6 +1211,7 @@ SegmentMaxAge
 CompactEnabled
 CompactMaxGoroutines
 OptimisticConcurrencyControl
+EncryptionDataAtRest
 ```
 
 Refer to [Stream Configuration](configuration.md#streams-configuration-settings)
@@ -1246,6 +1247,7 @@ Note: if `OptimisticConcurrencyControl` is configured, you should to make sure
 that at least one `AckPolicy` is set. A `PublishRequest` with `AckPolicy` is set to `AckPolicy_NONE`
 will be rejected explicity by the server.
 
+Note: if `EncryptionDataAtRest` is configured, you should make sure that an environment variable `LOCAL_MASTER_KEY` is set. This is the master key that will be used to wrap data key. See [Encryption of Data-at-rest](concepts.md#Encryption-of-data-at-rest-on-server-side). The value should be a valid 128-bit or 256-bit AES key.
 
 ```go
 // CreateStream creates a new stream attached to a NATS subject. Subject is the

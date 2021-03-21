@@ -38,7 +38,7 @@ func TestWrapDataKeyCorrectly(t *testing.T) {
 
 	// Expect DKS is generated without error
 	require.NoError(t, err)
-	require.Equal(t, EncryptionKeyLength, len(dks))
+	require.Equal(t, DataKeyLength, len(dks))
 
 	// Start wrapping DKS
 	wrappedDKS, err := keyHandler.wrapDKS(dks)
@@ -65,7 +65,7 @@ func TestUnWrapDataKeyCorrectly(t *testing.T) {
 
 	// Expect DKS is generated without error
 	require.NoError(t, err)
-	require.Equal(t, EncryptionKeyLength, len(dks))
+	require.Equal(t, DataKeyLength, len(dks))
 
 	// Start wrapping DKS
 	wrappedDKS, err := keyHandler.wrapDKS(dks)
@@ -171,7 +171,7 @@ func TestSeal(t *testing.T) {
 // Ensure that the data data decryption process can be performed
 func TestRead(t *testing.T) {
 	// Set a random AES key as master key
-	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+	os.Setenv("LOCAL_MASTER_KEY", "/A?D(G+KbPdSgVkYp3s6v9y$B&E)H@Mc")
 
 	// Given a key handler
 	keyHandler, err := NewLocalEncriptionHandler()

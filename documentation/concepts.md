@@ -396,6 +396,22 @@ This feature enables complex use cases such as:
 
 This behavior may be enabled by [*configuration*](./configuration.md)
 
+This may be used in tandem with API `FetchPartitionMetadata` to retrieve partition's metadata.
+
+
+## Encryption of data at rest on server side
+
+Streams support the encryption of messages' values on server side for extra security/data governance concern.
+
+This behavior may be enabled by [*configuration*](./configuration.md).
+
+For each message, a random AES Key is generated and the message is encrypted using that AES key (called `Data Key`).
+
+The generated key is then wrapped using advanced key wrapping algorithm proposed in [RFC5649](https://www.rfc-editor.org/rfc/rfc5649.txt).
+
+The cypher message, along with the wrapped DKS key is stored together in commitlog.
+
+
 ## Further Reading
 
 A final note is to read ["Designing Event-Driven
