@@ -116,7 +116,7 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, listener := range s.raftLogListeners {
-		listener.Receive(&RaftLog{log})
+		listener.Receive(&RaftLog{l})
 	}
 
 	return value

@@ -44,7 +44,7 @@ const (
 
 // RaftLog represents an entry into the Raft log.
 type RaftLog struct {
-	*proto.RaftLog
+	*raft.Log
 }
 
 // RaftLogListener is a listener for Raft logs.

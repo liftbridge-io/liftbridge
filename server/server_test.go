@@ -1920,9 +1920,13 @@ func TestRaftLogListener(t *testing.T) {
 	defer s1.Stop()
 
 	gotLogs := make(chan struct{})
-	logs := make([]*RaftLog, 0, 2)
+	logs := make([]*proto.RaftLog, 0, 2)
 	s1.AddRaftLogListener(&raftLogListener{func(log *RaftLog) {
-		logs = append(logs, log)
+		protoLog := &proto.RaftLog{}
+		err := protoLog.Unmarshal(log.Data)
+		require.NoError(t, err)
+
+		logs = append(logs, protoLog)
 		if len(logs) == 2 {
 			close(gotLogs)
 		}
