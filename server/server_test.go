@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1899,4 +1900,62 @@ func TestPublishNoSuchPartition(t *testing.T) {
 	defer cancel()
 	_, err = client.Publish(ctx, name, []byte("hello"), lift.ToPartition(42))
 	require.Error(t, err)
+}
+
+type raftLogListener struct {
+	receiver func(log *RaftLog)
+}
+
+func (l *raftLogListener) Receive(log *RaftLog) {
+	l.receiver(log)
+}
+
+// Ensure Raft log listeners receive logs.
+func TestRaftLogListener(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure first server.
+	s1Config := getTestConfig("a", true, 0)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	gotLogs := make(chan struct{})
+	logs := make([]*proto.RaftLog, 0, 2)
+	s1.AddRaftLogListener(&raftLogListener{func(log *RaftLog) {
+		protoLog := &proto.RaftLog{}
+		err := protoLog.Unmarshal(log.Data)
+		require.NoError(t, err)
+
+		logs = append(logs, protoLog)
+		if len(logs) == 2 {
+			close(gotLogs)
+		}
+	}})
+
+	// Wait for server to elect itself leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:" + strconv.Itoa(s1.GetListenPort())})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream.
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
+	require.NoError(t, err)
+
+	// Delete stream.
+	err = client.DeleteStream(context.Background(), name)
+	require.NoError(t, err)
+
+	// Wait to receive the Raft logs.
+	select {
+	case <-gotLogs:
+		require.Len(t, logs, 2)
+		require.Equal(t, proto.Op_CREATE_STREAM, logs[0].Op)
+		require.Equal(t, proto.Op_DELETE_STREAM, logs[1].Op)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Did not receive expected Raft logs")
+	}
 }

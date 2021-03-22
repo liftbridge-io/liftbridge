@@ -111,6 +111,14 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		panic(err)
 	}
 	s.activity.SignalCommit()
+
+	// Send the Raft log entry to listeners.
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, listener := range s.raftLogListeners {
+		listener.Receive(&RaftLog{l})
+	}
+
 	return value
 }
 

@@ -42,6 +42,16 @@ const (
 	cursorsStream       = "__cursors"
 )
 
+// RaftLog represents an entry into the Raft log.
+type RaftLog struct {
+	*raft.Log
+}
+
+// RaftLogListener is a listener for Raft logs.
+type RaftLogListener interface {
+	Receive(*RaftLog)
+}
+
 // Server is the main Liftbridge object. Create it by calling New or
 // RunServerWithConfig.
 type Server struct {
@@ -71,6 +81,7 @@ type Server struct {
 	goroutineWait      sync.WaitGroup
 	activity           *activityManager
 	cursors            *cursorManager
+	raftLogListeners   []RaftLogListener
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -277,6 +288,13 @@ func (s *Server) GetListenPort() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.port
+}
+
+// AddRaftLogListener adds a Raft log listener.
+func (s *Server) AddRaftLogListener(listener RaftLogListener) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.raftLogListeners = append(s.raftLogListeners, listener)
 }
 
 // getConnectionAddress returns the connection address that should be used by
