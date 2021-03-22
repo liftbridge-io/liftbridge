@@ -2000,3 +2000,33 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 	}
 
 }
+
+// TestDataEncryptionStreamOnError ensures that stream creation cannot succeed if encryption is
+// enabled and no LOCAL_MASTER_KEY is et in the envrionment variables.
+func TestDataEncryptionStreamOnError(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Reset AES key for Encryption-at-Rest to something incorrect
+	os.Setenv("LOCAL_MASTER_KEY", "something-in-correct")
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1Config.Clustering.ReplicationMaxBytes = 1024
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Create stream, enable encryption-at-rest
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name, lift.EncryptionDataAtRest(true))
+
+	st := status.Convert(err)
+	require.Contains(t, st.Message(), "invalid AES key size")
+
+}

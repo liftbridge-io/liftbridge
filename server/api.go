@@ -15,6 +15,7 @@ import (
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
+	"github.com/liftbridge-io/liftbridge/server/encryption"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
@@ -72,6 +73,12 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		Subject:    req.Subject,
 		Partitions: partitions,
 		Config:     getStreamConfig(req),
+	}
+
+	err := a.ensureCreateStreamPrecondition(req)
+	if err != nil {
+		a.logger.Errorf("api: Failed to create stream %s: %v", req.Name, err)
+		return nil, err.Err()
 	}
 
 	if e := a.metadata.CreateStream(ctx, &proto.CreateStreamOp{Stream: stream}); e != nil {
@@ -423,6 +430,22 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 		return nil, status.Err()
 	}
 	return &client.FetchCursorResponse{Offset: offset}, nil
+}
+
+func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamRequest) *status.Status {
+	// Verify if an encrypted stream is requested, the LOCAL_MASTER_KEY must be correctly set
+	if req.EncryptionDataAtRest != nil {
+		if req.EncryptionDataAtRest.Value {
+			_, err := encryption.NewLocalEncriptionHandler()
+			if err != nil {
+				errorMessage := fmt.Sprintf("%s: %s",
+					"Failed  on PreConditions for stream's encryption handler",
+					err.Error())
+				return status.New(codes.FailedPrecondition, errorMessage)
+			}
+		}
+	}
+	return nil
 }
 
 func (a *apiServer) ensurePublishPreconditions(req *client.PublishRequest) *client.PublishAsyncError {
