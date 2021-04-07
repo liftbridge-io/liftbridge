@@ -1902,7 +1902,7 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 	ch1_non_encrypted := make(chan struct{})
 	ch2_non_encrypted := make(chan struct{})
 
-	// Encrypted Stream
+	// Encrypted stream
 	err = clientForEncryptedStream.Subscribe(context.Background(), encryptedStreamName, func(msg *lift.Message, err error) {
 		require.NoError(t, err)
 		expect := expected[i]
@@ -1917,7 +1917,7 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Non-Encrypted Stream
+	// Unencrypted stream
 	err = clientForNonEncryptedStream.Subscribe(context.Background(), nonEncryptedStreamName, func(msg *lift.Message, err error) {
 		require.NoError(t, err)
 		expect := expected[j]
@@ -1940,7 +1940,7 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Publish messages to non-encrypted stream
+	// Publish messages to unencrypted stream
 	for j := 0; j < num; j++ {
 		_, err = clientForNonEncryptedStream.Publish(context.Background(), nonEncryptedStreamName,
 			expected[j].Value,
@@ -1955,7 +1955,7 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 		t.Fatal("Did not receive all expected messages")
 	}
 
-	// Wait to receive initial messages on non-encrypted stream
+	// Wait to receive initial messages on unencrypted stream
 	select {
 	case <-ch1_non_encrypted:
 	case <-time.After(10 * time.Second):
@@ -1978,7 +1978,7 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Pubish on non-encrypted stream
+	// Publish on unencrypted stream
 	for i := 0; i < 5; i++ {
 		_, err = clientForNonEncryptedStream.Publish(context.Background(), nonEncryptedStreamName, expected[i+num].Value,
 			lift.Key(expected[i+num].Key))
@@ -1992,7 +1992,7 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 		t.Fatal("Did not receive all expected messages")
 	}
 
-	// Wait to receive initial messages on non-encrypted stream
+	// Wait to receive initial messages on unencrypted stream
 	select {
 	case <-ch2_non_encrypted:
 	case <-time.After(10 * time.Second):
@@ -2001,8 +2001,8 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 
 }
 
-// TestDataEncryptionStreamOnError ensures that stream creation cannot succeed if encryption is
-// enabled and no LOCAL_MASTER_KEY is et in the envrionment variables.
+// TestDataEncryptionStreamOnError ensures that stream creation doesn't succeed if encryption is
+// enabled and the LOCAL_MASTER_KEY environment variable isn't set.
 func TestDataEncryptionStreamOnError(t *testing.T) {
 	defer cleanupStorage(t)
 

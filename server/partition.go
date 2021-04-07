@@ -1490,7 +1490,6 @@ func getMessage(data []byte) *client.Message {
 
 // natsToProtoMessage converts the given NATS message to a commit log Message.
 func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
-
 	message := getMessage(msg.Data)
 	m := &commitlog.Message{
 		MagicByte:   1,

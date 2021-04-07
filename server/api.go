@@ -436,10 +436,10 @@ func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamReque
 	// Verify if an encrypted stream is requested, the LOCAL_MASTER_KEY must be correctly set
 	if req.EncryptionDataAtRest != nil {
 		if req.EncryptionDataAtRest.Value {
-			_, err := encryption.NewLocalEncriptionHandler()
+			_, err := encryption.NewLocalEncryptionHandler()
 			if err != nil {
 				errorMessage := fmt.Sprintf("%s: %s",
-					"Failed  on PreConditions for stream's encryption handler",
+					"Failed  on preconditions for stream's encryption handler",
 					err.Error())
 				return status.New(codes.FailedPrecondition, errorMessage)
 			}
