@@ -1,6 +1,7 @@
 ---
-id: replication-protocol
+id: version-v1.5.0-replication-protocol
 title: Replication Protocol
+original_id: replication-protocol
 ---
 
 Liftbridge relies on Raft for metadata replication and leadership election.

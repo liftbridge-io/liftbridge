@@ -1,6 +1,7 @@
 ---
-id: configuration
+id: version-v1.5.0-configuration
 title: Configuration
+original_id: configuration
 ---
 
 Liftbridge provides limited configuration through command-line flags and full
@@ -24,7 +25,7 @@ USAGE:
    liftbridge [global options] command [command options] [arguments...]
 
 VERSION:
-   v1.5.1
+   v1.5.0
 
 COMMANDS:
    help, h  Shows a list of commands or help for one command
@@ -182,7 +183,7 @@ overriding these settings.
 | auto.pause.time | | The amount of time a stream partition can go idle, i.e. not receive a message, before it is automatically paused. A value of 0 disables auto pausing. | duration | 0 | |
 | auto.pause.disable.if.subscribers | | Disables automatic stream partition pausing when there are subscribers. | bool | false | |
 | concurrency.control | | Enable Optimistic Concurrency Control on message publishing for all streams. | bool | false | |
-| encryption.control | | Enable encryption of data stored on server (encryption of data-at-rest). *NOTE: if enabled, an environment variable `LIFTBRIDGE_ENCRYPTION_KEY` must be set to a valid 128 bit or 256 bit AES key.* | bool | false | |
+
 ### Clustering Configuration Settings
 
 Below is the list of the configuration settings for the `clustering` section of

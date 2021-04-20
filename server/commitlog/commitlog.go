@@ -622,8 +622,8 @@ func (l *commitLog) Segments() []*segment {
 // the given log end offset are added to the log. If the given offset is no
 // longer the log end offset, the channel is closed immediately. Waiter is an
 // opaque value that uniquely identifies the entity waiting for data.
-func (l *commitLog) NotifyLEO(waiter interface{}, leo int64) <-chan struct{} {
-	return l.activeSegment().WaitForLEO(waiter, leo)
+func (l *commitLog) NotifyLEO(waiter interface{}, expectedLEO int64) <-chan struct{} {
+	return l.activeSegment().WaitForLEO(waiter, expectedLEO, l.NewestOffset())
 }
 
 // SetReadonly marks the log as readonly. When in readonly mode, new messages

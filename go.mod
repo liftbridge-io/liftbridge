@@ -39,11 +39,11 @@ require (
 	github.com/stretchr/testify v1.6.1
 	github.com/urfave/cli v1.22.4
 	go.etcd.io/bbolt v1.3.5 // indirect
-	golang.org/x/net v0.0.0-20201224014010-6772e930b67b // indirect
-	golang.org/x/sys v0.0.0-20201223074533-0d417f636930 // indirect
-	golang.org/x/text v0.3.4 // indirect
-	google.golang.org/genproto v0.0.0-20201214200347-8c77b98c765d // indirect
-	google.golang.org/grpc v1.34.0
+	golang.org/x/net v0.0.0-20210224082022-3d97a244fca7 // indirect
+	golang.org/x/sys v0.0.0-20210225134936-a50acf3fe073 // indirect
+	golang.org/x/text v0.3.5 // indirect
+	google.golang.org/genproto v0.0.0-20210224155714-063164c882e6 // indirect
+	google.golang.org/grpc v1.36.0
 	gopkg.in/ini.v1 v1.57.0 // indirect
 	launchpad.net/gocheck v0.0.0-20140225173054-000000000087 // indirect
 )

@@ -247,6 +247,36 @@
       },
       "version-v1.4.1/version-v1.4.1-quick-start": {
         "title": "Quick Start"
+      },
+      "version-v1.5.0/version-v1.5.0-client-implementation": {
+        "title": "Client Implementation Guidance"
+      },
+      "version-v1.5.0/version-v1.5.0-concepts": {
+        "title": "Concepts"
+      },
+      "version-v1.5.0/version-v1.5.0-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.5.0/version-v1.5.0-embedded-nats": {
+        "title": "Embedded NATS"
+      },
+      "version-v1.5.0/version-v1.5.0-quick-start": {
+        "title": "Quick Start"
+      },
+      "version-v1.5.0/version-v1.5.0-replication-protocol": {
+        "title": "Replication Protocol"
+      },
+      "version-v1.5.0/version-v1.5.0-roadmap": {
+        "title": "Product Roadmap"
+      },
+      "version-v1.5.0/version-v1.5.0-scalability-configuration": {
+        "title": "Configuring for Scalability"
+      },
+      "version-v1.5.1/version-v1.5.1-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.5.1/version-v1.5.1-quick-start": {
+        "title": "Quick Start"
       }
     },
     "links": {

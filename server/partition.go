@@ -489,6 +489,10 @@ func (p *partition) becomeLeader(epoch uint64) error {
 		}
 	}
 
+	// Update this replica's latest offset to ensure it's up to date.
+	rep := p.isr[p.srv.config.Clustering.ServerID]
+	rep.updateLatestOffset(p.log.NewestOffset())
+
 	// Start message processing loop.
 	recvChan := make(chan *nats.Msg, recvChannelSize)
 	p.stopLeader = make(chan struct{})
