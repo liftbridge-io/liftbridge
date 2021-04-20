@@ -53,7 +53,7 @@ const (
 	defaultActivityStreamPublishAckPolicy = client.AckPolicy_ALL
 	defaultCursorsStreamAutoPauseTime     = time.Minute
 	defaultConcurrencyControl             = false
-	defaultEncryptionDataAtRest           = false
+	defaultEncryption                     = false
 )
 
 // Config setting key names.
@@ -97,7 +97,7 @@ const (
 	configStreamsAutoPauseTime                 = "streams.auto.pause.time"
 	configStreamsAutoPauseDisableIfSubscribers = "streams.auto.pause.disable.if.subscribers"
 	configStreamsConcurrencyControl            = "streams.concurrency.control"
-	configStreamsEncryptionDataAtRest          = "streams.encryption.control"
+	configStreamsEncryption                    = "streams.encryption.control"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"
@@ -154,7 +154,7 @@ var configKeys = map[string]struct{}{
 	configStreamsSegmentMaxAge:                 {},
 	configStreamsCompactEnabled:                {},
 	configStreamsConcurrencyControl:            {},
-	configStreamsEncryptionDataAtRest:          {},
+	configStreamsEncryption:                    {},
 	configStreamsCompactMaxGoroutines:          {},
 	configStreamsAutoPauseTime:                 {},
 	configStreamsAutoPauseDisableIfSubscribers: {},
@@ -193,7 +193,7 @@ type StreamsConfig struct {
 	AutoPauseDisableIfSubscribers bool
 	MinISR                        int
 	ConcurrencyControl            bool
-	EncryptionDataAtRest          bool
+	Encryption                    bool
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -288,8 +288,8 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 		l.ConcurrencyControl = optimisticConcurrencyControl.Value
 	}
 
-	if encryptionDataAtRest := c.EncryptionDataAtRest; encryptionDataAtRest != nil {
-		l.EncryptionDataAtRest = encryptionDataAtRest.Value
+	if encryptionDataAtRest := c.Encryption; encryptionDataAtRest != nil {
+		l.Encryption = encryptionDataAtRest.Value
 	}
 }
 
@@ -378,7 +378,7 @@ func NewDefaultConfig() *Config {
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
 	config.Streams.CleanerInterval = defaultCleanerInterval
 	config.Streams.ConcurrencyControl = defaultConcurrencyControl
-	config.Streams.EncryptionDataAtRest = defaultEncryptionDataAtRest
+	config.Streams.Encryption = defaultEncryption
 	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
@@ -689,8 +689,8 @@ func parseStreamsConfig(config *Config, v *viper.Viper) error {
 	if v.IsSet(configStreamsConcurrencyControl) {
 		config.Streams.ConcurrencyControl = v.GetBool(configStreamsConcurrencyControl)
 	}
-	if v.IsSet(configStreamsEncryptionDataAtRest) {
-		config.Streams.EncryptionDataAtRest = v.GetBool(configStreamsEncryptionDataAtRest)
+	if v.IsSet(configStreamsEncryption) {
+		config.Streams.Encryption = v.GetBool(configStreamsEncryption)
 	}
 	return nil
 }

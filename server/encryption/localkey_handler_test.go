@@ -10,82 +10,82 @@ import (
 // Ensure that a data key can be generated
 func TestGenerateDataKeyCorrectly(t *testing.T) {
 	// Set a random AES key as master key
-	os.Setenv("LOCAL_MASTER_KEY", "+KbPeShVmYq3t6w9")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "+KbPeShVmYq3t6w9")
 
 	// Given a key handler
-	keyHandler, err := NewLocalEncriptionHandler()
+	keyHandler, err := NewLocalEncryptionHandler()
 	require.NoError(t, err)
 
-	// Generate DKS
-	dks, err := keyHandler.generateDKS()
+	// Generate DEK
+	dek, err := keyHandler.generateDEK()
 
-	// Expect DKS is generated without error
+	// Expect DEK is generated without error
 	require.NoError(t, err)
-	require.NotEmpty(t, dks)
+	require.NotEmpty(t, dek)
 }
 
 // Ensure that the data key can be wrapped with the master key.
 func TestWrapDataKeyCorrectly(t *testing.T) {
 	// Set a random AES key as master key
-	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "t7w!z%C*F-JaNcRf")
 
 	// Given a key handler
-	keyHandler, err := NewLocalEncriptionHandler()
+	keyHandler, err := NewLocalEncryptionHandler()
 	require.NoError(t, err)
 
-	// Generate DKS
-	dks, err := keyHandler.generateDKS()
+	// Generate DEK
+	dek, err := keyHandler.generateDEK()
 
-	// Expect DKS is generated without error
+	// Expect DEK is generated without error
 	require.NoError(t, err)
-	require.Equal(t, DataKeyLength, len(dks))
+	require.Equal(t, DataKeyLength, len(dek))
 
-	// Start wrapping DKS
-	wrappedDKS, err := keyHandler.wrapDKS(dks)
+	// Start wrapping DEK
+	wrappedDEK, err := keyHandler.wrapDEK(dek)
 
-	// Expect DKS is wrapped without error
+	// Expect DEK is wrapped without error
 	require.NoError(t, err)
-	require.NotEmpty(t, wrappedDKS)
-	// Expect wrapped DKS should not be the same
-	// as plain text DKS
-	require.NotEqual(t, dks, wrappedDKS)
+	require.NotEmpty(t, wrappedDEK)
+	// Expect wrapped DEK should not be the same
+	// as plain text DEK
+	require.NotEqual(t, dek, wrappedDEK)
 }
 
 // Ensure that the data key can be unwrapped using the master key.
 func TestUnWrapDataKeyCorrectly(t *testing.T) {
 	// Set a random AES key as master key
-	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "t7w!z%C*F-JaNcRf")
 
 	// Given a key handler
-	keyHandler, err := NewLocalEncriptionHandler()
+	keyHandler, err := NewLocalEncryptionHandler()
 	require.NoError(t, err)
 
-	// Generate DKS
-	dks, err := keyHandler.generateDKS()
+	// Generate DEK
+	dek, err := keyHandler.generateDEK()
 
-	// Expect DKS is generated without error
+	// Expect DEK is generated without error
 	require.NoError(t, err)
-	require.Equal(t, DataKeyLength, len(dks))
+	require.Equal(t, DataKeyLength, len(dek))
 
-	// Start wrapping DKS
-	wrappedDKS, err := keyHandler.wrapDKS(dks)
+	// Start wrapping DEK
+	wrappedDEK, err := keyHandler.wrapDEK(dek)
 	require.NoError(t, err)
 
 	// Unwrap
-	key, err := keyHandler.unwrapDKS(wrappedDKS)
+	key, err := keyHandler.unwrapDEK(wrappedDEK)
 	require.NoError(t, err)
 
 	// Expect the unwrapped key is actually correct
-	require.Equal(t, dks, key)
+	require.Equal(t, dek, key)
 }
 
 // Ensure encryption of messages works correctly.
 func TestEncryption(t *testing.T) {
 	// Set a random AES key as master key
-	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "t7w!z%C*F-JaNcRf")
 
 	// Given a key handler
-	keyHandler, err := NewLocalEncriptionHandler()
+	keyHandler, err := NewLocalEncryptionHandler()
 	require.NoError(t, err)
 
 	// Given sample data
@@ -93,10 +93,10 @@ func TestEncryption(t *testing.T) {
 
 	// Given a sample data key
 
-	dks, err := keyHandler.generateDKS()
+	dek, err := keyHandler.generateDEK()
 	require.NoError(t, err)
 
-	ciphertext, err := keyHandler.encryptData(dks, plaintext)
+	ciphertext, err := keyHandler.encryptData(dek, plaintext)
 	require.NoError(t, err)
 
 	require.NotEmpty(t, ciphertext)
@@ -108,25 +108,25 @@ func TestEncryption(t *testing.T) {
 // Ensure that the decryption retrieves the same text after encryption.
 func TestDecryption(t *testing.T) {
 	// Set a random AES key as master key
-	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "t7w!z%C*F-JaNcRf")
 
 	// Given a key handler
-	keyHandler, err := NewLocalEncriptionHandler()
+	keyHandler, err := NewLocalEncryptionHandler()
 	require.NoError(t, err)
 
 	// Given sample data
 	plaintext := []byte("exampleplaintext")
 
 	// Given a sample data key
-	dks, err := keyHandler.generateDKS()
+	dek, err := keyHandler.generateDEK()
 	require.NoError(t, err)
 
 	// Encrpyt
-	ciphertext, err := keyHandler.encryptData(dks, plaintext)
+	ciphertext, err := keyHandler.encryptData(dek, plaintext)
 	require.NoError(t, err)
 
 	// Decrypt
-	decryptedText, err := keyHandler.decryptData(dks, ciphertext)
+	decryptedText, err := keyHandler.decryptData(dek, ciphertext)
 	require.NoError(t, err)
 
 	// Expect to retrieve the same original text
@@ -136,10 +136,10 @@ func TestDecryption(t *testing.T) {
 // Ensure that the data encryption process can be performed.
 func TestSeal(t *testing.T) {
 	// Set a random AES key as master key
-	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "t7w!z%C*F-JaNcRf")
 
 	// Given a key handler
-	keyHandler, err := NewLocalEncriptionHandler()
+	keyHandler, err := NewLocalEncryptionHandler()
 	require.NoError(t, err)
 
 	// Given sample data
@@ -156,24 +156,24 @@ func TestSeal(t *testing.T) {
 	wrappedKey := data[1:keyEndPos]
 	encryptedData := data[keyEndPos:]
 
-	// Expect that  a default DKS key is generated
-	require.NotNil(t, keyHandler.defaultDKS)
+	// Expect that  a default DEK key is generated
+	require.NotNil(t, keyHandler.defaultDEK)
 
 	// Expect that the data is encrypted
 	require.NotEqual(t, encryptedData, plaintext)
 
-	// Expect that the DKS key is wrapped
-	require.NotEqual(t, wrappedKey, keyHandler.defaultDKS)
+	// Expect that the DEK key is wrapped
+	require.NotEqual(t, wrappedKey, keyHandler.defaultDEK)
 
 }
 
 // Ensure that the data decryption process can be performed.
 func TestRead(t *testing.T) {
 	// Set a random AES key as master key
-	os.Setenv("LOCAL_MASTER_KEY", "/A?D(G+KbPdSgVkYp3s6v9y$B&E)H@Mc")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "/A?D(G+KbPdSgVkYp3s6v9y$B&E)H@Mc")
 
 	// Given a key handler
-	keyHandler, err := NewLocalEncriptionHandler()
+	keyHandler, err := NewLocalEncryptionHandler()
 	require.NoError(t, err)
 
 	// Given sample data

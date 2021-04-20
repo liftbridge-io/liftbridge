@@ -19,13 +19,13 @@ const (
 )
 
 var (
-	masterKeyVarName = "LOCAL_MASTER_KEY"
+	masterKeyVarName = "LIFTBRIDGE_ENCRYPTION_KEY"
 )
 
 // LocalEncryptionHandler provides functionalities to load secret key
 // from environment variables
 type LocalEncryptionHandler struct {
-	defaultDKS  []byte
+	defaultDEK  []byte
 	keywrapper  *subtle.KWP
 	blockCipher *cipher.AEAD
 }
@@ -48,9 +48,9 @@ func NewLocalEncryptionHandler() (*LocalEncryptionHandler, error) {
 	return &localEncryptionHandler, nil
 }
 
-// generateDKS retrieves the pre-configured encryption key
+// generateDEK retrieves the pre-configured encryption key
 // from the environment variables.
-func (handler *LocalEncryptionHandler) generateDKS() ([]byte, error) {
+func (handler *LocalEncryptionHandler) generateDEK() ([]byte, error) {
 	key := make([]byte, DataKeyLength)
 
 	if _, err := rand.Read(key); err != nil {
@@ -61,10 +61,10 @@ func (handler *LocalEncryptionHandler) generateDKS() ([]byte, error) {
 
 }
 
-func (handler *LocalEncryptionHandler) wrapDKS(dks []byte) ([]byte, error) {
+func (handler *LocalEncryptionHandler) wrapDEK(dek []byte) ([]byte, error) {
 	// use Tinker to wrap data key
 	// https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e
-	wrappedKey, err := handler.keyWrapper.Wrap(dks)
+	wrappedKey, err := handler.keywrapper.Wrap(dek)
 
 	if err != nil {
 		return nil, err
@@ -73,10 +73,10 @@ func (handler *LocalEncryptionHandler) wrapDKS(dks []byte) ([]byte, error) {
 	return wrappedKey, nil
 }
 
-func (handler *LocalEncryptionHandler) unwrapDKS(wrappedDKS []byte) ([]byte, error) {
+func (handler *LocalEncryptionHandler) unwrapDEK(wrappedDEK []byte) ([]byte, error) {
 	// use Tinker to unwrap data key
 	// https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e
-	key, err := handler.keywrapper.Unwrap(wrappedDKS)
+	key, err := handler.keywrapper.Unwrap(wrappedDEK)
 
 	if err != nil {
 		return nil, err
@@ -85,9 +85,9 @@ func (handler *LocalEncryptionHandler) unwrapDKS(wrappedDKS []byte) ([]byte, err
 	return key, nil
 }
 
-func (handler *LocalEncryptionHandler) encryptData(dks []byte, plaintextData []byte) ([]byte, error) {
+func (handler *LocalEncryptionHandler) encryptData(dek []byte, plaintextData []byte) ([]byte, error) {
 	// init cipher in GCM
-	block, err := aes.NewCipher(dks)
+	block, err := aes.NewCipher(dek)
 	if err != nil {
 		return nil, err
 	}
@@ -106,8 +106,8 @@ func (handler *LocalEncryptionHandler) encryptData(dks []byte, plaintextData []b
 	return ciphertext, nil
 }
 
-func (handler *LocalEncryptionHandler) decryptData(dks []byte, encryptedData []byte) ([]byte, error) {
-	block, err := aes.NewCipher(dks)
+func (handler *LocalEncryptionHandler) decryptData(dek []byte, encryptedData []byte) ([]byte, error) {
+	block, err := aes.NewCipher(dek)
 	if err != nil {
 		return nil, err
 	}
@@ -141,25 +141,25 @@ func (handler *LocalEncryptionHandler) decryptData(dks []byte, encryptedData []b
 // | key size | key byte 0 | key byte 1 |      ... | key byte n   | message byte 0 |  ... |  message byte m  |
 
 func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, error) {
-	// Generate a default Data Key (DKS) if not yet available
-	if handler.defaultDKS == nil {
-		dksKey, err := handler.generateDKS()
+	// Generate a default Data Key (DEK) if not yet available
+	if handler.defaultDEK == nil {
+		dekKey, err := handler.generateDEK()
 
 		if err != nil {
 			return nil, err
 		}
-		handler.defaultDKS = dksKey
+		handler.defaultDEK = dekKey
 	}
 
 	// encrypt the message
-	ciphertext, err := handler.encryptData(handler.defaultDKS, data)
+	ciphertext, err := handler.encryptData(handler.defaultDEK, data)
 	if err != nil {
 		return nil, err
 	}
 
 	// wrap the data key
 
-	wrappedKey, err := handler.wrapDKS(handler.defaultDKS)
+	wrappedKey, err := handler.wrapDEK(handler.defaultDEK)
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +167,16 @@ func (handler *LocalEncryptionHandler) Seal(data []byte) ([]byte, error) {
 	keyLength := len(wrappedKey)
 
 	// concatenate:  key size | wrapped key | ciphertext
+
 	keySize := []byte{byte(keyLength)}
-	dataSequence := append(keySize, wrappedKey...)
-	dataSequence = append(dataSequence, ciphertext...)
+	// allocate data sequence
+	dataSequenceSize := len(keySize) + keyLength + len(ciphertext)
+	dataSequence := make([]byte, dataSequenceSize)
+
+	// copy key size, wrapped key and cipher text to data sequence
+	copy(dataSequence[:1], keySize)
+	copy(dataSequence[1:keyLength+1], wrappedKey)
+	copy(dataSequence[keyLength+1:], ciphertext)
 
 	return dataSequence, nil
 }
@@ -189,10 +196,10 @@ func (handler *LocalEncryptionHandler) Read(encryptedData []byte) ([]byte, error
 	// Decompose wrapped key and cypher text
 	keySize := int(encryptedData[0])
 	keyEndPos := keySize + 1
-	wrappedDKS := encryptedData[1:keyEndPos]
+	wrappedDEK := encryptedData[1:keyEndPos]
 
 	ciphertext := encryptedData[keyEndPos:]
-	unwrappedDKS, err := handler.unwrapDKS(wrappedDKS)
+	unwrappedDEK, err := handler.unwrapDEK(wrappedDEK)
 
 	if err != nil {
 		return nil, err
@@ -200,7 +207,7 @@ func (handler *LocalEncryptionHandler) Read(encryptedData []byte) ([]byte, error
 
 	// Decipher the message
 
-	plaintext, err := handler.decryptData(unwrappedDKS, ciphertext)
+	plaintext, err := handler.decryptData(unwrappedDEK, ciphertext)
 
 	if err != nil {
 		return nil, err

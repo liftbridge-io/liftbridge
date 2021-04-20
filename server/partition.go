@@ -134,7 +134,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		AutoPauseTime:                 s.config.Streams.AutoPauseTime,
 		AutoPauseDisableIfSubscribers: s.config.Streams.AutoPauseDisableIfSubscribers,
 		MinISR:                        s.config.Clustering.MinISR,
-		EncryptionDataAtRest:          s.config.Streams.EncryptionDataAtRest,
+		Encryption:                    s.config.Streams.Encryption,
 	}
 	streamsConfig.ApplyOverrides(config)
 	var (
@@ -191,10 +191,10 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		autoPauseDisableIfSubscribers: streamsConfig.AutoPauseDisableIfSubscribers,
 	}
 
-	if streamsConfig.EncryptionDataAtRest {
+	if streamsConfig.Encryption {
 		// Init handler for Encryption-at-Rest
 
-		encryptionHandler, err := encryption.NewLocalEncriptionHandler()
+		encryptionHandler, err := encryption.NewLocalEncryptionHandler()
 
 		if err != nil {
 			return nil, errors.Wrap(err, "Failed to initialize encryption handler on partition")

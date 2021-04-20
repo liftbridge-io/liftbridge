@@ -1,16 +1,8 @@
 package encryption
 
 // Handler provides the necessary method to safely retrieve
-// secret encryption key to encrypt/decrypt data at rest.
+// secret encryption key to encrypt/decrypt data on server side.
 type Handler interface {
-	// Generate Data Key
-	generateDKS() ([]byte, error)
-	// Wrap Data Key
-	wrapDKS([]byte) ([]byte, error)
-	// Encrypt data using data key
-	encryptData([]byte, []byte) ([]byte, error)
-	// Decrypt data using data key
-	decryptData([]byte, []byte) ([]byte, error)
 
 	// Seal takes the message, performs the encryption and returns
 	// the bytes to store according to the following layout:

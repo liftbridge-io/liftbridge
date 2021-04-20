@@ -1729,7 +1729,7 @@ func TestDataEncryptionStream(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Set AES key for Encryption-at-Rest
-	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "t7w!z%C*F-JaNcRf")
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -1746,7 +1746,7 @@ func TestDataEncryptionStream(t *testing.T) {
 	// Create stream, enable encryption-at-rest
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name, lift.EncryptionDataAtRest(true))
+	err = client.CreateStream(context.Background(), subject, name, lift.Encryption(true))
 	require.NoError(t, err)
 
 	num := 5
@@ -1848,7 +1848,7 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Set AES key for Encryption-at-Rest
-	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "t7w!z%C*F-JaNcRf")
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -1873,7 +1873,7 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 	encryptedSubjectName := "foo_encrypted"
 	err = clientForEncryptedStream.CreateStream(context.Background(),
 		encryptedSubjectName, encryptedStreamName,
-		lift.EncryptionDataAtRest(true))
+		lift.Encryption(true))
 	require.NoError(t, err)
 
 	// Create stream, disable encryption-at-rest
@@ -2002,12 +2002,12 @@ func TestEncryptionALongwithNoEncryptionStreams(t *testing.T) {
 }
 
 // TestDataEncryptionStreamOnError ensures that stream creation doesn't succeed if encryption is
-// enabled and the LOCAL_MASTER_KEY environment variable isn't set.
+// enabled and the LIFTBRIDGE_ENCRYPTION_KEY environment variable isn't set.
 func TestDataEncryptionStreamOnError(t *testing.T) {
 	defer cleanupStorage(t)
 
 	// Reset AES key for Encryption-at-Rest to something incorrect
-	os.Setenv("LOCAL_MASTER_KEY", "something-in-correct")
+	os.Setenv("LIFTBRIDGE_ENCRYPTION_KEY", "something-in-correct")
 
 	// Configure server.
 	s1Config := getTestConfig("a", true, 5050)
@@ -2024,7 +2024,7 @@ func TestDataEncryptionStreamOnError(t *testing.T) {
 	// Create stream, enable encryption-at-rest
 	name := "foo"
 	subject := "foo"
-	err = client.CreateStream(context.Background(), subject, name, lift.EncryptionDataAtRest(true))
+	err = client.CreateStream(context.Background(), subject, name, lift.Encryption(true))
 
 	st := status.Convert(err)
 	require.Contains(t, st.Message(), "invalid AES key size")

@@ -433,9 +433,9 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 }
 
 func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamRequest) *status.Status {
-	// Verify if an encrypted stream is requested, the LOCAL_MASTER_KEY must be correctly set
-	if req.EncryptionDataAtRest != nil {
-		if req.EncryptionDataAtRest.Value {
+	// Verify if an encrypted stream is requested, the LIFTBRIDGE_ENCRYPTION_KEY must be correctly set
+	if req.Encryption != nil {
+		if req.Encryption.Value {
 			_, err := encryption.NewLocalEncryptionHandler()
 			if err != nil {
 				errorMessage := fmt.Sprintf("%s: %s",
@@ -699,7 +699,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 
 			// Data decryption
 			if partition.encryptionHandler != nil {
-				// Decryption of data at rest
+				// Decryption of data on server side
 				decryptedMsg, err := partition.encryptionHandler.Read(msgValue)
 
 				if err != nil {
@@ -848,8 +848,8 @@ func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
 	if req.OptimisticConcurrencyControl != nil {
 		config.OptimisticConcurrencyControl = &proto.NullableBool{Value: req.OptimisticConcurrencyControl.Value}
 	}
-	if req.EncryptionDataAtRest != nil {
-		config.EncryptionDataAtRest = &proto.NullableBool{Value: req.EncryptionDataAtRest.Value}
+	if req.Encryption != nil {
+		config.Encryption = &proto.NullableBool{Value: req.Encryption.Value}
 	}
 
 	return config

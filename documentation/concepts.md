@@ -399,7 +399,7 @@ This behavior may be enabled by [*configuration*](./configuration.md)
 This may be used in tandem with API `FetchPartitionMetadata` to retrieve partition's metadata.
 
 
-## Encryption of data at rest on server side
+## Encryption of data on server side on server side
 
 Streams support the encryption of messages' values on the server side for extra security and data governance concerns.
 
@@ -409,7 +409,7 @@ For each message, a random AES key is generated and the message is encrypted usi
 
 The generated key is then wrapped using advanced key wrapping algorithm proposed in [RFC5649](https://www.rfc-editor.org/rfc/rfc5649.txt).
 
-The encrypted message is stored alongside the wrapped DKS key in the commit log.
+The encrypted message is stored alongside the wrapped DEK key in the commit log.
 
 
 ## Further Reading

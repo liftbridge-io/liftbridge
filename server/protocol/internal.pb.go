@@ -1013,7 +1013,7 @@ type StreamConfig struct {
 	AutoPauseDisableIfSubscribers *NullableBool  `protobuf:"bytes,10,opt,name=autoPauseDisableIfSubscribers,proto3" json:"autoPauseDisableIfSubscribers,omitempty"`
 	MinIsr                        *NullableInt32 `protobuf:"bytes,11,opt,name=minIsr,proto3" json:"minIsr,omitempty"`
 	OptimisticConcurrencyControl  *NullableBool  `protobuf:"bytes,12,opt,name=optimisticConcurrencyControl,proto3" json:"optimisticConcurrencyControl,omitempty"`
-	EncryptionDataAtRest          *NullableBool  `protobuf:"bytes,13,opt,name=encryptionDataAtRest,proto3" json:"encryptionDataAtRest,omitempty"`
+	Encryption                    *NullableBool  `protobuf:"bytes,13,opt,name=encryptionDataAtRest,proto3" json:"encryptionDataAtRest,omitempty"`
 	XXX_NoUnkeyedLiteral          struct{}       `json:"-"`
 	XXX_unrecognized              []byte         `json:"-"`
 	XXX_sizecache                 int32          `json:"-"`
@@ -1136,9 +1136,9 @@ func (m *StreamConfig) GetOptimisticConcurrencyControl() *NullableBool {
 	return nil
 }
 
-func (m *StreamConfig) GetEncryptionDataAtRest() *NullableBool {
+func (m *StreamConfig) GetEncryption() *NullableBool {
 	if m != nil {
-		return m.EncryptionDataAtRest
+		return m.Encryption
 	}
 	return nil
 }
@@ -3161,11 +3161,11 @@ func (m *StreamConfig) MarshalTo(dAtA []byte) (int, error) {
 		}
 		i += n28
 	}
-	if m.EncryptionDataAtRest != nil {
+	if m.Encryption != nil {
 		dAtA[i] = 0x6a
 		i++
-		i = encodeVarintInternal(dAtA, i, uint64(m.EncryptionDataAtRest.Size()))
-		n29, err29 := m.EncryptionDataAtRest.MarshalTo(dAtA[i:])
+		i = encodeVarintInternal(dAtA, i, uint64(m.Encryption.Size()))
+		n29, err29 := m.Encryption.MarshalTo(dAtA[i:])
 		if err29 != nil {
 			return 0, err29
 		}
@@ -4331,8 +4331,8 @@ func (m *StreamConfig) Size() (n int) {
 		l = m.OptimisticConcurrencyControl.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
-	if m.EncryptionDataAtRest != nil {
-		l = m.EncryptionDataAtRest.Size()
+	if m.Encryption != nil {
+		l = m.Encryption.Size()
 		n += 1 + l + sovInternal(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -7392,7 +7392,7 @@ func (m *StreamConfig) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 13:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EncryptionDataAtRest", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Encryption", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -7419,10 +7419,10 @@ func (m *StreamConfig) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.EncryptionDataAtRest == nil {
-				m.EncryptionDataAtRest = &NullableBool{}
+			if m.Encryption == nil {
+				m.Encryption = &NullableBool{}
 			}
-			if err := m.EncryptionDataAtRest.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Encryption.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
