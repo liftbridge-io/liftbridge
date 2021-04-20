@@ -24,7 +24,7 @@ func TestGenerateDataKeyCorrectly(t *testing.T) {
 	require.NotEmpty(t, dks)
 }
 
-// ENsure that key can be wrapped by using master key
+// Ensure that the data key can be wrapped with the master key.
 func TestWrapDataKeyCorrectly(t *testing.T) {
 	// Set a random AES key as master key
 	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
@@ -51,7 +51,7 @@ func TestWrapDataKeyCorrectly(t *testing.T) {
 	require.NotEqual(t, dks, wrappedDKS)
 }
 
-// Ensure that key can be unwrapped by using master key
+// Ensure that the data key can be unwrapped using the master key.
 func TestUnWrapDataKeyCorrectly(t *testing.T) {
 	// Set a random AES key as master key
 	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
@@ -79,7 +79,7 @@ func TestUnWrapDataKeyCorrectly(t *testing.T) {
 	require.Equal(t, dks, key)
 }
 
-// Ensure encryptions can encrypt the message
+// Ensure encryption of messages works correctly.
 func TestEncryption(t *testing.T) {
 	// Set a random AES key as master key
 	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
@@ -101,12 +101,11 @@ func TestEncryption(t *testing.T) {
 
 	require.NotEmpty(t, ciphertext)
 
-	// Expect cipher  text should not be the same
-	// as plain text
+	// expect cipher text should not be the same as plain text
 	require.NotEqual(t, ciphertext, plaintext)
 }
 
-// Ensure that the decryption retrieves the same text after encryption
+// Ensure that the decryption retrieves the same text after encryption.
 func TestDecryption(t *testing.T) {
 	// Set a random AES key as master key
 	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
@@ -134,7 +133,7 @@ func TestDecryption(t *testing.T) {
 	require.Equal(t, plaintext, decryptedText)
 }
 
-// Ensure that the data data encryption process can be performed
+// Ensure that the data encryption process can be performed.
 func TestSeal(t *testing.T) {
 	// Set a random AES key as master key
 	os.Setenv("LOCAL_MASTER_KEY", "t7w!z%C*F-JaNcRf")
@@ -168,7 +167,7 @@ func TestSeal(t *testing.T) {
 
 }
 
-// Ensure that the data data decryption process can be performed
+// Ensure that the data decryption process can be performed.
 func TestRead(t *testing.T) {
 	// Set a random AES key as master key
 	os.Setenv("LOCAL_MASTER_KEY", "/A?D(G+KbPdSgVkYp3s6v9y$B&E)H@Mc")
