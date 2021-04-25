@@ -434,16 +434,15 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 
 func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamRequest) *status.Status {
 	// Verify if an encrypted stream is requested, the LIFTBRIDGE_ENCRYPTION_KEY must be correctly set
-	if req.Encryption != nil {
-		if req.Encryption.Value {
-			_, err := encryption.NewLocalEncryptionHandler()
-			if err != nil {
-				errorMessage := fmt.Sprintf("%s: %s",
-					"Failed  on preconditions for stream's encryption handler",
-					err.Error())
-				return status.New(codes.FailedPrecondition, errorMessage)
-			}
+	if req.Encryption != nil && req.Encryption.Value {
+		_, err := encryption.NewLocalEncryptionHandler()
+		if err != nil {
+			errorMessage := fmt.Sprintf("%s: %s",
+				"Failed  on preconditions for stream's encryption handler",
+				err.Error())
+			return status.New(codes.FailedPrecondition, errorMessage)
 		}
+
 	}
 	return nil
 }

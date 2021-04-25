@@ -97,7 +97,7 @@ const (
 	configStreamsAutoPauseTime                 = "streams.auto.pause.time"
 	configStreamsAutoPauseDisableIfSubscribers = "streams.auto.pause.disable.if.subscribers"
 	configStreamsConcurrencyControl            = "streams.concurrency.control"
-	configStreamsEncryption                    = "streams.encryption.control"
+	configStreamsEncryption                    = "streams.encryption"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"
@@ -288,8 +288,8 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 		l.ConcurrencyControl = optimisticConcurrencyControl.Value
 	}
 
-	if encryptionDataAtRest := c.Encryption; encryptionDataAtRest != nil {
-		l.Encryption = encryptionDataAtRest.Value
+	if encryption := c.Encryption; encryption != nil {
+		l.Encryption = encryption.Value
 	}
 }
 

@@ -38,7 +38,7 @@ func TestWrapDataKeyCorrectly(t *testing.T) {
 
 	// Expect DEK is generated without error
 	require.NoError(t, err)
-	require.Equal(t, DataKeyLength, len(dek))
+	require.Equal(t, 32, len(dek))
 
 	// Start wrapping DEK
 	wrappedDEK, err := keyHandler.wrapDEK(dek)
@@ -65,7 +65,7 @@ func TestUnWrapDataKeyCorrectly(t *testing.T) {
 
 	// Expect DEK is generated without error
 	require.NoError(t, err)
-	require.Equal(t, DataKeyLength, len(dek))
+	require.Equal(t, 32, len(dek))
 
 	// Start wrapping DEK
 	wrappedDEK, err := keyHandler.wrapDEK(dek)

@@ -10,12 +10,16 @@ import (
 	"github.com/google/tink/go/kwp/subtle"
 )
 
+type AESKeyLength int
+
 const (
 	// DataKeyLength provides the length for data key in bytes.
 	// It is recommended to use an authentication key with 32 or 64 bytes.
 	// The data key length must be either
 	// 16, 24, or 32 bytes to select AES-128, AES-192, or AES-256 modes.
-	DataKeyLength int = 32
+	AES256KeyLength AESKeyLength = 32
+	AES192KeyLength AESKeyLength = 24
+	AES128KeyLength AESKeyLength = 16
 )
 
 var (
@@ -26,7 +30,7 @@ var (
 // from environment variables
 type LocalEncryptionHandler struct {
 	defaultDEK  []byte
-	keywrapper  *subtle.KWP
+	keyWrapper  *subtle.KWP
 	blockCipher *cipher.AEAD
 }
 
@@ -43,15 +47,14 @@ func NewLocalEncryptionHandler() (*LocalEncryptionHandler, error) {
 	if err != nil {
 		return nil, err
 	}
-	localEncryptionHandler.keywrapper = kwp
+	localEncryptionHandler.keyWrapper = kwp
 
 	return &localEncryptionHandler, nil
 }
 
-// generateDEK retrieves the pre-configured encryption key
-// from the environment variables.
+// generateDEK generate a random AES data encryption key
 func (handler *LocalEncryptionHandler) generateDEK() ([]byte, error) {
-	key := make([]byte, DataKeyLength)
+	key := make([]byte, AES256KeyLength)
 
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
@@ -64,7 +67,7 @@ func (handler *LocalEncryptionHandler) generateDEK() ([]byte, error) {
 func (handler *LocalEncryptionHandler) wrapDEK(dek []byte) ([]byte, error) {
 	// use Tinker to wrap data key
 	// https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e
-	wrappedKey, err := handler.keywrapper.Wrap(dek)
+	wrappedKey, err := handler.keyWrapper.Wrap(dek)
 
 	if err != nil {
 		return nil, err
@@ -76,7 +79,7 @@ func (handler *LocalEncryptionHandler) wrapDEK(dek []byte) ([]byte, error) {
 func (handler *LocalEncryptionHandler) unwrapDEK(wrappedDEK []byte) ([]byte, error) {
 	// use Tinker to unwrap data key
 	// https://github.com/google/tink/commit/22467ef7273d73b2d65e4b50310aab4af006bb7e
-	key, err := handler.keywrapper.Unwrap(wrappedDEK)
+	key, err := handler.keyWrapper.Unwrap(wrappedDEK)
 
 	if err != nil {
 		return nil, err
@@ -100,7 +103,7 @@ func (handler *LocalEncryptionHandler) encryptData(dek []byte, plaintextData []b
 	// init nonce
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 	ciphertext := gcm.Seal(nonce, nonce, plaintextData, nil)
 	return ciphertext, nil

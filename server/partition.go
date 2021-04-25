@@ -110,7 +110,7 @@ type partition struct {
 	messagesReceivedTimestamps    EventTimestamps // First and latest time a message was received on this partition
 	pauseTimestamps               EventTimestamps // First and latest time this partition was paused or resumed
 	readonlyTimestamps            EventTimestamps // First and latest time this partition had its read-only status changed
-	encryptionHandler             encryption.Handler
+	encryptionHandler             encryption.Codec
 	*proto.Partition
 }
 

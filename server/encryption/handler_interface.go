@@ -1,13 +1,13 @@
 package encryption
 
-// Handler provides the necessary method to safely retrieve
+// Codec provides the necessary method to safely retrieve
 // secret encryption key to encrypt/decrypt data on server side.
-type Handler interface {
+type Codec interface {
 
 	// Seal takes the message, performs the encryption and returns
 	// the bytes to store according to the following layout:
-	// The encoded message contains the first byte as size of the wrapped key,
-	// the wrapped key and finally the encrypted message.
+	// The first byte contains the size of the wrapped key, followed by the wrapped key and
+	// finally the encrypted message.
 	//
 	// |  byte 0  |   byte 1   |   byte 2   |    ...   | byte (n +1) |    byte (n+2)  |  ... | byte (n + m + 2) |
 	// |----------|------------|------------|----------|--------------|----------------|------|------------------|

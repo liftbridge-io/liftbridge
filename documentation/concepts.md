@@ -399,13 +399,14 @@ This behavior may be enabled by [*configuration*](./configuration.md)
 This may be used in tandem with API `FetchPartitionMetadata` to retrieve partition's metadata.
 
 
-## Encryption of data on server side on server side
+## Server-Side Encryption
 
 Streams support the encryption of messages' values on the server side for extra security and data governance concerns.
 
 This behavior may be enabled by [*configuration*](./configuration.md).
 
-For each message, a random AES key is generated and the message is encrypted using that key (called the `Data Key`).
+Upon initilization of a partition, a random AES key is generated and the message is encrypted using that key
+(called the `Data Key`).
 
 The generated key is then wrapped using advanced key wrapping algorithm proposed in [RFC5649](https://www.rfc-editor.org/rfc/rfc5649.txt).
 

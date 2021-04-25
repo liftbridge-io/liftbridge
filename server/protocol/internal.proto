@@ -116,7 +116,7 @@ message StreamConfig  {
     NullableBool  autoPauseDisableIfSubscribers = 10;
     NullableInt32 minIsr                        = 11;
     NullableBool  optimisticConcurrencyControl  = 12;
-    NullableBool  encryptionDataAtRest          = 13; 
+    NullableBool  encryption                    = 13; 
 }
 
 message Stream {
