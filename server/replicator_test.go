@@ -269,8 +269,16 @@ func TestCommitOnISRShrink(t *testing.T) {
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
+	// Configure forth server.
+	s4Config := getTestConfig("d", false, 5053)
+	s4Config.EmbeddedNATS = false
+	s4Config.Clustering.ReplicaMaxLagTime = time.Second
+	s4Config.Clustering.ReplicaFetchTimeout = 100 * time.Millisecond
+	s4 := runServerWithConfig(t, s4Config)
+	defer s4.Stop()
+
 	servers := []*Server{s1, s2, s3}
-	lateJoiner := []*Server{s3}
+	lateJoiner := []*Server{s3, s4}
 
 	// Create stream.
 	name := "foo"
@@ -431,8 +439,8 @@ func TestCommitOnRestart(t *testing.T) {
 	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(2))
 	require.NoError(t, err)
 
-	// Wait until stream is created
-	time.Sleep(5 * time.Second)
+	// Wait until the stream is created
+	waitForPartition(t, 5*time.Second, name, 0, servers...)
 
 	// Publish some messages.
 	num := 5
@@ -564,8 +572,10 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	defer cancel()
 	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
-	// Waith until the stream is created on all servers
-	time.Sleep(5 * time.Second)
+
+	// Wait until the stream is created
+	waitForPartition(t, 5*time.Second, name, 0, servers...)
+
 	// Publish two messages.
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -710,8 +720,8 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(4))
 	require.NoError(t, err)
 
-	// Wait until the stream is replicated
-	time.Sleep(5 * time.Second)
+	// Wait until the stream is created
+	waitForPartition(t, 5*time.Second, name, 0, servers...)
 
 	// Publish two messages.
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
