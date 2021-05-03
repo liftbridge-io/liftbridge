@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -256,6 +257,10 @@ func TestCommitOnISRShrink(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051"})
+	require.NoError(t, err)
+	defer client.Close()
+
 	// Configure third server.
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.EmbeddedNATS = false
@@ -264,11 +269,16 @@ func TestCommitOnISRShrink(t *testing.T) {
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
-	servers := []*Server{s1, s2, s3}
+	// Configure forth server.
+	s4Config := getTestConfig("d", false, 5053)
+	s4Config.EmbeddedNATS = false
+	s4Config.Clustering.ReplicaMaxLagTime = time.Second
+	s4Config.Clustering.ReplicaFetchTimeout = 100 * time.Millisecond
+	s4 := runServerWithConfig(t, s4Config)
+	defer s4.Stop()
 
-	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
-	require.NoError(t, err)
-	defer client.Close()
+	servers := []*Server{s1, s2, s3}
+	lateJoiner := []*Server{s3, s4}
 
 	// Create stream.
 	name := "foo"
@@ -280,8 +290,9 @@ func TestCommitOnISRShrink(t *testing.T) {
 
 	// Kill a stream follower.
 	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
+
 	var follower *Server
-	for i, server := range servers {
+	for i, server := range lateJoiner {
 		if server != leader {
 			follower = server
 			servers = append(servers[:i], servers[i+1:]...)
@@ -302,8 +313,8 @@ func TestCommitOnISRShrink(t *testing.T) {
 
 	// Ensure we don't receive an ack yet.
 	select {
-	case <-gotAck:
-		t.Fatal("Received unexpected ack")
+	case err := <-gotAck:
+		t.Fatal("Received unexpected ack", err)
 	case <-time.After(500 * time.Millisecond):
 	}
 
@@ -335,16 +346,23 @@ func TestAckPolicyLeader(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
+	// Connect the the clusters
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051"})
+	require.NoError(t, err)
+	defer client.Close()
+
 	// Configure third server.
 	s3Config := getTestConfig("c", false, 5052)
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
-	servers := []*Server{s1, s2, s3}
+	// Configure fourth server.
+	s4Config := getTestConfig("d", false, 5053)
+	s4 := runServerWithConfig(t, s4Config)
+	defer s4.Stop()
 
-	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
-	require.NoError(t, err)
-	defer client.Close()
+	servers := []*Server{s1, s2, s3, s4}
+	lateJoiner := []*Server{s3, s4}
 
 	// Create stream.
 	name := "foo"
@@ -356,8 +374,9 @@ func TestAckPolicyLeader(t *testing.T) {
 
 	// Kill a stream follower.
 	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
+
 	var follower *Server
-	for i, server := range servers {
+	for i, server := range lateJoiner {
 		if server != leader {
 			follower = server
 			servers = append(servers[:i], servers[i+1:]...)
@@ -400,11 +419,17 @@ func TestCommitOnRestart(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
-	servers := []*Server{s1, s2}
-
 	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051"})
 	require.NoError(t, err)
 	defer client.Close()
+
+	// Configure third server.
+	s3Config := getTestConfig("c", false, 5052)
+	s3Config.Clustering.MinISR = 2
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
+	servers := []*Server{s1, s2, s3}
 
 	// Create stream.
 	name := "foo"
@@ -413,6 +438,9 @@ func TestCommitOnRestart(t *testing.T) {
 	defer cancel()
 	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(2))
 	require.NoError(t, err)
+
+	// Wait until the stream is created
+	waitForPartition(t, 5*time.Second, name, 0, servers...)
 
 	// Publish some messages.
 	num := 5
@@ -424,14 +452,11 @@ func TestCommitOnRestart(t *testing.T) {
 	}
 
 	// Kill stream follower.
-	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 	var follower *Server
-	for i, server := range servers {
-		if server != leader {
-			follower = server
-			servers = append(servers[:i], servers[i+1:]...)
-			break
-		}
+	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
+	if leader != s3 {
+		follower = s3
+
 	}
 	follower.Stop()
 
@@ -459,10 +484,10 @@ func TestCommitOnRestart(t *testing.T) {
 	)
 	if leader == s1 {
 		leaderConfig = s1Config
-		followerConfig = s2Config
-	} else {
+		followerConfig = s3Config
+	} else if leader == s2 {
 		leaderConfig = s2Config
-		followerConfig = s1Config
+		followerConfig = s3Config
 	}
 
 	// Restart the leader.
@@ -547,6 +572,9 @@ func TestTruncateFastLeaderElection(t *testing.T) {
 	defer cancel()
 	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
+
+	// Wait until the stream is created
+	waitForPartition(t, 5*time.Second, name, 0, servers...)
 
 	// Publish two messages.
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
@@ -660,6 +688,10 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
+	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051"})
+	require.NoError(t, err)
+	defer client.Close()
+
 	// Configure third server.
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.Clustering.MinISR = 1
@@ -669,19 +701,27 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	s3 := runServerWithConfig(t, s3Config)
 	defer s3.Stop()
 
-	servers := []*Server{s1, s2, s3}
+	// Configure forth server.
+	s4Config := getTestConfig("d", false, 5053)
+	s4Config.Clustering.MinISR = 1
+	s4Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
+	s4Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
+	s4Config.Clustering.ReplicaFetchTimeout = 500 * time.Millisecond
+	s4 := runServerWithConfig(t, s4Config)
+	defer s4.Stop()
 
-	client, err := lift.Connect([]string{"localhost:5050", "localhost:5051", "localhost:5052"})
-	require.NoError(t, err)
-	defer client.Close()
+	servers := []*Server{s1, s2, s3, s4}
 
 	// Create stream.
 	name := "foo"
 	subject := "foo"
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
+	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(4))
 	require.NoError(t, err)
+
+	// Wait until the stream is created
+	waitForPartition(t, 5*time.Second, name, 0, servers...)
 
 	// Publish two messages.
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
@@ -698,23 +738,32 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	var (
 		follower1 *Server
 		follower2 *Server
+		follower3 *Server
 	)
-	if leader == s1 {
+
+	if leader == s3 {
+		follower1 = s1
+		follower2 = s2
+		follower3 = s4
+	} else if leader == s4 {
+		follower1 = s1
+		follower2 = s2
+		follower3 = s3
+	} else if leader == s1 {
 		follower1 = s2
 		follower2 = s3
+		follower3 = s4
 	} else if leader == s2 {
 		follower1 = s1
 		follower2 = s3
-	} else {
-		follower1 = s1
-		follower2 = s2
+		follower3 = s4
 	}
 
 	// At this point, all servers should have a HW of 1. Set the followers'
 	// HW to 0 to simulate a follower crashing before replicating (also
 	// disable replication to prevent them from advancing their HW from the
 	// leader).
-	waitForHW(t, 5*time.Second, name, 0, 1, servers...)
+	waitForHW(t, 10*time.Second, name, 0, 1, servers...)
 
 	// Stop first follower's replication and reset HW.
 	partition1 := follower1.metadata.GetPartition(name, 0)
@@ -735,6 +784,7 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 		follower1Config *Config
 		follower2Config *Config
 	)
+
 	if leader == s1 {
 		oldLeaderConfig = s1Config
 		follower1Config = s2Config
@@ -743,12 +793,16 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 		oldLeaderConfig = s2Config
 		follower1Config = s1Config
 		follower2Config = s3Config
-	} else {
+	} else if leader == s3 {
 		oldLeaderConfig = s3Config
 		follower1Config = s1Config
 		follower2Config = s2Config
-	}
+	} else if leader == s4 {
+		oldLeaderConfig = s4Config
+		follower1Config = s1Config
+		follower2Config = s2Config
 
+	}
 	// Stop replication on the leader to force a leader election.
 	partition := leader.metadata.GetPartition(name, 0)
 	require.NotNil(t, partition)
@@ -767,13 +821,18 @@ func TestTruncatePreventReplicaDivergence(t *testing.T) {
 	defer follower2.Stop()
 
 	// Wait for stream leader to be elected.
-	getPartitionLeader(t, 10*time.Second, name, 0, follower1, follower2)
+	getPartitionLeader(t, 10*time.Second, name, 0, follower1, follower2, follower3)
 
 	// Stop the old leader.
 	leader.Stop()
 
 	// Wait for ISR to shrink.
-	waitForISR(t, 10*time.Second, name, 0, 2, follower1, follower2)
+	waitForISR(t, 10*time.Second, name, 0, 3, follower1, follower2, follower3)
+
+	host := fmt.Sprint("localhost:", follower1.port)
+	client, err = lift.Connect([]string{host})
+	require.NoError(t, err)
+	defer client.Close()
 
 	// Publish new messages.
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
