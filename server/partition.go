@@ -15,6 +15,7 @@ import (
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
+	encryption "github.com/liftbridge-io/liftbridge/server/encryption"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
@@ -109,6 +110,7 @@ type partition struct {
 	messagesReceivedTimestamps    EventTimestamps // First and latest time a message was received on this partition
 	pauseTimestamps               EventTimestamps // First and latest time this partition was paused or resumed
 	readonlyTimestamps            EventTimestamps // First and latest time this partition had its read-only status changed
+	encryptionHandler             encryption.Codec
 	*proto.Partition
 }
 
@@ -132,6 +134,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		AutoPauseTime:                 s.config.Streams.AutoPauseTime,
 		AutoPauseDisableIfSubscribers: s.config.Streams.AutoPauseDisableIfSubscribers,
 		MinISR:                        s.config.Clustering.MinISR,
+		Encryption:                    s.config.Streams.Encryption,
 	}
 	streamsConfig.ApplyOverrides(config)
 	var (
@@ -186,6 +189,18 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		recovered:                     recovered,
 		autoPauseTime:                 streamsConfig.AutoPauseTime,
 		autoPauseDisableIfSubscribers: streamsConfig.AutoPauseDisableIfSubscribers,
+	}
+
+	if streamsConfig.Encryption {
+		// Init handler for Encryption-at-Rest
+
+		encryptionHandler, err := encryption.NewLocalEncryptionHandler()
+
+		if err != nil {
+			return nil, errors.Wrap(err, "Failed to initialize encryption handler on partition")
+		}
+
+		st.encryptionHandler = encryptionHandler
 	}
 
 	return st, nil
@@ -802,6 +817,31 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		p.mu.Unlock()
 
 		m := natsToProtoMessage(msg, leaderEpoch)
+
+		if p.encryptionHandler != nil {
+			// Encrypt value
+			encryptedValue, err := p.encryptionHandler.Seal(m.Value)
+
+			if err != nil {
+				ack := &client.Ack{
+					Stream:             p.Stream,
+					PartitionSubject:   p.Subject,
+					MsgSubject:         string(m.Headers["subject"]),
+					AckInbox:           m.AckInbox,
+					CorrelationId:      m.CorrelationID,
+					AckPolicy:          m.AckPolicy,
+					ReceptionTimestamp: m.Timestamp,
+					AckError:           client.Ack_ENCRYPTION,
+				}
+
+				p.sendAck(ack)
+				p.srv.logger.Errorf("Failed to encrypt message %s: %v", p, err)
+				continue
+			}
+			// Set encrypted value
+			m.Value = encryptedValue
+		}
+
 		// Reject messages that are larger than the max replication size.
 		if int64(len(msg.Data)) > p.srv.config.Clustering.ReplicationMaxBytes {
 			p.sendTooLargeNack(m)
@@ -834,6 +874,30 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 			for i := 0; i < chanLen; i++ {
 				msg = <-recvChan
 				m := natsToProtoMessage(msg, leaderEpoch)
+
+				if p.encryptionHandler != nil {
+					// Encrypt value
+					encryptedValue, err := p.encryptionHandler.Seal(m.Value)
+
+					if err != nil {
+						ack := &client.Ack{
+							Stream:             p.Stream,
+							PartitionSubject:   p.Subject,
+							MsgSubject:         string(m.Headers["subject"]),
+							AckInbox:           m.AckInbox,
+							CorrelationId:      m.CorrelationID,
+							AckPolicy:          m.AckPolicy,
+							ReceptionTimestamp: m.Timestamp,
+							AckError:           client.Ack_ENCRYPTION,
+						}
+
+						p.sendAck(ack)
+						p.srv.logger.Errorf("Failed to encrypt message %s: %v", p, err)
+						continue
+					}
+					// Set encrypted value
+					m.Value = encryptedValue
+				}
 				if int64(len(msg.Data)) > p.srv.config.Clustering.ReplicationMaxBytes {
 					p.sendTooLargeNack(m)
 					continue
@@ -1437,6 +1501,7 @@ func natsToProtoMessage(msg *nats.Msg, leaderEpoch uint64) *commitlog.Message {
 		LeaderEpoch: leaderEpoch,
 		Headers:     make(map[string][]byte),
 	}
+
 	if message != nil {
 		m.Key = message.Key
 		m.Value = message.Value

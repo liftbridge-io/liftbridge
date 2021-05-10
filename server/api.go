@@ -15,6 +15,7 @@ import (
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
+	"github.com/liftbridge-io/liftbridge/server/encryption"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
@@ -72,6 +73,12 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		Subject:    req.Subject,
 		Partitions: partitions,
 		Config:     getStreamConfig(req),
+	}
+
+	err := a.ensureCreateStreamPrecondition(req)
+	if err != nil {
+		a.logger.Errorf("api: Failed to create stream %s: %v", req.Name, err)
+		return nil, err.Err()
 	}
 
 	if e := a.metadata.CreateStream(ctx, &proto.CreateStreamOp{Stream: stream}); e != nil {
@@ -425,6 +432,21 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 	return &client.FetchCursorResponse{Offset: offset}, nil
 }
 
+func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamRequest) *status.Status {
+	// Verify if an encrypted stream is requested, the LIFTBRIDGE_ENCRYPTION_KEY must be correctly set
+	if req.Encryption != nil && req.Encryption.Value {
+		_, err := encryption.NewLocalEncryptionHandler()
+		if err != nil {
+			errorMessage := fmt.Sprintf("%s: %s",
+				"Failed  on preconditions for stream's encryption handler",
+				err.Error())
+			return status.New(codes.FailedPrecondition, errorMessage)
+		}
+
+	}
+	return nil
+}
+
 func (a *apiServer) ensurePublishPreconditions(req *client.PublishRequest) *client.PublishAsyncError {
 	name := req.Stream
 	partitionID := req.Partition
@@ -644,6 +666,7 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 		for {
 			// TODO: this could be more efficient.
 			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf)
+
 			if err != nil {
 				var s *status.Status
 				if err == commitlog.ErrCommitLogDeleted {
@@ -669,14 +692,34 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 				}
 				return
 			}
+			msgValue := m.Value()
+
 			headers := m.Headers()
+
+			// Data decryption
+			if partition.encryptionHandler != nil {
+				// Decryption of data on server side
+				decryptedMsg, err := partition.encryptionHandler.Read(msgValue)
+
+				if err != nil {
+					s := status.Convert(err)
+					select {
+					case errCh <- s:
+					case <-cancel:
+					}
+					return
+				}
+
+				msgValue = decryptedMsg
+			}
+
 			var (
 				msg = &client.Message{
 					Stream:       partition.Stream,
 					Partition:    partition.Id,
 					Offset:       offset,
 					Key:          m.Key(),
-					Value:        m.Value(),
+					Value:        msgValue,
 					Timestamp:    timestamp,
 					Headers:      headers,
 					Subject:      string(headers["subject"]),
@@ -804,6 +847,10 @@ func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {
 	if req.OptimisticConcurrencyControl != nil {
 		config.OptimisticConcurrencyControl = &proto.NullableBool{Value: req.OptimisticConcurrencyControl.Value}
 	}
+	if req.Encryption != nil {
+		config.Encryption = &proto.NullableBool{Value: req.Encryption.Value}
+	}
+
 	return config
 }
 
@@ -819,6 +866,8 @@ func convertPublishAsyncError(err *client.PublishAsyncError) error {
 		code = codes.InvalidArgument
 	case client.PublishAsyncError_READONLY:
 		code = codes.FailedPrecondition
+	case client.PublishAsyncError_ENCRYPTION_FAILED:
+		code = codes.Internal
 	case client.PublishAsyncError_UNKNOWN:
 		fallthrough
 	default:
@@ -842,6 +891,9 @@ func convertAckError(ackError client.Ack_Error) *client.PublishAsyncError {
 	case client.Ack_TOO_LARGE:
 		code = client.PublishAsyncError_BAD_REQUEST
 		message = "message exceeds max replication size"
+	case client.Ack_ENCRYPTION:
+		code = client.PublishAsyncError_ENCRYPTION_FAILED
+		message = "encryption failed on partition"
 	default:
 		code = client.PublishAsyncError_UNKNOWN
 		message = "unknown error"

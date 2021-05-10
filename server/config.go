@@ -53,6 +53,7 @@ const (
 	defaultActivityStreamPublishAckPolicy = client.AckPolicy_ALL
 	defaultCursorsStreamAutoPauseTime     = time.Minute
 	defaultConcurrencyControl             = false
+	defaultEncryption                     = false
 )
 
 // Config setting key names.
@@ -96,6 +97,7 @@ const (
 	configStreamsAutoPauseTime                 = "streams.auto.pause.time"
 	configStreamsAutoPauseDisableIfSubscribers = "streams.auto.pause.disable.if.subscribers"
 	configStreamsConcurrencyControl            = "streams.concurrency.control"
+	configStreamsEncryption                    = "streams.encryption"
 
 	configClusteringServerID                = "clustering.server.id"
 	configClusteringNamespace               = "clustering.namespace"
@@ -152,6 +154,7 @@ var configKeys = map[string]struct{}{
 	configStreamsSegmentMaxAge:                 {},
 	configStreamsCompactEnabled:                {},
 	configStreamsConcurrencyControl:            {},
+	configStreamsEncryption:                    {},
 	configStreamsCompactMaxGoroutines:          {},
 	configStreamsAutoPauseTime:                 {},
 	configStreamsAutoPauseDisableIfSubscribers: {},
@@ -190,6 +193,7 @@ type StreamsConfig struct {
 	AutoPauseDisableIfSubscribers bool
 	MinISR                        int
 	ConcurrencyControl            bool
+	Encryption                    bool
 }
 
 // RetentionString returns a human-readable string representation of the
@@ -283,6 +287,10 @@ func (l *StreamsConfig) ApplyOverrides(c *proto.StreamConfig) {
 	if optimisticConcurrencyControl := c.OptimisticConcurrencyControl; optimisticConcurrencyControl != nil {
 		l.ConcurrencyControl = optimisticConcurrencyControl.Value
 	}
+
+	if encryption := c.Encryption; encryption != nil {
+		l.Encryption = encryption.Value
+	}
 }
 
 // ClusteringConfig contains settings for controlling cluster behavior.
@@ -370,6 +378,7 @@ func NewDefaultConfig() *Config {
 	config.Streams.RetentionMaxAge = defaultRetentionMaxAge
 	config.Streams.CleanerInterval = defaultCleanerInterval
 	config.Streams.ConcurrencyControl = defaultConcurrencyControl
+	config.Streams.Encryption = defaultEncryption
 	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
@@ -679,6 +688,9 @@ func parseStreamsConfig(config *Config, v *viper.Viper) error {
 	}
 	if v.IsSet(configStreamsConcurrencyControl) {
 		config.Streams.ConcurrencyControl = v.GetBool(configStreamsConcurrencyControl)
+	}
+	if v.IsSet(configStreamsEncryption) {
+		config.Streams.Encryption = v.GetBool(configStreamsEncryption)
 	}
 	return nil
 }

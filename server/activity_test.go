@@ -81,6 +81,9 @@ func TestActivityStreamDeleteStream(t *testing.T) {
 	// Delete stream.
 	require.NoError(t, client.DeleteStream(context.Background(), stream))
 
+	// Wait until the server processes and propagates the configs
+	time.Sleep(3 * time.Second)
+
 	// The first message read back should be the stream deletion.
 	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -129,6 +132,9 @@ func TestActivityStreamPauseStream(t *testing.T) {
 
 	// Pause stream.
 	require.NoError(t, client.PauseStream(context.Background(), stream))
+
+	// Wait until the server processes and propagates the configs
+	time.Sleep(3 * time.Second)
 
 	// The first message read back should be the stream pause.
 	msgs := make(chan *lift.Message, 1)
@@ -185,6 +191,9 @@ func TestActivityStreamResumeStream(t *testing.T) {
 	_, err = client.Publish(context.Background(), stream, []byte("foo"))
 	require.NoError(t, err)
 
+	// Wait until the server processes and propagates the configs
+	time.Sleep(3 * time.Second)
+
 	// The first message read back should be the stream resume.
 	msgs := make(chan *lift.Message, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -234,6 +243,9 @@ func TestActivityStreamSetStreamReadonly(t *testing.T) {
 
 	// Set stream readonly.
 	require.NoError(t, client.SetStreamReadonly(context.Background(), stream))
+
+	// Wait until the server processes and propagates the configs
+	time.Sleep(3 * time.Second)
 
 	// The first message read back should be the stream readonly.
 	msgs := make(chan *lift.Message, 1)
@@ -288,6 +300,9 @@ func TestActivityStreamSetStreamReadwrite(t *testing.T) {
 
 	// Set stream readwrite.
 	require.NoError(t, client.SetStreamReadonly(context.Background(), stream, lift.Readonly(false)))
+
+	// Wait until the server processes and propagates the configs
+	time.Sleep(3 * time.Second)
 
 	// The first message read back should be the stream readwrite.
 	msgs := make(chan *lift.Message, 1)
