@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,10 +52,9 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		a.logger.Errorf("api: Failed to create stream: name cannot be empty")
 		return nil, status.Error(codes.InvalidArgument, "Name cannot be empty")
 	}
-	// TODO: Check if valid NATS subject?
-	if req.Subject == "" {
-		a.logger.Errorf("api: Failed to create stream: subject cannot be empty")
-		return nil, status.Error(codes.InvalidArgument, "Subject cannot be empty")
+	if req.Subject == "" || !isValidSubject(req.Subject) {
+		a.logger.Errorf("api: Failed to create stream: subject is invalid")
+		return nil, status.Error(codes.InvalidArgument, "Subject is invalid")
 	}
 
 	partitions := make([]*proto.Partition, req.Partitions)
@@ -430,6 +430,20 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 		return nil, status.Err()
 	}
 	return &client.FetchCursorResponse{Offset: offset}, nil
+}
+
+// isValidSubject indicates if the string is a valid NATS subject.
+func isValidSubject(subj string) bool {
+	if strings.ContainsAny(subj, " \t\r\n") {
+		return false
+	}
+	tokens := strings.Split(subj, ".")
+	for _, t := range tokens {
+		if len(t) == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamRequest) *status.Status {

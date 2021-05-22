@@ -177,6 +177,28 @@ func TestCreateStreamPartitioned(t *testing.T) {
 	require.Equal(t, 3, leaderCounts[s1.config.Clustering.ServerID])
 }
 
+// Ensure creating a stream with an invalid NATS subject fails.
+func TestCreateStreamInvalidSubject(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure server.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	client, err := lift.Connect([]string{"localhost:5050"})
+	require.NoError(t, err)
+	defer client.Close()
+
+	err = client.CreateStream(context.Background(), "foo bar", "bar")
+	require.Error(t, err)
+
+	err = client.CreateStream(context.Background(), "", "bar")
+	require.Error(t, err)
+}
+
 // Ensure subscribing to a non-existent stream returns an error.
 func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	defer cleanupStorage(t)
