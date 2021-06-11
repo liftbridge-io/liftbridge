@@ -299,6 +299,11 @@ func (l *commitLog) EarliestOffsetAfterTimestamp(timestamp int64) (int64, error)
 	// Find the first segment whose base timestamp is greater than the given
 	// timestamp.
 	idx, err := findSegmentIndexByTimestamp(l.segments, timestamp)
+	if err == io.EOF {
+		// EOF indicates there is no such segment, meaning the timestamp is
+		// beyond the end of the log so return the next assignable offset.
+		return l.segments[len(l.segments)-1].NextOffset(), nil
+	}
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to find log segment for timestamp")
 	}
@@ -321,8 +326,8 @@ func (l *commitLog) EarliestOffsetAfterTimestamp(timestamp int64) (int64, error)
 	// This indicates there are no entries in the segment whose timestamp
 	// is greater than or equal to the target timestamp. In this case, search
 	// the next segment if there is one. If there isn't, the timestamp is
-	// beyond the end of the log so return the next offset.
-	if idx < len(l.segments) {
+	// beyond the end of the log so return the next assignable offset.
+	if idx < len(l.segments)-1 {
 		seg = l.segments[idx]
 		entry, err := seg.findEntryByTimestamp(timestamp)
 		if err != nil {

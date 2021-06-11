@@ -372,7 +372,7 @@ func TestCleanerReplaceLeaderEpochOffsets(t *testing.T) {
 	require.Equal(t, int64(14), l.LastOffsetForLeaderEpoch(3))
 }
 
-// Ensures EarliestOffsetAfterTimestamp returns the earliest offset whose
+// Ensure EarliestOffsetAfterTimestamp returns the earliest offset whose
 // timestamp is greater than or equal to the given timestamp.
 func TestEarliestOffsetAfterTimestamp(t *testing.T) {
 	opts := Options{
@@ -425,7 +425,22 @@ func TestEarliestOffsetAfterTimestamp(t *testing.T) {
 	require.Equal(t, int64(3), offset)
 }
 
-// Ensures LatestOffsetBeforeTimestamp returns the latest offset whose
+// Ensure EarliestOffsetAfterTimestamp returns the next assignable offset
+// when the log is empty.
+func TestEarliestOffsetAfterTimestampEmptyLog(t *testing.T) {
+	opts := Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	}
+	l, cleanup := setupWithOptions(t, opts)
+	defer cleanup()
+
+	offset, err := l.EarliestOffsetAfterTimestamp(100)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), offset)
+}
+
+// Ensure LatestOffsetBeforeTimestamp returns the latest offset whose
 // timestamp is less than or equal to the given timestamp.
 func TestLatestOffsetBeforeTimestamp(t *testing.T) {
 	opts := Options{
