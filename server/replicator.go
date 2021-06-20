@@ -102,32 +102,34 @@ func (r *replicator) start(stop <-chan struct{}) {
 		}
 
 		// Create a log reader starting at the requested offset.
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-		reader, err := r.partition.log.NewReader(req.Offset+1, true)
-		if err != nil {
-			r.partition.srv.logger.Errorf(
-				"Failed to create replication reader for partition %s "+
-					"and replica %s (requested offset %d, earliest %d, latest %d): %v",
-				r.partition, r.replica, req.Offset+1, earliest, latest, err)
-			// Send a response to short-circuit request timeout.
-			if err := r.sendHW(req.request); err != nil {
-				r.partition.srv.logger.Errorf("Failed to send HW for partition %s to replica %s: %v",
-					r.partition, req.ReplicaID, err)
+			reader, err := r.partition.log.NewReader(req.Offset+1, true)
+			if err != nil {
+				r.partition.srv.logger.Errorf(
+					"Failed to create replication reader for partition %s "+
+						"and replica %s (requested offset %d, earliest %d, latest %d): %v",
+					r.partition, r.replica, req.Offset+1, earliest, latest, err)
+				// Send a response to short-circuit request timeout.
+				if err := r.sendHW(req.request); err != nil {
+					r.partition.srv.logger.Errorf("Failed to send HW for partition %s to replica %s: %v",
+						r.partition, req.ReplicaID, err)
+				}
+				return
 			}
-			continue
-		}
 
-		// Send a batch of messages to the replica.
-		if err := r.replicate(ctx, reader, req.request, req.Offset); err != nil {
-			// Send a response to short-circuit request timeout.
-			if err := r.sendHW(req.request); err != nil {
-				r.partition.srv.logger.Errorf("Failed to send HW for partition %s to replica %s: %v",
-					r.partition, req.ReplicaID, err)
+			// Send a batch of messages to the replica.
+			if err := r.replicate(ctx, reader, req.request, req.Offset); err != nil {
+				// Send a response to short-circuit request timeout.
+				if err := r.sendHW(req.request); err != nil {
+					r.partition.srv.logger.Errorf("Failed to send HW for partition %s to replica %s: %v",
+						r.partition, req.ReplicaID, err)
+				}
+				return
 			}
-			continue
-		}
+		}()
 	}
 }
 
