@@ -1,6 +1,7 @@
 ---
-id: quick-start
+id: version-v1.6.0-quick-start
 title: Quick Start
+original_id: quick-start
 ---
 
 There are three ways to get started running Liftbridge on your machine:
