@@ -277,6 +277,24 @@
       },
       "version-v1.5.1/version-v1.5.1-quick-start": {
         "title": "Quick Start"
+      },
+      "version-v1.6.0/version-v1.6.0-client-implementation": {
+        "title": "Client Implementation Guidance"
+      },
+      "version-v1.6.0/version-v1.6.0-concepts": {
+        "title": "Concepts"
+      },
+      "version-v1.6.0/version-v1.6.0-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.6.0/version-v1.6.0-feature-comparison": {
+        "title": "Feature Comparison"
+      },
+      "version-v1.6.0/version-v1.6.0-quick-start": {
+        "title": "Quick Start"
+      },
+      "version-v1.6.0/version-v1.6.0-roadmap": {
+        "title": "Product Roadmap"
       }
     },
     "links": {
