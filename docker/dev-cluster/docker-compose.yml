@@ -1,11 +1,15 @@
 version: '3'
+networks:
+  default:
+    external: true
+    name: matrinos-network
+
+volumes:
+  liftbridge-data1:
+  liftbridge-data2:
+  liftbridge-data3:
+
 services:
-  nats:
-    image: nats:2.1.0
-    ports:
-      - "4222:4222"
-    networks:
-      - overlay
   natsboard:
     build:
       context: .
@@ -14,10 +18,8 @@ services:
       - "3000:3000"
     command: '/wait-for.sh natsboard --nats-mon-url http://nats:8222'
     environment:
-      - WAIT_FOR_HOST=nats
+      - WAIT_FOR_HOST=mainflux-nats
       - WAIT_FOR_PORT=8222
-    networks:
-      - overlay
   liftbridge1:
     build:
       context: ../../
@@ -30,17 +32,15 @@ services:
       '--data-dir=/data1',
       '--port=9292',
       '--level=debug',
-      '--nats-servers=nats:4222',
+      '--nats-servers=mainflux-nats:4222',
       '--raft-bootstrap-seed',
       '--id=server-1'
     ]
     environment:
-      - WAIT_FOR_HOST=nats
+      - WAIT_FOR_HOST=mainflux-nats
       - WAIT_FOR_PORT=4222
-    networks:
-      - overlay
     volumes:
-      - ./data/data1:/data1
+      - liftbridge-data1:/data1
   liftbridge2:
     build:
       context: ../../
@@ -53,16 +53,14 @@ services:
       '--data-dir=/data2',
       '--port=9293',
       '--level=debug',
-      '--nats-servers=nats:4222',
+      '--nats-servers=mainflux-nats:4222',
       '--id=server-2'
     ]
     environment:
-      - WAIT_FOR_HOST=nats
+      - WAIT_FOR_HOST=mainflux-nats
       - WAIT_FOR_PORT=4222
-    networks:
-      - overlay
     volumes:
-      - ./data/data2:/data2
+      - liftbridge-data2:/data2
   liftbridge3:
     build:
       context: ../../
@@ -75,16 +73,11 @@ services:
       '--data-dir=/data3',
       '--port=9294',
       '--level=debug',
-      '--nats-servers=nats:4222',
+      '--nats-servers=mainflux-nats:4222',
       '--id=server-3'
     ]
     environment:
-      - WAIT_FOR_HOST=nats
+      - WAIT_FOR_HOST=mainflux-nats
       - WAIT_FOR_PORT=4222
-    networks:
-      - overlay
     volumes:
-      - ./data/data3:/data3
-networks:
-  overlay:
-    driver: bridge
+      - liftbridge-data3:/data3
