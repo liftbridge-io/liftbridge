@@ -228,12 +228,18 @@ func (m *metadataAPI) brokerCache(serverIDs map[string]struct{}) ([]*client.Brok
 // fetchBrokerInfo retrieves the broker metadata for the cluster. The numPeers
 // argument is the expected number of peers to get a response from.
 func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*client.Broker, *status.Status) {
+	// Brokers load data
+	partitionCountMap := m.BrokerPartitionCounts()
+	partitionLeaderCountMap := m.BrokerLeaderCounts()
+
 	// Add ourselves.
 	connectionAddress := m.getConnectionAddress()
 	brokers := []*client.Broker{{
-		Id:   m.config.Clustering.ServerID,
-		Host: connectionAddress.Host,
-		Port: int32(connectionAddress.Port),
+		Id:             m.config.Clustering.ServerID,
+		Host:           connectionAddress.Host,
+		Port:           int32(connectionAddress.Port),
+		PartitionCount: int32(partitionCountMap[m.config.Clustering.ServerID]),
+		Leadercount:    int32(partitionLeaderCountMap[m.config.Clustering.ServerID]),
 	}}
 
 	// Make sure there is a deadline on the request.
@@ -271,9 +277,11 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 			continue
 		}
 		brokers = append(brokers, &client.Broker{
-			Id:   queryResp.Id,
-			Host: queryResp.Host,
-			Port: queryResp.Port,
+			Id:             queryResp.Id,
+			Host:           queryResp.Host,
+			Port:           queryResp.Port,
+			PartitionCount: int32(partitionCountMap[queryResp.Id]),
+			Leadercount:    int32(partitionLeaderCountMap[queryResp.Id]),
 		})
 	}
 
