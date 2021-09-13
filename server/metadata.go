@@ -239,7 +239,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 		Host:           connectionAddress.Host,
 		Port:           int32(connectionAddress.Port),
 		PartitionCount: int32(partitionCountMap[m.config.Clustering.ServerID]),
-		Leadercount:    int32(partitionLeaderCountMap[m.config.Clustering.ServerID]),
+		LeaderCount:    int32(partitionLeaderCountMap[m.config.Clustering.ServerID]),
 	}}
 
 	// Make sure there is a deadline on the request.
@@ -281,7 +281,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 			Host:           queryResp.Host,
 			Port:           queryResp.Port,
 			PartitionCount: int32(partitionCountMap[queryResp.Id]),
-			Leadercount:    int32(partitionLeaderCountMap[queryResp.Id]),
+			LeaderCount:    int32(partitionLeaderCountMap[queryResp.Id]),
 		})
 	}
 
