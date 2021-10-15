@@ -197,8 +197,9 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 	}
 	hw := partition.log.HighWatermark()
 
-	// No cursors have been committed so return -1.
-	if hw == -1 {
+	// No cursors have been committed or the cursors partition is now empty so
+	// return -1.
+	if hw == -1 || partition.log.OldestOffset() == -1 {
 		return -1, nil
 	}
 
