@@ -85,15 +85,22 @@ func TestTombstoneStreamsOnRestart(t *testing.T) {
 
 	// Restart the server.
 	s1.Stop()
+	s1.config.Port = 5051
 	s1 = runServerWithConfig(t, s1.config)
 	defer s1.Stop()
 
 	// Wait to elect self as leader.
 	getMetadataLeader(t, 10*time.Second, s1)
+	waitForPartition(t, 5*time.Second, "bar", 0, s1)
+
+	client, err = lift.Connect([]string{"localhost:5051"})
+	require.NoError(t, err)
+	defer client.Close()
 
 	// Ensure bar stream exists and has the expected messages.
 	ch := make(chan *lift.Message)
-	err = client.Subscribe(context.Background(), "bar", func(msg *lift.Message, err error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	err = client.Subscribe(ctx, "bar", func(msg *lift.Message, err error) {
 		require.NoError(t, err)
 		ch <- msg
 	}, lift.StartAtEarliestReceived())
@@ -106,6 +113,7 @@ func TestTombstoneStreamsOnRestart(t *testing.T) {
 			t.Fatal("Did not receive expected message")
 		}
 	}
+	cancel()
 
 	// Ensure foo stream doesn't exist.
 	_, err = os.Stat(filepath.Join(s1Config.DataDir, "streams", "foo"))
