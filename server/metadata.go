@@ -734,9 +734,26 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, ok := m.streams[protoStream.Name]
+	existing, ok := m.streams[protoStream.Name]
 	if ok {
-		return nil, ErrStreamExists
+		if !recovered {
+			return nil, ErrStreamExists
+		}
+		// If this operation is being applied during recovery, check if this
+		// stream is tombstoned, i.e. was marked for deletion previously. If it
+		// is, un-tombstone it by closing the existing stream and then
+		// recreating it, leaving the existing data intact.
+		if !existing.IsTombstoned() {
+			// This is an invalid state because it means the stream already
+			// exists.
+			return nil, ErrStreamExists
+		}
+		// Un-tombstone by closing the existing stream and removing it from
+		// the streams store so that it can be recreated.
+		if err := existing.Close(); err != nil {
+			return nil, err
+		}
+		m.removeStream(existing)
 	}
 
 	config := protoStream.GetConfig()
@@ -746,7 +763,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 
 	for _, partition := range protoStream.Partitions {
 		if err := m.addPartition(stream, partition, recovered, config); err != nil {
-			delete(m.streams, protoStream.Name)
+			m.removeStream(stream)
 			return nil, err
 		}
 	}
@@ -1000,31 +1017,25 @@ func (m *metadataAPI) Reset() error {
 	return nil
 }
 
-// CloseStream close a streams and clears corresponding state in the metadata
-// store.
-func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
+// RemoveStream closes the stream, removes it from the metadata store, and
+// deletes the associated on-disk data for it. However, if this operation is
+// being applied during Raft recovery, this will only mark the stream with a
+// tombstone. Tombstoned streams will be deleted after the recovery process
+// completes.
+func (m *metadataAPI) RemoveStream(stream *stream, recovered bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	err := stream.Delete()
-	if err != nil {
-		return errors.Wrap(err, "failed to delete stream")
-	}
-
-	// Remove the stream data directory
-	streamDataDir := filepath.Join(m.Server.config.DataDir, "streams", stream.GetName())
-	err = os.RemoveAll(streamDataDir)
-	if err != nil {
-		return errors.Wrap(err, "failed to delete stream data directory")
-	}
-
-	delete(m.streams, stream.GetName())
-
-	for _, partition := range stream.GetPartitions() {
-		report, ok := m.leaderReports[partition]
-		if ok {
-			report.cancel()
-			delete(m.leaderReports, partition)
+	// If this operation is being applied during recovery, only tombstone the
+	// stream. We don't want to delete streams until recovery finishes to avoid
+	// deleting potentially valid data, e.g. in the case of a stream being
+	// deleted, recreated, and then published to. In this scenario, the
+	// recreate will un-tombstone the stream.
+	if recovered {
+		stream.Tombstone()
+	} else {
+		if err := m.deleteStream(stream); err != nil {
+			return err
 		}
 	}
 
@@ -1043,6 +1054,17 @@ func (m *metadataAPI) CloseAndDeleteStream(stream *stream) error {
 	return nil
 }
 
+// RemoveTombstonedStream closes the tombstoned stream, removes it from the
+// metadata store, and deletes the associated on-disk data for it.
+func (m *metadataAPI) RemoveTombstonedStream(stream *stream) error {
+	if !stream.IsTombstoned() {
+		return fmt.Errorf("cannot delete stream %s because it is not tombstoned", stream)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.deleteStream(stream)
+}
+
 // LostLeadership should be called when the server loses metadata leadership.
 func (m *metadataAPI) LostLeadership() {
 	m.mu.Lock()
@@ -1051,6 +1073,37 @@ func (m *metadataAPI) LostLeadership() {
 		report.cancel()
 	}
 	m.leaderReports = make(map[*partition]*leaderReport)
+}
+
+// deleteStream deletes the stream and the associated on-disk data for it.
+func (m *metadataAPI) deleteStream(stream *stream) error {
+	err := stream.Delete()
+	if err != nil {
+		return errors.Wrap(err, "failed to delete stream")
+	}
+
+	// Remove the stream data directory
+	streamDataDir := filepath.Join(m.Server.config.DataDir, "streams", stream.GetName())
+	err = os.RemoveAll(streamDataDir)
+	if err != nil {
+		return errors.Wrap(err, "failed to delete stream data directory")
+	}
+
+	m.removeStream(stream)
+	return nil
+}
+
+// removeStream removes the stream from the stream store and removes any
+// leaderReports for its partitions.
+func (m *metadataAPI) removeStream(stream *stream) {
+	delete(m.streams, stream.GetName())
+	for _, partition := range stream.GetPartitions() {
+		report, ok := m.leaderReports[partition]
+		if ok {
+			report.cancel()
+			delete(m.leaderReports, partition)
+		}
+	}
 }
 
 func (m *metadataAPI) getStreams() []*stream {
