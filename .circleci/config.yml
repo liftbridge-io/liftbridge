@@ -3,7 +3,7 @@ jobs:
   # Build development binary
   build-dev:
     docker:
-      - image: liftbridge/liftbridge-circleci:0.1.0
+      - image: liftbridge/liftbridge-circleci:0.2.0
         environment:
           GO111MODULE: "on"
     steps:
@@ -21,7 +21,7 @@ jobs:
   # Run unit/integration tests and upload code coverage
   test:
     docker:
-      - image: liftbridge/liftbridge-circleci:0.1.0
+      - image: liftbridge/liftbridge-circleci:0.2.0
         environment:
           GO111MODULE: "on"
     steps:
@@ -123,7 +123,7 @@ jobs:
   # Create GitHub release and upload artifacts
   release:
     docker:
-      - image: circleci/golang:1.14
+      - image: circleci/golang:1.17
     steps:
       - checkout
       - run: curl -sL https://git.io/goreleaser | bash

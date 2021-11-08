@@ -135,7 +135,10 @@ func TestNewConfigNATSTLS(t *testing.T) {
 		MinVersion:   tls.VersionTLS12,
 		RootCAs:      caCertPool,
 	}
-	require.Equal(t, tlsConfig, config.NATS.TLSConfig)
+	require.Len(t, config.NATS.TLSConfig.Certificates, 1)
+	require.Equal(t, tlsConfig.Certificates[0], config.NATS.TLSConfig.Certificates[0])
+	require.NotNil(t, tlsConfig.RootCAs)
+	require.Equal(t, tlsConfig.MinVersion, config.NATS.TLSConfig.MinVersion)
 }
 
 // Ensure error is raised when given config file not found.
