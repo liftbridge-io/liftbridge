@@ -81,6 +81,7 @@ type Server struct {
 	goroutineWait      sync.WaitGroup
 	activity           *activityManager
 	cursors            *cursorManager
+	raftLogListenersMu sync.RWMutex
 	raftLogListeners   []RaftLogListener
 }
 
@@ -292,8 +293,8 @@ func (s *Server) GetListenPort() int {
 
 // AddRaftLogListener adds a Raft log listener.
 func (s *Server) AddRaftLogListener(listener RaftLogListener) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.raftLogListenersMu.Lock()
+	defer s.raftLogListenersMu.Unlock()
 	s.raftLogListeners = append(s.raftLogListeners, listener)
 }
 
