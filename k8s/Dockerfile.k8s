@@ -1,4 +1,4 @@
-FROM golang:1.13-alpine as build-base
+FROM golang:1.17-alpine as build-base
 RUN apk update && apk upgrade && \
     apk add --no-cache bash git openssh make wget
 WORKDIR /workspace
