@@ -1,6 +1,7 @@
 ---
-id: configuration
+id: version-v1.7.0-configuration
 title: Configuration
+original_id: configuration
 ---
 
 Liftbridge provides limited configuration through command-line flags and full
