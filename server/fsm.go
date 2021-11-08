@@ -57,10 +57,15 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 	// to recover the last committed Raft FSM log entry, if any, to determine
 	// the recovery high watermark. Once we apply all entries up to that point,
 	// we know we've completed the recovery process and subsequent entries are
-	// newly committed operations. During the recovery process, any recovered
-	// streams will not be started until recovery is finished to avoid starting
-	// streams in an intermediate state. When recovery completes, we'll call
-	// finishedRecovery() to start the recovered streams.
+	// newly committed operations.
+	//
+	// During the recovery process, any recovered streams will not be started
+	// until recovery is finished to avoid starting streams in an intermediate
+	// state. Streams that are deleted will only be marked for deletion to
+	// avoid deleting potentially valid stream data, e.g. in the case of a
+	// stream being deleted, recreated, and then published to. When recovery
+	// completes, we'll call finishedRecovery() to start the recovered streams
+	// and delete any tombstoned streams.
 	if !s.recoveryStarted {
 		lastCommittedLog, err := s.recoverLatestCommittedFSMLog(l.Index)
 		// If this returns an error, something is very wrong.
@@ -83,7 +88,7 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		if l.Index == s.latestRecoveredLog.Index {
 			// We've applied all entries up to the latest recovered log, so
 			// recovery is finished. Call finishedRecovery() to start any
-			// recovered streams.
+			// recovered streams and delete tombstoned streams.
 			defer func() {
 				count, err := s.finishedRecovery()
 				if err != nil {
@@ -170,7 +175,7 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		var (
 			stream = log.DeleteStreamOp.Stream
 		)
-		if err := s.applyDeleteStream(stream); err != nil {
+		if err := s.applyDeleteStream(stream, recovered); err != nil {
 			return nil, err
 		}
 	case proto.Op_PAUSE_STREAM:
@@ -221,8 +226,8 @@ func (s *Server) startedRecovery() {
 
 // finishedRecovery should be called when the FSM has finished replaying any
 // unapplied log entries. This will start any stream partitions recovered
-// during the replay. It returns the number of streams which had partitions
-// that were recovered.
+// during the replay and delete any tombstoned streams. It returns the number
+// of streams which had partitions that were recovered.
 func (s *Server) finishedRecovery() (int, error) {
 	// If LogRecovery is disabled, we need to restore the previous log output.
 	if !s.config.LogRecovery {
@@ -230,6 +235,12 @@ func (s *Server) finishedRecovery() (int, error) {
 	}
 	recoveredStreams := make(map[string]struct{})
 	for _, stream := range s.metadata.GetStreams() {
+		if stream.IsTombstoned() {
+			if err := s.metadata.RemoveTombstonedStream(stream); err != nil {
+				return 0, errors.Wrap(err, "failed to delete tombstoned stream")
+			}
+			continue
+		}
 		for _, partition := range stream.GetPartitions() {
 			recovered, err := partition.StartRecovered()
 			if err != nil {
@@ -411,14 +422,17 @@ func (s *Server) applyChangePartitionLeader(stream, leader string, partitionID i
 	return nil
 }
 
-// applyDeleteStream deletes the given stream partition.
-func (s *Server) applyDeleteStream(streamName string) error {
+// applyDeleteStream deletes the given stream partition. If this operation is
+// being applied during recovery, this will only mark the stream with a
+// tombstone. Tombstoned streams will be deleted after the recovery process
+// completes.
+func (s *Server) applyDeleteStream(streamName string, recovered bool) error {
 	stream := s.metadata.GetStream(streamName)
 	if stream == nil {
 		return ErrStreamNotFound
 	}
 
-	err := s.metadata.CloseAndDeleteStream(stream)
+	err := s.metadata.RemoveStream(stream, recovered)
 	if err != nil {
 		return errors.Wrap(err, "failed to delete stream")
 	}

@@ -16,6 +16,7 @@ type stream struct {
 	config       *proto.StreamConfig
 	partitions   map[int32]*partition
 	resumeAll    bool // When partition(s) are paused, this indicates if all should be resumed
+	tombstone    bool // Indicates if the stream is marked for deletion during Raft recovery
 	creationTime time.Time
 	mu           sync.RWMutex
 }
@@ -189,4 +190,20 @@ func (s *stream) SetReadonly(partitions []int32, readonly bool) error {
 	}
 
 	return nil
+}
+
+// Tombstone sets the tombstone marker on the stream which determines if the
+// stream is marked for deletion during the Raft recovery process.
+func (s *stream) Tombstone() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tombstone = true
+}
+
+// IsTombstoned indicates if the stream is marked for deletion during the Raft
+// recovery process.
+func (s *stream) IsTombstoned() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tombstone
 }
