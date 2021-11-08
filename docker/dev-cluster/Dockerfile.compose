@@ -1,4 +1,4 @@
-FROM golang:1.13 as build-base
+FROM golang:1.17 as build-base
 WORKDIR /workspace
 ENV GO111MODULE on
 

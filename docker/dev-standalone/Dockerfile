@@ -1,4 +1,4 @@
-FROM golang:1.14-alpine as build-base
+FROM golang:1.17-alpine as build-base
 
 ENV GO111MODULE on
 RUN go get github.com/liftbridge-io/liftbridge@master
