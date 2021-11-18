@@ -54,6 +54,7 @@ const (
 	defaultCursorsStreamAutoPauseTime     = time.Minute
 	defaultConcurrencyControl             = false
 	defaultEncryption                     = false
+	defaultConsumersTimeout               = time.Minute
 )
 
 // Config setting key names.
@@ -120,6 +121,8 @@ const (
 
 	configCursorsStreamPartitions    = "cursors.stream.partitions"
 	configCursorsStreamAutoPauseTime = "cursors.stream.auto.pause.time"
+
+	configConsumersTimeout = "consumers.timeout"
 )
 
 var configKeys = map[string]struct{}{
@@ -177,6 +180,7 @@ var configKeys = map[string]struct{}{
 	configActivityStreamPublishAckPolicy:       {},
 	configCursorsStreamPartitions:              {},
 	configCursorsStreamAutoPauseTime:           {},
+	configConsumersTimeout:                     {},
 }
 
 // StreamsConfig contains settings for controlling the message log for streams.
@@ -326,6 +330,11 @@ type CursorsStreamConfig struct {
 	AutoPauseTime time.Duration
 }
 
+// ConsumersConfig contains settings for controlling consumer group behavior.
+type ConsumersConfig struct {
+	Timeout time.Duration
+}
+
 // Config contains all settings for a Liftbridge Server.
 type Config struct {
 	Listen              HostPort
@@ -351,6 +360,7 @@ type Config struct {
 	Clustering          ClusteringConfig
 	ActivityStream      ActivityStreamConfig
 	CursorsStream       CursorsStreamConfig
+	Consumers           ConsumersConfig
 }
 
 // NewDefaultConfig creates a new Config with default settings.
@@ -382,6 +392,7 @@ func NewDefaultConfig() *Config {
 	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
+	config.Consumers.Timeout = defaultConsumersTimeout
 	return config
 }
 
@@ -569,6 +580,9 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 		return nil, err
 	}
 	if err := parseCursorsStreamConfig(config, v); err != nil {
+		return nil, err
+	}
+	if err := parseConsumersConfig(config, v); err != nil {
 		return nil, err
 	}
 
@@ -789,6 +803,16 @@ func parseCursorsStreamConfig(config *Config, v *viper.Viper) error { // nolint:
 
 	if v.IsSet(configCursorsStreamAutoPauseTime) {
 		config.CursorsStream.AutoPauseTime = v.GetDuration(configCursorsStreamAutoPauseTime)
+	}
+
+	return nil
+}
+
+// parseConsumersConfig parses the `consumers` section of a config file and
+// populates the given Config.
+func parseConsumersConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
+	if v.IsSet(configConsumersTimeout) {
+		config.Consumers.Timeout = v.GetDuration(configConsumersTimeout)
 	}
 
 	return nil

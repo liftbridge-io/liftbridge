@@ -11,7 +11,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/raft v1.1.2
 	github.com/liftbridge-io/go-liftbridge/v2 v2.1.1-0.20210415162858-141bb940599b
-	github.com/liftbridge-io/liftbridge-api v1.7.0
+	github.com/liftbridge-io/liftbridge-api v1.7.1-0.20211116204728-93aaf363b985
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/liftbridge-io/raft-boltdb v0.0.0-20200414234651-aaf6e08d8f73
 	github.com/natefinch/atomic v1.0.1

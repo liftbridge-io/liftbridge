@@ -432,6 +432,84 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 	return &client.FetchCursorResponse{Offset: offset}, nil
 }
 
+// JoinConsumerGroup adds a consumer to a consumer group. If the group does not
+// exist, it will create it first.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsumerGroupRequest) (
+	*client.JoinConsumerGroupResponse, error) {
+	a.logger.Debugf("api: JoinConsumerGroup [groupId=%s, consumerId=%s, streams=%v]",
+		req.GroupId, req.ConsumerId, req.Streams)
+
+	if req.GroupId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
+	}
+	if req.ConsumerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
+	}
+	if len(req.Streams) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "No streams provided")
+	}
+
+	coordinator, epoch, status := a.metadata.JoinConsumerGroup(ctx, &proto.JoinConsumerGroupOp{
+		GroupId:    req.GroupId,
+		ConsumerId: req.ConsumerId,
+		Streams:    req.Streams,
+	})
+	if status != nil {
+		return nil, status.Err()
+	}
+	return &client.JoinConsumerGroupResponse{
+		Coordinator:      coordinator,
+		CoordinatorEpoch: epoch,
+		ConsumersTimeout: int64(a.config.Consumers.Timeout),
+	}, nil
+}
+
+// FetchConsumerGroupAssignments retrieves the partition assignments for a
+// consumer. This also acts as a heartbeat for the consumer so that the
+// coordinator keeps the consumer active in the group.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) FetchConsumerGroupAssignments(ctx context.Context, req *client.FetchConsumerGroupAssignmentsRequest) (
+	*client.FetchConsumerGroupAssignmentsResponse, error) {
+	a.logger.Debugf("api: FetchConsumerGroupAssignments [groupId=%s, consumerId=%s]",
+		req.GroupId, req.ConsumerId)
+
+	if req.GroupId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
+	}
+	if req.ConsumerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
+	}
+
+	assignments, membershipEpoch, err := a.metadata.GetConsumerGroupAssignments(
+		req.GroupId, req.ConsumerId, req.CoordinatorEpoch)
+	if err != nil {
+		code := codes.Unknown
+		if err == ErrConsumerGroupNotFound {
+			code = codes.NotFound
+		} else if err == ErrConsumerNotMember || err == ErrBrokerNotCoordinator || err == ErrCoordinatorEpoch {
+			code = codes.FailedPrecondition
+		}
+		return nil, status.Error(code, err.Error())
+	}
+
+	partitionAssignments := make([]*client.PartitionAssignment, 0, len(assignments))
+	for stream, partitions := range assignments {
+		partitionAssignments = append(partitionAssignments, &client.PartitionAssignment{
+			Stream:     stream,
+			Partitions: partitions,
+		})
+	}
+	return &client.FetchConsumerGroupAssignmentsResponse{
+		MembershipEpoch: membershipEpoch,
+		Assignments:     partitionAssignments,
+	}, nil
+}
+
 // isValidSubject indicates if the string is a valid NATS subject.
 func isValidSubject(subj string) bool {
 	if strings.ContainsAny(subj, " \t\r\n") {
