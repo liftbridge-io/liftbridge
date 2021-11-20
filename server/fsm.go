@@ -571,10 +571,15 @@ func (s *Server) applyJoinConsumerGroup(groupID, consumerID string, streams []st
 // An error is returned if the group does not exist or the consumer is not a
 // member of the group.
 func (s *Server) applyLeaveConsumerGroup(groupID, consumerID string) error {
-	if err := s.metadata.RemoveConsumerFromGroup(groupID, consumerID); err != nil {
+	lastMember, err := s.metadata.RemoveConsumerFromGroup(groupID, consumerID)
+	if err != nil {
 		return errors.Wrap(err, "failed to remove consumer from consumer group")
 	}
 
-	s.logger.Debugf("fsm: Removed consumer %s from consumer group %s", consumerID, groupID)
+	msg := fmt.Sprintf("fsm: Removed consumer %s from consumer group %s", consumerID, groupID)
+	if lastMember {
+		msg += ", deleted group because it is now empty"
+	}
+	s.logger.Debugf(msg)
 	return nil
 }

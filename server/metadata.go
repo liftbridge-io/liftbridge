@@ -926,26 +926,27 @@ func (m *metadataAPI) AddConsumerToGroup(groupID, consumerID string, streams []s
 // RemoveConsumerFromGroup removes the given consumer from the consumer group.
 // It returns an error if the group does not exist or the consumer is not a
 // member of the group. If this is the last member of the group, the group will
-// be deleted.
-func (m *metadataAPI) RemoveConsumerFromGroup(groupID, consumerID string) error {
+// be deleted. Returns a bool indicating if this was the last member of the
+// group and the group has been deleted.
+func (m *metadataAPI) RemoveConsumerFromGroup(groupID, consumerID string) (bool, error) {
 	m.consumerGroupsMu.Lock()
 	defer m.consumerGroupsMu.Unlock()
 	group := m.consumerGroups[groupID]
 
 	if group == nil {
-		return ErrConsumerGroupNotFound
+		return false, ErrConsumerGroupNotFound
 	}
 
 	lastMember, err := group.RemoveMember(consumerID)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	// If the last member was removed, delete the group.
 	if lastMember {
 		m.removeConsumerGroup(groupID)
 	}
-	return nil
+	return lastMember, nil
 }
 
 // GetConsumerGroupAssignments returns the group's partition assignments for
