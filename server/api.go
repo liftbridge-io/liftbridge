@@ -443,12 +443,15 @@ func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsu
 		req.GroupId, req.ConsumerId, req.Streams)
 
 	if req.GroupId == "" {
+		a.logger.Errorf("api: Failed to join consumer group: groupId cannot be empty")
 		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
 	}
 	if req.ConsumerId == "" {
+		a.logger.Errorf("api: Failed to join consumer group: consumerId cannot be empty")
 		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
 	}
 	if len(req.Streams) == 0 {
+		a.logger.Errorf("api: Failed to join consumer group: streams cannot be empty")
 		return nil, status.Error(codes.InvalidArgument, "No streams provided")
 	}
 
@@ -458,6 +461,7 @@ func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsu
 		Streams:    req.Streams,
 	})
 	if status != nil {
+		a.logger.Errorf("api: Failed to join consumer group: %v", status.Err())
 		return nil, status.Err()
 	}
 	return &client.JoinConsumerGroupResponse{
