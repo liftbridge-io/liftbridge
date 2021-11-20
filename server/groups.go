@@ -380,6 +380,7 @@ func (c *consumerGroup) addConsumer(cons *consumer) {
 		subscribers, ok := c.subscribers[stream]
 		if !ok {
 			subscribers = &consumerHeap{}
+			c.subscribers[stream] = subscribers
 		}
 		heap.Push(subscribers, cons)
 		c.balanceAssignmentsForStream(stream)
