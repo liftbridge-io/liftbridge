@@ -1843,19 +1843,28 @@ func (m *metadataAPI) checkChangeLeaderPreconditions(op *proto.RaftLog) error {
 }
 
 // checkCreateConsumerGroupPreconditions checks if the group to be created
-// already exists. If it does, it returns ErrConsumerGroupExists. Otherwise, it
-// returns nil.
+// already exists. If it does, it returns ErrConsumerGroupExists. If any of the
+// initial members' requested streams do not exist, returns ErrStreamNotFound.
+// Otherwise, it returns nil.
 func (m *metadataAPI) checkCreateConsumerGroupPreconditions(op *proto.RaftLog) error {
 	if group := m.GetConsumerGroup(op.CreateConsumerGroupOp.ConsumerGroup.Id); group != nil {
 		return ErrConsumerGroupExists
+	}
+	for _, member := range op.CreateConsumerGroupOp.ConsumerGroup.Members {
+		for _, streamName := range member.Streams {
+			if stream := m.GetStream(streamName); stream == nil {
+				return ErrStreamNotFound
+			}
+		}
 	}
 	return nil
 }
 
 // checkJoinConsumerGroupPreconditions checks if the group to be joined exists.
 // If it does not, it returns ErrConsumerGroupNotFound. If the consumer is
-// already a member of the group, returns ErrConsumerAlreadyMember. Otherwise,
-// it returns nil.
+// already a member of the group, returns ErrConsumerAlreadyMember. If any of
+// the requested streams do not exist, returns ErrStreamNotFound. Otherwise, it
+// returns nil.
 func (m *metadataAPI) checkJoinConsumerGroupPreconditions(op *proto.RaftLog) error {
 	group := m.GetConsumerGroup(op.JoinConsumerGroupOp.GroupId)
 	if group == nil {
@@ -1863,6 +1872,11 @@ func (m *metadataAPI) checkJoinConsumerGroupPreconditions(op *proto.RaftLog) err
 	}
 	if group.IsMember(op.JoinConsumerGroupOp.ConsumerId) {
 		return ErrConsumerAlreadyMember
+	}
+	for _, streamName := range op.JoinConsumerGroupOp.Streams {
+		if stream := m.GetStream(streamName); stream == nil {
+			return ErrStreamNotFound
+		}
 	}
 	return nil
 }
