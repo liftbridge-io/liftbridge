@@ -178,7 +178,7 @@ func (m *metadataAPI) BrokerLeaderCounts() map[string]int {
 func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
 	*client.FetchMetadataResponse, *status.Status) {
 
-	resp := m.createMetadataResponse(req.Streams)
+	resp := m.createMetadataResponse(req.Streams, req.Groups)
 
 	servers, err := m.getClusterServerIDs()
 	if err != nil {
@@ -318,10 +318,10 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 }
 
 // createMetadataResponse creates a FetchMetadataResponse and populates it with
-// stream metadata. If the provided list of stream names is empty, it will
-// populate metadata for all streams. Otherwise, it populates only the
+// stream  and group metadata. If the provided list of stream names is empty,
+// it will populate metadata for all streams. Otherwise, it populates only the
 // specified streams.
-func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMetadataResponse {
+func (m *metadataAPI) createMetadataResponse(streams, groups []string) *client.FetchMetadataResponse {
 	// If no stream names were provided, fetch metadata for all streams.
 	if len(streams) == 0 {
 		for _, stream := range m.GetStreams() {
@@ -329,13 +329,13 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 		}
 	}
 
-	metadata := make([]*client.StreamMetadata, len(streams))
+	streamMetadata := make([]*client.StreamMetadata, len(streams))
 
 	for i, name := range streams {
 		stream := m.GetStream(name)
 		if stream == nil {
 			// Stream does not exist.
-			metadata[i] = &client.StreamMetadata{
+			streamMetadata[i] = &client.StreamMetadata{
 				Name:  name,
 				Error: client.StreamMetadata_UNKNOWN_STREAM,
 			}
@@ -344,7 +344,7 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 			for id, partition := range stream.GetPartitions() {
 				partitions[id] = getPartitionMetadata(id, partition)
 			}
-			metadata[i] = &client.StreamMetadata{
+			streamMetadata[i] = &client.StreamMetadata{
 				Name:              name,
 				Subject:           stream.GetSubject(),
 				Partitions:        partitions,
@@ -353,7 +353,29 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 		}
 	}
 
-	return &client.FetchMetadataResponse{Metadata: metadata}
+	groupMetadata := make([]*client.ConsumerGroupMetadata, len(groups))
+	for i, id := range groups {
+		group := m.GetConsumerGroup(id)
+		if group == nil {
+			// Group does not exist.
+			groupMetadata[i] = &client.ConsumerGroupMetadata{
+				GroupId: id,
+				Error:   client.ConsumerGroupMetadata_UNKNOWN_GROUP,
+			}
+		} else {
+			coordinator, epoch := group.GetCoordinator()
+			groupMetadata[i] = &client.ConsumerGroupMetadata{
+				GroupId:          id,
+				Coordinator:      coordinator,
+				CoordinatorEpoch: epoch,
+			}
+		}
+	}
+
+	return &client.FetchMetadataResponse{
+		StreamMetadata: streamMetadata,
+		GroupMetadata:  groupMetadata,
+	}
 }
 
 // CreateStream creates a new stream if this server is the metadata leader. If

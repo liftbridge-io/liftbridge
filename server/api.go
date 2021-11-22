@@ -246,7 +246,7 @@ func (a *apiServer) SubscribeInternal(ctx context.Context, req *client.Subscribe
 // information.
 func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
 	*client.FetchMetadataResponse, error) {
-	a.logger.Debugf("api: FetchMetadata %s", req.Streams)
+	a.logger.Debugf("api: FetchMetadata [streams=%s, groups=%s]", req.Streams, req.Groups)
 
 	resp, err := a.metadata.FetchMetadata(ctx, req)
 	if err != nil {
