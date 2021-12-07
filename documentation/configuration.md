@@ -235,5 +235,5 @@ the configuration file.
 
 | Name | Flag | Description | Type | Default | Valid Values |
 |:----|:----|:----|:----|:----|:----|
-| timeout | | If a consumer hasn't sent a request to fetch partition assignments to the group coordinator for at least this time, the coordinator will remove the consumer from the group. | duration | 1m | |
+| timeout | | If a consumer hasn't sent a request to fetch partition assignments to the group coordinator for at least this time, the coordinator will remove the consumer from the group. | duration | 30s | |
 

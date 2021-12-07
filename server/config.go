@@ -54,7 +54,7 @@ const (
 	defaultCursorsStreamAutoPauseTime     = time.Minute
 	defaultConcurrencyControl             = false
 	defaultEncryption                     = false
-	defaultConsumersTimeout               = time.Minute
+	defaultConsumersTimeout               = 30 * time.Second
 )
 
 // Config setting key names.
