@@ -374,7 +374,7 @@ func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 			Id:               group.GetID(),
 			Coordinator:      coordinator,
 			CoordinatorEpoch: coordinatorEpoch,
-			MembershipEpoch:  group.GetMembershipEpoch(),
+			AssignmentEpoch:  group.GetAssignmentEpoch(),
 			Members:          protoMembers,
 		}
 	}

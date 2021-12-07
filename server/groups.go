@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize/english"
+
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
@@ -74,12 +76,13 @@ func (c consumerHeap) Peek() *consumer {
 // consumerGroup represents a group of consumers which consume a set of
 // streams.
 type consumerGroup struct {
-	id               string
-	members          map[string]*consumer
-	subscribers      map[string]*consumerHeap // Maps streams to subscribed consumers
-	coordinator      string
+	id          string
+	members     map[string]*consumer
+	subscribers map[string]*consumerHeap // Maps streams to subscribed consumers
+	coordinator string
+	// TODO: can we collapse the epochs?
 	coordinatorEpoch uint64 // Updates on coordinator changes
-	membershipEpoch  uint64 // Updates on membership changes
+	assignmentEpoch  uint64 // Updates on assignment changes
 	metadata         *metadataAPI
 	recovered        bool
 	mu               sync.RWMutex
@@ -103,7 +106,7 @@ func (m *metadataAPI) newConsumerGroup(protoGroup *proto.ConsumerGroup, recovere
 		}
 	}
 	group.mu.Lock()
-	group.membershipEpoch = protoGroup.MembershipEpoch
+	group.assignmentEpoch = protoGroup.AssignmentEpoch
 	group.mu.Unlock()
 	return group, nil
 }
@@ -112,7 +115,9 @@ func (m *metadataAPI) newConsumerGroup(protoGroup *proto.ConsumerGroup, recovere
 func (c *consumerGroup) String() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return fmt.Sprintf("[id=%s, coordinator=%s, members=%d]", c.id, c.coordinator, len(c.members))
+	return fmt.Sprintf(
+		"[id=%s, coordinator=%s, coordinatorEpoch=%d, members=%d, assignmentEpoch=%d]",
+		c.id, c.coordinator, c.coordinatorEpoch, len(c.members), c.assignmentEpoch)
 }
 
 // GetID returns the group's ID.
@@ -122,12 +127,12 @@ func (c *consumerGroup) GetID() string {
 	return c.id
 }
 
-// GetMembershipEpoch returns the group membership epoch which is updated on
-// each membership change.
-func (c *consumerGroup) GetMembershipEpoch() uint64 {
+// GetAssignmentEpoch returns the group assignment epoch which is updated on
+// each assignment change.
+func (c *consumerGroup) GetAssignmentEpoch() uint64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.membershipEpoch
+	return c.assignmentEpoch
 }
 
 // SetCoordinator sets the coordinator for the group.
@@ -140,6 +145,7 @@ func (c *consumerGroup) SetCoordinator(coordinator string, coordinatorEpoch uint
 	}
 	c.coordinator = coordinator
 	c.coordinatorEpoch = coordinatorEpoch
+	// TODO: balance assignments in the case of leader failover.
 	return nil
 }
 
@@ -231,11 +237,8 @@ func (c *consumerGroup) AddMember(consumerID string, streams []string) error {
 		assignments: make(partitionAssignments),
 	}
 	c.members[consumerID] = cons
-	// Assign partitions if this server is the coordinator.
-	if c.coordinator == c.metadata.config.Clustering.ServerID {
-		c.addConsumer(cons)
-	}
-	c.membershipEpoch++
+	// Balance assignments.
+	c.addConsumer(cons)
 	return nil
 }
 
@@ -252,12 +255,9 @@ func (c *consumerGroup) RemoveMember(consumerID string) (bool, error) {
 	if consumer.timer != nil {
 		consumer.timer.Stop()
 	}
-	// Balance assignments if this server is the coordinator.
-	if c.coordinator == c.metadata.config.Clustering.ServerID {
-		c.removeConsumer(consumer)
-	}
+	// Balance assignments.
+	c.removeConsumer(consumer)
 	delete(c.members, consumerID)
-	c.membershipEpoch++
 	return len(c.members) == 0, nil
 }
 
@@ -291,8 +291,8 @@ func (c *consumerGroup) StreamDeleted(stream string) {
 }
 
 // GetAssignments returns the partition assignments for the given consumer
-// along with the group epoch. It returns an error if the consumer is not a
-// member of the group, if this server is not the group coordinator, or the
+// along with the assignment epoch. It returns an error if the consumer is not
+// a member of the group, if this server is not the group coordinator, or the
 // provided coordinator epoch is greater than the current known epoch.
 func (c *consumerGroup) GetAssignments(consumerID string, coordinatorEpoch uint64) (
 	partitionAssignments, uint64, error) {
@@ -320,7 +320,7 @@ func (c *consumerGroup) GetAssignments(consumerID string, coordinatorEpoch uint6
 	}
 	member.timer.Reset(c.metadata.config.Consumers.Timeout)
 
-	return member.assignments, c.membershipEpoch, nil
+	return member.assignments, c.assignmentEpoch, nil
 }
 
 // Close should be called when the consumer group is being deleted.
@@ -424,6 +424,9 @@ func (c *consumerGroup) balanceAssignmentsForStream(streamName string) {
 		return
 	}
 
+	c.metadata.logger.Debugf("Balancing consumer group %s assignments for stream %s (%s)",
+		c.id, streamName, english.Plural(len(*subscribers), "subscriber", ""))
+
 	// Reset assignments for stream.
 	// TODO: This rebalancing could probably be implemented in a more optimized
 	// way, e.g. avoiding unnecessary reassignments of partitions. For
@@ -453,6 +456,8 @@ func (c *consumerGroup) balanceAssignmentsForStream(streamName string) {
 		minConsumer := subscribers.Peek()
 		c.assignPartition(streamName, partition, minConsumer)
 	}
+
+	c.assignmentEpoch++
 }
 
 func (c *consumerGroup) assignPartition(stream string, partition int32, subscriber *consumer) {

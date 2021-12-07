@@ -173,7 +173,7 @@ message ConsumerGroup {
     repeated Consumer members          = 2; 
     string            coordinator      = 3;
     uint64            coordinatorEpoch = 4;
-    uint64            membershipEpoch  = 5;
+    uint64            assignmentEpoch  = 5;
 }
 
 // RaftJoinRequest is a request to join a Raft group.
