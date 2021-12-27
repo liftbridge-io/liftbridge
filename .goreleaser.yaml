@@ -16,6 +16,8 @@ builds:
   ignore:
     - goos: darwin
       goarch: 386
+    - goos: linux
+      goarch: arm64
 
 changelog:
   skip: true
