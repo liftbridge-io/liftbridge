@@ -18,11 +18,11 @@ require (
 	github.com/nats-io/nats-server/v2 v2.6.4
 	github.com/nats-io/nats.go v1.13.1-0.20211018182449-f2416a8b1483
 	github.com/nats-io/nuid v1.0.1
-	github.com/nsip/gommap v0.0.0-20181229045655-f7881c3a959f
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.7.0
+	github.com/tysonmote/gommap v0.0.1
 	github.com/urfave/cli v1.22.4
 	google.golang.org/grpc v1.42.0
 )
@@ -67,5 +67,4 @@ require (
 	gopkg.in/ini.v1 v1.57.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
-	launchpad.net/gocheck v0.0.0-20140225173054-000000000087 // indirect
 )
