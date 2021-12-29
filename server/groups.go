@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -239,6 +241,7 @@ func (c *consumerGroup) AddMember(consumerID string, streams []string) error {
 	c.members[consumerID] = cons
 	// Balance assignments.
 	c.addConsumer(cons)
+	c.debugLogAssignments()
 	return nil
 }
 
@@ -258,6 +261,7 @@ func (c *consumerGroup) RemoveMember(consumerID string) (bool, error) {
 	// Balance assignments.
 	c.removeConsumer(consumer)
 	delete(c.members, consumerID)
+	c.debugLogAssignments()
 	return len(c.members) == 0, nil
 }
 
@@ -279,15 +283,17 @@ func (c *consumerGroup) StreamDeleted(stream string) {
 	}
 	delete(c.subscribers, stream)
 	// Rebalance assignments for all other streams the affected consumers are
-	// subscribed to.
-	for stream := range rebalance {
+	// subscribed to. Range over the streams in order for deterministic
+	// processing across servers.
+	rangeStreamsOrdered(rebalance, func(stream string) {
 		// Enforce heap invariants.
 		subscribers, ok := c.subscribers[stream]
 		if ok {
 			heap.Init(subscribers)
 		}
 		c.balanceAssignmentsForStream(stream)
-	}
+	})
+	c.debugLogAssignments()
 }
 
 // GetAssignments returns the partition assignments for the given consumer
@@ -376,7 +382,8 @@ func (c *consumerGroup) removeExpiredMember(consumerID string) error {
 // consumer's streams. This will result in balancing the partition assignments
 // for these streams. This must be called within the group mutex.
 func (c *consumerGroup) addConsumer(cons *consumer) {
-	for stream := range cons.streams {
+	// range over streams in order for deterministic processing across servers.
+	rangeStreamsOrdered(cons.streams, func(stream string) {
 		subscribers, ok := c.subscribers[stream]
 		if !ok {
 			subscribers = &consumerHeap{}
@@ -384,7 +391,7 @@ func (c *consumerGroup) addConsumer(cons *consumer) {
 		}
 		heap.Push(subscribers, cons)
 		c.balanceAssignmentsForStream(stream)
-	}
+	})
 }
 
 // removeConsumer removes the given consumer from the group's subscriber heaps
@@ -392,10 +399,11 @@ func (c *consumerGroup) addConsumer(cons *consumer) {
 // assignments for any streams this consumer had assignments for. This must be
 // called within the group mutex.
 func (c *consumerGroup) removeConsumer(cons *consumer) {
-	for stream := range cons.streams {
+	// range over streams in order for deterministic processing across servers.
+	rangeStreamsOrdered(cons.streams, func(stream string) {
 		subscribers, ok := c.subscribers[stream]
 		if !ok {
-			continue
+			return
 		}
 		for i, sub := range *subscribers {
 			if cons == sub {
@@ -407,7 +415,7 @@ func (c *consumerGroup) removeConsumer(cons *consumer) {
 		if _, ok := cons.assignments[stream]; ok {
 			c.balanceAssignmentsForStream(stream)
 		}
-	}
+	})
 }
 
 // balanceAssignmentsForStream assigns the partitions for the given stream to
@@ -468,5 +476,38 @@ func (c *consumerGroup) assignPartition(stream string, partition int32, subscrib
 		if ok {
 			heap.Init(subscribers)
 		}
+	}
+}
+
+func (c *consumerGroup) debugLogAssignments() {
+	msg := fmt.Sprintf("Partition assignments for consumer group %s:\n", c.id)
+	for id, consumer := range c.members {
+		msg += fmt.Sprintf("  consumer %s\n", id)
+		for stream, partitions := range consumer.assignments {
+			partitionStrs := make([]string, len(partitions))
+			for i, partition := range partitions {
+				partitionStrs[i] = strconv.Itoa(int(partition))
+			}
+			msg += fmt.Sprintf("    %s: [%s]\n", stream, strings.Join(partitionStrs, ", "))
+		}
+	}
+	c.metadata.logger.Debugf(msg)
+}
+
+func rangeStreamsOrdered(streams map[string]struct{}, f func(stream string)) {
+	// First sort map keys.
+	var (
+		i             = 0
+		sortedStreams = make([]string, len(streams))
+	)
+	for stream := range streams {
+		sortedStreams[i] = stream
+		i++
+	}
+	sort.Strings(sortedStreams)
+
+	// Range over sorted keys.
+	for _, stream := range sortedStreams {
+		f(stream)
 	}
 }
