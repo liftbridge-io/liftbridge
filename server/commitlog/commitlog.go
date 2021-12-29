@@ -79,7 +79,7 @@ func New(opts Options) (CommitLog, error) {
 
 	if opts.Logger == nil {
 		opts.Logger = logger.NewLogger(0)
-		opts.Logger.SetWriter(ioutil.Discard)
+		opts.Logger.Silent(true)
 	}
 
 	if opts.MaxSegmentBytes == 0 {

@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/dustin/go-humanize/english"
 	"github.com/hashicorp/raft"
@@ -243,12 +242,14 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 // unapplied log entries.
 func (s *Server) startedRecovery() {
 	if s.config.LogRecovery {
-		return
+		// If LogRecovery is enabled, prefix recovery logs with "-->" so they
+		// are visually distinct.
+		s.logger.Prefix("--> ")
+	} else {
+		// If LogRecovery is disabled, we need to suppress logs while replaying
+		// the Raft log. Do this by discarding the log output.
+		s.logger.Silent(true)
 	}
-	// If LogRecovery is disabled, we need to suppress logs while replaying the
-	// Raft log. Do this by discarding the log output.
-	s.loggerOut = s.logger.Writer()
-	s.logger.SetWriter(ioutil.Discard)
 }
 
 // finishedRecovery should be called when the FSM has finished replaying any
@@ -257,9 +258,13 @@ func (s *Server) startedRecovery() {
 // returns the number of streams which had partitions that were recovered and
 // the number of consumer groups that were recovered.
 func (s *Server) finishedRecovery() (int, int, error) {
-	// If LogRecovery is disabled, we need to restore the previous log output.
-	if !s.config.LogRecovery {
-		s.logger.SetWriter(s.loggerOut)
+	if s.config.LogRecovery {
+		// If LogRecovery is enabled, clear the logging prefix.
+		s.logger.Prefix("")
+	} else {
+		// If LogRecovery is disabled, we need to restore the previous log
+		// output.
+		s.logger.Silent(false)
 	}
 	recoveredStreams := make(map[string]struct{})
 	for _, stream := range s.metadata.GetStreams() {

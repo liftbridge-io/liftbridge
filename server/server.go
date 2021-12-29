@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -64,7 +63,6 @@ type Server struct {
 	ncAcks             *nats.Conn
 	ncPublishes        *nats.Conn
 	logger             logger.Logger
-	loggerOut          io.Writer
 	grpcServer         *grpc.Server
 	api                *apiServer
 	metadata           *metadataAPI
@@ -101,7 +99,7 @@ func New(config *Config) *Server {
 	}
 	logger := logger.NewLogger(config.LogLevel)
 	if config.LogSilent {
-		logger.SetWriter(ioutil.Discard)
+		logger.Silent(true)
 	}
 	s := &Server{
 		config:          config,
