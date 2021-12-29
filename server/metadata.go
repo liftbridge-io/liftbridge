@@ -318,8 +318,8 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 }
 
 // createMetadataResponse creates a FetchMetadataResponse and populates it with
-// stream  and group metadata. If the provided list of stream names is empty,
-// it will populate metadata for all streams. Otherwise, it populates only the
+// stream and group metadata. If the provided list of stream names is empty, it
+// will populate metadata for all streams. Otherwise, it populates only the
 // specified streams.
 func (m *metadataAPI) createMetadataResponse(streams, groups []string) *client.FetchMetadataResponse {
 	// If no stream names were provided, fetch metadata for all streams.
