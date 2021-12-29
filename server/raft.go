@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	"github.com/liftbridge-io/raft-boltdb"
+	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/nats-io/nats.go"
 	pkgErrors "github.com/pkg/errors"
 
-	"github.com/liftbridge-io/nats-on-a-log"
+	natslog "github.com/liftbridge-io/nats-on-a-log"
 
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
