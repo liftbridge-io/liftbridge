@@ -219,10 +219,19 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 func (a *apiServer) SubscribeInternal(ctx context.Context, req *client.SubscribeRequest) (
 	*subscription, error) {
 
-	a.logger.Debugf("api: Subscribe [stream=%s, partition=%d, start=%s, offset=%d, timestamp=%d, group=%s, consumer=%s]",
-		req.Stream, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp, req.GroupId, req.ConsumerId)
+	var (
+		group    string
+		consumer string
+	)
+	if req.Consumer != nil {
+		group = req.Consumer.GroupId
+		consumer = req.Consumer.ConsumerId
+	}
+	a.logger.Debugf("api: Subscribe "+
+		"[stream=%s, partition=%d, start=%s, offset=%d, timestamp=%d, group=%s, consumer=%s]",
+		req.Stream, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp, group, consumer)
 
-	if req.GroupId != "" && req.ConsumerId == "" {
+	if group != "" && consumer == "" {
 		a.logger.Errorf("api: Failed to subscribe to partition: no consumer id provided")
 		return nil, status.Error(codes.InvalidArgument,
 			"Consumer id cannot be empty when group id is provided")
@@ -239,7 +248,7 @@ func (a *apiServer) SubscribeInternal(ctx context.Context, req *client.Subscribe
 	leader, _ := partition.GetLeader()
 	if leader != a.config.Clustering.ServerID {
 		if req.ReadISRReplica {
-			if req.GroupId != "" {
+			if group != "" {
 				// Consumer groups are not compatible with ReadISRReplica.
 				a.logger.Errorf("api: Failed to subscribe to partition %s: consumer groups "+
 					"not compatible with ReadISRReplica", partition)
@@ -486,7 +495,7 @@ func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsu
 	}
 	return &client.JoinConsumerGroupResponse{
 		Coordinator:      coordinator,
-		CoordinatorEpoch: epoch,
+		Epoch:            epoch,
 		ConsumersTimeout: int64(a.config.Consumers.Timeout),
 	}, nil
 }
@@ -499,8 +508,8 @@ func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsu
 // as part of Liftbridge's semantic versioning scheme.
 func (a *apiServer) FetchConsumerGroupAssignments(ctx context.Context, req *client.FetchConsumerGroupAssignmentsRequest) (
 	*client.FetchConsumerGroupAssignmentsResponse, error) {
-	a.logger.Debugf("api: FetchConsumerGroupAssignments [groupId=%s, consumerId=%s]",
-		req.GroupId, req.ConsumerId)
+	a.logger.Debugf("api: FetchConsumerGroupAssignments [groupId=%s, consumerId=%s, epoch=%d]",
+		req.GroupId, req.ConsumerId, req.Epoch)
 
 	if req.GroupId == "" {
 		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
@@ -509,13 +518,13 @@ func (a *apiServer) FetchConsumerGroupAssignments(ctx context.Context, req *clie
 		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
 	}
 
-	assignments, assignmentEpoch, err := a.metadata.GetConsumerGroupAssignments(
-		req.GroupId, req.ConsumerId, req.CoordinatorEpoch)
+	assignments, epoch, err := a.metadata.GetConsumerGroupAssignments(
+		req.GroupId, req.ConsumerId, req.Epoch)
 	if err != nil {
 		code := codes.Unknown
 		if err == ErrConsumerGroupNotFound {
 			code = codes.NotFound
-		} else if err == ErrConsumerNotMember || err == ErrBrokerNotCoordinator || err == ErrCoordinatorEpoch {
+		} else if err == ErrConsumerNotMember || err == ErrBrokerNotCoordinator || err == ErrGroupEpoch {
 			code = codes.FailedPrecondition
 		}
 		return nil, status.Error(code, err.Error())
@@ -529,8 +538,8 @@ func (a *apiServer) FetchConsumerGroupAssignments(ctx context.Context, req *clie
 		})
 	}
 	return &client.FetchConsumerGroupAssignmentsResponse{
-		AssignmentEpoch: assignmentEpoch,
-		Assignments:     partitionAssignments,
+		Epoch:       epoch,
+		Assignments: partitionAssignments,
 	}, nil
 }
 

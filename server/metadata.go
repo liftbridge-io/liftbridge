@@ -57,10 +57,9 @@ var (
 	// this server is not the coordinator for the requested consumer group.
 	ErrBrokerNotCoordinator = errors.New("broker is not the consumer group coordinator")
 
-	// ErrCoordinatorEpoch is returned by GetConsumerGroupAssignments when the
-	// client-provided coordinator epoch is larger than the server-side
-	// coordinator epoch.
-	ErrCoordinatorEpoch = errors.New("client-provided coordinator epoch is greater than broker coordinator epoch")
+	// ErrGroupEpoch is returned by GetConsumerGroupAssignments when the
+	// client-provided group epoch is larger than the server-side group epoch.
+	ErrGroupEpoch = errors.New("client-provided group epoch is greater than broker group epoch")
 )
 
 // leaderReport tracks witnesses for a partition leader. Witnesses are replicas
@@ -365,9 +364,9 @@ func (m *metadataAPI) createMetadataResponse(streams, groups []string) *client.F
 		} else {
 			coordinator, epoch := group.GetCoordinator()
 			groupMetadata[i] = &client.ConsumerGroupMetadata{
-				GroupId:          id,
-				Coordinator:      coordinator,
-				CoordinatorEpoch: epoch,
+				GroupId:     id,
+				Coordinator: coordinator,
+				Epoch:       epoch,
 			}
 		}
 	}
@@ -778,7 +777,9 @@ func (m *metadataAPI) SetStreamReadonly(ctx context.Context, req *proto.SetStrea
 // leader and return the response. This operation is replicated by Raft. If
 // successful, this will return once the consumer has been added to the group.
 // Returns the group coordinator ID and coordinator epoch on success.
-func (m *metadataAPI) JoinConsumerGroup(ctx context.Context, req *proto.JoinConsumerGroupOp) (string, uint64, *status.Status) {
+func (m *metadataAPI) JoinConsumerGroup(ctx context.Context, req *proto.JoinConsumerGroupOp) (
+	string, uint64, *status.Status) {
+
 	// Forward the request if we're not the leader.
 	if !m.IsLeader() {
 		resp, isLeader, st := m.propagateJoinConsumerGroup(ctx, req)
@@ -787,7 +788,7 @@ func (m *metadataAPI) JoinConsumerGroup(ctx context.Context, req *proto.JoinCons
 		}
 		// If we have since become leader, continue on with the request.
 		if !isLeader {
-			return resp.Coordinator, resp.CoordinatorEpoch, nil
+			return resp.Coordinator, resp.Epoch, nil
 		}
 	}
 
@@ -933,7 +934,7 @@ func (m *metadataAPI) removeConsumerGroup(groupID string) {
 // AddConsumerToGroup adds the given consumer to the consumer group. It returns
 // an error if the group does not exist, the consumer is already a member of
 // the group, or any of the provided streams do not exist.
-func (m *metadataAPI) AddConsumerToGroup(groupID, consumerID string, streams []string) error {
+func (m *metadataAPI) AddConsumerToGroup(groupID, consumerID string, streams []string, epoch uint64) error {
 	m.consumerGroupsMu.RLock()
 	group := m.consumerGroups[groupID]
 	m.consumerGroupsMu.RUnlock()
@@ -942,7 +943,7 @@ func (m *metadataAPI) AddConsumerToGroup(groupID, consumerID string, streams []s
 		return ErrConsumerGroupNotFound
 	}
 
-	return group.AddMember(consumerID, streams)
+	return group.AddMember(consumerID, streams, epoch)
 }
 
 // RemoveConsumerFromGroup removes the given consumer from the consumer group.
@@ -950,7 +951,7 @@ func (m *metadataAPI) AddConsumerToGroup(groupID, consumerID string, streams []s
 // member of the group. If this is the last member of the group, the group will
 // be deleted. Returns a bool indicating if this was the last member of the
 // group and the group has been deleted.
-func (m *metadataAPI) RemoveConsumerFromGroup(groupID, consumerID string) (bool, error) {
+func (m *metadataAPI) RemoveConsumerFromGroup(groupID, consumerID string, epoch uint64) (bool, error) {
 	m.consumerGroupsMu.Lock()
 	defer m.consumerGroupsMu.Unlock()
 	group := m.consumerGroups[groupID]
@@ -959,7 +960,7 @@ func (m *metadataAPI) RemoveConsumerFromGroup(groupID, consumerID string) (bool,
 		return false, ErrConsumerGroupNotFound
 	}
 
-	lastMember, err := group.RemoveMember(consumerID)
+	lastMember, err := group.RemoveMember(consumerID, epoch)
 	if err != nil {
 		return false, err
 	}
@@ -973,7 +974,7 @@ func (m *metadataAPI) RemoveConsumerFromGroup(groupID, consumerID string) (bool,
 
 // GetConsumerGroupAssignments returns the group's partition assignments for
 // the given consumer and the group epoch.
-func (m *metadataAPI) GetConsumerGroupAssignments(groupID, consumerID string, coordinatorEpoch uint64) (
+func (m *metadataAPI) GetConsumerGroupAssignments(groupID, consumerID string, epoch uint64) (
 	partitionAssignments, uint64, error) {
 
 	m.consumerGroupsMu.RLock()
@@ -984,7 +985,7 @@ func (m *metadataAPI) GetConsumerGroupAssignments(groupID, consumerID string, co
 		return nil, 0, ErrConsumerGroupNotFound
 	}
 
-	return group.GetAssignments(consumerID, coordinatorEpoch)
+	return group.GetAssignments(consumerID, epoch)
 }
 
 // AddStream adds the given stream and its partitions to the metadata store. It
@@ -992,7 +993,7 @@ func (m *metadataAPI) GetConsumerGroupAssignments(groupID, consumerID string, co
 // same ID for the stream already exist. If the stream is recovered, this will
 // not start the partitions until recovery completes. Partitions will also not
 // be started if they are currently paused.
-func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool, epoch uint64) (*stream, error) {
 	if len(protoStream.Partitions) == 0 {
 		return nil, errors.New("stream has no partitions")
 	}
@@ -1019,7 +1020,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 		if err := existing.Close(); err != nil {
 			return nil, err
 		}
-		m.removeStream(existing)
+		m.removeStream(existing, epoch)
 	}
 
 	config := protoStream.GetConfig()
@@ -1029,7 +1030,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 
 	for _, partition := range protoStream.Partitions {
 		if err := m.addPartition(stream, partition, recovered, config); err != nil {
-			m.removeStream(stream)
+			m.removeStream(stream, epoch)
 			return nil, err
 		}
 	}
@@ -1317,7 +1318,7 @@ func (m *metadataAPI) Reset() error {
 // being applied during Raft recovery, this will only mark the stream with a
 // tombstone. Tombstoned streams will be deleted after the recovery process
 // completes.
-func (m *metadataAPI) RemoveStream(stream *stream, recovered bool) error {
+func (m *metadataAPI) RemoveStream(stream *stream, recovered bool, epoch uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1329,7 +1330,7 @@ func (m *metadataAPI) RemoveStream(stream *stream, recovered bool) error {
 	if recovered {
 		stream.Tombstone()
 	} else {
-		if err := m.deleteStream(stream); err != nil {
+		if err := m.deleteStream(stream, epoch); err != nil {
 			return err
 		}
 	}
@@ -1351,13 +1352,13 @@ func (m *metadataAPI) RemoveStream(stream *stream, recovered bool) error {
 
 // RemoveTombstonedStream closes the tombstoned stream, removes it from the
 // metadata store, and deletes the associated on-disk data for it.
-func (m *metadataAPI) RemoveTombstonedStream(stream *stream) error {
+func (m *metadataAPI) RemoveTombstonedStream(stream *stream, epoch uint64) error {
 	if !stream.IsTombstoned() {
 		return fmt.Errorf("cannot delete stream %s because it is not tombstoned", stream)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.deleteStream(stream)
+	return m.deleteStream(stream, epoch)
 }
 
 // LostLeadership should be called when the server loses metadata leadership.
@@ -1371,7 +1372,7 @@ func (m *metadataAPI) LostLeadership() {
 }
 
 // deleteStream deletes the stream and the associated on-disk data for it.
-func (m *metadataAPI) deleteStream(stream *stream) error {
+func (m *metadataAPI) deleteStream(stream *stream, epoch uint64) error {
 	err := stream.Delete()
 	if err != nil {
 		return errors.Wrap(err, "failed to delete stream")
@@ -1384,13 +1385,13 @@ func (m *metadataAPI) deleteStream(stream *stream) error {
 		return errors.Wrap(err, "failed to delete stream data directory")
 	}
 
-	m.removeStream(stream)
+	m.removeStream(stream, epoch)
 	return nil
 }
 
 // removeStream removes the stream from the stream store, removes any
 // leaderReports for its partitions, and rebalances consumer group assignments.
-func (m *metadataAPI) removeStream(stream *stream) {
+func (m *metadataAPI) removeStream(stream *stream, epoch uint64) {
 	delete(m.streams, stream.GetName())
 	for _, partition := range stream.GetPartitions() {
 		report, ok := m.leaderReports[partition]
@@ -1401,7 +1402,7 @@ func (m *metadataAPI) removeStream(stream *stream) {
 	}
 	m.consumerGroupsMu.RLock()
 	for _, group := range m.consumerGroups {
-		group.StreamDeleted(stream.GetName())
+		group.StreamDeleted(stream.GetName(), epoch)
 	}
 	m.consumerGroupsMu.RUnlock()
 }

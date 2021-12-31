@@ -101,9 +101,9 @@ func (e *EventTimestamps) update() {
 
 // groupMember tracks state for a consumer group member.
 type groupMember struct {
-	consumerID      string
-	assignmentEpoch uint64
-	sub             *subscription
+	consumerID string
+	groupEpoch uint64
+	sub        *subscription
 }
 
 // partition represents a replicated message stream partition backed by a
@@ -354,19 +354,31 @@ func (p *partition) Delete() error {
 func (p *partition) Subscribe(ctx context.Context, req *client.SubscribeRequest) (
 	*subscription, *status.Status) {
 
-	var previousSubscriber *groupMember
-	if req.GroupId != "" {
+	var (
+		previousSubscriber *groupMember
+		groupID            string
+		consumerID         string
+		groupEpoch         uint64
+	)
+
+	if req.Consumer != nil {
+		groupID = req.Consumer.GroupId
+		consumerID = req.Consumer.ConsumerId
+		groupEpoch = req.Consumer.GroupEpoch
+	}
+
+	if groupID != "" {
 		// Grab the consumers mutex if this subscriber is part of a consumer
 		// group.
 		p.consumersMu.Lock()
 		defer p.consumersMu.Unlock()
 
 		// If there is an existing member of the group subscribed to the
-		// partition, check if the new subscriber has a more recent assignment
+		// partition, check if the new subscriber has a more recent group
 		// epoch. If it does, it will replace the existing consumer.
-		existing, ok := p.consumers[req.GroupId]
+		existing, ok := p.consumers[groupID]
 		if ok {
-			if existing.assignmentEpoch >= req.AssignmentEpoch {
+			if existing.groupEpoch > groupEpoch {
 				return nil, status.New(codes.FailedPrecondition,
 					"Consumer is not currently assigned this partition")
 			}
@@ -393,7 +405,7 @@ func (p *partition) Subscribe(ctx context.Context, req *client.SubscribeRequest)
 	// Cancel previous group subscriber if there was one.
 	if previousSubscriber != nil {
 		p.srv.logger.Debugf("Replacing group %s consumer %s with consumer %s for partition %s",
-			req.GroupId, previousSubscriber.consumerID, req.ConsumerId, p)
+			groupID, previousSubscriber.consumerID, consumerID, p)
 		previousSubscriber.sub.Close()
 	}
 
@@ -408,8 +420,8 @@ func (p *partition) Subscribe(ctx context.Context, req *client.SubscribeRequest)
 	}
 
 	cancel := make(chan struct{})
-	p.srv.startGoroutine(p.newSubscribeLoop(ctx, req.GroupId, req.ConsumerId,
-		reader, stopOffset, ch, errCh, cancel))
+	p.srv.startGoroutine(p.newSubscribeLoop(ctx, groupID, consumerID, reader,
+		stopOffset, ch, errCh, cancel))
 
 	sub := &subscription{
 		closed: cancel,
@@ -417,11 +429,11 @@ func (p *partition) Subscribe(ctx context.Context, req *client.SubscribeRequest)
 		errors: errCh,
 	}
 
-	if req.GroupId != "" {
-		p.consumers[req.GroupId] = &groupMember{
-			consumerID:      req.ConsumerId,
-			assignmentEpoch: req.AssignmentEpoch,
-			sub:             sub,
+	if groupID != "" {
+		p.consumers[groupID] = &groupMember{
+			consumerID: consumerID,
+			groupEpoch: groupEpoch,
+			sub:        sub,
 		}
 	}
 

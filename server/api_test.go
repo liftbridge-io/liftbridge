@@ -781,7 +781,7 @@ func TestSubscribePartitionDeleted(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
@@ -815,7 +815,7 @@ func TestSubscribePartitionPaused(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
@@ -849,7 +849,7 @@ func TestSubscribePartitionClosed(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}

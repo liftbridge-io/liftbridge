@@ -82,12 +82,10 @@ type consumerGroup struct {
 	members     map[string]*consumer
 	subscribers map[string]*consumerHeap // Maps streams to subscribed consumers
 	coordinator string
-	// TODO: can we collapse the epochs?
-	coordinatorEpoch uint64 // Updates on coordinator changes
-	assignmentEpoch  uint64 // Updates on assignment changes
-	metadata         *metadataAPI
-	recovered        bool
-	mu               sync.RWMutex
+	epoch       uint64 // Updates on coordinator and assignment changes
+	metadata    *metadataAPI
+	recovered   bool
+	mu          sync.RWMutex
 }
 
 func (m *metadataAPI) newConsumerGroup(protoGroup *proto.ConsumerGroup, recovered bool) (*consumerGroup, error) {
@@ -96,20 +94,19 @@ func (m *metadataAPI) newConsumerGroup(protoGroup *proto.ConsumerGroup, recovere
 		members:     make(map[string]*consumer),
 		subscribers: make(map[string]*consumerHeap),
 		metadata:    m,
+		coordinator: protoGroup.Coordinator,
+		epoch:       protoGroup.Epoch,
 		recovered:   recovered,
 	}
-	if err := group.SetCoordinator(protoGroup.Coordinator, protoGroup.CoordinatorEpoch); err != nil {
-		return nil, err
-	}
+	group.mu.Lock()
+	defer group.mu.Unlock()
 	for _, member := range protoGroup.Members {
-		if err := group.AddMember(member.Id, member.Streams); err != nil {
+		if err := group.addMember(member.Id, member.Streams); err != nil {
 			group.Close()
 			return nil, err
 		}
 	}
-	group.mu.Lock()
-	group.assignmentEpoch = protoGroup.AssignmentEpoch
-	group.mu.Unlock()
+	group.debugLogAssignments()
 	return group, nil
 }
 
@@ -118,8 +115,8 @@ func (c *consumerGroup) String() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return fmt.Sprintf(
-		"[id=%s, coordinator=%s, coordinatorEpoch=%d, members=%d, assignmentEpoch=%d]",
-		c.id, c.coordinator, c.coordinatorEpoch, len(c.members), c.assignmentEpoch)
+		"[id=%s, coordinator=%s, epoch=%d, members=%d]",
+		c.id, c.coordinator, c.epoch, len(c.members))
 }
 
 // GetID returns the group's ID.
@@ -129,33 +126,25 @@ func (c *consumerGroup) GetID() string {
 	return c.id
 }
 
-// GetAssignmentEpoch returns the group assignment epoch which is updated on
-// each assignment change.
-func (c *consumerGroup) GetAssignmentEpoch() uint64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.assignmentEpoch
-}
-
 // SetCoordinator sets the coordinator for the group.
-func (c *consumerGroup) SetCoordinator(coordinator string, coordinatorEpoch uint64) error {
+func (c *consumerGroup) SetCoordinator(coordinator string, epoch uint64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if coordinatorEpoch < c.coordinatorEpoch {
-		return fmt.Errorf("proposed group coordinator epoch %d is less than current epoch %d",
-			coordinatorEpoch, c.coordinatorEpoch)
+	if epoch < c.epoch {
+		return fmt.Errorf("proposed group epoch %d is less than current epoch %d",
+			epoch, c.epoch)
 	}
 	c.coordinator = coordinator
-	c.coordinatorEpoch = coordinatorEpoch
+	c.epoch = epoch
 	// TODO: balance assignments in the case of leader failover.
 	return nil
 }
 
-// GetCoordinator returns the ID and epoch of the consumer group coordinator.
+// GetCoordinator returns the coordinator ID and epoch for the consumer group.
 func (c *consumerGroup) GetCoordinator() (string, uint64) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.coordinator, c.coordinatorEpoch
+	return c.coordinator, c.epoch
 }
 
 // StartRecovered starts the group if this server is the coordinator and the
@@ -207,7 +196,25 @@ func (c *consumerGroup) GetMembers() map[string][]string {
 // AddMember adds the given consumer to the group. If this server is the group
 // coordinator, this will start a timer to ensure liveness of the consumer
 // unless the group is in recovery mode.
-func (c *consumerGroup) AddMember(consumerID string, streams []string) error {
+func (c *consumerGroup) AddMember(consumerID string, streams []string, epoch uint64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if epoch < c.epoch {
+		return fmt.Errorf("proposed group epoch %d is less than current epoch %d",
+			epoch, c.epoch)
+	}
+
+	if err := c.addMember(consumerID, streams); err != nil {
+		return err
+	}
+
+	c.epoch = epoch
+	c.debugLogAssignments()
+	return nil
+}
+
+func (c *consumerGroup) addMember(consumerID string, streams []string) error {
 	// Verify the streams exist.
 	for _, stream := range streams {
 		if c.metadata.GetStream(stream) == nil {
@@ -215,8 +222,6 @@ func (c *consumerGroup) AddMember(consumerID string, streams []string) error {
 		}
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if _, ok := c.members[consumerID]; ok {
 		return ErrConsumerAlreadyMember
 	}
@@ -241,16 +246,20 @@ func (c *consumerGroup) AddMember(consumerID string, streams []string) error {
 	c.members[consumerID] = cons
 	// Balance assignments.
 	c.addConsumer(cons)
-	c.debugLogAssignments()
 	return nil
 }
 
 // RemoveMember removes the given consumer from the group. If this server is
 // the group coordinator, this will stop the liveness timer for the consumer.
 // Returns a bool indicating if this was the last member of the group.
-func (c *consumerGroup) RemoveMember(consumerID string) (bool, error) {
+func (c *consumerGroup) RemoveMember(consumerID string, epoch uint64) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if epoch < c.epoch {
+		return false, fmt.Errorf("proposed group epoch %d is less than current epoch %d",
+			epoch, c.epoch)
+	}
+
 	consumer, ok := c.members[consumerID]
 	if !ok {
 		return false, ErrConsumerNotMember
@@ -261,17 +270,23 @@ func (c *consumerGroup) RemoveMember(consumerID string) (bool, error) {
 	// Balance assignments.
 	c.removeConsumer(consumer)
 	delete(c.members, consumerID)
+	c.epoch = epoch
 	c.debugLogAssignments()
 	return len(c.members) == 0, nil
 }
 
 // StreamDeleted is called whenever a stream is deleted.
-func (c *consumerGroup) StreamDeleted(stream string) {
+func (c *consumerGroup) StreamDeleted(stream string, epoch uint64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if epoch < c.epoch {
+		return fmt.Errorf("proposed group epoch %d is less than current epoch %d",
+			epoch, c.epoch)
+	}
+
 	subscribers, ok := c.subscribers[stream]
 	if !ok {
-		return
+		return nil
 	}
 	rebalance := make(map[string]struct{})
 	for _, subscriber := range *subscribers {
@@ -293,14 +308,16 @@ func (c *consumerGroup) StreamDeleted(stream string) {
 		}
 		c.balanceAssignmentsForStream(stream)
 	})
+	c.epoch = epoch
 	c.debugLogAssignments()
+	return nil
 }
 
 // GetAssignments returns the partition assignments for the given consumer
-// along with the assignment epoch. It returns an error if the consumer is not
+// along with the group epoch. It returns an error if the consumer is not
 // a member of the group, if this server is not the group coordinator, or the
-// provided coordinator epoch is greater than the current known epoch.
-func (c *consumerGroup) GetAssignments(consumerID string, coordinatorEpoch uint64) (
+// provided epoch is greater than the current known epoch.
+func (c *consumerGroup) GetAssignments(consumerID string, epoch uint64) (
 	partitionAssignments, uint64, error) {
 
 	c.mu.RLock()
@@ -310,8 +327,8 @@ func (c *consumerGroup) GetAssignments(consumerID string, coordinatorEpoch uint6
 		return nil, 0, ErrBrokerNotCoordinator
 	}
 
-	if coordinatorEpoch > c.coordinatorEpoch {
-		return nil, 0, ErrCoordinatorEpoch
+	if epoch > c.epoch {
+		return nil, 0, ErrGroupEpoch
 	}
 
 	member, ok := c.members[consumerID]
@@ -326,7 +343,7 @@ func (c *consumerGroup) GetAssignments(consumerID string, coordinatorEpoch uint6
 	}
 	member.timer.Reset(c.metadata.config.Consumers.Timeout)
 
-	return member.assignments, c.assignmentEpoch, nil
+	return member.assignments, c.epoch, nil
 }
 
 // Close should be called when the consumer group is being deleted.
@@ -464,8 +481,6 @@ func (c *consumerGroup) balanceAssignmentsForStream(streamName string) {
 		minConsumer := subscribers.Peek()
 		c.assignPartition(streamName, partition, minConsumer)
 	}
-
-	c.assignmentEpoch++
 }
 
 func (c *consumerGroup) assignPartition(stream string, partition int32, subscriber *consumer) {
@@ -480,7 +495,10 @@ func (c *consumerGroup) assignPartition(stream string, partition int32, subscrib
 }
 
 func (c *consumerGroup) debugLogAssignments() {
-	msg := fmt.Sprintf("Partition assignments for consumer group %s:\n", c.id)
+	if len(c.members) == 0 {
+		return
+	}
+	msg := fmt.Sprintf("Partition assignments for consumer group %s (epoch: %d):\n", c.id, c.epoch)
 	for id, consumer := range c.members {
 		msg += fmt.Sprintf("  consumer %s\n", id)
 		for stream, partitions := range consumer.assignments {

@@ -169,11 +169,10 @@ message Consumer {
 }
 
 message ConsumerGroup {
-    string            id               = 1;
-    repeated Consumer members          = 2; 
-    string            coordinator      = 3;
-    uint64            coordinatorEpoch = 4;
-    uint64            assignmentEpoch  = 5;
+    string            id          = 1;
+    repeated Consumer members     = 2; 
+    string            coordinator = 3;
+    uint64            epoch       = 4;
 }
 
 // RaftJoinRequest is a request to join a Raft group.
@@ -237,8 +236,8 @@ message PropagatedResponse {
     // Reserving = 9 for resumeStreamResp if needed.
     // Reserving = 10 for setStreamReadonlyResp if needed.
     message JoinConsumerGroupResponse {
-        string coordinator      = 1;
-        uint64 coordinatorEpoch = 2;
+        string coordinator = 1;
+        uint64 epoch       = 2;
     }
     JoinConsumerGroupResponse joinConsumerGroupResp = 11;
     // Reserving = 12 for leaveConsumerGroupResp if needed.

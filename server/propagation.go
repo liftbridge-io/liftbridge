@@ -153,8 +153,8 @@ func (s *Server) handleJoinConsumerGroup(req *proto.PropagatedRequest) *proto.Pr
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	} else {
 		resp.JoinConsumerGroupResp = &proto.PropagatedResponse_JoinConsumerGroupResponse{
-			Coordinator:      coordinator,
-			CoordinatorEpoch: epoch,
+			Coordinator: coordinator,
+			Epoch:       epoch,
 		}
 	}
 	return resp
