@@ -62,71 +62,13 @@ var (
 	ErrGroupEpoch = errors.New("client-provided group epoch is greater than broker group epoch")
 )
 
-// leaderReport tracks witnesses for a partition leader. Witnesses are replicas
-// which have reported the leader as unresponsive. If a quorum of replicas
-// report the leader within a bounded period of time, the controller will
-// select a new leader.
-type leaderReport struct {
-	mu              sync.Mutex
-	partition       *partition
-	timer           *time.Timer
-	witnessReplicas map[string]struct{}
-	api             *metadataAPI
-}
-
-// addWitness adds the given replica to the leaderReport witnesses. If a quorum
-// of replicas have reported the leader, a new leader will be selected.
-// Otherwise, the expiration timer is reset. An error is returned if selecting
-// a new leader fails.
-func (l *leaderReport) addWitness(ctx context.Context, replica string) *status.Status {
-	l.mu.Lock()
-
-	l.witnessReplicas[replica] = struct{}{}
-
-	var (
-		// Subtract 1 to exclude leader.
-		isrSize      = l.partition.ISRSize() - 1
-		leaderFailed = len(l.witnessReplicas) > isrSize/2
-	)
-
-	if leaderFailed {
-		if l.timer != nil {
-			l.timer.Stop()
-		}
-		l.mu.Unlock()
-		return l.api.electNewPartitionLeader(ctx, l.partition)
-	}
-
-	if l.timer != nil {
-		l.timer.Reset(l.api.config.Clustering.ReplicaMaxLeaderTimeout)
-	} else {
-		l.timer = time.AfterFunc(
-			l.api.config.Clustering.ReplicaMaxLeaderTimeout, func() {
-				l.api.mu.Lock()
-				delete(l.api.leaderReports, l.partition)
-				l.api.mu.Unlock()
-			})
-	}
-	l.mu.Unlock()
-	return nil
-}
-
-// cancel stops the expiration timer, if there is one.
-func (l *leaderReport) cancel() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.timer != nil {
-		l.timer.Stop()
-	}
-}
-
 // metadataAPI is the internal API for interacting with cluster data. All
 // stream access should go through the exported methods of the metadataAPI.
 type metadataAPI struct {
 	*Server
 	streams             map[string]*stream
 	mu                  sync.RWMutex
-	leaderReports       map[*partition]*leaderReport
+	partitionFailovers  map[*partition]*failoverStatus
 	cachedBrokers       []*client.Broker
 	cachedServerIDs     map[string]struct{}
 	lastCached          time.Time
@@ -140,7 +82,7 @@ func newMetadataAPI(s *Server) *metadataAPI {
 	return &metadataAPI{
 		Server:              s,
 		streams:             make(map[string]*stream),
-		leaderReports:       make(map[*partition]*leaderReport),
+		partitionFailovers:  make(map[*partition]*failoverStatus),
 		brokerPartitionLoad: make(map[string]int),
 		brokerLeaderLoad:    make(map[string]int),
 		consumerGroups:      make(map[string]*consumerGroup),
@@ -718,18 +660,33 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	}
 
 	m.mu.Lock()
-	reported := m.leaderReports[partition]
-	if reported == nil {
-		reported = &leaderReport{
-			partition:       partition,
-			witnessReplicas: make(map[string]struct{}),
-			api:             m,
-		}
-		m.leaderReports[partition] = reported
+	failover := m.partitionFailovers[partition]
+	if failover == nil {
+		failover = newPartitionFailoverStatus(
+			partition,
+			m.config.Clustering.ReplicaMaxLeaderTimeout,
+			m.newPartitionFailoverExpiredHandler(partition),
+			m.newPartitionFailoverHandler(partition),
+		)
+		m.partitionFailovers[partition] = failover
 	}
 	m.mu.Unlock()
 
-	return reported.addWitness(ctx, req.Replica)
+	return failover.report(ctx, req.Replica)
+}
+
+func (m *metadataAPI) newPartitionFailoverExpiredHandler(p *partition) failoverExpiredHandler {
+	return func() {
+		m.mu.Lock()
+		delete(m.partitionFailovers, p)
+		m.mu.Unlock()
+	}
+}
+
+func (m *metadataAPI) newPartitionFailoverHandler(p *partition) failoverHandler {
+	return func(ctx context.Context) *status.Status {
+		return m.electNewPartitionLeader(ctx, p)
+	}
 }
 
 // SetStreamReadonly sets a stream's readonly flag if this server is the
@@ -1300,10 +1257,10 @@ func (m *metadataAPI) Reset() error {
 		}
 	}
 	m.streams = make(map[string]*stream)
-	for _, report := range m.leaderReports {
-		report.cancel()
+	for _, failover := range m.partitionFailovers {
+		failover.cancel()
 	}
-	m.leaderReports = make(map[*partition]*leaderReport)
+	m.partitionFailovers = make(map[*partition]*failoverStatus)
 	m.consumerGroupsMu.Lock()
 	defer m.consumerGroupsMu.Unlock()
 	for _, group := range m.getConsumerGroups() {
@@ -1365,10 +1322,10 @@ func (m *metadataAPI) RemoveTombstonedStream(stream *stream, epoch uint64) error
 func (m *metadataAPI) LostLeadership() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, report := range m.leaderReports {
-		report.cancel()
+	for _, failover := range m.partitionFailovers {
+		failover.cancel()
 	}
-	m.leaderReports = make(map[*partition]*leaderReport)
+	m.partitionFailovers = make(map[*partition]*failoverStatus)
 }
 
 // deleteStream deletes the stream and the associated on-disk data for it.
@@ -1394,10 +1351,10 @@ func (m *metadataAPI) deleteStream(stream *stream, epoch uint64) error {
 func (m *metadataAPI) removeStream(stream *stream, epoch uint64) {
 	delete(m.streams, stream.GetName())
 	for _, partition := range stream.GetPartitions() {
-		report, ok := m.leaderReports[partition]
+		failover, ok := m.partitionFailovers[partition]
 		if ok {
-			report.cancel()
-			delete(m.leaderReports, partition)
+			failover.cancel()
+			delete(m.partitionFailovers, partition)
 		}
 	}
 	m.consumerGroupsMu.RLock()
