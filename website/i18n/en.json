@@ -8,6 +8,9 @@
       "activity": {
         "title": "Activity Stream"
       },
+      "authentication-authorization": {
+        "title": "Authentication and Authorization"
+      },
       "client-implementation": {
         "title": "Client Implementation Guidance"
       },
@@ -295,6 +298,12 @@
       },
       "version-v1.6.0/version-v1.6.0-roadmap": {
         "title": "Product Roadmap"
+      },
+      "version-v1.7.0/version-v1.7.0-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.7.0/version-v1.7.0-quick-start": {
+        "title": "Quick Start"
       }
     },
     "links": {

@@ -1,16 +1,21 @@
 ---
-id: authentication_authorization
+id: authentication-authorization
 title: Authentication and Authorization
 ---
 
+Liftbridge currently supports authentication via mutual TLS. This allows both
+the client to authenticate the server and the server to authenticate clients
+using certificates.
+
+Liftbridge does not currently support authorization, but ACL-based
+authorization is planned for a future release.
+
 ## Authentication
 
-Liftbridge currently supports authentication via TLS
-
-There are several parameters for TLS configuration on the server side.
+Authentication is currently supported using mutual TLS. There are several
+parameters for TLS configuration on the server side.
 
 ```yaml
-
 tls:
     key: server-key.pem
     cert: server-cert.pem
@@ -18,14 +23,16 @@ tls:
     client.auth.ca: ca-cert.pem
 ```
 
-Refer to [Configuration TLS](./configuration.md#configuration-ettings) for details.
+`client.auth.enabled` enables client authentication, and `client.auth.ca`
+specifies the path on the server to the client's certificate authority. Refer
+to the `tls` settings in
+[Configuration](./configuration.md#configuration-settings) for more details.
 
-`client.auth.enabled` would enable client authentication, and `client.auth.ca` would specify the path on the server to the client's CA Cert.
-
-
-With these configurations done on server, only authenticated clients can open connections to the server. Using `ca-cert.pem`, `client-key.pem` and `client-cert.pem`, the client can safely open a connection to a Liftbridge server.
-
-An example Golang code to connect to a Liftbridge server using TLS:
+With these configurations set on the server, only authenticated clients can
+open connections to the server. Using `ca-cert.pem`, `client-key.pem` and
+`client-cert.pem`, the client can safely open a connection to a Liftbridge
+server. Example Go code to connect to a Liftbridge server using TLS is shown
+below:
 
 ```golang
 certPool := x509.NewCertPool()
@@ -44,7 +51,6 @@ config := &tls.Config{
 	RootCAs:      certPool,
 }
 client, err := lift.Connect([]string{"localhost:9292"}, lift.TLSConfig(config))
-
 ```
 
 ## Authorization
