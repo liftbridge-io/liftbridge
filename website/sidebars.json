@@ -12,7 +12,8 @@
         "configuration",
         "ha-and-consistency-configuration",
         "scalability-configuration",
-        "embedded-nats"
+        "embedded-nats",
+        "authentication-authorization"
     ],
     "Deployment": [
         "deployment"
