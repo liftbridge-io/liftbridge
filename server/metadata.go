@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -58,34 +57,38 @@ var (
 	ErrBrokerNotCoordinator = errors.New("broker is not the consumer group coordinator")
 
 	// ErrGroupEpoch is returned by GetConsumerGroupAssignments when the
-	// client-provided group epoch is larger than the server-side group epoch.
-	ErrGroupEpoch = errors.New("client-provided group epoch is greater than broker group epoch")
+	// client-provided group epoch differs from the server-side group epoch.
+	ErrGroupEpoch = errors.New("client-provided group epoch differs from broker group epoch")
 )
 
 // metadataAPI is the internal API for interacting with cluster data. All
 // stream access should go through the exported methods of the metadataAPI.
 type metadataAPI struct {
 	*Server
-	streams             map[string]*stream
-	mu                  sync.RWMutex
-	partitionFailovers  map[*partition]*failoverStatus
-	cachedBrokers       []*client.Broker
-	cachedServerIDs     map[string]struct{}
-	lastCached          time.Time
-	brokerPartitionLoad map[string]int
-	brokerLeaderLoad    map[string]int
-	consumerGroupsMu    sync.RWMutex
-	consumerGroups      map[string]*consumerGroup
+	streams                    map[string]*stream
+	mu                         sync.RWMutex
+	partitionFailovers         map[*partition]*failoverStatus
+	cachedBrokers              []*client.Broker
+	cachedServerIDs            map[string]struct{}
+	lastCached                 time.Time
+	brokerPartitionLoad        map[string]int
+	brokerLeaderLoad           map[string]int
+	brokerGroupCoordinatorLoad map[string]int
+	consumerGroupsMu           sync.RWMutex
+	consumerGroups             map[string]*consumerGroup
+	groupFailovers             map[*consumerGroup]*failoverStatus
 }
 
 func newMetadataAPI(s *Server) *metadataAPI {
 	return &metadataAPI{
-		Server:              s,
-		streams:             make(map[string]*stream),
-		partitionFailovers:  make(map[*partition]*failoverStatus),
-		brokerPartitionLoad: make(map[string]int),
-		brokerLeaderLoad:    make(map[string]int),
-		consumerGroups:      make(map[string]*consumerGroup),
+		Server:                     s,
+		streams:                    make(map[string]*stream),
+		partitionFailovers:         make(map[*partition]*failoverStatus),
+		brokerPartitionLoad:        make(map[string]int),
+		brokerLeaderLoad:           make(map[string]int),
+		brokerGroupCoordinatorLoad: make(map[string]int),
+		consumerGroups:             make(map[string]*consumerGroup),
+		groupFailovers:             make(map[*consumerGroup]*failoverStatus),
 	}
 }
 
@@ -824,6 +827,76 @@ func (m *metadataAPI) LeaveConsumerGroup(ctx context.Context, req *proto.LeaveCo
 	return nil
 }
 
+// ReportGroupCoordinator marks the consumer group coordinator as unresponsive
+// with respect to the specified member if this server is the metadata leader.
+// If it is not, it will forward the request to the leader and return the
+// response. If a quorum of members report the coordinator within a bounded
+// period, the metadata leader will select a new group coordinator.
+func (m *metadataAPI) ReportGroupCoordinator(ctx context.Context, req *proto.ReportConsumerGroupCoordinatorOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagateReportGroupCoordinator(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Verify the group exists.
+	group := m.GetConsumerGroup(req.GroupId)
+	if group == nil {
+		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such consumer group %s", req.GroupId))
+	}
+
+	// Check the group epoch.
+	coordinator, epoch := group.GetCoordinator()
+	if req.Coordinator != coordinator || req.Epoch != epoch {
+		return status.New(
+			codes.FailedPrecondition,
+			fmt.Sprintf("Coordinator generation mismatch, current coordinator: %s epoch: %d, got coordinator: %s epoch: %d",
+				coordinator, epoch, req.Coordinator, req.Epoch))
+	}
+
+	// Ensure the consumer is actually a member.
+	if !group.IsMember(req.ConsumerId) {
+		return status.New(
+			codes.FailedPrecondition,
+			fmt.Sprintf("Consumer %s is not a member of consumer group %s", req.ConsumerId, req.GroupId))
+	}
+
+	m.consumerGroupsMu.Lock()
+	failover := m.groupFailovers[group]
+	if failover == nil {
+		failover = newGroupFailoverStatus(
+			group,
+			m.config.Groups.CoordinatorTimeout,
+			m.newGroupFailoverExpiredHandler(group),
+			m.newGroupFailoverHandler(group),
+		)
+		m.groupFailovers[group] = failover
+	}
+	m.consumerGroupsMu.Unlock()
+
+	return failover.report(ctx, req.ConsumerId)
+}
+
+func (m *metadataAPI) newGroupFailoverExpiredHandler(g *consumerGroup) failoverExpiredHandler {
+	return func() {
+		m.consumerGroupsMu.Lock()
+		delete(m.groupFailovers, g)
+		m.consumerGroupsMu.Unlock()
+	}
+}
+
+func (m *metadataAPI) newGroupFailoverHandler(g *consumerGroup) failoverHandler {
+	return func(ctx context.Context) *status.Status {
+		return m.electNewGroupCoordinator(ctx, g)
+	}
+}
+
 // createConsumerGroup creates a new consumer group bootstrapped with the
 // provided consumer by replicating the operation via Raft. This should be
 // called after checking that this server is the metadata leader, but if the
@@ -831,10 +904,11 @@ func (m *metadataAPI) LeaveConsumerGroup(ctx context.Context, req *proto.LeaveCo
 // will return an error. This will also return an error if the group being
 // created already exists. This returns the group coordinator on success.
 func (m *metadataAPI) createConsumerGroup(ctx context.Context, req *proto.JoinConsumerGroupOp) (string, error) {
-	coordinator, err := m.selectGroupCoordinator()
+	brokers, err := m.getClusterServerIDs()
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "failed to select group coordinator")
 	}
+	coordinator := m.selectGroupCoordinator(brokers)
 
 	// Replicate the group create through Raft.
 	op := &proto.RaftLog{
@@ -875,6 +949,8 @@ func (m *metadataAPI) AddConsumerGroup(protoGroup *proto.ConsumerGroup, recovere
 		return nil, err
 	}
 	m.consumerGroups[protoGroup.Id] = group
+	coordinator, _ := group.GetCoordinator()
+	m.brokerGroupCoordinatorLoad[coordinator]++
 	return group, nil
 }
 
@@ -882,10 +958,15 @@ func (m *metadataAPI) AddConsumerGroup(protoGroup *proto.ConsumerGroup, recovere
 // store. This should only be called within the scope of the consumerGroupsMu.
 func (m *metadataAPI) removeConsumerGroup(groupID string) {
 	group := m.consumerGroups[groupID]
-	if group != nil {
-		group.Close()
+	if group == nil {
+		return
 	}
+	group.Close()
 	delete(m.consumerGroups, groupID)
+	coordinator, _ := group.GetCoordinator()
+	if m.brokerGroupCoordinatorLoad[coordinator] > 0 {
+		m.brokerGroupCoordinatorLoad[coordinator]--
+	}
 }
 
 // AddConsumerToGroup adds the given consumer to the consumer group. It returns
@@ -1150,6 +1231,35 @@ func (m *metadataAPI) ChangeLeader(streamName, leader string, partitionID int32,
 	return nil
 }
 
+// ChangeGroupCoordinator changes the consumer group's coordinator to the given
+// broker if the given epoch is greater than the current epoch.
+func (m *metadataAPI) ChangeGroupCoordinator(groupID, coordinator string, newEpoch uint64) error {
+	group := m.GetConsumerGroup(groupID)
+	if group == nil {
+		return fmt.Errorf("No such consumer group %s", groupID)
+	}
+
+	// Idempotency check.
+	oldCoordinator, epoch := group.GetCoordinator()
+	if epoch >= newEpoch {
+		return nil
+	}
+
+	if err := group.SetCoordinator(coordinator, newEpoch); err != nil {
+		return errors.Wrap(err, "failed to change group coordinator")
+	}
+
+	// Update broker load counts.
+	m.consumerGroupsMu.Lock()
+	if m.brokerGroupCoordinatorLoad[oldCoordinator] > 0 {
+		m.brokerGroupCoordinatorLoad[oldCoordinator]--
+	}
+	m.brokerGroupCoordinatorLoad[coordinator]++
+	m.consumerGroupsMu.Unlock()
+
+	return nil
+}
+
 // PausePartitions pauses the given partitions for the stream. If the list of
 // partitions is empty, this pauses all partitions.
 func (m *metadataAPI) PausePartitions(streamName string, partitions []int32, resumeAll bool) error {
@@ -1257,17 +1367,29 @@ func (m *metadataAPI) Reset() error {
 		}
 	}
 	m.streams = make(map[string]*stream)
-	for _, failover := range m.partitionFailovers {
-		failover.cancel()
-	}
-	m.partitionFailovers = make(map[*partition]*failoverStatus)
 	m.consumerGroupsMu.Lock()
 	defer m.consumerGroupsMu.Unlock()
 	for _, group := range m.getConsumerGroups() {
 		group.Close()
 	}
 	m.consumerGroups = make(map[string]*consumerGroup)
+	m.resetFailovers()
 	return nil
+}
+
+// resetFailovers cancels all in-flight failovers and clears the failover state
+// in the metadata store. Both the metadata API and consumer groups mutexes
+// must be held when calling this.
+func (m *metadataAPI) resetFailovers() {
+	for _, failover := range m.partitionFailovers {
+		failover.cancel()
+	}
+	m.partitionFailovers = make(map[*partition]*failoverStatus)
+
+	for _, failover := range m.groupFailovers {
+		failover.cancel()
+	}
+	m.groupFailovers = make(map[*consumerGroup]*failoverStatus)
 }
 
 // RemoveStream closes the stream, removes it from the metadata store, and
@@ -1319,13 +1441,13 @@ func (m *metadataAPI) RemoveTombstonedStream(stream *stream, epoch uint64) error
 }
 
 // LostLeadership should be called when the server loses metadata leadership.
+// This will cancel in-flight failovers.
 func (m *metadataAPI) LostLeadership() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, failover := range m.partitionFailovers {
-		failover.cancel()
-	}
-	m.partitionFailovers = make(map[*partition]*failoverStatus)
+	m.consumerGroupsMu.Lock()
+	defer m.consumerGroupsMu.Unlock()
+	m.resetFailovers()
 }
 
 // deleteStream deletes the stream and the associated on-disk data for it.
@@ -1346,8 +1468,9 @@ func (m *metadataAPI) deleteStream(stream *stream, epoch uint64) error {
 	return nil
 }
 
-// removeStream removes the stream from the stream store, removes any
-// leaderReports for its partitions, and rebalances consumer group assignments.
+// removeStream removes the stream from the stream store, cancels any
+// in-flight failovers for its partitions, and rebalances consumer group
+// assignments.
 func (m *metadataAPI) removeStream(stream *stream, epoch uint64) {
 	delete(m.streams, stream.GetName())
 	for _, partition := range stream.GetPartitions() {
@@ -1461,6 +1584,52 @@ func (m *metadataAPI) electNewPartitionLeader(ctx context.Context, partition *pa
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to replicate leader change: %v", err.Error())
+	}
+
+	return nil
+}
+
+// electNewGroupCoordinator selects a new coordinator for the given consumer
+// group and applies this update to the Raft group. This will fail if the
+// current broker is not the metadata leader.
+func (m *metadataAPI) electNewGroupCoordinator(ctx context.Context, group *consumerGroup) *status.Status {
+	brokers, err := m.getClusterServerIDs()
+	if err != nil {
+		return status.New(codes.Internal, err.Error())
+	}
+	var (
+		candidates        = make([]string, 0, len(brokers)-1)
+		oldCoordinator, _ = group.GetCoordinator()
+	)
+	for _, candidate := range brokers {
+		if candidate == oldCoordinator {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		return status.New(codes.FailedPrecondition, "No group coordinator candidates")
+	}
+
+	// Select a new coordinator.
+	coordinator := m.selectGroupCoordinator(candidates)
+
+	// Replicate coordinator change through Raft.
+	op := &proto.RaftLog{
+		Op: proto.Op_CHANGE_CONSUMER_GROUP_COORDINATOR,
+		ChangeConsumerGroupCoordinatorOp: &proto.ChangeConsumerGroupCoordinatorOp{
+			GroupId:     group.GetID(),
+			Coordinator: coordinator,
+		},
+	}
+
+	// Wait on result of replication.
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkChangeGroupCoordinatorPreconditions)
+	if err != nil {
+		return status.New(codes.FailedPrecondition, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to replicate coordinator change: %v", err.Error())
 	}
 
 	return nil
@@ -1596,6 +1765,21 @@ func (m *metadataAPI) propagateLeaveConsumerGroup(ctx context.Context, req *prot
 	propagate := &proto.PropagatedRequest{
 		Op:                   proto.Op_LEAVE_CONSUMER_GROUP,
 		LeaveConsumerGroupOp: req,
+	}
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
+}
+
+// propagateReportGroupCoordinator forwards a ReportGroupCoordinator request to
+// the metadata leader. The bool indicates if this server has since become
+// leader and the request should be performed locally. A Status is returned if
+// the propagated request failed.
+func (m *metadataAPI) propagateReportGroupCoordinator(ctx context.Context, req *proto.ReportConsumerGroupCoordinatorOp) (
+	bool, *status.Status) {
+
+	propagate := &proto.PropagatedRequest{
+		Op:                               proto.Op_REPORT_CONSUMER_GROUP_COORDINATOR,
+		ReportConsumerGroupCoordinatorOp: req,
 	}
 	_, isLeader, status := m.propagateRequest(ctx, propagate)
 	return isLeader, status
@@ -1876,6 +2060,16 @@ func (m *metadataAPI) checkLeaveConsumerGroupPreconditions(op *proto.RaftLog) er
 	return nil
 }
 
+// checkChangeGroupCoordinatorPreconditions checks if the consumer group whose
+// coordinator is being changed exists. If the group doesn't exist, it returns
+// ErrConsumerGroupNotFound. Otherwise, it returns nil.
+func (m *metadataAPI) checkChangeGroupCoordinatorPreconditions(op *proto.RaftLog) error {
+	if group := m.GetConsumerGroup(op.ChangeConsumerGroupCoordinatorOp.GroupId); group == nil {
+		return ErrConsumerGroupNotFound
+	}
+	return nil
+}
+
 // partitionExists indicates if the given partition exists in the stream. If
 // the stream doesn't exist, it returns ErrStreamNotFound. If the partition
 // doesn't exist, it returns ErrPartitionNotFound.
@@ -1906,14 +2100,15 @@ func (m *metadataAPI) selectPartitionLeader(replicas []string) string {
 
 // selectGroupCoordinator selects a random broker to act as the coordinator for
 // a consumer group.
-func (m *metadataAPI) selectGroupCoordinator() (string, error) {
-	// TODO: optimize coordinator selection by attempting to balance load
-	// rather than selecting at random.
-	brokers, err := m.getClusterServerIDs()
-	if err != nil {
-		return "", err
-	}
-	return brokers[rand.Intn(len(brokers))], nil
+func (m *metadataAPI) selectGroupCoordinator(candidates []string) string {
+	// Order servers by coordinator load.
+	m.consumerGroupsMu.RLock()
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return m.brokerLeaderLoad[candidates[i]] < m.brokerLeaderLoad[candidates[j]]
+	})
+	m.consumerGroupsMu.RUnlock()
+
+	return candidates[0]
 }
 
 // ensureTimeout ensures there is a timeout on the Context. If there is, it

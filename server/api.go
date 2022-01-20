@@ -494,9 +494,9 @@ func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsu
 		return nil, status.Err()
 	}
 	return &client.JoinConsumerGroupResponse{
-		Coordinator:      coordinator,
-		Epoch:            epoch,
-		ConsumersTimeout: int64(a.config.Consumers.Timeout),
+		Coordinator:     coordinator,
+		Epoch:           epoch,
+		ConsumerTimeout: int64(a.config.Groups.ConsumerTimeout),
 	}, nil
 }
 
@@ -541,6 +541,39 @@ func (a *apiServer) FetchConsumerGroupAssignments(ctx context.Context, req *clie
 		Epoch:       epoch,
 		Assignments: partitionAssignments,
 	}, nil
+}
+
+// ReportConsumerGroupCoordinator reports a consumer group coordinator as
+// failed. If a majority of the group's members report the coordinator within a
+// bounded period, the cluster will select a new coordinator.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) ReportConsumerGroupCoordinator(ctx context.Context, req *client.ReportConsumerGroupCoordinatorRequest) (
+	*client.ReportConsumerGroupCoordinatorResponse, error) {
+	a.logger.Debugf("api: ReportConsumerGroupCoordinator [groupId=%s, consumerId=%s, coordinator=%s, epoch=%d]",
+		req.GroupId, req.ConsumerId, req.Coordinator, req.Epoch)
+
+	if req.GroupId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
+	}
+	if req.ConsumerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
+	}
+	if req.Coordinator == "" {
+		return nil, status.Error(codes.InvalidArgument, "No coordinator provided")
+	}
+
+	status := a.metadata.ReportGroupCoordinator(ctx, &proto.ReportConsumerGroupCoordinatorOp{
+		GroupId:     req.GroupId,
+		ConsumerId:  req.ConsumerId,
+		Coordinator: req.Coordinator,
+		Epoch:       req.Epoch,
+	})
+	if status != nil {
+		return nil, status.Err()
+	}
+	return new(client.ReportConsumerGroupCoordinatorResponse), nil
 }
 
 // isValidSubject indicates if the string is a valid NATS subject.

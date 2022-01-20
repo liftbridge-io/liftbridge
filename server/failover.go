@@ -133,4 +133,39 @@ func (p *partitionFailover) Failover(ctx context.Context) *status.Status {
 // coordinator. When a majority of a consumer group's members report the
 // coordinator as failed, a new coordinator is selected.
 type groupFailover struct {
+	group      *consumerGroup
+	timeout    time.Duration
+	onExpired  failoverExpiredHandler
+	onFailover failoverHandler
+}
+
+func newGroupFailoverStatus(group *consumerGroup, timeout time.Duration,
+	onExpired failoverExpiredHandler, onFailover failoverHandler) *failoverStatus {
+
+	return newFailoverStatus(&groupFailover{
+		group:      group,
+		timeout:    timeout,
+		onExpired:  onExpired,
+		onFailover: onFailover,
+	})
+}
+
+// Quorum returns members / 2.
+func (g *groupFailover) Quorum() int {
+	return len(g.group.GetMembers()) / 2
+}
+
+// Timeout returns the configured GroupsCoordinatorTimeout.
+func (g *groupFailover) Timeout() time.Duration {
+	return g.timeout
+}
+
+// OnExpired expires the failover.
+func (g *groupFailover) OnExpired() {
+	g.onExpired()
+}
+
+// Failover selects a new coordinator.
+func (g *groupFailover) Failover(ctx context.Context) *status.Status {
+	return g.onFailover(ctx)
 }

@@ -134,9 +134,24 @@ func (c *consumerGroup) SetCoordinator(coordinator string, epoch uint64) error {
 		return fmt.Errorf("proposed group epoch %d is less than current epoch %d",
 			epoch, c.epoch)
 	}
+	previousCoordinator := c.coordinator
 	c.coordinator = coordinator
 	c.epoch = epoch
-	// TODO: balance assignments in the case of leader failover.
+
+	// If this server has become the coordinator, start liveness timers for all
+	// members. If this server was previously the coordinator, cancel timers.
+	if previousCoordinator == c.metadata.config.Clustering.ServerID {
+		for _, member := range c.members {
+			if member.timer != nil {
+				member.timer.Stop()
+				member.timer = nil
+			}
+		}
+	}
+	if coordinator == c.metadata.config.Clustering.ServerID {
+		c.startMemberTimers()
+	}
+
 	return nil
 }
 
@@ -158,13 +173,7 @@ func (c *consumerGroup) StartRecovered() bool {
 		return false
 	}
 	if c.coordinator == c.metadata.config.Clustering.ServerID {
-		for memberID, member := range c.members {
-			// If for some reason the member already has a timer, cancel it.
-			if member.timer != nil {
-				member.timer.Stop()
-			}
-			member.timer = c.startMemberTimer(memberID)
-		}
+		c.startMemberTimers()
 	}
 	c.recovered = false
 	return true
@@ -316,7 +325,7 @@ func (c *consumerGroup) StreamDeleted(stream string, epoch uint64) error {
 // GetAssignments returns the partition assignments for the given consumer
 // along with the group epoch. It returns an error if the consumer is not
 // a member of the group, if this server is not the group coordinator, or the
-// provided epoch is greater than the current known epoch.
+// provided epoch differs from the current known epoch.
 func (c *consumerGroup) GetAssignments(consumerID string, epoch uint64) (
 	partitionAssignments, uint64, error) {
 
@@ -327,7 +336,7 @@ func (c *consumerGroup) GetAssignments(consumerID string, epoch uint64) (
 		return nil, 0, ErrBrokerNotCoordinator
 	}
 
-	if epoch > c.epoch {
+	if epoch != c.epoch {
 		return nil, 0, ErrGroupEpoch
 	}
 
@@ -341,7 +350,7 @@ func (c *consumerGroup) GetAssignments(consumerID string, epoch uint64) (
 		// This shouldn't happen.
 		return nil, 0, errors.New("consumer not active for server (no timer)")
 	}
-	member.timer.Reset(c.metadata.config.Consumers.Timeout)
+	member.timer.Reset(c.metadata.config.Groups.ConsumerTimeout)
 
 	return member.assignments, c.epoch, nil
 }
@@ -358,9 +367,21 @@ func (c *consumerGroup) Close() {
 	}
 }
 
+// startMemberTimers starts liveness timers for all group members. This must be
+// called within the group mutex.
+func (c *consumerGroup) startMemberTimers() {
+	for memberID, member := range c.members {
+		// If for some reason the member already has a timer, cancel it.
+		if member.timer != nil {
+			member.timer.Stop()
+		}
+		member.timer = c.startMemberTimer(memberID)
+	}
+}
+
 // startMemberTimer starts a liveness timer for the given member.
 func (c *consumerGroup) startMemberTimer(consumerID string) *time.Timer {
-	return time.AfterFunc(c.metadata.config.Consumers.Timeout, c.consumerExpired(consumerID))
+	return time.AfterFunc(c.metadata.config.Groups.ConsumerTimeout, c.consumerExpired(consumerID))
 }
 
 // consumerExpired returns a callback function which is invoked when a consumer

@@ -54,7 +54,8 @@ const (
 	defaultCursorsStreamAutoPauseTime     = time.Minute
 	defaultConcurrencyControl             = false
 	defaultEncryption                     = false
-	defaultConsumersTimeout               = 30 * time.Second
+	defaultGroupsConsumerTimeout          = 15 * time.Second
+	defaultGroupsCoordinatorTimeout       = 15 * time.Second
 )
 
 // Config setting key names.
@@ -122,7 +123,8 @@ const (
 	configCursorsStreamPartitions    = "cursors.stream.partitions"
 	configCursorsStreamAutoPauseTime = "cursors.stream.auto.pause.time"
 
-	configConsumersTimeout = "consumers.timeout"
+	configGroupsConsumerTimeout    = "groups.consumer.timeout"
+	configGroupsCoordinatorTimeout = "groups.coordinator.timeout"
 )
 
 var configKeys = map[string]struct{}{
@@ -180,7 +182,8 @@ var configKeys = map[string]struct{}{
 	configActivityStreamPublishAckPolicy:       {},
 	configCursorsStreamPartitions:              {},
 	configCursorsStreamAutoPauseTime:           {},
-	configConsumersTimeout:                     {},
+	configGroupsConsumerTimeout:                {},
+	configGroupsCoordinatorTimeout:             {},
 }
 
 // StreamsConfig contains settings for controlling the message log for streams.
@@ -330,9 +333,10 @@ type CursorsStreamConfig struct {
 	AutoPauseTime time.Duration
 }
 
-// ConsumersConfig contains settings for controlling consumer group behavior.
-type ConsumersConfig struct {
-	Timeout time.Duration
+// GroupsConfig contains settings for controlling consumer group behavior.
+type GroupsConfig struct {
+	ConsumerTimeout    time.Duration
+	CoordinatorTimeout time.Duration
 }
 
 // Config contains all settings for a Liftbridge Server.
@@ -360,7 +364,7 @@ type Config struct {
 	Clustering          ClusteringConfig
 	ActivityStream      ActivityStreamConfig
 	CursorsStream       CursorsStreamConfig
-	Consumers           ConsumersConfig
+	Groups              GroupsConfig
 }
 
 // NewDefaultConfig creates a new Config with default settings.
@@ -392,7 +396,8 @@ func NewDefaultConfig() *Config {
 	config.ActivityStream.PublishTimeout = defaultActivityStreamPublishTimeout
 	config.ActivityStream.PublishAckPolicy = defaultActivityStreamPublishAckPolicy
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
-	config.Consumers.Timeout = defaultConsumersTimeout
+	config.Groups.ConsumerTimeout = defaultGroupsConsumerTimeout
+	config.Groups.CoordinatorTimeout = defaultGroupsCoordinatorTimeout
 	return config
 }
 
@@ -582,7 +587,7 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	if err := parseCursorsStreamConfig(config, v); err != nil {
 		return nil, err
 	}
-	if err := parseConsumersConfig(config, v); err != nil {
+	if err := parseGroupsConfig(config, v); err != nil {
 		return nil, err
 	}
 
@@ -808,11 +813,15 @@ func parseCursorsStreamConfig(config *Config, v *viper.Viper) error { // nolint:
 	return nil
 }
 
-// parseConsumersConfig parses the `consumers` section of a config file and
-// populates the given Config.
-func parseConsumersConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
-	if v.IsSet(configConsumersTimeout) {
-		config.Consumers.Timeout = v.GetDuration(configConsumersTimeout)
+// parseGroupsConfig parses the `groups` section of a config file and populates
+// the given Config.
+func parseGroupsConfig(config *Config, v *viper.Viper) error { // nolint: gocyclo
+	if v.IsSet(configGroupsConsumerTimeout) {
+		config.Groups.ConsumerTimeout = v.GetDuration(configGroupsConsumerTimeout)
+	}
+
+	if v.IsSet(configGroupsCoordinatorTimeout) {
+		config.Groups.CoordinatorTimeout = v.GetDuration(configGroupsCoordinatorTimeout)
 	}
 
 	return nil

@@ -161,6 +161,7 @@ func checkPartitionReadonly(t *testing.T, timeout time.Duration, stream string,
 func getPartitionLeader(t *testing.T, timeout time.Duration, name string, partitionID int32, servers ...*Server) *Server {
 	var (
 		leader   *Server
+		epoch    uint64
 		deadline = time.Now().Add(timeout)
 	)
 	for time.Now().Before(deadline) {
@@ -172,12 +173,14 @@ func getPartitionLeader(t *testing.T, timeout time.Duration, name string, partit
 			if partition == nil {
 				continue
 			}
-			streamLeader, _ := partition.GetLeader()
+			streamLeader, leaderEpoch := partition.GetLeader()
 			if streamLeader == s.config.Clustering.ServerID {
-				if leader != nil {
-					stackFatalf(t, "Found more than one stream leader")
+				if leaderEpoch > epoch {
+					leader = s
+					epoch = leaderEpoch
+				} else {
+					stackFatalf(t, "Found more than one partition leader")
 				}
-				leader = s
 			}
 		}
 		if leader != nil {
@@ -186,7 +189,7 @@ func getPartitionLeader(t *testing.T, timeout time.Duration, name string, partit
 		time.Sleep(15 * time.Millisecond)
 	}
 	if leader == nil {
-		stackFatalf(t, "No stream leader found")
+		stackFatalf(t, "No partition leader found")
 	}
 	return leader
 }

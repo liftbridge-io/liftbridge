@@ -230,6 +230,14 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		if err := s.applyLeaveConsumerGroup(groupID, consumerID, index); err != nil {
 			return nil, err
 		}
+	case proto.Op_CHANGE_CONSUMER_GROUP_COORDINATOR:
+		var (
+			groupID     = log.ChangeConsumerGroupCoordinatorOp.GroupId
+			coordinator = log.ChangeConsumerGroupCoordinatorOp.Coordinator
+		)
+		if err := s.applyChangeConsumerGroupCoordinator(groupID, coordinator, index); err != nil {
+			return nil, err
+		}
 	case proto.Op_PUBLISH_ACTIVITY:
 		s.activity.SetLastPublishedRaftIndex(log.PublishActivityOp.RaftIndex)
 	default:
@@ -585,5 +593,17 @@ func (s *Server) applyLeaveConsumerGroup(groupID, consumerID string, epoch uint6
 		msg += ", deleted group because it is now empty"
 	}
 	s.logger.Debugf(msg)
+	return nil
+}
+
+// applyChangeConsumerGroupCoordinator sets the group's coordinator to the
+// given broker and updates the group epoch. If the group epoch is greater than
+// or equal to the specified epoch, this does nothing.
+func (s *Server) applyChangeConsumerGroupCoordinator(groupID, coordinator string, epoch uint64) error {
+	if err := s.metadata.ChangeGroupCoordinator(groupID, coordinator, epoch); err != nil {
+		return errors.Wrap(err, "failed to change group coordinator")
+	}
+
+	s.logger.Debugf("fsm: Changed coordinator for consumer group %s to %s", groupID, coordinator)
 	return nil
 }

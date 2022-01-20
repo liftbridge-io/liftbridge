@@ -7,35 +7,38 @@ message ServerState {
 }
 
 enum Op {
-    CREATE_STREAM         = 0;
-    SHRINK_ISR            = 1;
-    REPORT_LEADER         = 2;
-    CHANGE_LEADER         = 3;
-    EXPAND_ISR            = 4;
-    DELETE_STREAM         = 5;
-    PAUSE_STREAM          = 6;
-    RESUME_STREAM         = 7;
-    PUBLISH_ACTIVITY      = 8;
-    SET_STREAM_READONLY   = 9;
-    CREATE_CONSUMER_GROUP = 10;
-    JOIN_CONSUMER_GROUP   = 11;
-    LEAVE_CONSUMER_GROUP  = 12;
+    CREATE_STREAM                     = 0;
+    SHRINK_ISR                        = 1;
+    REPORT_LEADER                     = 2;
+    CHANGE_LEADER                     = 3;
+    EXPAND_ISR                        = 4;
+    DELETE_STREAM                     = 5;
+    PAUSE_STREAM                      = 6;
+    RESUME_STREAM                     = 7;
+    PUBLISH_ACTIVITY                  = 8;
+    SET_STREAM_READONLY               = 9;
+    CREATE_CONSUMER_GROUP             = 10;
+    JOIN_CONSUMER_GROUP               = 11;
+    LEAVE_CONSUMER_GROUP              = 12;
+    REPORT_CONSUMER_GROUP_COORDINATOR = 13;
+    CHANGE_CONSUMER_GROUP_COORDINATOR = 14;
 }
 
 message RaftLog {
-    Op                    op                    = 1;
-    CreateStreamOp        createStreamOp        = 2;
-    ShrinkISROp           shrinkISROp           = 3;
-    ChangeLeaderOp        changeLeaderOp        = 4;
-    ExpandISROp           expandISROp           = 5;
-    DeleteStreamOp        deleteStreamOp        = 6;
-    PauseStreamOp         pauseStreamOp         = 7;
-    ResumeStreamOp        resumeStreamOp        = 8;
-    PublishActivityOp     publishActivityOp     = 9;
-    SetStreamReadonlyOp   setStreamReadonlyOp   = 10;
-    CreateConsumerGroupOp createConsumerGroupOp = 11;
-    JoinConsumerGroupOp   joinConsumerGroupOp   = 12;
-    LeaveConsumerGroupOp  leaveConsumerGroupOp  = 13;
+    Op                               op                               = 1;
+    CreateStreamOp                   createStreamOp                   = 2;
+    ShrinkISROp                      shrinkISROp                      = 3;
+    ChangeLeaderOp                   changeLeaderOp                   = 4;
+    ExpandISROp                      expandISROp                      = 5;
+    DeleteStreamOp                   deleteStreamOp                   = 6;
+    PauseStreamOp                    pauseStreamOp                    = 7;
+    ResumeStreamOp                   resumeStreamOp                   = 8;
+    PublishActivityOp                publishActivityOp                = 9;
+    SetStreamReadonlyOp              setStreamReadonlyOp              = 10;
+    CreateConsumerGroupOp            createConsumerGroupOp            = 11;
+    JoinConsumerGroupOp              joinConsumerGroupOp              = 12;
+    LeaveConsumerGroupOp             leaveConsumerGroupOp             = 13;
+    ChangeConsumerGroupCoordinatorOp changeConsumerGroupCoordinatorOp = 14;
 }
 
 message CreateStreamOp {
@@ -85,6 +88,18 @@ message ChangeLeaderOp {
     string stream    = 1;
     int32  partition = 2;
     string leader    = 3;
+}
+
+message ReportConsumerGroupCoordinatorOp {
+    string groupId     = 1;
+    string consumerId  = 2;
+    string coordinator = 3;
+    uint64 epoch       = 4;
+}
+
+message ChangeConsumerGroupCoordinatorOp {
+    string groupId     = 1;
+    string coordinator = 2;
 }
 
 message PublishActivityOp {
@@ -206,17 +221,18 @@ message LeaderEpochOffsetResponse {
 }
 
 message PropagatedRequest {
-    Op                   op                   = 1;
-    CreateStreamOp       createStreamOp       = 2;
-    ShrinkISROp          shrinkISROp          = 3;
-    ReportLeaderOp       reportLeaderOp       = 4;
-    ExpandISROp          expandISROp          = 5;
-    DeleteStreamOp       deleteStreamOp       = 6;
-    PauseStreamOp        pauseStreamOp        = 7;
-    ResumeStreamOp       resumeStreamOp       = 8;
-    SetStreamReadonlyOp  setStreamReadonlyOp  = 9;
-    JoinConsumerGroupOp  joinConsumerGroupOp  = 10;
-    LeaveConsumerGroupOp leaveConsumerGroupOp = 11;
+    Op                               op                               = 1;
+    CreateStreamOp                   createStreamOp                   = 2;
+    ShrinkISROp                      shrinkISROp                      = 3;
+    ReportLeaderOp                   reportLeaderOp                   = 4;
+    ExpandISROp                      expandISROp                      = 5;
+    DeleteStreamOp                   deleteStreamOp                   = 6;
+    PauseStreamOp                    pauseStreamOp                    = 7;
+    ResumeStreamOp                   resumeStreamOp                   = 8;
+    SetStreamReadonlyOp              setStreamReadonlyOp              = 9;
+    JoinConsumerGroupOp              joinConsumerGroupOp              = 10;
+    LeaveConsumerGroupOp             leaveConsumerGroupOp             = 11;
+    ReportConsumerGroupCoordinatorOp reportConsumerGroupCoordinatorOp = 12;
 }
 
 message Error {
@@ -241,6 +257,7 @@ message PropagatedResponse {
     }
     JoinConsumerGroupResponse joinConsumerGroupResp = 11;
     // Reserving = 12 for leaveConsumerGroupResp if needed.
+    // Reserving = 13 for reportConsumerGroupCoordinatorResp if needed.
 }
 
 message ServerInfoRequest {

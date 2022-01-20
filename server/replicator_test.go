@@ -83,6 +83,7 @@ func stopFollowing(t *testing.T, p *partition) {
 
 // Ensure messages are replicated and the stream leader fails over when the
 // leader dies.
+// TODO: This test is flaky, fix it.
 func TestStreamLeaderFailover(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -107,7 +108,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
-	// Configure second server.
+	// Configure third server.
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
 	s3Config.Clustering.ReplicaMaxIdleWait = 500 * time.Millisecond
@@ -128,6 +129,7 @@ func TestStreamLeaderFailover(t *testing.T) {
 	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3))
 	require.NoError(t, err)
 
+	waitForPartition(t, 10*time.Second, name, 0, servers...)
 	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
 
 	// Check partition load counts.

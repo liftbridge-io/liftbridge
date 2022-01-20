@@ -51,6 +51,8 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		resp = s.handleJoinConsumerGroup(req)
 	case proto.Op_LEAVE_CONSUMER_GROUP:
 		resp = s.handleLeaveConsumerGroup(req)
+	case proto.Op_REPORT_CONSUMER_GROUP_COORDINATOR:
+		resp = s.handleReportConsumerGroupCoordinator(req)
 	default:
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
 		return
@@ -165,6 +167,16 @@ func (s *Server) handleLeaveConsumerGroup(req *proto.PropagatedRequest) *proto.P
 		Op: req.Op,
 	}
 	if err := s.metadata.LeaveConsumerGroup(context.Background(), req.LeaveConsumerGroupOp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	return resp
+}
+
+func (s *Server) handleReportConsumerGroupCoordinator(req *proto.PropagatedRequest) *proto.PropagatedResponse {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.ReportGroupCoordinator(context.Background(), req.ReportConsumerGroupCoordinatorOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
 	return resp
