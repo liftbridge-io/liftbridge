@@ -494,9 +494,10 @@ func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsu
 		return nil, status.Err()
 	}
 	return &client.JoinConsumerGroupResponse{
-		Coordinator:     coordinator,
-		Epoch:           epoch,
-		ConsumerTimeout: int64(a.config.Groups.ConsumerTimeout),
+		Coordinator:        coordinator,
+		Epoch:              epoch,
+		ConsumerTimeout:    int64(a.config.Groups.ConsumerTimeout),
+		CoordinatorTimeout: int64(a.config.Groups.CoordinatorTimeout),
 	}, nil
 }
 
