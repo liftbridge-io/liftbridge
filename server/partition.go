@@ -1444,8 +1444,8 @@ func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop <-c
 		// Check if leader has exceeded max leader timeout.
 		p.checkLeaderHealth(leader, epoch, leaderLastSeen)
 
-		// If there is more data or we errored, continue replicating.
-		if replicated > 0 || err != nil {
+		// If there is more data, continue replicating.
+		if replicated > 0 {
 			continue
 		}
 
