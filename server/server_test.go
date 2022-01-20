@@ -175,7 +175,7 @@ func getPartitionLeader(t *testing.T, timeout time.Duration, name string, partit
 			streamLeader, _ := partition.GetLeader()
 			if streamLeader == s.config.Clustering.ServerID {
 				if leader != nil {
-					stackFatalf(t, "Found more than one stream leader")
+					stackFatalf(t, "Found more than one partition leader")
 				}
 				leader = s
 			}
@@ -186,7 +186,7 @@ func getPartitionLeader(t *testing.T, timeout time.Duration, name string, partit
 		time.Sleep(15 * time.Millisecond)
 	}
 	if leader == nil {
-		stackFatalf(t, "No stream leader found")
+		stackFatalf(t, "No partition leader found")
 	}
 	return leader
 }
