@@ -1191,8 +1191,9 @@ func (m *metadataAPI) electNewPartitionLeader(ctx context.Context, partition *pa
 	op := &proto.RaftLog{
 		Op: proto.Op_CHANGE_LEADER,
 		ChangeLeaderOp: &proto.ChangeLeaderOp{
-			Stream: partition.Stream,
-			Leader: leader,
+			Stream:    partition.Stream,
+			Partition: partition.Id,
+			Leader:    leader,
 		},
 	}
 

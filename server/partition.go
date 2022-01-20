@@ -1170,6 +1170,7 @@ func (p *partition) checkLeaderHealth(leader string, epoch uint64, leaderLastSee
 			leader, p, lastSeenElapsed)
 		req := &proto.ReportLeaderOp{
 			Stream:      p.Stream,
+			Partition:   p.Id,
 			Replica:     p.srv.config.Clustering.ServerID,
 			Leader:      leader,
 			LeaderEpoch: epoch,
