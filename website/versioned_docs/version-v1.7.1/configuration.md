@@ -1,6 +1,7 @@
 ---
-id: configuration
+id: version-v1.7.1-configuration
 title: Configuration
+original_id: configuration
 ---
 
 Liftbridge provides limited configuration through command-line flags and full
@@ -145,7 +146,6 @@ the setting in the configuration file and the CLI flag if it exists.
 | clustering | | Broker cluster configuration. | map | | [See below](#clustering-configuration-settings) |
 | activity | | Meta activity event stream configuration. | map | | [See below](#activity-configuration-settings) |
 | cursors | | Cursor management configuration. | map | | [See below](#cursors-configuration-settings) |
-| groups | | Consumer group configuration. | map | | [See below](#groups-configuration-settings) |
 
 ### NATS Configuration Settings
 
@@ -184,7 +184,6 @@ overriding these settings.
 | auto.pause.disable.if.subscribers | | Disables automatic stream partition pausing when there are subscribers. | bool | false | |
 | concurrency.control | | Enable Optimistic Concurrency Control on message publishing for all streams. | bool | false | |
 | encryption | | Enable encryption of data stored on server (encryption of data-at-rest). *NOTE: if enabled, an environment variable `LIFTBRIDGE_ENCRYPTION_KEY` must be set to a valid 128 bit or 256 bit AES key.* | bool | false | |
-
 ### Clustering Configuration Settings
 
 Below is the list of the configuration settings for the `clustering` section of
@@ -227,14 +226,3 @@ the configuration file.
 |:----|:----|:----|:----|:----|:----|
 | stream.partitions | | Sets the number of partitions for the internal `__cursors` stream which stores consumer cursors. A value of 0 disables the cursors stream. This cannot be changed once it is set. | int | 0 | |
 | stream.auto.pause.time | | The amount of time a partition in the internal `__cursors` stream can go idle, i.e. not receive a cursor update or fetch, before it is automatically paused. A value of 0 disables auto pausing. | duration | 1m | |
-
-### Groups Configuration Settings
-
-Below is the list of the configuration settings for the `groups` section of
-the configuration file.
-
-| Name | Flag | Description | Type | Default | Valid Values |
-|:----|:----|:----|:----|:----|:----|
-| consumer.timeout | | If a consumer hasn't sent a request to fetch partition assignments to the group coordinator for at least this time, the coordinator will remove the consumer from the group. | duration | 15s | 
-| coordinator.timeout | | If a group coordinator hasn't responded to assignment requests for at least this time, the member will report the coordinator to the controller. If a majority of the group members report the coordinator, a new coordinator is selected by the controller.| duration | 15s | |
-
