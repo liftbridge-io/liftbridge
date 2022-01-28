@@ -57,7 +57,7 @@ func (c *cursorManager) Initialize() error {
 		partitions[i] = &proto.Partition{
 			Subject:           c.getCursorStreamSubject(),
 			Stream:            cursorsStream,
-			ReplicationFactor: maxReplicationFactor,
+			ReplicationFactor: c.config.CursorsStream.ReplicationFactor,
 			Id:                i,
 		}
 	}
