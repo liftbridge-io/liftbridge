@@ -59,3 +59,13 @@ nats:
     - nats://localhost:4222
   user: user
   password: pass
+
+cursors:
+  stream:
+    partitions: 2
+    replication.factor: 3
+    auto.pause.time: 1m
+
+groups:
+  consumer.timeout: 1m
+  coordinator.timeout: 2m
