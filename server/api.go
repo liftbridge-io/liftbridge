@@ -501,6 +501,35 @@ func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsu
 	}, nil
 }
 
+// LeaveConsumerGroup removes a consumer from a consumer group.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) LeaveConsumerGroup(ctx context.Context, req *client.LeaveConsumerGroupRequest) (
+	*client.LeaveConsumerGroupResponse, error) {
+	a.logger.Debugf("api: LeaveConsumerGroup [groupId=%s, consumerId=%s]",
+		req.GroupId, req.ConsumerId)
+
+	if req.GroupId == "" {
+		a.logger.Errorf("api: Failed to leave consumer group: groupId cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
+	}
+	if req.ConsumerId == "" {
+		a.logger.Errorf("api: Failed to leave consumer group: consumerId cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
+	}
+
+	status := a.metadata.LeaveConsumerGroup(ctx, &proto.LeaveConsumerGroupOp{
+		GroupId:    req.GroupId,
+		ConsumerId: req.ConsumerId,
+	})
+	if status != nil {
+		a.logger.Errorf("api: Failed to leave consumer group: %v", status.Err())
+		return nil, status.Err()
+	}
+	return &client.LeaveConsumerGroupResponse{}, nil
+}
+
 // FetchConsumerGroupAssignments retrieves the partition assignments for a
 // consumer. This also acts as a heartbeat for the consumer so that the
 // coordinator keeps the consumer active in the group.
