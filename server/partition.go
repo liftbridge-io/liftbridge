@@ -56,6 +56,10 @@ func (s *subscription) Errors() <-chan *status.Status {
 	return s.errors
 }
 
+func (s *subscription) Closed() <-chan struct{} {
+	return s.closed
+}
+
 // replica tracks the latest log offset for a particular partition replica.
 type replica struct {
 	mu     sync.RWMutex

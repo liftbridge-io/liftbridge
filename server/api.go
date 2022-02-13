@@ -192,13 +192,16 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 	}
 
 	var (
-		msgC = sub.Messages()
-		errC = sub.Errors()
+		msgC    = sub.Messages()
+		errC    = sub.Errors()
+		closedC = sub.Closed()
 	)
 
 	for {
 		select {
 		case <-out.Context().Done():
+			return nil
+		case <-closedC:
 			return nil
 		case m := <-msgC:
 			if err := out.Send(m); err != nil {
