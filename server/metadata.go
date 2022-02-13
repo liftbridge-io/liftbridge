@@ -944,14 +944,35 @@ func (m *metadataAPI) AddConsumerGroup(protoGroup *proto.ConsumerGroup, recovere
 		return nil, ErrConsumerGroupExists
 	}
 
-	group, err := m.newConsumerGroup(protoGroup, recovered)
-	if err != nil {
-		return nil, err
-	}
+	group := newConsumerGroup(m.config.Clustering.ServerID, m.config.Groups.ConsumerTimeout,
+		protoGroup, recovered, m.logger, m.removeConsumerGroupMember, m.countStreamPartitions)
 	m.consumerGroups[protoGroup.Id] = group
 	coordinator, _ := group.GetCoordinator()
 	m.brokerGroupCoordinatorLoad[coordinator]++
 	return group, nil
+}
+
+// removeConsumerGroupMember sends a LeaveConsumerGroup request to the
+// controller to remove the expired consumer from the group.
+func (m *metadataAPI) removeConsumerGroupMember(groupID, consumerID string) error {
+	req := &proto.LeaveConsumerGroupOp{
+		GroupId:    groupID,
+		ConsumerId: consumerID,
+	}
+	if err := m.LeaveConsumerGroup(context.Background(), req); err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+// countStreamPartitions returns the number of partitions for the stream or 0
+// if the stream does not exist.
+func (m *metadataAPI) countStreamPartitions(streamName string) int32 {
+	stream := m.GetStream(streamName)
+	if stream == nil {
+		return 0
+	}
+	return int32(len(stream.GetPartitions()))
 }
 
 // removeConsumerGroup removes the given consumer group from the metadata
@@ -1469,8 +1490,8 @@ func (m *metadataAPI) deleteStream(stream *stream, epoch uint64) error {
 }
 
 // removeStream removes the stream from the stream store, cancels any
-// in-flight failovers for its partitions, and rebalances consumer group
-// assignments.
+// in-flight failovers for its partitions, and triggers a rebalance of consumer
+// group assignments.
 func (m *metadataAPI) removeStream(stream *stream, epoch uint64) {
 	delete(m.streams, stream.GetName())
 	for _, partition := range stream.GetPartitions() {
@@ -1480,11 +1501,13 @@ func (m *metadataAPI) removeStream(stream *stream, epoch uint64) {
 			delete(m.partitionFailovers, partition)
 		}
 	}
-	m.consumerGroupsMu.RLock()
-	for _, group := range m.consumerGroups {
-		group.StreamDeleted(stream.GetName(), epoch)
-	}
-	m.consumerGroupsMu.RUnlock()
+	m.startGoroutine(func() {
+		m.consumerGroupsMu.RLock()
+		for _, group := range m.consumerGroups {
+			group.StreamDeleted(stream.GetName(), epoch)
+		}
+		m.consumerGroupsMu.RUnlock()
+	})
 }
 
 func (m *metadataAPI) getStreams() []*stream {

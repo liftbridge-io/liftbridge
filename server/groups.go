@@ -2,7 +2,6 @@ package server
 
 import (
 	"container/heap"
-	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -13,10 +12,15 @@ import (
 
 	"github.com/dustin/go-humanize/english"
 
+	"github.com/liftbridge-io/liftbridge/server/logger"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
 type partitionAssignments map[string][]int32
+
+type groupMemberExpiredHandler func(groupID, consumerID string) error
+
+type getStreamPartitions func(stream string) int32
 
 // consumer represents a member of a consumer group.
 type consumer struct {
@@ -78,36 +82,44 @@ func (c consumerHeap) Peek() *consumer {
 // consumerGroup represents a group of consumers which consume a set of
 // streams.
 type consumerGroup struct {
-	id          string
-	members     map[string]*consumer
-	subscribers map[string]*consumerHeap // Maps streams to subscribed consumers
-	coordinator string
-	epoch       uint64 // Updates on coordinator and assignment changes
-	metadata    *metadataAPI
-	recovered   bool
-	mu          sync.RWMutex
+	serverID             string
+	id                   string
+	members              map[string]*consumer
+	subscribers          map[string]*consumerHeap // Maps streams to subscribed consumers
+	consumerTimeout      time.Duration
+	coordinator          string
+	epoch                uint64 // Updates on coordinator and assignment changes
+	getStreamPartitions  getStreamPartitions
+	memberExpiredHandler groupMemberExpiredHandler
+	recovered            bool
+	mu                   sync.RWMutex
+	logger               logger.Logger
 }
 
-func (m *metadataAPI) newConsumerGroup(protoGroup *proto.ConsumerGroup, recovered bool) (*consumerGroup, error) {
+func newConsumerGroup(serverID string, consumerTimeout time.Duration, protoGroup *proto.ConsumerGroup,
+	recovered bool, logger logger.Logger, memberExpiredHandler groupMemberExpiredHandler,
+	getPartitions getStreamPartitions) *consumerGroup {
+
 	group := &consumerGroup{
-		id:          protoGroup.Id,
-		members:     make(map[string]*consumer),
-		subscribers: make(map[string]*consumerHeap),
-		metadata:    m,
-		coordinator: protoGroup.Coordinator,
-		epoch:       protoGroup.Epoch,
-		recovered:   recovered,
+		serverID:             serverID,
+		id:                   protoGroup.Id,
+		members:              make(map[string]*consumer),
+		subscribers:          make(map[string]*consumerHeap),
+		getStreamPartitions:  getPartitions,
+		consumerTimeout:      consumerTimeout,
+		memberExpiredHandler: memberExpiredHandler,
+		coordinator:          protoGroup.Coordinator,
+		epoch:                protoGroup.Epoch,
+		recovered:            recovered,
+		logger:               logger,
 	}
 	group.mu.Lock()
 	defer group.mu.Unlock()
 	for _, member := range protoGroup.Members {
-		if err := group.addMember(member.Id, member.Streams); err != nil {
-			group.Close()
-			return nil, err
-		}
+		group.addMember(member.Id, member.Streams)
 	}
 	group.debugLogAssignments()
-	return group, nil
+	return group
 }
 
 // String returns a human-readable representation of the consumer group.
@@ -140,7 +152,7 @@ func (c *consumerGroup) SetCoordinator(coordinator string, epoch uint64) error {
 
 	// If this server has become the coordinator, start liveness timers for all
 	// members. If this server was previously the coordinator, cancel timers.
-	if previousCoordinator == c.metadata.config.Clustering.ServerID {
+	if previousCoordinator == c.serverID {
 		for _, member := range c.members {
 			if member.timer != nil {
 				member.timer.Stop()
@@ -148,7 +160,7 @@ func (c *consumerGroup) SetCoordinator(coordinator string, epoch uint64) error {
 			}
 		}
 	}
-	if coordinator == c.metadata.config.Clustering.ServerID {
+	if coordinator == c.serverID {
 		c.startMemberTimers()
 	}
 
@@ -172,7 +184,7 @@ func (c *consumerGroup) StartRecovered() bool {
 	if !c.recovered {
 		return false
 	}
-	if c.coordinator == c.metadata.config.Clustering.ServerID {
+	if c.coordinator == c.serverID {
 		c.startMemberTimers()
 	}
 	c.recovered = false
@@ -214,31 +226,19 @@ func (c *consumerGroup) AddMember(consumerID string, streams []string, epoch uin
 			epoch, c.epoch)
 	}
 
-	if err := c.addMember(consumerID, streams); err != nil {
-		return err
-	}
+	c.addMember(consumerID, streams)
 
 	c.epoch = epoch
 	c.debugLogAssignments()
 	return nil
 }
 
-func (c *consumerGroup) addMember(consumerID string, streams []string) error {
-	// Verify the streams exist.
-	for _, stream := range streams {
-		if c.metadata.GetStream(stream) == nil {
-			return fmt.Errorf("stream %s does not exist", stream)
-		}
-	}
-
-	if _, ok := c.members[consumerID]; ok {
-		return ErrConsumerAlreadyMember
-	}
+func (c *consumerGroup) addMember(consumerID string, streams []string) {
 	var timer *time.Timer
 
 	// If this group is not in recovery mode and this server is the
 	// coordinator, start a liveness timer for the consumer.
-	if !c.recovered && c.coordinator == c.metadata.config.Clustering.ServerID {
+	if !c.recovered && c.coordinator == c.serverID {
 		timer = c.startMemberTimer(consumerID)
 	}
 
@@ -255,7 +255,6 @@ func (c *consumerGroup) addMember(consumerID string, streams []string) error {
 	c.members[consumerID] = cons
 	// Balance assignments.
 	c.addConsumer(cons)
-	return nil
 }
 
 // RemoveMember removes the given consumer from the group. If this server is
@@ -332,7 +331,7 @@ func (c *consumerGroup) GetAssignments(consumerID string, epoch uint64) (
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.coordinator != c.metadata.config.Clustering.ServerID {
+	if c.coordinator != c.serverID {
 		return nil, 0, ErrBrokerNotCoordinator
 	}
 
@@ -350,7 +349,7 @@ func (c *consumerGroup) GetAssignments(consumerID string, epoch uint64) (
 		// This shouldn't happen.
 		return nil, 0, errors.New("consumer not active for server (no timer)")
 	}
-	member.timer.Reset(c.metadata.config.Groups.ConsumerTimeout)
+	member.timer.Reset(c.consumerTimeout)
 
 	return member.assignments, c.epoch, nil
 }
@@ -381,17 +380,17 @@ func (c *consumerGroup) startMemberTimers() {
 
 // startMemberTimer starts a liveness timer for the given member.
 func (c *consumerGroup) startMemberTimer(consumerID string) *time.Timer {
-	return time.AfterFunc(c.metadata.config.Groups.ConsumerTimeout, c.consumerExpired(consumerID))
+	return time.AfterFunc(c.consumerTimeout, c.consumerExpired(consumerID))
 }
 
 // consumerExpired returns a callback function which is invoked when a consumer
 // times out. This will attempt to remove the expired consumer from the group.
 func (c *consumerGroup) consumerExpired(consumerID string) func() {
 	return func() {
-		c.metadata.logger.Errorf("Consumer %s timed out for consumer group %s, removing from group",
+		c.logger.Errorf("Consumer %s timed out for consumer group %s, removing from group",
 			consumerID, c.id)
-		if err := c.removeExpiredMember(consumerID); err != nil {
-			c.metadata.logger.Errorf("Failed to remove consumer %s from consumer group %s: %v",
+		if err := c.memberExpiredHandler(c.id, consumerID); err != nil {
+			c.logger.Errorf("Failed to remove consumer %s from consumer group %s: %v",
 				consumerID, c.id, err.Error())
 			// Reset the timer so we can try again later.
 			timer := c.startMemberTimer(consumerID)
@@ -401,19 +400,6 @@ func (c *consumerGroup) consumerExpired(consumerID string) func() {
 			c.mu.Unlock()
 		}
 	}
-}
-
-// removeExpiredMember sends a LeaveConsumerGroup request to the controller to
-// remove the expired consumer from the group.
-func (c *consumerGroup) removeExpiredMember(consumerID string) error {
-	req := &proto.LeaveConsumerGroupOp{
-		GroupId:    c.id,
-		ConsumerId: consumerID,
-	}
-	if err := c.metadata.LeaveConsumerGroup(context.Background(), req); err != nil {
-		return err.Err()
-	}
-	return nil
 }
 
 // addConsumer adds the given consumer to the group's subscriber heaps for
@@ -465,12 +451,8 @@ func (c *consumerGroup) balanceAssignmentsForStream(streamName string) {
 	if !ok || len(*subscribers) == 0 {
 		return
 	}
-	stream := c.metadata.GetStream(streamName)
-	if stream == nil {
-		return
-	}
 
-	c.metadata.logger.Debugf("Balancing consumer group %s assignments for stream %s (%s)",
+	c.logger.Debugf("Balancing consumer group %s assignments for stream %s (%s)",
 		c.id, streamName, english.Plural(len(*subscribers), "subscriber", ""))
 
 	// Reset assignments for stream.
@@ -483,22 +465,9 @@ func (c *consumerGroup) balanceAssignmentsForStream(streamName string) {
 	}
 	heap.Init(subscribers)
 
-	// Put partitions to assign in a sorted list first in order to minimize
-	// unnecessary reassignments.
-	var (
-		partitionsMap = stream.GetPartitions()
-		partitions    = make([]int32, len(partitionsMap))
-		i             = 0
-	)
-	for partition := range partitionsMap {
-		partitions[i] = partition
-		i++
-	}
-	sort.Slice(partitions, func(i, j int) bool { return partitions[i] < partitions[j] })
-
 	// Assign each partition to the consumer with the least amount of
 	// assignments.
-	for _, partition := range partitions {
+	for partition := int32(0); partition < c.getStreamPartitions(streamName); partition++ {
 		minConsumer := subscribers.Peek()
 		c.assignPartition(streamName, partition, minConsumer)
 	}
@@ -530,7 +499,7 @@ func (c *consumerGroup) debugLogAssignments() {
 			msg += fmt.Sprintf("    %s: [%s]\n", stream, strings.Join(partitionStrs, ", "))
 		}
 	}
-	c.metadata.logger.Debugf(msg)
+	c.logger.Debugf(msg)
 }
 
 func rangeStreamsOrdered(streams map[string]struct{}, f func(stream string)) {
