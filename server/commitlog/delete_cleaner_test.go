@@ -1,7 +1,6 @@
 package commitlog
 
 import (
-	"io/ioutil"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 
 func noopLogger() logger.Logger {
 	log := logger.NewLogger(0)
-	log.SetWriter(ioutil.Discard)
+	log.Silent(true)
 	return log
 }
 
