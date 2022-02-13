@@ -11,7 +11,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/raft v1.1.2
 	github.com/hashicorp/raft-boltdb/v2 v2.2.0
-	github.com/liftbridge-io/go-liftbridge/v2 v2.2.1-0.20220120230937-d3363a444f5d
+	github.com/liftbridge-io/go-liftbridge/v2 v2.2.1-0.20220212225426-4586ff3515e0
 	github.com/liftbridge-io/liftbridge-api v1.7.2-0.20220202163922-756eda7f1bbe
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/natefinch/atomic v1.0.1
@@ -60,10 +60,10 @@ require (
 	go.etcd.io/bbolt v1.3.5 // indirect
 	golang.org/x/crypto v0.0.0-20210616213533-5ff15b29337e // indirect
 	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd // indirect
-	golang.org/x/sys v0.0.0-20220128215802-99c3d69c2c27 // indirect
+	golang.org/x/sys v0.0.0-20220209214540-3681064d5158 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	golang.org/x/time v0.0.0-20200416051211-89c76fbcd5d1 // indirect
-	google.golang.org/genproto v0.0.0-20220201184016-50beb8ab5c44 // indirect
+	google.golang.org/genproto v0.0.0-20220211171837-173942840c17 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/ini.v1 v1.57.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
