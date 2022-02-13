@@ -336,6 +336,15 @@ func (p *partition) IsReadonly() bool {
 	return p.log.IsReadonly()
 }
 
+// GetGroupConsumer returns the consumer for the given group or nil if no
+// consumer is subscribed.
+func (p *partition) GetGroupConsumer(groupID string) *groupMember {
+	p.consumersMu.Lock()
+	defer p.consumersMu.Unlock()
+
+	return p.consumers[groupID]
+}
+
 // Delete stops the partition if it is running, closes, and deletes the commit
 // log.
 func (p *partition) Delete() error {

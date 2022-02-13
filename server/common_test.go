@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/liftbridge-io/liftbridge/server/logger"
 )
 
 // Used by both testing.B and testing.T so need to use
@@ -78,4 +80,10 @@ func (c *captureFatalLogger) Silent(enable bool) {
 }
 
 func (c *captureFatalLogger) Prefix(prefix string) {
+}
+
+func noopLogger() logger.Logger {
+	log := logger.NewLogger(0)
+    log.Silent(true)
+	return log
 }
