@@ -780,6 +780,7 @@ func setupWithOptions(t require.TestingT, opts Options) (*commitLog, func()) {
 	l, err := New(opts)
 	require.NoError(t, err)
 	return l.(*commitLog), func() {
+		l.Close()
 		remove(t, opts.Path)
 	}
 }
