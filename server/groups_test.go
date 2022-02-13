@@ -589,7 +589,7 @@ func TestConsumerGroupConsumerTimeout(t *testing.T) {
 		Coordinator: "a",
 	}
 	called := 0
-	ch := make(chan struct{})
+	ch := make(chan struct{}, 1)
 	handler := func(groupID, consumerID string) error {
 		require.Equal(t, "my-group", groupID)
 		require.Equal(t, "cons1", consumerID)
@@ -598,7 +598,10 @@ func TestConsumerGroupConsumerTimeout(t *testing.T) {
 			return errors.New("error")
 		}
 		called++
-		close(ch)
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 
@@ -608,6 +611,7 @@ func TestConsumerGroupConsumerTimeout(t *testing.T) {
 
 	group := newConsumerGroup("a", time.Millisecond, protoGroup, false,
 		noopLogger(), handler, getPartitions)
+	defer group.Close()
 
 	require.NoError(t, group.AddMember("cons1", []string{"foo"}, 1))
 
@@ -634,12 +638,15 @@ func TestConsumerGroupStartRecovered(t *testing.T) {
 		},
 	}
 	called := 0
-	ch := make(chan struct{})
+	ch := make(chan struct{}, 1)
 	handler := func(groupID, consumerID string) error {
 		require.Equal(t, "my-group", groupID)
 		require.Equal(t, "cons1", consumerID)
 		called++
-		close(ch)
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 
@@ -649,12 +656,14 @@ func TestConsumerGroupStartRecovered(t *testing.T) {
 
 	group := newConsumerGroup("a", time.Minute, protoGroup, false,
 		noopLogger(), handler, getPartitions)
+	defer group.Close()
 
 	// Group not in recovery should return false.
 	require.False(t, group.StartRecovered())
 
 	group = newConsumerGroup("a", time.Millisecond, protoGroup, true,
 		noopLogger(), handler, getPartitions)
+	defer group.Close()
 
 	// Group in recovery should return true.
 	require.True(t, group.StartRecovered())
@@ -685,12 +694,15 @@ func TestConsumerGroupSetCoordinator(t *testing.T) {
 		},
 	}
 	called := 0
-	ch := make(chan struct{})
+	ch := make(chan struct{}, 1)
 	handler := func(groupID, consumerID string) error {
 		require.Equal(t, "my-group", groupID)
 		require.Equal(t, "cons1", consumerID)
 		called++
-		close(ch)
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 
@@ -700,6 +712,7 @@ func TestConsumerGroupSetCoordinator(t *testing.T) {
 
 	group := newConsumerGroup("a", time.Millisecond, protoGroup, false,
 		noopLogger(), handler, getPartitions)
+	defer group.Close()
 
 	// SetCoordinator with an epoch less than current epoch should return
 	// an error.
@@ -731,6 +744,7 @@ func TestConsumerGroupGetID(t *testing.T) {
 
 	group := newConsumerGroup("a", time.Millisecond, protoGroup, false,
 		noopLogger(), nil, nil)
+	defer group.Close()
 
 	require.Equal(t, "my-group", group.GetID())
 }
