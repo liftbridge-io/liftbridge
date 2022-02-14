@@ -21,6 +21,7 @@
     "Developing With Liftbridge": [
         "activity",
         "pausing-streams",
+        "consumer-groups",
         "cursors"
     ],
     "Technical Deep Dive": [

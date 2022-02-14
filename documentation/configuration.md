@@ -229,7 +229,7 @@ the configuration file.
 | stream.replication.factor | | Sets the replication factor for the `__cursors` stream which stores consumer cursors. A value of -1 sets the replication factor to the number of servers in the cluster at the time the cursors stream is created. This cannot be changed once it is set. | int | -1 | |
 | stream.auto.pause.time | | The amount of time a partition in the internal `__cursors` stream can go idle, i.e. not receive a cursor update or fetch, before it is automatically paused. A value of 0 disables auto pausing. | duration | 1m | |
 
-### Groups Configuration Settings
+### Consumer Groups Configuration Settings
 
 Below is the list of the configuration settings for the `groups` section of
 the configuration file.

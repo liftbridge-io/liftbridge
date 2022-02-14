@@ -23,6 +23,9 @@
       "configuration": {
         "title": "Configuration"
       },
+      "consumer-groups": {
+        "title": "Consumer Groups"
+      },
       "cursors": {
         "title": "Cursors"
       },
@@ -303,6 +306,15 @@
         "title": "Configuration"
       },
       "version-v1.7.0/version-v1.7.0-quick-start": {
+        "title": "Quick Start"
+      },
+      "version-v1.7.1/version-v1.7.1-authentication-authorization": {
+        "title": "Authentication and Authorization"
+      },
+      "version-v1.7.1/version-v1.7.1-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.7.1/version-v1.7.1-quick-start": {
         "title": "Quick Start"
       }
     },

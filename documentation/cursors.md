@@ -14,6 +14,12 @@ which is uniquely identified by an ID. This allows consumers to checkpoint
 their position in a partition such that they can resume processing later or
 pick up where they left off in the event of a failure.
 
+> **Use Case Note**
+>
+> For most cases, the cursors API should not generally be used due to its
+> low-level nature. Instead, [consumer groups](./consumer_groups.md) provide
+> higher-level functionality including transparent consumer offset tracking.
+
 Cursor management is exposed through the Liftbridge [gRPC
 API](https://github.com/liftbridge-io/liftbridge-api/blob/master/api.proto).
 The `SetCursor` endpoint takes a `SetCursorRequest` which specifies the
@@ -57,9 +63,9 @@ performance) and optimizing for reprocessing of messages in the event of a
 consumer failover (infrequent checkpointing will result in more messages being
 reprocessed upon consumer recovery).
 
-This low-level API will serve as a building block for higher-level consumer
-functionality such as consumer groups. This will allow consumers to reliably
-consume streams without having to manage cursors at all.
+This low-level API serves as a building block for higher-level consumer
+functionality such as [consumer groups](./consumer_groups.md). Groups allow
+consumers to reliably consume streams without having to manage cursors at all.
 
 ## Configuring Cursor Management
 
