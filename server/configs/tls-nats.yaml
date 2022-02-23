@@ -4,6 +4,6 @@ nats:
   user: user
   password: pass
   tls:
-    cert: ./configs/certs/server.crt 
-    key:  ./configs/certs/server.key
-    ca:   ./configs/certs/caroot.pem
+    cert: ./configs/certs/server/server-cert.pem
+    key:  ./configs/certs/server/server-key.pem
+    ca:   ./configs/certs/ca-cert.pem

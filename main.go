@@ -76,12 +76,6 @@ func overrideFromFlags(c *cli.Context, config *server.Config) error {
 	if c.IsSet("tls-key") {
 		config.TLSKey = c.String("tls-key")
 	}
-	if c.IsSet("tls-client-auth") {
-		config.TLSClientAuth = c.Bool("tls-client-auth")
-	}
-	if c.IsSet("tls-client-auth-ca") {
-		config.TLSClientAuthCA = c.String("tls-client-auth-ca")
-	}
 	if c.IsSet("nats-servers") {
 		natsServers, err := normalizeNatsServers(c.StringSlice("nats-servers"))
 		if err != nil {

@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -1205,26 +1207,6 @@ func TestSubscribeStartTime(t *testing.T) {
 	}
 }
 
-// Ensure clients can connect with TLS when enabled.
-func TestTLS(t *testing.T) {
-	defer cleanupStorage(t)
-
-	// Configure server with TLS.
-	s1Config, err := NewConfig("./configs/tls.yaml")
-	require.NoError(t, err)
-	s1 := runServerWithConfig(t, s1Config)
-	defer s1.Stop()
-
-	// Connect with TLS.
-	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSCert("./configs/certs/server.crt"))
-	require.NoError(t, err)
-	defer client.Close()
-
-	// Connecting without a cert should fail.
-	_, err = lift.Connect([]string{"localhost:5050"})
-	require.Error(t, err)
-}
-
 // Ensure that the host address is the same as the listen address when
 // specifying only the latter
 func TestListen(t *testing.T) {
@@ -1958,4 +1940,40 @@ func TestRaftLogListener(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected Raft logs")
 	}
+}
+
+// Ensure client authentification ( but not with authorization)
+func TestTLSAuth(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure server with TLS.
+	s1Config, err := NewConfig("./configs/tls.yaml")
+	require.NoError(t, err)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Connect with TLS.
+
+	certPool := x509.NewCertPool()
+	ca, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
+	if err != nil {
+		panic(err)
+	}
+	certPool.AppendCertsFromPEM(ca)
+	certificate, err := tls.LoadX509KeyPair("./configs/certs/client/client-cert.pem", "./configs/certs/client/client-key.pem")
+	if err != nil {
+		panic(err)
+	}
+	config := &tls.Config{
+		ServerName:   "localhost",
+		Certificates: []tls.Certificate{certificate},
+		RootCAs:      certPool,
+	}
+	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(config))
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Connecting without a cert should fail.
+	_, err = lift.Connect([]string{"localhost:5050"})
+	require.Error(t, err)
 }

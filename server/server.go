@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/casbin/casbin/v2"
 	"github.com/hashicorp/raft"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	gnatsd "github.com/nats-io/nats-server/v2/server"
@@ -83,6 +84,7 @@ type Server struct {
 	cursors            *cursorManager
 	raftLogListenersMu sync.RWMutex
 	raftLogListeners   []RaftLogListener
+	authzEnforcer      *casbin.Enforcer
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -439,6 +441,7 @@ func (s *Server) startAPIServer() error {
 
 		config.Certificates = []tls.Certificate{certificate}
 
+		// Configure Authentication
 		if s.config.TLSClientAuth {
 			config.ClientAuth = tls.RequireAndVerifyClientCert
 
@@ -455,6 +458,15 @@ func (s *Server) startAPIServer() error {
 
 				config.ClientCAs = certPool
 			}
+		}
+		// Configure authorization
+		if s.config.TLSClientAuthz && s.config.TLSClientAuthzModel != "" && s.config.TLSClientAuthzPolicy != "" {
+			opts = append(opts, grpc.UnaryInterceptor(AuthzUnaryInterceptor), grpc.StreamInterceptor(AuthzStreamInterceptor))
+			policyEnforcer, err := casbin.NewEnforcer(s.config.TLSClientAuthzModel, s.config.TLSClientAuthzPolicy)
+			if err != nil {
+				return errors.Wrap(err, "failed to initialize authorization policy enforcer")
+			}
+			s.authzEnforcer = policyEnforcer
 		}
 
 		creds := credentials.NewTLS(&config)
