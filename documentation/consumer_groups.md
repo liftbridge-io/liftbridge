@@ -55,6 +55,8 @@ specifying a unique group ID when creating the consumer. This means all of the
 partitions for the streams the consumer subscribes to will be assigned to the
 consumer because it is the sole member of the group.
 
+![Consumer Group Aggregation](assets/consumer_group_aggregation.png)
+
 ### Durable Consumer
 
 When a Liftbridge client subscribes to a partition, it must track its position
@@ -83,6 +85,8 @@ of the group such that the load is distributed evenly across the group. Each
 time a new consumer is added to the group or consumers leave the group, the
 coordinator will ensure assignments are balanced.
 
+![Consumer Group Load Balancing](assets/consumer_group_load_balancing.png)
+
 ### Fault-Tolerant Stream Consumption
 
 In addition to balancing stream load, consumer groups also provide a means for
@@ -94,12 +98,16 @@ in standby, ready to take over consumption of the stream if the assigned member
 fails or otherwise leaves the group. This allows us to implement highly
 available stream processing.
 
+![Consumer Group Fault Tolerance](assets/consumer_group_fault_tolerance.png)
+
 ### Publish-Subscribe
 
 While a group can only have one consumer subscribed to a given stream partition
 at a time, publish-subscribe semantics can be achieved by having multiple
 consumer groups subscribed to a stream. In this case, messages on a partition
 are delivered to a member of each of the subscribed groups.
+
+![Consumer Group Publish-Subscribe](assets/consumer_group_publish_subscribe.png)
 
 ## Configuring Consumer Groups
 
