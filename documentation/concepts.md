@@ -124,8 +124,10 @@ to the log.
 > Also, a paused or starved consumer, potentially a Pod in Kubernetes, like the
 > potential reporting consumer, could easily pick up where it left off when
 > things slow down. Consumers may use [cursors](./cursors.md) to track their
-> state, i.e. the offset. In the future, Liftbridge will support durable
-> consumer groups which will allow consumers to eschew cursor management.
+> state, i.e. the offset. However, the preferred pattern for tracking state is
+> to use [consumer groups](./consumer_groups.md). Consumer groups can be used
+> to implement [durable consumers](./consumer_groups.md#durable-consumer),
+> which transparently handle cursor management.
 
 ### Scalability
 
@@ -303,18 +305,18 @@ is no bookkeeping done by the server, aside from the in-memory objects tied to
 the lifecycle of the subscription. As a result, the server does not track the
 position of a client in the log beyond the scope of a subscription. Instead,
 Liftbridge provides a [cursors](./cursors.md) API which allows consumers to
-checkpoint their position in the log and pick up where they left off. Stateful
-consumer groups will be coming in the near future which will provide a more
-managed solution to fault-tolerant consumption of streams.
+checkpoint their position in the log and pick up where they left off. The
+cursors API is used by stateful [consumer groups](./consumer_groups.md) which
+provide a more managed solution to fault-tolerant consumption of streams.
 
 > **Architect's Note**
 >
 > This ties back to the previously described reporting worker starved but
 > clinging to an *offset* so as not to lose probable state. With _cursors_, the
 > reporting worker can be restarted without state but can resume from where it
-> left off due to state stored by the server via the cursors API. When stateful
-> consumer groups are implemented, this will be entirely transparent to the
-> consumer.
+> left off due to state stored by the server via the cursors API. With
+> _consumer groups_, which maintain state, this would be entirely transparent
+> to the consumer.
 
 ### Stream Retention and Compaction
 
