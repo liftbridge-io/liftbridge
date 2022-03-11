@@ -9,7 +9,6 @@ import (
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -209,13 +208,25 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 // createActivityStream creates the activity stream and connects a local client
 // that will be subscribed to it.
 func (a *activityManager) createActivityStream() error {
-	_, err := a.api.CreateStream(context.Background(), &client.CreateStreamRequest{
-		Subject:           a.getActivityStreamSubject(),
-		Name:              activityStream,
-		ReplicationFactor: -1,
+	status := a.metadata.CreateStream(context.Background(), &proto.CreateStreamOp{
+		Stream: &proto.Stream{
+			Name:    activityStream,
+			Subject: a.getActivityStreamSubject(),
+			Partitions: []*proto.Partition{
+				{
+					Stream:            activityStream,
+					Subject:           a.getActivityStreamSubject(),
+					ReplicationFactor: -1,
+					Id:                0,
+				},
+			},
+		},
 	})
-	if err != nil && status.Convert(err).Code() != codes.AlreadyExists {
-		return errors.Wrap(err, "failed to create an activity stream")
+	if status == nil {
+		return nil
+	}
+	if status.Code() != codes.AlreadyExists {
+		return errors.Wrap(status.Err(), "failed to create activity stream")
 	}
 
 	return nil
