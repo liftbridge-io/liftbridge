@@ -55,6 +55,10 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		a.logger.Errorf("api: Failed to create stream: subject is invalid")
 		return nil, status.Error(codes.InvalidArgument, "Subject is invalid")
 	}
+	if isReservedStream(req.Name) {
+		a.logger.Errorf("api: Failed to create stream: stream is reserved")
+		return nil, status.Error(codes.InvalidArgument, "Stream is reserved")
+	}
 
 	partitions := make([]*proto.Partition, req.Partitions)
 	for i := int32(0); i < req.Partitions; i++ {
@@ -97,6 +101,11 @@ func (a *apiServer) DeleteStream(ctx context.Context, req *client.DeleteStreamRe
 	resp := &client.DeleteStreamResponse{}
 	a.logger.Debugf("api: DeleteStream [name=%s]",
 		req.Name)
+
+	if isReservedStream(req.Name) {
+		a.logger.Errorf("api: Failed to delete stream: stream is reserved")
+		return nil, status.Error(codes.InvalidArgument, "Stream is reserved")
+	}
 
 	if e := a.metadata.DeleteStream(ctx, &proto.DeleteStreamOp{
 		Stream: req.Name,
@@ -1086,4 +1095,14 @@ func (p *publishAsyncSession) close() {
 	if p.sub != nil {
 		p.sub.Unsubscribe()
 	}
+}
+
+// isReservedStream indicates if the provided stream name is a reserved stream.
+func isReservedStream(stream string) bool {
+	for _, reserved := range reservedStreams {
+		if stream == reserved {
+			return true
+		}
+	}
+	return false
 }

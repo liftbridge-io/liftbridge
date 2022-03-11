@@ -1084,7 +1084,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool, epoch
 
 	config := protoStream.GetConfig()
 	creationTime := time.Unix(0, protoStream.CreationTimestamp)
-	stream := newStream(protoStream.Name, protoStream.Subject, config, creationTime)
+	stream := newStream(protoStream.Name, protoStream.Subject, config, creationTime, m.config)
 	m.streams[protoStream.Name] = stream
 
 	for _, partition := range protoStream.Partitions {

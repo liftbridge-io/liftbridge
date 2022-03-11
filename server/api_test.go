@@ -34,7 +34,7 @@ func assertMsg(t *testing.T, expected *message, msg *lift.Message) {
 }
 
 // Ensure creating a stream works, and it returns an error when creating the
-// same stream.
+// same stream or creating a stream that is reserved.
 func TestCreateStream(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -55,6 +55,10 @@ func TestCreateStream(t *testing.T) {
 	// Creating the same stream returns ErrStreamExists.
 	err = client.CreateStream(context.Background(), "foo", "bar")
 	require.Equal(t, lift.ErrStreamExists, err)
+
+	// Creating a reserved stream fails.
+	err = client.CreateStream(context.Background(), "foo", cursorsStream)
+	require.Error(t, err)
 }
 
 // Ensure creating a stream works when we send the request to the metadata
@@ -223,7 +227,8 @@ func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	require.Contains(t, err.Error(), "No such partition")
 }
 
-// Ensure getting a deleted stream returns nil.
+// Ensure getting a deleted stream returns nil and deleting a reserved stream
+// returns an error.
 func TestDeleteStream(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -277,6 +282,10 @@ func TestDeleteStream(t *testing.T) {
 
 	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
 	require.NoError(t, err)
+
+	// Deleting a reserved stream fails.
+	err = client.DeleteStream(context.Background(), cursorsStream)
+	require.Error(t, err)
 }
 
 // Ensure deleting a stream works when we send the request to the metadata

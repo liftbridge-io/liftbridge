@@ -23,13 +23,32 @@ type stream struct {
 
 // newStream creates a stream for the given NATS subject. All stream
 // interactions should only go through the exported functions.
-func newStream(name, subject string, config *proto.StreamConfig, creationTime time.Time) *stream {
-	return &stream{
+func newStream(name, subject string, config *proto.StreamConfig, creationTime time.Time,
+	srvConfig *Config) *stream {
+
+	s := &stream{
 		name:         name,
 		subject:      subject,
 		config:       config,
 		partitions:   make(map[int32]*partition),
 		creationTime: creationTime,
+	}
+	if isReservedStream(name) {
+		applyReservedStreamOverrides(s, srvConfig)
+	}
+	return s
+}
+
+// applyReservedStreamOverrides lets us apply special handling to internal
+// streams. This is used to allow changing configuration of internal streams on
+// server restart without having to apply the changes through Raft.
+// TODO: This is a bit of a hack and should probably be replaced if/when a
+// stream patch Raft operation is supported.
+func applyReservedStreamOverrides(s *stream, config *Config) {
+	if s.name == cursorsStream {
+		s.config.AutoPauseTime = &proto.NullableInt64{
+			Value: config.CursorsStream.AutoPauseTime.Milliseconds(),
+		}
 	}
 }
 

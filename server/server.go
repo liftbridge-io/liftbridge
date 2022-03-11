@@ -40,6 +40,9 @@ const (
 	cursorsStream       = "__cursors"
 )
 
+// reservedStreams contains reserved internal stream names.
+var reservedStreams = []string{activityStream, cursorsStream}
+
 // RaftLog represents an entry into the Raft log.
 type RaftLog struct {
 	*raft.Log
