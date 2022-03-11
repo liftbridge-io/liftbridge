@@ -781,17 +781,17 @@ func TestSubscribePartitionDeleted(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
-	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	sub, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req)
 	require.Nil(t, status)
 
 	require.NoError(t, stream.Delete())
 
 	select {
-	case status := <-statusCh:
+	case status := <-sub.Errors():
 		require.Equal(t, codes.NotFound, status.Code())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected status")
@@ -815,18 +815,18 @@ func TestSubscribePartitionPaused(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
-	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	sub, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req)
 	require.Nil(t, status)
 
 	_, err = stream.Pause(nil, true)
 	require.NoError(t, err)
 
 	select {
-	case status := <-statusCh:
+	case status := <-sub.Errors():
 		require.Equal(t, codes.FailedPrecondition, status.Code())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected status")
@@ -849,17 +849,17 @@ func TestSubscribePartitionClosed(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
-	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	sub, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req)
 	require.Nil(t, status)
 
 	require.NoError(t, stream.Close())
 
 	select {
-	case status := <-statusCh:
+	case status := <-sub.Errors():
 		require.Equal(t, codes.Internal, status.Code())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected status")

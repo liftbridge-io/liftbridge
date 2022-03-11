@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	client "github.com/liftbridge-io/liftbridge-api/go"
-	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	"github.com/liftbridge-io/liftbridge/server/encryption"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -175,14 +174,16 @@ func (a *apiServer) SetStreamReadonly(ctx context.Context, req *client.SetStream
 
 // Subscribe creates an ephemeral subscription for the given stream partition.
 // It begins to receive messages starting at the given offset and waits for new
-// messages when it reaches the end of the partition. Use the request context
-// to close the subscription.
+// messages when it reaches the end of the partition. If the subscriber is part
+// of a consumer group, this will ensure only one member of the group is
+// subscribed to a given partition at a time. Use the request context to close
+// the subscription.
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
-	msgC, errC, cancel, err := a.SubscribeInternal(out.Context(), req)
+	sub, err := a.SubscribeInternal(out.Context(), req)
 	if err != nil {
 		return err
 	}
-	defer cancel()
+	defer sub.Close()
 
 	// Send an empty message which signals the subscription was successfully
 	// created.
@@ -190,9 +191,17 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 		return err
 	}
 
+	var (
+		msgC    = sub.Messages()
+		errC    = sub.Errors()
+		closedC = sub.Closed()
+	)
+
 	for {
 		select {
 		case <-out.Context().Done():
+			return nil
+		case <-closedC:
 			return nil
 		case m := <-msgC:
 			if err := out.Send(m); err != nil {
@@ -204,49 +213,72 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 	}
 }
 
-// Subscribe creates an ephemeral subscription for the given stream partition.
-// It begins to receive messages starting at the given offset and waits for new
-// messages when it reaches the end of the partition. Use the request context
-// to close the subscription. This is a non-gRPC API for internal use.
+// SubscribeInternal creates an ephemeral subscription for the given stream
+// partition. It begins to receive messages starting at the given offset and
+// waits for new messages when it reaches the end of the partition. If the
+// subscriber is part of a consumer group, this will ensure only one member of
+// the group is subscribed to a given partition at a time. Use the request
+// context to close the subscription. This is a non-gRPC API for internal use.
 func (a *apiServer) SubscribeInternal(ctx context.Context, req *client.SubscribeRequest) (
-	<-chan *client.Message, <-chan *status.Status, func(), error) {
+	*subscription, error) {
 
-	a.logger.Debugf("api: Subscribe [stream=%s, partition=%d, start=%s, offset=%d, timestamp=%d]",
-		req.Stream, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp)
+	var (
+		group    string
+		consumer string
+	)
+	if req.Consumer != nil {
+		group = req.Consumer.GroupId
+		consumer = req.Consumer.ConsumerId
+	}
+	a.logger.Debugf("api: Subscribe "+
+		"[stream=%s, partition=%d, start=%s, offset=%d, timestamp=%d, group=%s, consumer=%s]",
+		req.Stream, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp, group, consumer)
+
+	if group != "" && consumer == "" {
+		a.logger.Errorf("api: Failed to subscribe to partition: no consumer id provided")
+		return nil, status.Error(codes.InvalidArgument,
+			"Consumer id cannot be empty when group id is provided")
+	}
 
 	partition := a.metadata.GetPartition(req.Stream, req.Partition)
 	if partition == nil {
 		a.logger.Errorf("api: Failed to subscribe to partition "+
 			"[stream=%s, partition=%d]: no such partition",
 			req.Stream, req.Partition)
-		return nil, nil, nil, status.Error(codes.NotFound, "No such partition")
+		return nil, status.Error(codes.NotFound, "No such partition")
 	}
 
 	leader, _ := partition.GetLeader()
 	if leader != a.config.Clustering.ServerID {
 		if req.ReadISRReplica {
+			if group != "" {
+				// Consumer groups are not compatible with ReadISRReplica.
+				a.logger.Errorf("api: Failed to subscribe to partition %s: consumer groups "+
+					"not compatible with ReadISRReplica", partition)
+				return nil, status.Error(codes.InvalidArgument,
+					"Consumer groups not compatible with ReadISRReplica")
+			}
 			a.logger.Info("api: Accepting subscription to partition %s: server not stream leader", partition)
 		} else {
 			a.logger.Errorf("api: Failed to subscribe to partition %s: server not stream leader", partition)
-			return nil, nil, nil, status.Error(codes.FailedPrecondition, "Server not partition leader")
+			return nil, status.Error(codes.FailedPrecondition, "Server not partition leader")
 		}
 	}
 
-	cancel := make(chan struct{})
-	ch, errCh, err := a.subscribe(ctx, partition, req, cancel)
+	sub, err := a.subscribe(ctx, partition, req)
 	if err != nil {
 		a.logger.Errorf("api: Failed to subscribe to partition %s: %v", partition, err.Err())
-		return nil, nil, nil, err.Err()
+		return nil, err.Err()
 	}
 
-	return ch, errCh, func() { close(cancel) }, nil
+	return sub, nil
 }
 
 // FetchMetadata retrieves the latest cluster metadata, including stream broker
 // information.
 func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
 	*client.FetchMetadataResponse, error) {
-	a.logger.Debugf("api: FetchMetadata %s", req.Streams)
+	a.logger.Debugf("api: FetchMetadata [streams=%s, groups=%s]", req.Streams, req.Groups)
 
 	resp, err := a.metadata.FetchMetadata(ctx, req)
 	if err != nil {
@@ -432,6 +464,151 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 	return &client.FetchCursorResponse{Offset: offset}, nil
 }
 
+// JoinConsumerGroup adds a consumer to a consumer group. If the group does not
+// exist, it will create it first.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) JoinConsumerGroup(ctx context.Context, req *client.JoinConsumerGroupRequest) (
+	*client.JoinConsumerGroupResponse, error) {
+	a.logger.Debugf("api: JoinConsumerGroup [groupId=%s, consumerId=%s, streams=%v]",
+		req.GroupId, req.ConsumerId, req.Streams)
+
+	if req.GroupId == "" {
+		a.logger.Errorf("api: Failed to join consumer group: groupId cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
+	}
+	if req.ConsumerId == "" {
+		a.logger.Errorf("api: Failed to join consumer group: consumerId cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
+	}
+	if len(req.Streams) == 0 {
+		a.logger.Errorf("api: Failed to join consumer group: streams cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "No streams provided")
+	}
+
+	coordinator, epoch, status := a.metadata.JoinConsumerGroup(ctx, &proto.JoinConsumerGroupOp{
+		GroupId:    req.GroupId,
+		ConsumerId: req.ConsumerId,
+		Streams:    req.Streams,
+	})
+	if status != nil {
+		a.logger.Errorf("api: Failed to join consumer group: %v", status.Err())
+		return nil, status.Err()
+	}
+	return &client.JoinConsumerGroupResponse{
+		Coordinator:        coordinator,
+		Epoch:              epoch,
+		ConsumerTimeout:    int64(a.config.Groups.ConsumerTimeout),
+		CoordinatorTimeout: int64(a.config.Groups.CoordinatorTimeout),
+	}, nil
+}
+
+// LeaveConsumerGroup removes a consumer from a consumer group.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) LeaveConsumerGroup(ctx context.Context, req *client.LeaveConsumerGroupRequest) (
+	*client.LeaveConsumerGroupResponse, error) {
+	a.logger.Debugf("api: LeaveConsumerGroup [groupId=%s, consumerId=%s]",
+		req.GroupId, req.ConsumerId)
+
+	if req.GroupId == "" {
+		a.logger.Errorf("api: Failed to leave consumer group: groupId cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
+	}
+	if req.ConsumerId == "" {
+		a.logger.Errorf("api: Failed to leave consumer group: consumerId cannot be empty")
+		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
+	}
+
+	status := a.metadata.LeaveConsumerGroup(ctx, &proto.LeaveConsumerGroupOp{
+		GroupId:    req.GroupId,
+		ConsumerId: req.ConsumerId,
+	})
+	if status != nil {
+		a.logger.Errorf("api: Failed to leave consumer group: %v", status.Err())
+		return nil, status.Err()
+	}
+	return &client.LeaveConsumerGroupResponse{}, nil
+}
+
+// FetchConsumerGroupAssignments retrieves the partition assignments for a
+// consumer. This also acts as a heartbeat for the consumer so that the
+// coordinator keeps the consumer active in the group.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) FetchConsumerGroupAssignments(ctx context.Context, req *client.FetchConsumerGroupAssignmentsRequest) (
+	*client.FetchConsumerGroupAssignmentsResponse, error) {
+	a.logger.Debugf("api: FetchConsumerGroupAssignments [groupId=%s, consumerId=%s, epoch=%d]",
+		req.GroupId, req.ConsumerId, req.Epoch)
+
+	if req.GroupId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
+	}
+	if req.ConsumerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
+	}
+
+	assignments, epoch, err := a.metadata.GetConsumerGroupAssignments(
+		req.GroupId, req.ConsumerId, req.Epoch)
+	if err != nil {
+		code := codes.Unknown
+		if err == ErrConsumerGroupNotFound {
+			code = codes.NotFound
+		} else if err == ErrConsumerNotMember || err == ErrBrokerNotCoordinator || err == ErrGroupEpoch {
+			code = codes.FailedPrecondition
+		}
+		return nil, status.Error(code, err.Error())
+	}
+
+	partitionAssignments := make([]*client.PartitionAssignment, 0, len(assignments))
+	for stream, partitions := range assignments {
+		partitionAssignments = append(partitionAssignments, &client.PartitionAssignment{
+			Stream:     stream,
+			Partitions: partitions,
+		})
+	}
+	return &client.FetchConsumerGroupAssignmentsResponse{
+		Epoch:       epoch,
+		Assignments: partitionAssignments,
+	}, nil
+}
+
+// ReportConsumerGroupCoordinator reports a consumer group coordinator as
+// failed. If a majority of the group's members report the coordinator within a
+// bounded period, the cluster will select a new coordinator.
+//
+// NOTE: This is a beta endpoint and is subject to change. It is not included
+// as part of Liftbridge's semantic versioning scheme.
+func (a *apiServer) ReportConsumerGroupCoordinator(ctx context.Context, req *client.ReportConsumerGroupCoordinatorRequest) (
+	*client.ReportConsumerGroupCoordinatorResponse, error) {
+	a.logger.Debugf("api: ReportConsumerGroupCoordinator [groupId=%s, consumerId=%s, coordinator=%s, epoch=%d]",
+		req.GroupId, req.ConsumerId, req.Coordinator, req.Epoch)
+
+	if req.GroupId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No groupId provided")
+	}
+	if req.ConsumerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "No consumerId provided")
+	}
+	if req.Coordinator == "" {
+		return nil, status.Error(codes.InvalidArgument, "No coordinator provided")
+	}
+
+	status := a.metadata.ReportGroupCoordinator(ctx, &proto.ReportConsumerGroupCoordinatorOp{
+		GroupId:     req.GroupId,
+		ConsumerId:  req.ConsumerId,
+		Coordinator: req.Coordinator,
+		Epoch:       req.Epoch,
+	})
+	if status != nil {
+		return nil, status.Err()
+	}
+	return new(client.ReportConsumerGroupCoordinatorResponse), nil
+}
+
 // isValidSubject indicates if the string is a valid NATS subject.
 func isValidSubject(subj string) bool {
 	if strings.ContainsAny(subj, " \t\r\n") {
@@ -447,12 +624,13 @@ func isValidSubject(subj string) bool {
 }
 
 func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamRequest) *status.Status {
-	// Verify if an encrypted stream is requested, the LIFTBRIDGE_ENCRYPTION_KEY must be correctly set
+	// Verify if an encrypted stream is requested, the
+	// LIFTBRIDGE_ENCRYPTION_KEY is correctly set.
 	if req.Encryption != nil && req.Encryption.Value {
 		_, err := encryption.NewLocalEncryptionHandler()
 		if err != nil {
 			errorMessage := fmt.Sprintf("%s: %s",
-				"Failed  on preconditions for stream's encryption handler",
+				"Failed on preconditions for stream's encryption handler",
 				err.Error())
 			return status.New(codes.FailedPrecondition, errorMessage)
 		}
@@ -626,12 +804,11 @@ func (a *apiServer) publishSync(ctx context.Context, subject,
 // channel is closed, the context is canceled, or an error is returned
 // asynchronously on the status channel.
 func (a *apiServer) subscribe(ctx context.Context, partition *partition,
-	req *client.SubscribeRequest, cancel chan struct{}) (
-	<-chan *client.Message, <-chan *status.Status, *status.Status) {
+	req *client.SubscribeRequest) (*subscription, *status.Status) {
 
 	if req.Resume {
 		if err := a.resumeStream(ctx, req.Stream, req.Partition); err != nil {
-			return nil, nil, status.New(
+			return nil, status.New(
 				codes.Internal, fmt.Sprintf("Failed to resume stream: %v", err))
 		}
 
@@ -642,185 +819,11 @@ func (a *apiServer) subscribe(ctx context.Context, partition *partition,
 			a.logger.Errorf("api: Failed to subscribe to partition "+
 				"[stream=%s, partition=%d]: no such partition",
 				req.Stream, req.Partition)
-			return nil, nil, status.New(codes.NotFound, "No such partition")
+			return nil, status.New(codes.NotFound, "No such partition")
 		}
 	}
 
-	startOffset, st := getStartOffset(req, partition.log)
-	if st != nil {
-		return nil, nil, st
-	}
-
-	stopOffset, st := getStopOffset(req, partition.log)
-	if st != nil {
-		return nil, nil, st
-	}
-
-	if stopOffset != waitForNewMessages && stopOffset < startOffset {
-		return nil, nil, status.New(
-			codes.InvalidArgument, fmt.Sprintf("Stop offset is before start offset: %d < %d", stopOffset, startOffset))
-	}
-
-	var (
-		ch          = make(chan *client.Message)
-		errCh       = make(chan *status.Status)
-		reader, err = partition.log.NewReader(startOffset, false)
-	)
-	if err != nil {
-		return nil, nil, status.New(
-			codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
-	}
-
-	a.startGoroutine(func() {
-		// Update the active subscriber count.
-		partition.IncreaseSubscriberCount()
-		defer partition.DecreaseSubscriberCount()
-
-		headersBuf := make([]byte, 28)
-		for {
-			// TODO: this could be more efficient.
-			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf)
-
-			if err != nil {
-				var s *status.Status
-				if err == commitlog.ErrCommitLogDeleted {
-					// Partition was deleted while subscribed.
-					s = status.New(codes.NotFound, err.Error())
-				} else if err == commitlog.ErrCommitLogClosed {
-					// Partition was closed while subscribed (likely paused).
-					code := codes.Internal
-					if partition.IsPaused() {
-						code = codes.FailedPrecondition
-					}
-					s = status.New(code, err.Error())
-				} else if err == commitlog.ErrCommitLogReadonly {
-					// Partition was set to readonly while subscribed.
-					s = status.New(codes.ResourceExhausted, "End of readonly partition")
-				} else {
-					s = status.Convert(err)
-				}
-
-				select {
-				case errCh <- s:
-				case <-cancel:
-				}
-				return
-			}
-			msgValue := m.Value()
-
-			headers := m.Headers()
-
-			// Data decryption
-			if partition.encryptionHandler != nil {
-				// Decryption of data on server side
-				decryptedMsg, err := partition.encryptionHandler.Read(msgValue)
-
-				if err != nil {
-					s := status.Convert(err)
-					select {
-					case errCh <- s:
-					case <-cancel:
-					}
-					return
-				}
-
-				msgValue = decryptedMsg
-			}
-
-			var (
-				msg = &client.Message{
-					Stream:       partition.Stream,
-					Partition:    partition.Id,
-					Offset:       offset,
-					Key:          m.Key(),
-					Value:        msgValue,
-					Timestamp:    timestamp,
-					Headers:      headers,
-					Subject:      string(headers["subject"]),
-					ReplySubject: string(headers["reply"]),
-				}
-			)
-			select {
-			case ch <- msg:
-			case <-cancel:
-				return
-			}
-			if offset == stopOffset {
-				s := status.New(codes.ResourceExhausted, "Stop offset reached")
-
-				select {
-				case errCh <- s:
-				case <-cancel:
-				}
-				return
-			}
-		}
-	})
-
-	return ch, errCh, nil
-}
-
-func getStartOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int64, *status.Status) {
-	var startOffset int64
-	switch req.StartPosition {
-	case client.StartPosition_OFFSET:
-		startOffset = req.StartOffset
-	case client.StartPosition_TIMESTAMP:
-		offset, err := log.EarliestOffsetAfterTimestamp(req.StartTimestamp)
-		if err != nil {
-			return startOffset, status.New(
-				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
-		}
-		startOffset = offset
-	case client.StartPosition_EARLIEST:
-		startOffset = log.OldestOffset()
-	case client.StartPosition_LATEST:
-		startOffset = log.NewestOffset()
-	case client.StartPosition_NEW_ONLY:
-		startOffset = log.NewestOffset() + 1
-	default:
-		return startOffset, status.New(
-			codes.InvalidArgument,
-			fmt.Sprintf("Unknown StartPosition %s", req.StartPosition))
-	}
-
-	// If log is empty, next offset will be 0.
-	if startOffset < 0 {
-		startOffset = 0
-	}
-
-	return startOffset, nil
-}
-
-func getStopOffset(req *client.SubscribeRequest, log commitlog.CommitLog) (int64, *status.Status) {
-	var stopOffset int64
-	switch req.StopPosition {
-	case client.StopPosition_STOP_ON_CANCEL:
-		stopOffset = waitForNewMessages
-		if log.IsReadonly() {
-			stopOffset = log.NewestOffset()
-		}
-	case client.StopPosition_STOP_OFFSET:
-		stopOffset = req.StopOffset
-	case client.StopPosition_STOP_TIMESTAMP:
-		var err error
-		stopOffset, err = log.LatestOffsetBeforeTimestamp(req.StopTimestamp)
-		if err != nil {
-			return stopOffset, status.New(
-				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
-		}
-	case client.StopPosition_STOP_LATEST:
-		stopOffset = log.NewestOffset()
-		if stopOffset == -1 {
-			return stopOffset, status.New(codes.ResourceExhausted, "Stream is empty")
-		}
-	default:
-		return stopOffset, status.New(
-			codes.InvalidArgument,
-			fmt.Sprintf("Unknown StopPosition %s", req.StopPosition))
-	}
-
-	return stopOffset, nil
+	return partition.Subscribe(ctx, req)
 }
 
 func getStreamConfig(req *client.CreateStreamRequest) *proto.StreamConfig {

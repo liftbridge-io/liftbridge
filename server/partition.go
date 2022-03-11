@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
+	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
 	"github.com/liftbridge-io/liftbridge/server/commitlog"
 	encryption "github.com/liftbridge-io/liftbridge/server/encryption"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
@@ -26,6 +28,37 @@ const recvChannelSize = 64 * 1024
 // timestamp returns the current time in Unix nanoseconds. This function exists
 // for mocking purposes.
 var timestamp = func() int64 { return time.Now().UnixNano() }
+
+// subscription tracks state for a partition subscription.
+type subscription struct {
+	mu     sync.Mutex
+	closed chan struct{}
+	msgs   chan *client.Message
+	errors chan *status.Status
+}
+
+func (s *subscription) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case <-s.closed:
+		return
+	default:
+	}
+	close(s.closed)
+}
+
+func (s *subscription) Messages() <-chan *client.Message {
+	return s.msgs
+}
+
+func (s *subscription) Errors() <-chan *status.Status {
+	return s.errors
+}
+
+func (s *subscription) Closed() <-chan struct{} {
+	return s.closed
+}
 
 // replica tracks the latest log offset for a particular partition replica.
 type replica struct {
@@ -70,6 +103,13 @@ func (e *EventTimestamps) update() {
 	e.latestTime = timestamp
 }
 
+// groupMember tracks state for a consumer group member.
+type groupMember struct {
+	consumerID string
+	groupEpoch uint64
+	sub        *subscription
+}
+
 // partition represents a replicated message stream partition backed by a
 // durable commit log. A partition is attached to a NATS subject and stores
 // messages on that subject in a file-backed log. A partition has a set of
@@ -111,6 +151,8 @@ type partition struct {
 	pauseTimestamps               EventTimestamps // First and latest time this partition was paused or resumed
 	readonlyTimestamps            EventTimestamps // First and latest time this partition had its read-only status changed
 	encryptionHandler             encryption.Codec
+	consumersMu                   sync.Mutex
+	consumers                     map[string]*groupMember // Maps consumer groups to consumers
 	*proto.Partition
 }
 
@@ -189,6 +231,7 @@ func (s *Server) newPartition(protoPartition *proto.Partition, recovered bool, c
 		recovered:                     recovered,
 		autoPauseTime:                 streamsConfig.AutoPauseTime,
 		autoPauseDisableIfSubscribers: streamsConfig.AutoPauseDisableIfSubscribers,
+		consumers:                     make(map[string]*groupMember),
 	}
 
 	if streamsConfig.Encryption {
@@ -293,6 +336,15 @@ func (p *partition) IsReadonly() bool {
 	return p.log.IsReadonly()
 }
 
+// GetGroupConsumer returns the consumer for the given group or nil if no
+// consumer is subscribed.
+func (p *partition) GetGroupConsumer(groupID string) *groupMember {
+	p.consumersMu.Lock()
+	defer p.consumersMu.Unlock()
+
+	return p.consumers[groupID]
+}
+
 // Delete stops the partition if it is running, closes, and deletes the commit
 // log.
 func (p *partition) Delete() error {
@@ -306,27 +358,294 @@ func (p *partition) Delete() error {
 	return p.stopLeadingOrFollowing()
 }
 
-// IncreaseSubscriberCount increases the number of subscribers. Partitions with
-// a subscriber count greater than zero will not be auto-paused if the partition
-// is idle, and the corresponding configuration option is set.
-func (p *partition) IncreaseSubscriberCount() {
+// Subscribe sets up a subscription on the partition and begins sending
+// messages on the returned channel. The subscription will run until the cancel
+// channel is closed, the context is canceled, or an error is returned
+// asynchronously on the status channel. If the subscriber is part of a
+// consumer group, this will ensure only one member of the group is subscribed
+// to the partition at a time.
+func (p *partition) Subscribe(ctx context.Context, req *client.SubscribeRequest) (
+	*subscription, *status.Status) {
+
+	var (
+		previousSubscriber *groupMember
+		groupID            string
+		consumerID         string
+		groupEpoch         uint64
+	)
+
+	if req.Consumer != nil {
+		groupID = req.Consumer.GroupId
+		consumerID = req.Consumer.ConsumerId
+		groupEpoch = req.Consumer.GroupEpoch
+	}
+
+	if groupID != "" {
+		// Grab the consumers mutex if this subscriber is part of a consumer
+		// group.
+		p.consumersMu.Lock()
+		defer p.consumersMu.Unlock()
+
+		// If there is an existing member of the group subscribed to the
+		// partition, check if the new subscriber has a more recent group
+		// epoch. If it does, it will replace the existing consumer.
+		existing, ok := p.consumers[groupID]
+		if ok {
+			if existing.groupEpoch > groupEpoch {
+				return nil, status.New(codes.FailedPrecondition,
+					"Consumer is not currently assigned this partition")
+			}
+			previousSubscriber = existing
+		}
+	}
+
+	startOffset, st := p.getStartOffset(req)
+	if st != nil {
+		return nil, st
+	}
+
+	stopOffset, st := p.getStopOffset(req)
+	if st != nil {
+		return nil, st
+	}
+
+	if stopOffset != waitForNewMessages && stopOffset < startOffset {
+		return nil, status.New(
+			codes.InvalidArgument, fmt.Sprintf("Stop offset is before start offset: %d < %d",
+				stopOffset, startOffset))
+	}
+
+	// Cancel previous group subscriber if there was one.
+	if previousSubscriber != nil {
+		p.srv.logger.Debugf("Replacing group %s consumer %s with consumer %s for partition %s",
+			groupID, previousSubscriber.consumerID, consumerID, p)
+		previousSubscriber.sub.Close()
+	}
+
+	var (
+		ch          = make(chan *client.Message)
+		errCh       = make(chan *status.Status)
+		reader, err = p.log.NewReader(startOffset, false)
+	)
+	if err != nil {
+		return nil, status.New(
+			codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
+	}
+
+	cancel := make(chan struct{})
+	p.srv.startGoroutine(p.newSubscribeLoop(ctx, groupID, consumerID, reader,
+		stopOffset, ch, errCh, cancel))
+
+	sub := &subscription{
+		closed: cancel,
+		msgs:   ch,
+		errors: errCh,
+	}
+
+	if groupID != "" {
+		p.consumers[groupID] = &groupMember{
+			consumerID: consumerID,
+			groupEpoch: groupEpoch,
+			sub:        sub,
+		}
+	}
+
+	return sub, nil
+}
+
+// newSubscribeLoop returns a function to be called in a goroutine which starts
+// the subscription loop.
+func (p *partition) newSubscribeLoop(ctx context.Context, groupID, consumerID string,
+	reader *commitlog.Reader, stopOffset int64, ch chan<- *client.Message, errCh chan<- *status.Status,
+	cancel <-chan struct{}) func() {
+
+	return func() {
+		// Update the active subscriber count.
+		p.increaseSubscriberCount()
+		defer p.decreaseSubscriberCount()
+		if groupID != "" {
+			defer p.removeGroupSubscriber(groupID, consumerID)
+		}
+
+		headersBuf := make([]byte, 28)
+		for {
+			// TODO: this could be more efficient.
+			m, offset, timestamp, _, err := reader.ReadMessage(ctx, headersBuf)
+
+			if err != nil {
+				var s *status.Status
+				if err == commitlog.ErrCommitLogDeleted {
+					// Partition was deleted while subscribed.
+					s = status.New(codes.NotFound, err.Error())
+				} else if err == commitlog.ErrCommitLogClosed {
+					// Partition was closed while subscribed (likely paused).
+					code := codes.Internal
+					if p.IsPaused() {
+						code = codes.FailedPrecondition
+					}
+					s = status.New(code, err.Error())
+				} else if err == commitlog.ErrCommitLogReadonly {
+					// Partition was set to readonly while subscribed.
+					s = status.New(codes.ResourceExhausted, "End of readonly partition")
+				} else {
+					s = status.Convert(err)
+				}
+
+				select {
+				case errCh <- s:
+				case <-cancel:
+				}
+				return
+			}
+			msgValue := m.Value()
+
+			headers := m.Headers()
+
+			// Data decryption
+			if p.encryptionHandler != nil {
+				// Decryption of data on server side
+				decryptedMsg, err := p.encryptionHandler.Read(msgValue)
+
+				if err != nil {
+					s := status.Convert(err)
+					select {
+					case errCh <- s:
+					case <-cancel:
+					}
+					return
+				}
+
+				msgValue = decryptedMsg
+			}
+
+			var (
+				msg = &client.Message{
+					Stream:       p.Stream,
+					Partition:    p.Id,
+					Offset:       offset,
+					Key:          m.Key(),
+					Value:        msgValue,
+					Timestamp:    timestamp,
+					Headers:      headers,
+					Subject:      string(headers["subject"]),
+					ReplySubject: string(headers["reply"]),
+				}
+			)
+			select {
+			case ch <- msg:
+			case <-cancel:
+				return
+			}
+			if offset == stopOffset {
+				s := status.New(codes.ResourceExhausted, "Stop offset reached")
+
+				select {
+				case errCh <- s:
+				case <-cancel:
+				}
+				return
+			}
+		}
+	}
+}
+
+func (p *partition) removeGroupSubscriber(groupID, consumerID string) {
+	p.consumersMu.Lock()
+	defer p.consumersMu.Unlock()
+	sub, ok := p.consumers[groupID]
+	if !ok {
+		return
+	}
+	if sub.consumerID == consumerID {
+		delete(p.consumers, groupID)
+	}
+}
+
+func (p *partition) getStartOffset(req *client.SubscribeRequest) (int64, *status.Status) {
+	var startOffset int64
+	switch req.StartPosition {
+	case client.StartPosition_OFFSET:
+		startOffset = req.StartOffset
+	case client.StartPosition_TIMESTAMP:
+		offset, err := p.log.EarliestOffsetAfterTimestamp(req.StartTimestamp)
+		if err != nil {
+			return startOffset, status.New(
+				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
+		}
+		startOffset = offset
+	case client.StartPosition_EARLIEST:
+		startOffset = p.log.OldestOffset()
+	case client.StartPosition_LATEST:
+		startOffset = p.log.NewestOffset()
+	case client.StartPosition_NEW_ONLY:
+		startOffset = p.log.NewestOffset() + 1
+	default:
+		return startOffset, status.New(
+			codes.InvalidArgument,
+			fmt.Sprintf("Unknown StartPosition %s", req.StartPosition))
+	}
+
+	// If log is empty, next offset will be 0.
+	if startOffset < 0 {
+		startOffset = 0
+	}
+
+	return startOffset, nil
+}
+
+func (p *partition) getStopOffset(req *client.SubscribeRequest) (int64, *status.Status) {
+	var stopOffset int64
+	switch req.StopPosition {
+	case client.StopPosition_STOP_ON_CANCEL:
+		stopOffset = waitForNewMessages
+		if p.log.IsReadonly() {
+			stopOffset = p.log.NewestOffset()
+		}
+	case client.StopPosition_STOP_OFFSET:
+		stopOffset = req.StopOffset
+	case client.StopPosition_STOP_TIMESTAMP:
+		var err error
+		stopOffset, err = p.log.LatestOffsetBeforeTimestamp(req.StopTimestamp)
+		if err != nil {
+			return stopOffset, status.New(
+				codes.Internal, fmt.Sprintf("Failed to lookup offset for timestamp: %v", err))
+		}
+	case client.StopPosition_STOP_LATEST:
+		stopOffset = p.log.NewestOffset()
+		if stopOffset == -1 {
+			return stopOffset, status.New(codes.ResourceExhausted, "Stream is empty")
+		}
+	default:
+		return stopOffset, status.New(
+			codes.InvalidArgument,
+			fmt.Sprintf("Unknown StopPosition %s", req.StopPosition))
+	}
+
+	return stopOffset, nil
+}
+
+// increaseSubscriberCount increases the number of subscribers. Partitions with
+// a subscriber count greater than zero will not be auto-paused if the
+// partition is idle, and the corresponding configuration option is set.
+func (p *partition) increaseSubscriberCount() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.subscriberCount++
 }
 
-// DecreaseSubscriberCount decreases the number of subscribers. Partitions with
-// a subscriber count greater than zero will not be auto-paused if the partition
-// is idle, and the corresponding configuration option is set.
-func (p *partition) DecreaseSubscriberCount() {
+// decreaseSubscriberCount decreases the number of subscribers. Partitions with
+// a subscriber count greater than zero will not be auto-paused if the
+// partition is idle, and the corresponding configuration option is set.
+func (p *partition) decreaseSubscriberCount() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.subscriberCount--
 	if p.subscriberCount < 0 {
 		p.subscriberCount = 0
-		p.srv.logger.Errorf("Negative partition subscriber count for partition %s: %d", p, p.subscriberCount)
+		p.srv.logger.Errorf("Negative partition subscriber count for partition %s: %d",
+			p, p.subscriberCount)
 	}
 }
 
@@ -1138,8 +1457,8 @@ func (p *partition) replicationRequestLoop(leader string, epoch uint64, stop <-c
 		// Check if leader has exceeded max leader timeout.
 		p.checkLeaderHealth(leader, epoch, leaderLastSeen)
 
-		// If there is more data or we errored, continue replicating.
-		if replicated > 0 || err != nil {
+		// If there is more data, continue replicating.
+		if replicated > 0 {
 			continue
 		}
 

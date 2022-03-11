@@ -333,6 +333,35 @@ for each unique key. Messages that do not have a key are always retained.
 > possible without losing state (aggregation of events). Lineage is taken care
 > of by the stream log if stored, for example, in an S3 bucket.
 
+## Consumer Groups
+
+Consumer groups provide higher-level consumer functionality that can be used to
+solve several related problems:
+
+1. Provide a mechanism for clients to track their position in a stream
+   automatically, i.e. "durable" consumers. This builds on
+   [cursors](./cursors.md) such that cursor management is transparent to users.
+2. Provide a mechanism for distributed, fault-tolerant stream consumption.
+3. Provide a mechanism for coordinating and balancing stream consumption by
+   managing partition assignments for consumers.
+4. Provide a mechanism for consuming multiple streams (and/or partitions) in
+   aggregate.
+
+When a consumer in a consumer group fails, the group's coordinator will
+reassign the partitions the failed consumer was subscribed to to another member
+of the group. This allows for fault-tolerant consumption of streams. Consumers
+will automatically (or, if configured, explicitly), checkpoint their position
+in the partitions they are consuming such that if they fail, they or another
+consumer in the group can pick up where they left off.
+
+Group coordinators are also highly available. If a server acting as the group
+coordinator becomes unavailable, the consumers will report the coordinator as
+failed to the [controller](#controller), prompting a new coordinator to be
+selected.
+
+See the consumer groups [documentation](./consumer_groups.md) for more
+information.
+
 ## Activity Stream
 
 The activity stream is a Liftbridge stream that exposes internal meta-events

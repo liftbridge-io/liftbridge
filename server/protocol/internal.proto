@@ -7,29 +7,38 @@ message ServerState {
 }
 
 enum Op {
-    CREATE_STREAM       = 0;
-    SHRINK_ISR          = 1;
-    REPORT_LEADER       = 2;
-    CHANGE_LEADER       = 3;
-    EXPAND_ISR          = 4;
-    DELETE_STREAM       = 5;
-    PAUSE_STREAM        = 6;
-    RESUME_STREAM       = 7;
-    PUBLISH_ACTIVITY    = 8;
-    SET_STREAM_READONLY = 9;
+    CREATE_STREAM                     = 0;
+    SHRINK_ISR                        = 1;
+    REPORT_LEADER                     = 2;
+    CHANGE_LEADER                     = 3;
+    EXPAND_ISR                        = 4;
+    DELETE_STREAM                     = 5;
+    PAUSE_STREAM                      = 6;
+    RESUME_STREAM                     = 7;
+    PUBLISH_ACTIVITY                  = 8;
+    SET_STREAM_READONLY               = 9;
+    CREATE_CONSUMER_GROUP             = 10;
+    JOIN_CONSUMER_GROUP               = 11;
+    LEAVE_CONSUMER_GROUP              = 12;
+    REPORT_CONSUMER_GROUP_COORDINATOR = 13;
+    CHANGE_CONSUMER_GROUP_COORDINATOR = 14;
 }
 
 message RaftLog {
-    Op                  op                  = 1;
-    CreateStreamOp      createStreamOp      = 2;
-    ShrinkISROp         shrinkISROp         = 3;
-    ChangeLeaderOp      changeLeaderOp      = 4;
-    ExpandISROp         expandISROp         = 5;
-    DeleteStreamOp      deleteStreamOp      = 6;
-    PauseStreamOp       pauseStreamOp       = 7;
-    ResumeStreamOp      resumeStreamOp      = 8;
-    PublishActivityOp   publishActivityOp   = 9;
-    SetStreamReadonlyOp setStreamReadonlyOp = 10;
+    Op                               op                               = 1;
+    CreateStreamOp                   createStreamOp                   = 2;
+    ShrinkISROp                      shrinkISROp                      = 3;
+    ChangeLeaderOp                   changeLeaderOp                   = 4;
+    ExpandISROp                      expandISROp                      = 5;
+    DeleteStreamOp                   deleteStreamOp                   = 6;
+    PauseStreamOp                    pauseStreamOp                    = 7;
+    ResumeStreamOp                   resumeStreamOp                   = 8;
+    PublishActivityOp                publishActivityOp                = 9;
+    SetStreamReadonlyOp              setStreamReadonlyOp              = 10;
+    CreateConsumerGroupOp            createConsumerGroupOp            = 11;
+    JoinConsumerGroupOp              joinConsumerGroupOp              = 12;
+    LeaveConsumerGroupOp             leaveConsumerGroupOp             = 13;
+    ChangeConsumerGroupCoordinatorOp changeConsumerGroupCoordinatorOp = 14;
 }
 
 message CreateStreamOp {
@@ -81,6 +90,18 @@ message ChangeLeaderOp {
     string leader    = 3;
 }
 
+message ReportConsumerGroupCoordinatorOp {
+    string groupId     = 1;
+    string consumerId  = 2;
+    string coordinator = 3;
+    uint64 epoch       = 4;
+}
+
+message ChangeConsumerGroupCoordinatorOp {
+    string groupId     = 1;
+    string coordinator = 2;
+}
+
 message PublishActivityOp {
     uint64 raftIndex = 1;
 }
@@ -89,6 +110,21 @@ message SetStreamReadonlyOp {
     string         stream     = 1;
     repeated int32 partitions = 2;
     bool           readonly   = 3;
+}
+
+message CreateConsumerGroupOp {
+    ConsumerGroup consumerGroup = 1;
+}
+
+message JoinConsumerGroupOp {
+    string          groupId     = 1;
+    string          consumerId  = 2;
+    repeated string streams     = 3;
+}
+
+message LeaveConsumerGroupOp {
+    string groupId    = 1;
+    string consumerId = 2;
 }
 
 message NullableInt64 {
@@ -142,6 +178,18 @@ message Partition {
     bool            readonly          = 12; // Only used for snapshotting.
 }
 
+message Consumer {
+    string          id      = 1;
+    repeated string streams = 2;
+}
+
+message ConsumerGroup {
+    string            id          = 1;
+    repeated Consumer members     = 2; 
+    string            coordinator = 3;
+    uint64            epoch       = 4;
+}
+
 // RaftJoinRequest is a request to join a Raft group.
 message RaftJoinRequest {
     string nodeID   = 1; // ID of the joining node.
@@ -154,7 +202,8 @@ message RaftJoinResponse {
 }
 
 message MetadataSnapshot {
-    repeated Stream streams = 1;
+    repeated Stream        streams = 1;
+    repeated ConsumerGroup groups  = 2;
 }
 
 message ReplicationRequest {
@@ -172,15 +221,18 @@ message LeaderEpochOffsetResponse {
 }
 
 message PropagatedRequest {
-    Op                  op                  = 1;
-    CreateStreamOp      createStreamOp      = 2;
-    ShrinkISROp         shrinkISROp         = 3;
-    ReportLeaderOp      reportLeaderOp      = 4;
-    ExpandISROp         expandISROp         = 5;
-    DeleteStreamOp      deleteStreamOp      = 6;
-    PauseStreamOp       pauseStreamOp       = 7;
-    ResumeStreamOp      resumeStreamOp      = 8;
-    SetStreamReadonlyOp setStreamReadonlyOp = 9;
+    Op                               op                               = 1;
+    CreateStreamOp                   createStreamOp                   = 2;
+    ShrinkISROp                      shrinkISROp                      = 3;
+    ReportLeaderOp                   reportLeaderOp                   = 4;
+    ExpandISROp                      expandISROp                      = 5;
+    DeleteStreamOp                   deleteStreamOp                   = 6;
+    PauseStreamOp                    pauseStreamOp                    = 7;
+    ResumeStreamOp                   resumeStreamOp                   = 8;
+    SetStreamReadonlyOp              setStreamReadonlyOp              = 9;
+    JoinConsumerGroupOp              joinConsumerGroupOp              = 10;
+    LeaveConsumerGroupOp             leaveConsumerGroupOp             = 11;
+    ReportConsumerGroupCoordinatorOp reportConsumerGroupCoordinatorOp = 12;
 }
 
 message Error {
@@ -189,8 +241,8 @@ message Error {
 }
 
 message PropagatedResponse {
-    Op                   op               = 1;
-    Error                error            = 2;
+    Op    op    = 1;
+    Error error = 2;
     // Reserving = 3 for createStreamResp if needed.
     // Reserving = 4 for shrinkISRResp if needed.
     // Reserving = 5 for reportLeaderResp if needed.
@@ -199,6 +251,13 @@ message PropagatedResponse {
     // Reserving = 8 for pauseStreamResp if needed.
     // Reserving = 9 for resumeStreamResp if needed.
     // Reserving = 10 for setStreamReadonlyResp if needed.
+    message JoinConsumerGroupResponse {
+        string coordinator = 1;
+        uint64 epoch       = 2;
+    }
+    JoinConsumerGroupResponse joinConsumerGroupResp = 11;
+    // Reserving = 12 for leaveConsumerGroupResp if needed.
+    // Reserving = 13 for reportConsumerGroupCoordinatorResp if needed.
 }
 
 message ServerInfoRequest {

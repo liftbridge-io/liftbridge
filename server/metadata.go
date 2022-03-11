@@ -35,87 +35,60 @@ var (
 	// ErrPartitionNotFound is returned by PauseStream when attempting to pause
 	// a stream partition that does not exist.
 	ErrPartitionNotFound = errors.New("partition does not exist")
+
+	// ErrConsumerGroupExists is returned by createConsumerGroup when
+	// attempting to create a group that already exists.
+	ErrConsumerGroupExists = errors.New("consumer group already exists")
+
+	// ErrConsumerGroupNotFound is returned by JoinConsumerGroup when
+	// attempting to join a group that does not exist.
+	ErrConsumerGroupNotFound = errors.New("consumer group does not exist")
+
+	// ErrConsumerAlreadyMember is returned by JoinConsumerGroup when the
+	// consumer is already a member of the group.
+	ErrConsumerAlreadyMember = errors.New("consumer is already a member of the consumer group")
+
+	// ErrConsumerNotMember is returned by LeaveConsumerGroup when the
+	// consumer if not a member of the group.
+	ErrConsumerNotMember = errors.New("consumer is not a member of the consumer group")
+
+	// ErrBrokerNotCoordinator is returned by GetConsumerGroupAssignments when
+	// this server is not the coordinator for the requested consumer group.
+	ErrBrokerNotCoordinator = errors.New("broker is not the consumer group coordinator")
+
+	// ErrGroupEpoch is returned by GetConsumerGroupAssignments when the
+	// client-provided group epoch differs from the server-side group epoch.
+	ErrGroupEpoch = errors.New("client-provided group epoch differs from broker group epoch")
 )
-
-// leaderReport tracks witnesses for a partition leader. Witnesses are replicas
-// which have reported the leader as unresponsive. If a quorum of replicas
-// report the leader within a bounded period of time, the controller will
-// select a new leader.
-type leaderReport struct {
-	mu              sync.Mutex
-	partition       *partition
-	timer           *time.Timer
-	witnessReplicas map[string]struct{}
-	api             *metadataAPI
-}
-
-// addWitness adds the given replica to the leaderReport witnesses. If a quorum
-// of replicas have reported the leader, a new leader will be selected.
-// Otherwise, the expiration timer is reset. An error is returned if selecting
-// a new leader fails.
-func (l *leaderReport) addWitness(ctx context.Context, replica string) *status.Status {
-	l.mu.Lock()
-
-	l.witnessReplicas[replica] = struct{}{}
-
-	var (
-		// Subtract 1 to exclude leader.
-		isrSize      = l.partition.ISRSize() - 1
-		leaderFailed = len(l.witnessReplicas) > isrSize/2
-	)
-
-	if leaderFailed {
-		if l.timer != nil {
-			l.timer.Stop()
-		}
-		l.mu.Unlock()
-		return l.api.electNewPartitionLeader(ctx, l.partition)
-	}
-
-	if l.timer != nil {
-		l.timer.Reset(l.api.config.Clustering.ReplicaMaxLeaderTimeout)
-	} else {
-		l.timer = time.AfterFunc(
-			l.api.config.Clustering.ReplicaMaxLeaderTimeout, func() {
-				l.api.mu.Lock()
-				delete(l.api.leaderReports, l.partition)
-				l.api.mu.Unlock()
-			})
-	}
-	l.mu.Unlock()
-	return nil
-}
-
-// cancel stops the expiration timer, if there is one.
-func (l *leaderReport) cancel() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.timer != nil {
-		l.timer.Stop()
-	}
-}
 
 // metadataAPI is the internal API for interacting with cluster data. All
 // stream access should go through the exported methods of the metadataAPI.
 type metadataAPI struct {
 	*Server
-	streams             map[string]*stream
-	mu                  sync.RWMutex
-	leaderReports       map[*partition]*leaderReport
-	cachedBrokers       []*client.Broker
-	cachedServerIDs     map[string]struct{}
-	lastCached          time.Time
-	brokerPartitionLoad map[string]int
-	brokerLeaderLoad    map[string]int
+	streams                    map[string]*stream
+	mu                         sync.RWMutex
+	partitionFailovers         map[*partition]*failoverStatus
+	cachedBrokers              []*client.Broker
+	cachedServerIDs            map[string]struct{}
+	lastCached                 time.Time
+	brokerPartitionLoad        map[string]int
+	brokerLeaderLoad           map[string]int
+	brokerGroupCoordinatorLoad map[string]int
+	consumerGroupsMu           sync.RWMutex
+	consumerGroups             map[string]*consumerGroup
+	groupFailovers             map[*consumerGroup]*failoverStatus
 }
 
 func newMetadataAPI(s *Server) *metadataAPI {
 	return &metadataAPI{
-		Server:              s,
-		streams:             make(map[string]*stream),
-		leaderReports:       make(map[*partition]*leaderReport),
-		brokerPartitionLoad: make(map[string]int),
-		brokerLeaderLoad:    make(map[string]int),
+		Server:                     s,
+		streams:                    make(map[string]*stream),
+		partitionFailovers:         make(map[*partition]*failoverStatus),
+		brokerPartitionLoad:        make(map[string]int),
+		brokerLeaderLoad:           make(map[string]int),
+		brokerGroupCoordinatorLoad: make(map[string]int),
+		consumerGroups:             make(map[string]*consumerGroup),
+		groupFailovers:             make(map[*consumerGroup]*failoverStatus),
 	}
 }
 
@@ -149,7 +122,7 @@ func (m *metadataAPI) BrokerLeaderCounts() map[string]int {
 func (m *metadataAPI) FetchMetadata(ctx context.Context, req *client.FetchMetadataRequest) (
 	*client.FetchMetadataResponse, *status.Status) {
 
-	resp := m.createMetadataResponse(req.Streams)
+	resp := m.createMetadataResponse(req.Streams, req.Groups)
 
 	servers, err := m.getClusterServerIDs()
 	if err != nil {
@@ -289,10 +262,10 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 }
 
 // createMetadataResponse creates a FetchMetadataResponse and populates it with
-// stream metadata. If the provided list of stream names is empty, it will
-// populate metadata for all streams. Otherwise, it populates only the
+// stream and group metadata. If the provided list of stream names is empty, it
+// will populate metadata for all streams. Otherwise, it populates only the
 // specified streams.
-func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMetadataResponse {
+func (m *metadataAPI) createMetadataResponse(streams, groups []string) *client.FetchMetadataResponse {
 	// If no stream names were provided, fetch metadata for all streams.
 	if len(streams) == 0 {
 		for _, stream := range m.GetStreams() {
@@ -300,13 +273,13 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 		}
 	}
 
-	metadata := make([]*client.StreamMetadata, len(streams))
+	streamMetadata := make([]*client.StreamMetadata, len(streams))
 
 	for i, name := range streams {
 		stream := m.GetStream(name)
 		if stream == nil {
 			// Stream does not exist.
-			metadata[i] = &client.StreamMetadata{
+			streamMetadata[i] = &client.StreamMetadata{
 				Name:  name,
 				Error: client.StreamMetadata_UNKNOWN_STREAM,
 			}
@@ -315,7 +288,7 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 			for id, partition := range stream.GetPartitions() {
 				partitions[id] = getPartitionMetadata(id, partition)
 			}
-			metadata[i] = &client.StreamMetadata{
+			streamMetadata[i] = &client.StreamMetadata{
 				Name:              name,
 				Subject:           stream.GetSubject(),
 				Partitions:        partitions,
@@ -324,7 +297,29 @@ func (m *metadataAPI) createMetadataResponse(streams []string) *client.FetchMeta
 		}
 	}
 
-	return &client.FetchMetadataResponse{Metadata: metadata}
+	groupMetadata := make([]*client.ConsumerGroupMetadata, len(groups))
+	for i, id := range groups {
+		group := m.GetConsumerGroup(id)
+		if group == nil {
+			// Group does not exist.
+			groupMetadata[i] = &client.ConsumerGroupMetadata{
+				GroupId: id,
+				Error:   client.ConsumerGroupMetadata_UNKNOWN_GROUP,
+			}
+		} else {
+			coordinator, epoch := group.GetCoordinator()
+			groupMetadata[i] = &client.ConsumerGroupMetadata{
+				GroupId:     id,
+				Coordinator: coordinator,
+				Epoch:       epoch,
+			}
+		}
+	}
+
+	return &client.FetchMetadataResponse{
+		StreamMetadata: streamMetadata,
+		GroupMetadata:  groupMetadata,
+	}
 }
 
 // CreateStream creates a new stream if this server is the metadata leader. If
@@ -357,7 +352,7 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *proto.CreateStreamO
 			return st
 		}
 
-		// Select a leader at random.
+		// Select a leader for the partition.
 		leader := m.selectPartitionLeader(replicas)
 
 		partition.Replicas = replicas
@@ -668,18 +663,33 @@ func (m *metadataAPI) ReportLeader(ctx context.Context, req *proto.ReportLeaderO
 	}
 
 	m.mu.Lock()
-	reported := m.leaderReports[partition]
-	if reported == nil {
-		reported = &leaderReport{
-			partition:       partition,
-			witnessReplicas: make(map[string]struct{}),
-			api:             m,
-		}
-		m.leaderReports[partition] = reported
+	failover := m.partitionFailovers[partition]
+	if failover == nil {
+		failover = newPartitionFailoverStatus(
+			partition,
+			m.config.Clustering.ReplicaMaxLeaderTimeout,
+			m.newPartitionFailoverExpiredHandler(partition),
+			m.newPartitionFailoverHandler(partition),
+		)
+		m.partitionFailovers[partition] = failover
 	}
 	m.mu.Unlock()
 
-	return reported.addWitness(ctx, req.Replica)
+	return failover.report(ctx, req.Replica)
+}
+
+func (m *metadataAPI) newPartitionFailoverExpiredHandler(p *partition) failoverExpiredHandler {
+	return func() {
+		m.mu.Lock()
+		delete(m.partitionFailovers, p)
+		m.mu.Unlock()
+	}
+}
+
+func (m *metadataAPI) newPartitionFailoverHandler(p *partition) failoverHandler {
+	return func(ctx context.Context) *status.Status {
+		return m.electNewPartitionLeader(ctx, p)
+	}
 }
 
 // SetStreamReadonly sets a stream's readonly flag if this server is the
@@ -699,7 +709,7 @@ func (m *metadataAPI) SetStreamReadonly(ctx context.Context, req *proto.SetStrea
 		}
 	}
 
-	// Replicate stream the readonly flag through Raft.
+	// Replicate the stream readonly flag through Raft.
 	op := &proto.RaftLog{
 		Op:                  proto.Op_SET_STREAM_READONLY,
 		SetStreamReadonlyOp: req,
@@ -721,12 +731,328 @@ func (m *metadataAPI) SetStreamReadonly(ctx context.Context, req *proto.SetStrea
 	return nil
 }
 
+// JoinConsumerGroup adds a consumer to a consumer group if this server is the
+// metadata leader. The group is created first if it does not yet exist. If
+// this server is not the metadata leader, it will forward the request to the
+// leader and return the response. This operation is replicated by Raft. If
+// successful, this will return once the consumer has been added to the group.
+// Returns the group coordinator ID and coordinator epoch on success.
+func (m *metadataAPI) JoinConsumerGroup(ctx context.Context, req *proto.JoinConsumerGroupOp) (
+	string, uint64, *status.Status) {
+
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		resp, isLeader, st := m.propagateJoinConsumerGroup(ctx, req)
+		if st != nil {
+			return "", 0, st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return resp.Coordinator, resp.Epoch, nil
+		}
+	}
+
+	// Check if group exists. If it doesn't, create it with the member.
+	m.consumerGroupsMu.RLock()
+	group, ok := m.consumerGroups[req.GroupId]
+	m.consumerGroupsMu.RUnlock()
+	if !ok {
+		coordinator, err := m.createConsumerGroup(ctx, req)
+		if err != nil {
+			return "", 0, status.New(codes.FailedPrecondition, err.Error())
+		}
+		// The coordinator epoch for a new group is always 0.
+		return coordinator, 0, nil
+	}
+
+	// If the group already existed, replicate the join request through Raft.
+	op := &proto.RaftLog{
+		Op:                  proto.Op_JOIN_CONSUMER_GROUP,
+		JoinConsumerGroupOp: req,
+	}
+
+	// Wait on result of replication.
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkJoinConsumerGroupPreconditions)
+	if err != nil {
+		code := codes.FailedPrecondition
+		if err == ErrConsumerGroupNotFound {
+			code = codes.NotFound
+		}
+		return "", 0, status.New(code, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return "", 0, status.Newf(codes.Internal, "Failed to join consumer group: %v", err.Error())
+	}
+
+	coordinator, epoch := group.GetCoordinator()
+	return coordinator, epoch, nil
+}
+
+// LeaveConsumerGroup removes a consumer from a consumer group. If this is the
+// last member of the group, the group will be deleted. This operation is
+// replicated by Raft. If successful, this will return once the consumer has
+// been removed from the group.
+func (m *metadataAPI) LeaveConsumerGroup(ctx context.Context, req *proto.LeaveConsumerGroupOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagateLeaveConsumerGroup(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Replicate the leave request through Raft.
+	op := &proto.RaftLog{
+		Op:                   proto.Op_LEAVE_CONSUMER_GROUP,
+		LeaveConsumerGroupOp: req,
+	}
+
+	// Wait on result of replication.
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkLeaveConsumerGroupPreconditions)
+	if err != nil {
+		code := codes.FailedPrecondition
+		if err == ErrConsumerGroupNotFound {
+			code = codes.NotFound
+		}
+		return status.New(code, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to set stream readonly flag: %v", err.Error())
+	}
+
+	return nil
+}
+
+// ReportGroupCoordinator marks the consumer group coordinator as unresponsive
+// with respect to the specified member if this server is the metadata leader.
+// If it is not, it will forward the request to the leader and return the
+// response. If a quorum of members report the coordinator within a bounded
+// period, the metadata leader will select a new group coordinator.
+func (m *metadataAPI) ReportGroupCoordinator(ctx context.Context, req *proto.ReportConsumerGroupCoordinatorOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagateReportGroupCoordinator(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Verify the group exists.
+	group := m.GetConsumerGroup(req.GroupId)
+	if group == nil {
+		return status.New(codes.FailedPrecondition, fmt.Sprintf("No such consumer group %s", req.GroupId))
+	}
+
+	// Check the group epoch.
+	coordinator, epoch := group.GetCoordinator()
+	if req.Coordinator != coordinator || req.Epoch != epoch {
+		return status.New(
+			codes.FailedPrecondition,
+			fmt.Sprintf("Coordinator generation mismatch, current coordinator: %s epoch: %d, got coordinator: %s epoch: %d",
+				coordinator, epoch, req.Coordinator, req.Epoch))
+	}
+
+	// Ensure the consumer is actually a member.
+	if !group.IsMember(req.ConsumerId) {
+		return status.New(
+			codes.FailedPrecondition,
+			fmt.Sprintf("Consumer %s is not a member of consumer group %s", req.ConsumerId, req.GroupId))
+	}
+
+	m.consumerGroupsMu.Lock()
+	failover := m.groupFailovers[group]
+	if failover == nil {
+		failover = newGroupFailoverStatus(
+			group,
+			m.config.Groups.CoordinatorTimeout,
+			m.newGroupFailoverExpiredHandler(group),
+			m.newGroupFailoverHandler(group),
+		)
+		m.groupFailovers[group] = failover
+	}
+	m.consumerGroupsMu.Unlock()
+
+	return failover.report(ctx, req.ConsumerId)
+}
+
+func (m *metadataAPI) newGroupFailoverExpiredHandler(g *consumerGroup) failoverExpiredHandler {
+	return func() {
+		m.consumerGroupsMu.Lock()
+		delete(m.groupFailovers, g)
+		m.consumerGroupsMu.Unlock()
+	}
+}
+
+func (m *metadataAPI) newGroupFailoverHandler(g *consumerGroup) failoverHandler {
+	return func(ctx context.Context) *status.Status {
+		return m.electNewGroupCoordinator(ctx, g)
+	}
+}
+
+// createConsumerGroup creates a new consumer group bootstrapped with the
+// provided consumer by replicating the operation via Raft. This should be
+// called after checking that this server is the metadata leader, but if the
+// server is not the leader or the leadership has since changed, the operation
+// will return an error. This will also return an error if the group being
+// created already exists. This returns the group coordinator on success.
+func (m *metadataAPI) createConsumerGroup(ctx context.Context, req *proto.JoinConsumerGroupOp) (string, error) {
+	brokers, err := m.getClusterServerIDs()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to select group coordinator")
+	}
+	coordinator := m.selectGroupCoordinator(brokers)
+
+	// Replicate the group create through Raft.
+	op := &proto.RaftLog{
+		Op: proto.Op_CREATE_CONSUMER_GROUP,
+		CreateConsumerGroupOp: &proto.CreateConsumerGroupOp{
+			ConsumerGroup: &proto.ConsumerGroup{
+				Id:          req.GroupId,
+				Coordinator: coordinator,
+				Members:     []*proto.Consumer{{Id: req.ConsumerId, Streams: req.Streams}},
+			},
+		},
+	}
+
+	// Wait on result of replication.
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkCreateConsumerGroupPreconditions)
+	if err != nil {
+		return "", err
+	}
+	if err := future.Error(); err != nil {
+		return "", err
+	}
+
+	return coordinator, nil
+}
+
+// AddConsumerGroup adds the given consumer group to the metadata store. It
+// returns an error if a consumer group with the same ID already exists.
+func (m *metadataAPI) AddConsumerGroup(protoGroup *proto.ConsumerGroup, recovered bool) (*consumerGroup, error) {
+	m.consumerGroupsMu.Lock()
+	defer m.consumerGroupsMu.Unlock()
+
+	if _, ok := m.consumerGroups[protoGroup.Id]; ok {
+		return nil, ErrConsumerGroupExists
+	}
+
+	group := newConsumerGroup(m.config.Clustering.ServerID, m.config.Groups.ConsumerTimeout,
+		protoGroup, recovered, m.logger, m.removeConsumerGroupMember, m.countStreamPartitions)
+	m.consumerGroups[protoGroup.Id] = group
+	coordinator, _ := group.GetCoordinator()
+	m.brokerGroupCoordinatorLoad[coordinator]++
+	return group, nil
+}
+
+// removeConsumerGroupMember sends a LeaveConsumerGroup request to the
+// controller to remove the expired consumer from the group.
+func (m *metadataAPI) removeConsumerGroupMember(groupID, consumerID string) error {
+	req := &proto.LeaveConsumerGroupOp{
+		GroupId:    groupID,
+		ConsumerId: consumerID,
+	}
+	if err := m.LeaveConsumerGroup(context.Background(), req); err != nil {
+		return err.Err()
+	}
+	return nil
+}
+
+// countStreamPartitions returns the number of partitions for the stream or 0
+// if the stream does not exist.
+func (m *metadataAPI) countStreamPartitions(streamName string) int32 {
+	stream := m.GetStream(streamName)
+	if stream == nil {
+		return 0
+	}
+	return int32(len(stream.GetPartitions()))
+}
+
+// removeConsumerGroup removes the given consumer group from the metadata
+// store. This should only be called within the scope of the consumerGroupsMu.
+func (m *metadataAPI) removeConsumerGroup(groupID string) {
+	group := m.consumerGroups[groupID]
+	if group == nil {
+		return
+	}
+	group.Close()
+	delete(m.consumerGroups, groupID)
+	coordinator, _ := group.GetCoordinator()
+	if m.brokerGroupCoordinatorLoad[coordinator] > 0 {
+		m.brokerGroupCoordinatorLoad[coordinator]--
+	}
+}
+
+// AddConsumerToGroup adds the given consumer to the consumer group. It returns
+// an error if the group does not exist, the consumer is already a member of
+// the group, or any of the provided streams do not exist.
+func (m *metadataAPI) AddConsumerToGroup(groupID, consumerID string, streams []string, epoch uint64) error {
+	m.consumerGroupsMu.RLock()
+	group := m.consumerGroups[groupID]
+	m.consumerGroupsMu.RUnlock()
+
+	if group == nil {
+		return ErrConsumerGroupNotFound
+	}
+
+	return group.AddMember(consumerID, streams, epoch)
+}
+
+// RemoveConsumerFromGroup removes the given consumer from the consumer group.
+// It returns an error if the group does not exist or the consumer is not a
+// member of the group. If this is the last member of the group, the group will
+// be deleted. Returns a bool indicating if this was the last member of the
+// group and the group has been deleted.
+func (m *metadataAPI) RemoveConsumerFromGroup(groupID, consumerID string, epoch uint64) (bool, error) {
+	m.consumerGroupsMu.Lock()
+	defer m.consumerGroupsMu.Unlock()
+	group := m.consumerGroups[groupID]
+
+	if group == nil {
+		return false, ErrConsumerGroupNotFound
+	}
+
+	lastMember, err := group.RemoveMember(consumerID, epoch)
+	if err != nil {
+		return false, err
+	}
+
+	// If the last member was removed, delete the group.
+	if lastMember {
+		m.removeConsumerGroup(groupID)
+	}
+	return lastMember, nil
+}
+
+// GetConsumerGroupAssignments returns the group's partition assignments for
+// the given consumer and the group epoch.
+func (m *metadataAPI) GetConsumerGroupAssignments(groupID, consumerID string, epoch uint64) (
+	partitionAssignments, uint64, error) {
+
+	m.consumerGroupsMu.RLock()
+	group := m.consumerGroups[groupID]
+	m.consumerGroupsMu.RUnlock()
+
+	if group == nil {
+		return nil, 0, ErrConsumerGroupNotFound
+	}
+
+	return group.GetAssignments(consumerID, epoch)
+}
+
 // AddStream adds the given stream and its partitions to the metadata store. It
 // returns an error if a stream with the same name or any partitions with the
 // same ID for the stream already exist. If the stream is recovered, this will
 // not start the partitions until recovery completes. Partitions will also not
 // be started if they are currently paused.
-func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*stream, error) {
+func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool, epoch uint64) (*stream, error) {
 	if len(protoStream.Partitions) == 0 {
 		return nil, errors.New("stream has no partitions")
 	}
@@ -753,7 +1079,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 		if err := existing.Close(); err != nil {
 			return nil, err
 		}
-		m.removeStream(existing)
+		m.removeStream(existing, epoch)
 	}
 
 	config := protoStream.GetConfig()
@@ -763,7 +1089,7 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool) (*str
 
 	for _, partition := range protoStream.Partitions {
 		if err := m.addPartition(stream, partition, recovered, config); err != nil {
-			m.removeStream(stream)
+			m.removeStream(stream, epoch)
 			return nil, err
 		}
 	}
@@ -926,6 +1252,35 @@ func (m *metadataAPI) ChangeLeader(streamName, leader string, partitionID int32,
 	return nil
 }
 
+// ChangeGroupCoordinator changes the consumer group's coordinator to the given
+// broker if the given epoch is greater than the current epoch.
+func (m *metadataAPI) ChangeGroupCoordinator(groupID, coordinator string, newEpoch uint64) error {
+	group := m.GetConsumerGroup(groupID)
+	if group == nil {
+		return fmt.Errorf("No such consumer group %s", groupID)
+	}
+
+	// Idempotency check.
+	oldCoordinator, epoch := group.GetCoordinator()
+	if epoch >= newEpoch {
+		return nil
+	}
+
+	if err := group.SetCoordinator(coordinator, newEpoch); err != nil {
+		return errors.Wrap(err, "failed to change group coordinator")
+	}
+
+	// Update broker load counts.
+	m.consumerGroupsMu.Lock()
+	if m.brokerGroupCoordinatorLoad[oldCoordinator] > 0 {
+		m.brokerGroupCoordinatorLoad[oldCoordinator]--
+	}
+	m.brokerGroupCoordinatorLoad[coordinator]++
+	m.consumerGroupsMu.Unlock()
+
+	return nil
+}
+
 // PausePartitions pauses the given partitions for the stream. If the list of
 // partitions is empty, this pauses all partitions.
 func (m *metadataAPI) PausePartitions(streamName string, partitions []int32, resumeAll bool) error {
@@ -999,8 +1354,31 @@ func (m *metadataAPI) GetPartition(streamName string, id int32) *partition {
 	return stream.GetPartition(id)
 }
 
-// Reset closes all streams and clears all existing state in the metadata
-// store.
+// GetConsumerGroups returns all consumer groups from the metadata store.
+func (m *metadataAPI) GetConsumerGroups() []*consumerGroup {
+	m.consumerGroupsMu.RLock()
+	defer m.consumerGroupsMu.RUnlock()
+	return m.getConsumerGroups()
+}
+
+func (m *metadataAPI) getConsumerGroups() []*consumerGroup {
+	groups := make([]*consumerGroup, 0, len(m.consumerGroups))
+	for _, group := range m.consumerGroups {
+		groups = append(groups, group)
+	}
+	return groups
+}
+
+// GetConsumerGroup returns the consumer group with the given id. It returns
+// nil if no such group exists.
+func (m *metadataAPI) GetConsumerGroup(id string) *consumerGroup {
+	m.consumerGroupsMu.RLock()
+	defer m.consumerGroupsMu.RUnlock()
+	return m.consumerGroups[id]
+}
+
+// Reset closes all streams and consumer groups and clears all existing state
+// in the metadata store.
 func (m *metadataAPI) Reset() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1010,11 +1388,29 @@ func (m *metadataAPI) Reset() error {
 		}
 	}
 	m.streams = make(map[string]*stream)
-	for _, report := range m.leaderReports {
-		report.cancel()
+	m.consumerGroupsMu.Lock()
+	defer m.consumerGroupsMu.Unlock()
+	for _, group := range m.getConsumerGroups() {
+		group.Close()
 	}
-	m.leaderReports = make(map[*partition]*leaderReport)
+	m.consumerGroups = make(map[string]*consumerGroup)
+	m.resetFailovers()
 	return nil
+}
+
+// resetFailovers cancels all in-flight failovers and clears the failover state
+// in the metadata store. Both the metadata API and consumer groups mutexes
+// must be held when calling this.
+func (m *metadataAPI) resetFailovers() {
+	for _, failover := range m.partitionFailovers {
+		failover.cancel()
+	}
+	m.partitionFailovers = make(map[*partition]*failoverStatus)
+
+	for _, failover := range m.groupFailovers {
+		failover.cancel()
+	}
+	m.groupFailovers = make(map[*consumerGroup]*failoverStatus)
 }
 
 // RemoveStream closes the stream, removes it from the metadata store, and
@@ -1022,7 +1418,7 @@ func (m *metadataAPI) Reset() error {
 // being applied during Raft recovery, this will only mark the stream with a
 // tombstone. Tombstoned streams will be deleted after the recovery process
 // completes.
-func (m *metadataAPI) RemoveStream(stream *stream, recovered bool) error {
+func (m *metadataAPI) RemoveStream(stream *stream, recovered bool, epoch uint64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1034,7 +1430,7 @@ func (m *metadataAPI) RemoveStream(stream *stream, recovered bool) error {
 	if recovered {
 		stream.Tombstone()
 	} else {
-		if err := m.deleteStream(stream); err != nil {
+		if err := m.deleteStream(stream, epoch); err != nil {
 			return err
 		}
 	}
@@ -1056,27 +1452,27 @@ func (m *metadataAPI) RemoveStream(stream *stream, recovered bool) error {
 
 // RemoveTombstonedStream closes the tombstoned stream, removes it from the
 // metadata store, and deletes the associated on-disk data for it.
-func (m *metadataAPI) RemoveTombstonedStream(stream *stream) error {
+func (m *metadataAPI) RemoveTombstonedStream(stream *stream, epoch uint64) error {
 	if !stream.IsTombstoned() {
 		return fmt.Errorf("cannot delete stream %s because it is not tombstoned", stream)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.deleteStream(stream)
+	return m.deleteStream(stream, epoch)
 }
 
 // LostLeadership should be called when the server loses metadata leadership.
+// This will cancel in-flight failovers.
 func (m *metadataAPI) LostLeadership() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, report := range m.leaderReports {
-		report.cancel()
-	}
-	m.leaderReports = make(map[*partition]*leaderReport)
+	m.consumerGroupsMu.Lock()
+	defer m.consumerGroupsMu.Unlock()
+	m.resetFailovers()
 }
 
 // deleteStream deletes the stream and the associated on-disk data for it.
-func (m *metadataAPI) deleteStream(stream *stream) error {
+func (m *metadataAPI) deleteStream(stream *stream, epoch uint64) error {
 	err := stream.Delete()
 	if err != nil {
 		return errors.Wrap(err, "failed to delete stream")
@@ -1089,21 +1485,29 @@ func (m *metadataAPI) deleteStream(stream *stream) error {
 		return errors.Wrap(err, "failed to delete stream data directory")
 	}
 
-	m.removeStream(stream)
+	m.removeStream(stream, epoch)
 	return nil
 }
 
-// removeStream removes the stream from the stream store and removes any
-// leaderReports for its partitions.
-func (m *metadataAPI) removeStream(stream *stream) {
+// removeStream removes the stream from the stream store, cancels any
+// in-flight failovers for its partitions, and triggers a rebalance of consumer
+// group assignments.
+func (m *metadataAPI) removeStream(stream *stream, epoch uint64) {
 	delete(m.streams, stream.GetName())
 	for _, partition := range stream.GetPartitions() {
-		report, ok := m.leaderReports[partition]
+		failover, ok := m.partitionFailovers[partition]
 		if ok {
-			report.cancel()
-			delete(m.leaderReports, partition)
+			failover.cancel()
+			delete(m.partitionFailovers, partition)
 		}
 	}
+	m.startGoroutine(func() {
+		m.consumerGroupsMu.RLock()
+		for _, group := range m.consumerGroups {
+			group.StreamDeleted(stream.GetName(), epoch)
+		}
+		m.consumerGroupsMu.RUnlock()
+	})
 }
 
 func (m *metadataAPI) getStreams() []*stream {
@@ -1209,6 +1613,52 @@ func (m *metadataAPI) electNewPartitionLeader(ctx context.Context, partition *pa
 	return nil
 }
 
+// electNewGroupCoordinator selects a new coordinator for the given consumer
+// group and applies this update to the Raft group. This will fail if the
+// current broker is not the metadata leader.
+func (m *metadataAPI) electNewGroupCoordinator(ctx context.Context, group *consumerGroup) *status.Status {
+	brokers, err := m.getClusterServerIDs()
+	if err != nil {
+		return status.New(codes.Internal, err.Error())
+	}
+	var (
+		candidates        = make([]string, 0, len(brokers)-1)
+		oldCoordinator, _ = group.GetCoordinator()
+	)
+	for _, candidate := range brokers {
+		if candidate == oldCoordinator {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		return status.New(codes.FailedPrecondition, "No group coordinator candidates")
+	}
+
+	// Select a new coordinator.
+	coordinator := m.selectGroupCoordinator(candidates)
+
+	// Replicate coordinator change through Raft.
+	op := &proto.RaftLog{
+		Op: proto.Op_CHANGE_CONSUMER_GROUP_COORDINATOR,
+		ChangeConsumerGroupCoordinatorOp: &proto.ChangeConsumerGroupCoordinatorOp{
+			GroupId:     group.GetID(),
+			Coordinator: coordinator,
+		},
+	}
+
+	// Wait on result of replication.
+	future, err := m.getRaft().applyOperation(ctx, op, m.checkChangeGroupCoordinatorPreconditions)
+	if err != nil {
+		return status.New(codes.FailedPrecondition, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to replicate coordinator change: %v", err.Error())
+	}
+
+	return nil
+}
+
 // propagateCreateStream forwards a CreateStream request to the metadata
 // leader. The bool indicates if this server has since become leader and the
 // request should be performed locally. A Status is returned if the propagated
@@ -1218,7 +1668,8 @@ func (m *metadataAPI) propagateCreateStream(ctx context.Context, req *proto.Crea
 		Op:             proto.Op_CREATE_STREAM,
 		CreateStreamOp: req,
 	}
-	return m.propagateRequest(ctx, propagate)
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
 }
 
 // propagateDeleteStream forwards a DeleteStream request to the metadata
@@ -1230,7 +1681,8 @@ func (m *metadataAPI) propagateDeleteStream(ctx context.Context, req *proto.Dele
 		Op:             proto.Op_DELETE_STREAM,
 		DeleteStreamOp: req,
 	}
-	return m.propagateRequest(ctx, propagate)
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
 }
 
 // propagatePauseStream forwards a PauseStream request to the metadata
@@ -1242,7 +1694,8 @@ func (m *metadataAPI) propagatePauseStream(ctx context.Context, req *proto.Pause
 		Op:            proto.Op_PAUSE_STREAM,
 		PauseStreamOp: req,
 	}
-	return m.propagateRequest(ctx, propagate)
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
 }
 
 // propagateResumeStream forwards a ResumeStream request to the metadata
@@ -1254,7 +1707,8 @@ func (m *metadataAPI) propagateResumeStream(ctx context.Context, req *proto.Resu
 		Op:             proto.Op_RESUME_STREAM,
 		ResumeStreamOp: req,
 	}
-	return m.propagateRequest(ctx, propagate)
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
 }
 
 // propagateShrinkISR forwards a ShrinkISR request to the metadata leader. The
@@ -1265,7 +1719,8 @@ func (m *metadataAPI) propagateShrinkISR(ctx context.Context, req *proto.ShrinkI
 		Op:          proto.Op_SHRINK_ISR,
 		ShrinkISROp: req,
 	}
-	return m.propagateRequest(ctx, propagate)
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
 }
 
 // propagateExpandISR forwards a ExpandISR request to the metadata leader. The
@@ -1276,7 +1731,8 @@ func (m *metadataAPI) propagateExpandISR(ctx context.Context, req *proto.ExpandI
 		Op:          proto.Op_EXPAND_ISR,
 		ExpandISROp: req,
 	}
-	return m.propagateRequest(ctx, propagate)
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
 }
 
 // propagateReportLeader forwards a ReportLeader request to the metadata
@@ -1288,7 +1744,8 @@ func (m *metadataAPI) propagateReportLeader(ctx context.Context, req *proto.Repo
 		Op:             proto.Op_REPORT_LEADER,
 		ReportLeaderOp: req,
 	}
-	return m.propagateRequest(ctx, propagate)
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
 }
 
 // propagateSetStreamReadonly forwards a SetStreamReadonly request to the
@@ -1300,22 +1757,71 @@ func (m *metadataAPI) propagateSetStreamReadonly(ctx context.Context, req *proto
 		Op:                  proto.Op_SET_STREAM_READONLY,
 		SetStreamReadonlyOp: req,
 	}
-	return m.propagateRequest(ctx, propagate)
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
+}
+
+// propagateJoinConsumerGroup forwards a JoinConsumerGroup request to the
+// metadata leader. The bool indicates if this server has since become leader
+// and the request should be performed locally. A Status is returned if the
+// propagated request failed.
+func (m *metadataAPI) propagateJoinConsumerGroup(ctx context.Context, req *proto.JoinConsumerGroupOp) (
+	*proto.PropagatedResponse_JoinConsumerGroupResponse, bool, *status.Status) {
+	propagate := &proto.PropagatedRequest{
+		Op:                  proto.Op_JOIN_CONSUMER_GROUP,
+		JoinConsumerGroupOp: req,
+	}
+	resp, isLeader, status := m.propagateRequest(ctx, propagate)
+	if status != nil {
+		return nil, false, status
+	}
+	if isLeader {
+		return nil, true, nil
+	}
+	return resp.JoinConsumerGroupResp, isLeader, status
+}
+
+// propagateLeaveConsumerGroup forwards a LeaveConsumerGroup request to the
+// metadata leader. The bool indicates if this server has since become leader
+// and the request should be performed locally. A Status is returned if the
+// propagated request failed.
+func (m *metadataAPI) propagateLeaveConsumerGroup(ctx context.Context, req *proto.LeaveConsumerGroupOp) (bool, *status.Status) {
+	propagate := &proto.PropagatedRequest{
+		Op:                   proto.Op_LEAVE_CONSUMER_GROUP,
+		LeaveConsumerGroupOp: req,
+	}
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
+}
+
+// propagateReportGroupCoordinator forwards a ReportGroupCoordinator request to
+// the metadata leader. The bool indicates if this server has since become
+// leader and the request should be performed locally. A Status is returned if
+// the propagated request failed.
+func (m *metadataAPI) propagateReportGroupCoordinator(ctx context.Context, req *proto.ReportConsumerGroupCoordinatorOp) (
+	bool, *status.Status) {
+
+	propagate := &proto.PropagatedRequest{
+		Op:                               proto.Op_REPORT_CONSUMER_GROUP_COORDINATOR,
+		ReportConsumerGroupCoordinatorOp: req,
+	}
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
 }
 
 // propagateRequest forwards a metadata request to the metadata leader. The
 // bool indicates if this server has since become leader and the request should
 // be performed locally. A Status is returned if the propagated request failed.
-func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.PropagatedRequest) (bool, *status.Status) {
+func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.PropagatedRequest) (*proto.PropagatedResponse, bool, *status.Status) {
 	// Check if there is currently a metadata leader.
 	isLeader, err := m.waitForMetadataLeader(ctx)
 	if err != nil {
-		return false, status.New(codes.Internal, err.Error())
+		return nil, false, status.New(codes.Internal, err.Error())
 	}
 	// This server has since become metadata leader, so the request should be
 	// performed locally.
 	if isLeader {
-		return true, nil
+		return nil, true, nil
 	}
 
 	data, err := proto.MarshalPropagatedRequest(req)
@@ -1328,19 +1834,19 @@ func (m *metadataAPI) propagateRequest(ctx context.Context, req *proto.Propagate
 
 	resp, err := m.nc.RequestWithContext(ctx, m.getPropagateInbox(), data)
 	if err != nil {
-		return false, status.New(codes.Internal, err.Error())
+		return nil, false, status.New(codes.Internal, err.Error())
 	}
 
 	r, err := proto.UnmarshalPropagatedResponse(resp.Data)
 	if err != nil {
 		m.logger.Errorf("metadata: Invalid response for propagated request: %v", err)
-		return false, status.New(codes.Internal, "invalid response")
+		return nil, false, status.New(codes.Internal, "invalid response")
 	}
 	if r.Error != nil {
-		return false, status.New(codes.Code(r.Error.Code), r.Error.Msg)
+		return nil, false, status.New(codes.Code(r.Error.Code), r.Error.Msg)
 	}
 
-	return false, nil
+	return r, false, nil
 }
 
 // waitForMetadataLeader waits up to the deadline specified on the Context
@@ -1524,6 +2030,70 @@ func (m *metadataAPI) checkChangeLeaderPreconditions(op *proto.RaftLog) error {
 	return m.partitionExists(op.ChangeLeaderOp.Stream, op.ChangeLeaderOp.Partition)
 }
 
+// checkCreateConsumerGroupPreconditions checks if the group to be created
+// already exists. If it does, it returns ErrConsumerGroupExists. If any of the
+// initial members' requested streams do not exist, returns ErrStreamNotFound.
+// Otherwise, it returns nil.
+func (m *metadataAPI) checkCreateConsumerGroupPreconditions(op *proto.RaftLog) error {
+	if group := m.GetConsumerGroup(op.CreateConsumerGroupOp.ConsumerGroup.Id); group != nil {
+		return ErrConsumerGroupExists
+	}
+	for _, member := range op.CreateConsumerGroupOp.ConsumerGroup.Members {
+		for _, streamName := range member.Streams {
+			if stream := m.GetStream(streamName); stream == nil {
+				return ErrStreamNotFound
+			}
+		}
+	}
+	return nil
+}
+
+// checkJoinConsumerGroupPreconditions checks if the group to be joined exists.
+// If it does not, it returns ErrConsumerGroupNotFound. If the consumer is
+// already a member of the group, returns ErrConsumerAlreadyMember. If any of
+// the requested streams do not exist, returns ErrStreamNotFound. Otherwise, it
+// returns nil.
+func (m *metadataAPI) checkJoinConsumerGroupPreconditions(op *proto.RaftLog) error {
+	group := m.GetConsumerGroup(op.JoinConsumerGroupOp.GroupId)
+	if group == nil {
+		return ErrConsumerGroupNotFound
+	}
+	if group.IsMember(op.JoinConsumerGroupOp.ConsumerId) {
+		return ErrConsumerAlreadyMember
+	}
+	for _, streamName := range op.JoinConsumerGroupOp.Streams {
+		if stream := m.GetStream(streamName); stream == nil {
+			return ErrStreamNotFound
+		}
+	}
+	return nil
+}
+
+// checkLeaveConsumerGroupPreconditions checks if the group to be joined
+// exists. If it does not, it returns ErrConsumerGroupNotFound. If the consumer
+// is not a member of the group, returns ErrConsumerNotMember. Otherwise, it
+// returns nil.
+func (m *metadataAPI) checkLeaveConsumerGroupPreconditions(op *proto.RaftLog) error {
+	group := m.GetConsumerGroup(op.LeaveConsumerGroupOp.GroupId)
+	if group == nil {
+		return ErrConsumerGroupNotFound
+	}
+	if !group.IsMember(op.LeaveConsumerGroupOp.ConsumerId) {
+		return ErrConsumerNotMember
+	}
+	return nil
+}
+
+// checkChangeGroupCoordinatorPreconditions checks if the consumer group whose
+// coordinator is being changed exists. If the group doesn't exist, it returns
+// ErrConsumerGroupNotFound. Otherwise, it returns nil.
+func (m *metadataAPI) checkChangeGroupCoordinatorPreconditions(op *proto.RaftLog) error {
+	if group := m.GetConsumerGroup(op.ChangeConsumerGroupCoordinatorOp.GroupId); group == nil {
+		return ErrConsumerGroupNotFound
+	}
+	return nil
+}
+
 // partitionExists indicates if the given partition exists in the stream. If
 // the stream doesn't exist, it returns ErrStreamNotFound. If the partition
 // doesn't exist, it returns ErrPartitionNotFound.
@@ -1550,6 +2120,19 @@ func (m *metadataAPI) selectPartitionLeader(replicas []string) string {
 	m.mu.RUnlock()
 
 	return replicas[0]
+}
+
+// selectGroupCoordinator selects a random broker to act as the coordinator for
+// a consumer group.
+func (m *metadataAPI) selectGroupCoordinator(candidates []string) string {
+	// Order servers by coordinator load.
+	m.consumerGroupsMu.RLock()
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return m.brokerLeaderLoad[candidates[i]] < m.brokerLeaderLoad[candidates[j]]
+	})
+	m.consumerGroupsMu.RUnlock()
+
+	return candidates[0]
 }
 
 // ensureTimeout ensures there is a timeout on the Context. If there is, it

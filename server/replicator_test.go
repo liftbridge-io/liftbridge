@@ -83,6 +83,7 @@ func stopFollowing(t *testing.T, p *partition) {
 
 // Ensure messages are replicated and the partition leader fails over when the
 // leader dies.
+// TODO: This test is flaky, fix it.
 func TestPartitionLeaderFailover(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -108,7 +109,7 @@ func TestPartitionLeaderFailover(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
-	// Configure second server.
+	// Configure third server.
 	s3Config := getTestConfig("c", false, 5052)
 	s3Config.EmbeddedNATS = false
 	s3Config.Clustering.ReplicaMaxLeaderTimeout = time.Second
@@ -130,6 +131,7 @@ func TestPartitionLeaderFailover(t *testing.T) {
 	err = client.CreateStream(ctx, subject, name, lift.ReplicationFactor(3), lift.Partitions(2))
 	require.NoError(t, err)
 
+	waitForPartition(t, 10*time.Second, name, 1, servers...)
 	leader := getPartitionLeader(t, 10*time.Second, name, 1, servers...)
 
 	// Check partition load counts.
@@ -424,13 +426,7 @@ func TestCommitOnRestart(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close()
 
-	// Configure third server.
-	s3Config := getTestConfig("c", false, 5052)
-	s3Config.Clustering.MinISR = 2
-	s3 := runServerWithConfig(t, s3Config)
-	defer s3.Stop()
-
-	servers := []*Server{s1, s2, s3}
+	servers := []*Server{s1, s2}
 
 	// Create stream.
 	name := "foo"
@@ -443,39 +439,51 @@ func TestCommitOnRestart(t *testing.T) {
 	// Wait until the stream is created
 	waitForPartition(t, 5*time.Second, name, 0, servers...)
 
+	// Configure third server.
+	s3Config := getTestConfig("c", false, 5052)
+	s3Config.Clustering.MinISR = 2
+	s3 := runServerWithConfig(t, s3Config)
+	defer s3.Stop()
+
 	// Publish some messages.
 	num := 5
+PublishLoop:
 	for i := 0; i < num; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, err = client.Publish(ctx, name, []byte("hello"), lift.AckPolicyAll())
-		require.NoError(t, err)
+		for retries := 0; retries < 5; retries++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err = client.Publish(ctx, name, []byte("hello"), lift.AckPolicyAll())
+			if err != nil {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			continue PublishLoop
+		}
+		t.Fatal(err)
 	}
 
 	// Kill stream follower.
-	var follower *Server
 	leader := getPartitionLeader(t, 10*time.Second, name, 0, servers...)
-	if leader != s3 {
-		follower = s3
-
+	var follower *Server
+	for i, server := range servers {
+		if server != leader {
+			follower = server
+			servers = append(servers[:i], servers[i+1:]...)
+			break
+		}
 	}
 	follower.Stop()
 
+	require.NoError(t, client.Close())
+	client, err = lift.Connect([]string{"localhost:5052"})
+	require.NoError(t, err)
+	defer client.Close()
+
 	// Publish some more messages.
 	for i := 0; i < num; i++ {
-		// Wrap in a retry since we might have been connected to the server
-		// that was killed.
-		for j := 0; j < 5; j++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_, err = client.Publish(ctx, name, []byte("hello"))
-			if err != nil {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			} else {
-				break
-			}
-		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err = client.Publish(ctx, name, []byte("hello"))
 		require.NoError(t, err)
 	}
 
@@ -485,10 +493,10 @@ func TestCommitOnRestart(t *testing.T) {
 	)
 	if leader == s1 {
 		leaderConfig = s1Config
-		followerConfig = s3Config
+		followerConfig = s2Config
 	} else if leader == s2 {
 		leaderConfig = s2Config
-		followerConfig = s3Config
+		followerConfig = s1Config
 	}
 
 	// Restart the leader.
@@ -502,6 +510,11 @@ func TestCommitOnRestart(t *testing.T) {
 
 	// Wait for stream leader to be elected.
 	getPartitionLeader(t, 10*time.Second, name, 0, leader, follower)
+
+	require.NoError(t, client.Close())
+	client, err = lift.Connect([]string{"localhost:5050", "localhost:5051"})
+	require.NoError(t, err)
+	defer client.Close()
 
 	// Ensure all messages have been committed by reading them back.
 	i := 0

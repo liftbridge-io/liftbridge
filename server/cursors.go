@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -57,7 +57,7 @@ func (c *cursorManager) Initialize() error {
 		partitions[i] = &proto.Partition{
 			Subject:           c.getCursorStreamSubject(),
 			Stream:            cursorsStream,
-			ReplicationFactor: maxReplicationFactor,
+			ReplicationFactor: c.config.CursorsStream.ReplicationFactor,
 			Id:                i,
 		}
 	}
@@ -206,7 +206,7 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 	// TODO: This can likely be made more efficient.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	msgC, errC, cancel, err := c.api.SubscribeInternal(ctx, &client.SubscribeRequest{
+	sub, err := c.api.SubscribeInternal(ctx, &client.SubscribeRequest{
 		Stream:        cursorsStream,
 		Partition:     partitionID,
 		StartPosition: client.StartPosition_EARLIEST,
@@ -215,10 +215,12 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 	if err != nil {
 		return 0, err
 	}
-	defer cancel()
+	defer sub.Close()
 	var (
 		latestOffset = int64(-1)
 		cursor       = new(proto.Cursor)
+		msgC         = sub.Messages()
+		errC         = sub.Errors()
 	)
 	for {
 		select {

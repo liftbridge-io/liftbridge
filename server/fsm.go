@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/dustin/go-humanize/english"
 	"github.com/hashicorp/raft"
@@ -88,14 +87,17 @@ func (s *Server) Apply(l *raft.Log) interface{} {
 		if l.Index == s.latestRecoveredLog.Index {
 			// We've applied all entries up to the latest recovered log, so
 			// recovery is finished. Call finishedRecovery() to start any
-			// recovered streams and delete tombstoned streams.
+			// recovered streams and consumer groups and delete tombstoned
+			// streams.
 			defer func() {
-				count, err := s.finishedRecovery()
+				recoveredStreams, recoveredGroups, err := s.finishedRecovery(l.Index)
 				if err != nil {
 					panic(fmt.Sprintf("failed to recover from Raft log: %v", err))
 				}
-				s.logger.Debugf("fsm: Finished replaying Raft log, recovered %s",
-					english.Plural(count, "stream", ""))
+				s.logger.Debugf("fsm: Finished replaying Raft log, recovered %s and %s",
+					english.Plural(recoveredStreams, "stream", ""),
+					english.Plural(recoveredGroups, "consumer group", ""),
+				)
 			}()
 			s.latestRecoveredLog = nil
 		}
@@ -141,7 +143,7 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 			partition.LeaderEpoch = index
 			partition.Epoch = index
 		}
-		if err := s.applyCreateStream(log.CreateStreamOp.Stream, recovered); err != nil {
+		if err := s.applyCreateStream(log.CreateStreamOp.Stream, recovered, index); err != nil {
 			return nil, err
 		}
 	case proto.Op_SHRINK_ISR:
@@ -175,7 +177,7 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		var (
 			stream = log.DeleteStreamOp.Stream
 		)
-		if err := s.applyDeleteStream(stream, recovered); err != nil {
+		if err := s.applyDeleteStream(stream, recovered, index); err != nil {
 			return nil, err
 		}
 	case proto.Op_PAUSE_STREAM:
@@ -204,6 +206,38 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		if err := s.applyResumeStream(stream, partitions, recovered); err != nil {
 			return nil, err
 		}
+	case proto.Op_CREATE_CONSUMER_GROUP:
+		var (
+			group = log.CreateConsumerGroupOp.ConsumerGroup
+		)
+		if err := s.applyCreateConsumerGroup(group, recovered); err != nil {
+			return nil, err
+		}
+	case proto.Op_JOIN_CONSUMER_GROUP:
+		var (
+			groupID    = log.JoinConsumerGroupOp.GroupId
+			consumerID = log.JoinConsumerGroupOp.ConsumerId
+			streams    = log.JoinConsumerGroupOp.Streams
+		)
+		if err := s.applyJoinConsumerGroup(groupID, consumerID, streams, index); err != nil {
+			return nil, err
+		}
+	case proto.Op_LEAVE_CONSUMER_GROUP:
+		var (
+			groupID    = log.LeaveConsumerGroupOp.GroupId
+			consumerID = log.LeaveConsumerGroupOp.ConsumerId
+		)
+		if err := s.applyLeaveConsumerGroup(groupID, consumerID, index); err != nil {
+			return nil, err
+		}
+	case proto.Op_CHANGE_CONSUMER_GROUP_COORDINATOR:
+		var (
+			groupID     = log.ChangeConsumerGroupCoordinatorOp.GroupId
+			coordinator = log.ChangeConsumerGroupCoordinatorOp.Coordinator
+		)
+		if err := s.applyChangeConsumerGroupCoordinator(groupID, coordinator, index); err != nil {
+			return nil, err
+		}
 	case proto.Op_PUBLISH_ACTIVITY:
 		s.activity.SetLastPublishedRaftIndex(log.PublishActivityOp.RaftIndex)
 	default:
@@ -216,42 +250,55 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 // unapplied log entries.
 func (s *Server) startedRecovery() {
 	if s.config.LogRecovery {
-		return
+		// If LogRecovery is enabled, prefix recovery logs with "-->" so they
+		// are visually distinct.
+		s.logger.Prefix("--> ")
+	} else {
+		// If LogRecovery is disabled, we need to suppress logs while replaying
+		// the Raft log. Do this by discarding the log output.
+		s.logger.Silent(true)
 	}
-	// If LogRecovery is disabled, we need to suppress logs while replaying the
-	// Raft log. Do this by discarding the log output.
-	s.loggerOut = s.logger.Writer()
-	s.logger.SetWriter(ioutil.Discard)
 }
 
 // finishedRecovery should be called when the FSM has finished replaying any
-// unapplied log entries. This will start any stream partitions recovered
-// during the replay and delete any tombstoned streams. It returns the number
-// of streams which had partitions that were recovered.
-func (s *Server) finishedRecovery() (int, error) {
-	// If LogRecovery is disabled, we need to restore the previous log output.
-	if !s.config.LogRecovery {
-		s.logger.SetWriter(s.loggerOut)
+// unapplied log entries. This will start any stream partitions and consumer
+// groups recovered during the replay and delete any tombstoned streams. It
+// returns the number of streams which had partitions that were recovered and
+// the number of consumer groups that were recovered.
+func (s *Server) finishedRecovery(epoch uint64) (int, int, error) {
+	if s.config.LogRecovery {
+		// If LogRecovery is enabled, clear the logging prefix.
+		s.logger.Prefix("")
+	} else {
+		// If LogRecovery is disabled, we need to restore the previous log
+		// output.
+		s.logger.Silent(false)
 	}
 	recoveredStreams := make(map[string]struct{})
 	for _, stream := range s.metadata.GetStreams() {
 		if stream.IsTombstoned() {
-			if err := s.metadata.RemoveTombstonedStream(stream); err != nil {
-				return 0, errors.Wrap(err, "failed to delete tombstoned stream")
+			if err := s.metadata.RemoveTombstonedStream(stream, epoch); err != nil {
+				return 0, 0, errors.Wrap(err, "failed to delete tombstoned stream")
 			}
 			continue
 		}
 		for _, partition := range stream.GetPartitions() {
 			recovered, err := partition.StartRecovered()
 			if err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			if recovered {
 				recoveredStreams[stream.GetName()] = struct{}{}
 			}
 		}
 	}
-	return len(recoveredStreams), nil
+	recoveredGroups := 0
+	for _, group := range s.metadata.GetConsumerGroups() {
+		if group.StartRecovered() {
+			recoveredGroups++
+		}
+	}
+	return len(recoveredStreams), recoveredGroups, nil
 }
 
 // fsmSnapshot is returned by an FSM in response to a Snapshot. It must be safe
@@ -303,7 +350,9 @@ func (f *fsmSnapshot) Release() {}
 func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 	var (
 		streams      = s.metadata.GetStreams()
+		groups       = s.metadata.GetConsumerGroups()
 		protoStreams = make([]*proto.Stream, len(streams))
+		protoGroups  = make([]*proto.ConsumerGroup, len(groups))
 	)
 	for i, stream := range streams {
 		var (
@@ -324,7 +373,27 @@ func (s *Server) Snapshot() (raft.FSMSnapshot, error) {
 		}
 		protoStreams[i] = protoStream
 	}
-	return &fsmSnapshot{&proto.MetadataSnapshot{Streams: protoStreams}}, nil
+	for i, group := range groups {
+		coordinator, epoch := group.GetCoordinator()
+		members := group.GetMembers()
+		protoMembers := make([]*proto.Consumer, 0, len(members))
+		for member, streams := range members {
+			protoMembers = append(protoMembers, &proto.Consumer{
+				Id:      member,
+				Streams: streams,
+			})
+		}
+		protoGroups[i] = &proto.ConsumerGroup{
+			Id:          group.GetID(),
+			Coordinator: coordinator,
+			Epoch:       epoch,
+			Members:     protoMembers,
+		}
+	}
+	return &fsmSnapshot{&proto.MetadataSnapshot{
+		Streams: protoStreams,
+		Groups:  protoGroups,
+	}}, nil
 }
 
 // Restore is used to restore an FSM from a snapshot. It is not called
@@ -355,7 +424,12 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 		return err
 	}
 	for _, stream := range snap.Streams {
-		if err := s.applyCreateStream(stream, false); err != nil {
+		if err := s.applyCreateStream(stream, false, 0); err != nil {
+			return err
+		}
+	}
+	for _, group := range snap.Groups {
+		if err := s.applyCreateConsumerGroup(group, false); err != nil {
 			return err
 		}
 	}
@@ -369,13 +443,13 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 // until after the recovery process completes. If it is not being recovered,
 // the partitions will be started as a leader or follower if applicable. An
 // error is returned if the stream or any of its partitions already exist.
-func (s *Server) applyCreateStream(protoStream *proto.Stream, recovered bool) error {
+func (s *Server) applyCreateStream(protoStream *proto.Stream, recovered bool, epoch uint64) error {
 	// QUESTION: If this broker is not a replica for the stream, can we just
 	// store a "lightweight" representation of the stream (i.e. the protobuf)
 	// for recovery purposes? There is no need to initialize a commit log for
 	// it.
 
-	stream, err := s.metadata.AddStream(protoStream, recovered)
+	stream, err := s.metadata.AddStream(protoStream, recovered, epoch)
 	if err != nil {
 		return errors.Wrap(err, "failed to add stream to metadata store")
 	}
@@ -426,13 +500,13 @@ func (s *Server) applyChangePartitionLeader(stream, leader string, partitionID i
 // being applied during recovery, this will only mark the stream with a
 // tombstone. Tombstoned streams will be deleted after the recovery process
 // completes.
-func (s *Server) applyDeleteStream(streamName string, recovered bool) error {
+func (s *Server) applyDeleteStream(streamName string, recovered bool, epoch uint64) error {
 	stream := s.metadata.GetStream(streamName)
 	if stream == nil {
 		return ErrStreamNotFound
 	}
 
-	err := s.metadata.RemoveStream(stream, recovered)
+	err := s.metadata.RemoveStream(stream, recovered, epoch)
 	if err != nil {
 		return errors.Wrap(err, "failed to delete stream")
 	}
@@ -474,5 +548,62 @@ func (s *Server) applySetStreamReadonly(streamName string, partitions []int32, r
 	}
 
 	s.logger.Debugf("fsm: Set stream %s readonly flag as %v", streamName, readonly)
+	return nil
+}
+
+// applyCreateConsumerGroup adds the given consumer group to the metadata
+// store. An error is returned if the consumer group already exists. If the
+// group is being recovered, the member liveness checks won't be started until
+// after the recovery process completes.
+func (s *Server) applyCreateConsumerGroup(protoGroup *proto.ConsumerGroup, recovered bool) error {
+	group, err := s.metadata.AddConsumerGroup(protoGroup, recovered)
+	if err != nil {
+		return errors.Wrap(err, "failed to add consumer group to metadata store")
+	}
+
+	s.logger.Debugf("fsm: Created consumer group %s", group)
+	return nil
+}
+
+// applyJoinConsumerGroup adds the given consumer to the consumer group. An
+// error is returned if the group does not exist, the consumer is already a
+// member of the group, or any of the provided streams do not exist. If the
+// group is being recovered, the consumer liveness check won't be started until
+// after the recovery process completes.
+func (s *Server) applyJoinConsumerGroup(groupID, consumerID string, streams []string, epoch uint64) error {
+	if err := s.metadata.AddConsumerToGroup(groupID, consumerID, streams, epoch); err != nil {
+		return errors.Wrap(err, "failed to add consumer to consumer group")
+	}
+
+	s.logger.Debugf("fsm: Added consumer %s to consumer group %s", consumerID, groupID)
+	return nil
+}
+
+// applyLeaveConsumerGroup removes the given consumer from the consumer group.
+// An error is returned if the group does not exist or the consumer is not a
+// member of the group.
+func (s *Server) applyLeaveConsumerGroup(groupID, consumerID string, epoch uint64) error {
+	lastMember, err := s.metadata.RemoveConsumerFromGroup(groupID, consumerID, epoch)
+	if err != nil {
+		return errors.Wrap(err, "failed to remove consumer from consumer group")
+	}
+
+	msg := fmt.Sprintf("fsm: Removed consumer %s from consumer group %s", consumerID, groupID)
+	if lastMember {
+		msg += ", deleted group because it is now empty"
+	}
+	s.logger.Debugf(msg)
+	return nil
+}
+
+// applyChangeConsumerGroupCoordinator sets the group's coordinator to the
+// given broker and updates the group epoch. If the group epoch is greater than
+// or equal to the specified epoch, this does nothing.
+func (s *Server) applyChangeConsumerGroupCoordinator(groupID, coordinator string, epoch uint64) error {
+	if err := s.metadata.ChangeGroupCoordinator(groupID, coordinator, epoch); err != nil {
+		return errors.Wrap(err, "failed to change group coordinator")
+	}
+
+	s.logger.Debugf("fsm: Changed coordinator for consumer group %s to %s", groupID, coordinator)
 	return nil
 }
