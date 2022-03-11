@@ -3,9 +3,12 @@
 [![Build][Build-Status-Image]][Build-Status-Url] [![License][License-Image]][License-Url] [![ReportCard][ReportCard-Image]][ReportCard-Url] [![Coverage][Coverage-Image]][Coverage-Url]
 
 Liftbridge provides lightweight, fault-tolerant message streams by implementing
-a durable stream augmentation for the [NATS messaging system](https://nats.io).
-It extends NATS with a Kafka-like publish-subscribe log API that is highly
-available and horizontally scalable. The goal of Liftbridge is to provide a
+a durable, replicated, and scalable message log. The vision for Liftbridge is
+to deliver a "Kafka-lite" solution designed with the Go community first in
+mind. Unlike Kafka, which is built on the JVM and whose canonical client
+library is Java (or the C-based librdkafka), Liftbridge and its canonical
+client, [go-liftbridge](https://github.com/liftbridge-io/go-liftbridge), are
+implemented in Go. The ultimate goal of Liftbridge is to provide a lightweight
 message-streaming solution with a focus on simplicity and usability. Use it as
 a simpler and lighter alternative to systems like Kafka and Pulsar or to add
 streaming semantics to an existing NATS deployment.
