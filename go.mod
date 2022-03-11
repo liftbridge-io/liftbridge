@@ -12,7 +12,7 @@ require (
 	github.com/hashicorp/raft v1.1.2
 	github.com/hashicorp/raft-boltdb/v2 v2.2.0
 	github.com/liftbridge-io/go-liftbridge/v2 v2.2.1-0.20220311002120-3d391a19ff0e
-	github.com/liftbridge-io/liftbridge-api v1.7.2-0.20220311001744-a030bbfca925
+	github.com/liftbridge-io/liftbridge-api v1.8.0
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20200818183806-bb17516cf3a3
 	github.com/natefinch/atomic v1.0.1
 	github.com/nats-io/nats-server/v2 v2.7.2
