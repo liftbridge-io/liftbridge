@@ -13,11 +13,6 @@ builds:
     - amd64
     - 386
     - arm64
-  ignore:
-    - goos: darwin
-      goarch: 386
-    - goos: linux
-      goarch: arm64
 
 changelog:
   skip: true

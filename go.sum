@@ -271,6 +271,8 @@ github.com/kr/text v0.1.0 h1:45sCR5RtlFHMR4UwH9sdQ5TC8v0qDQCHnXt+kaKSTVE=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/liftbridge-io/go-liftbridge/v2 v2.2.1-0.20220311002120-3d391a19ff0e h1:l/PyeLH3bTkmEJDoTnJ+xdgJ6CtpCNWQV26hYYB+q7U=
 github.com/liftbridge-io/go-liftbridge/v2 v2.2.1-0.20220311002120-3d391a19ff0e/go.mod h1:S1uuZVBDDrVOJe5cKpwtteMOTSks1tj0FrSx6AnGiyg=
+github.com/liftbridge-io/gommap v0.0.2 h1:/ilzuhdjMvXNRKZ8/AsPwZyZmNozeW11H71IbiQK7aU=
+github.com/liftbridge-io/gommap v0.0.2/go.mod h1:TXPD2xzjwihzHWYU3t1N1iJClNo6XCkacp9vrTgMkDg=
 github.com/liftbridge-io/liftbridge-api v1.7.2-0.20220311001744-a030bbfca925/go.mod h1:VKUkozs5yuD0jcJH8cALCPV1WdmncwXgkv8wX/ay35g=
 github.com/liftbridge-io/liftbridge-api v1.8.0 h1:qC3pcQvOfRhWEVD4zWgvLRSEi5QqFg8UDA9bNnBgvbs=
 github.com/liftbridge-io/liftbridge-api v1.8.0/go.mod h1:VKUkozs5yuD0jcJH8cALCPV1WdmncwXgkv8wX/ay35g=
@@ -420,8 +422,6 @@ github.com/subosito/gotenv v1.2.0 h1:Slr1R9HxAlEKefgq5jn9U+DnETlIUa6HfgEzj0g5d7s
 github.com/subosito/gotenv v1.2.0/go.mod h1:N0PQaV/YGNqwC0u51sEeR/aUtSLEXKX9iv69rRypqCw=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5/go.mod h1:ncp9v5uamzpCO7NfCPTXjqaC+bZgJeR0sMTm6dMHP7U=
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
-github.com/tysonmote/gommap v0.0.1 h1:62U1lazHjXy0mm40WuTeoANPKZYSxl/vbElcb2i8hTc=
-github.com/tysonmote/gommap v0.0.1/go.mod h1:zZKhSp7mLDDzdl8MHbaDEJ3PH9VibPlFXV1t+4wmC00=
 github.com/urfave/cli v1.22.4 h1:u7tSpNPPswAFymm8IehJhy4uJMlUuU/GmqSkvJ1InXA=
 github.com/urfave/cli v1.22.4/go.mod h1:Gos4lmkARVdJ6EkW0WaNv/tZAAMe9V7XWyB60NtXRu0=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
