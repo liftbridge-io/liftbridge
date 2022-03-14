@@ -862,7 +862,7 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	p.isLeading = true
 	p.isFollowing = false
 
-	// Notify the cursor manager if we've come leader for a cursor partition.
+	// Notify the cursor manager if we've become leader for a cursor partition.
 	if p.Stream == cursorsStream {
 		p.srv.cursors.BecomePartitionLeader()
 	}
