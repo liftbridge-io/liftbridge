@@ -84,8 +84,6 @@ func (c *cursorManager) Initialize() error {
 func (c *cursorManager) BecomePartitionLeader() {
 	// Clear the cache when we become leader to avoid serving potentially stale
 	// cursors.
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.cache.Purge()
 }
 
