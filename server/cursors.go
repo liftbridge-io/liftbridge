@@ -103,7 +103,7 @@ func (c *cursorManager) SetCursor(ctx context.Context, streamName, cursorID stri
 	if partition == nil {
 		return status.Newf(codes.Internal, "Cursors partition %d does not exist", cursorsPartitionID)
 	}
-	if !partition.IsLeader() {
+	if leader, _ := partition.GetLeader(); leader != c.config.Clustering.ServerID {
 		return status.New(codes.FailedPrecondition, "Server not cursor partition leader")
 	}
 
@@ -160,7 +160,7 @@ func (c *cursorManager) GetCursor(ctx context.Context, streamName, cursorID stri
 	if partition == nil {
 		return 0, status.Newf(codes.Internal, "Cursors partition %d does not exist", cursorsPartitionID)
 	}
-	if !partition.IsLeader() {
+	if leader, _ := partition.GetLeader(); leader != c.config.Clustering.ServerID {
 		return 0, status.New(codes.FailedPrecondition, "Server not cursor partition leader")
 	}
 
