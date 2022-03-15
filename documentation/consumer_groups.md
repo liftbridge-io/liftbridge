@@ -26,8 +26,8 @@ consumer in the group can pick up where they left off.
 
 Group coordinators are also highly available. If a server acting as the group
 coordinator becomes unavailable, the consumers will report the coordinator as
-failed to the [controller](#controller), prompting a new coordinator to be
-selected.
+failed to the [controller](./concepts.md#controller), prompting a new
+coordinator to be selected.
 
 Consumer groups are associated with an ID. When a consumer is created, it
 specifies a group ID to join. If the group does not exist, it is created
