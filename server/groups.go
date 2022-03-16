@@ -351,7 +351,14 @@ func (c *consumerGroup) GetAssignments(consumerID string, epoch uint64) (
 	}
 	member.timer.Reset(c.consumerTimeout)
 
-	return member.assignments, c.epoch, nil
+	assignments := make(partitionAssignments, len(member.assignments))
+	for stream, partitions := range member.assignments {
+		partitionAssignments := make([]int32, len(partitions))
+		copy(partitionAssignments, partitions)
+		assignments[stream] = partitionAssignments
+	}
+
+	return assignments, c.epoch, nil
 }
 
 // Close should be called when the consumer group is being deleted.
