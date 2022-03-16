@@ -213,6 +213,7 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 		event.LeaveConsumerGroupOp = &client.LeaveConsumerGroupOp{
 			GroupId:    log.LeaveConsumerGroupOp.GroupId,
 			ConsumerId: log.LeaveConsumerGroupOp.ConsumerId,
+			Expired:    log.LeaveConsumerGroupOp.Expired,
 		}
 	default:
 		return nil

@@ -125,6 +125,7 @@ message JoinConsumerGroupOp {
 message LeaveConsumerGroupOp {
     string groupId    = 1;
     string consumerId = 2;
+    bool   expired    = 3; // If consumer was removed because they timed out.
 }
 
 message NullableInt64 {

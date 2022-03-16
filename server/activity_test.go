@@ -474,6 +474,7 @@ func TestActivityStreamJoinLeaveConsumerGroup(t *testing.T) {
 		require.Equal(t, liftApi.ActivityStreamOp_LEAVE_CONSUMER_GROUP, se.GetOp())
 		require.Equal(t, group, se.LeaveConsumerGroupOp.GetGroupId())
 		require.Equal(t, consumer1, se.LeaveConsumerGroupOp.GetConsumerId())
+		require.False(t, se.LeaveConsumerGroupOp.GetExpired())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected message")
 	}
