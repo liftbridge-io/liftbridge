@@ -316,6 +316,36 @@
       },
       "version-v1.7.1/version-v1.7.1-quick-start": {
         "title": "Quick Start"
+      },
+      "version-v1.8.0/version-v1.8.0-concepts": {
+        "title": "Concepts"
+      },
+      "version-v1.8.0/version-v1.8.0-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.8.0/version-v1.8.0-consumer-groups": {
+        "title": "Consumer Groups"
+      },
+      "version-v1.8.0/version-v1.8.0-cursors": {
+        "title": "Cursors"
+      },
+      "version-v1.8.0/version-v1.8.0-faq": {
+        "title": "Frequently Asked Questions"
+      },
+      "version-v1.8.0/version-v1.8.0-feature-comparison": {
+        "title": "Feature Comparison"
+      },
+      "version-v1.8.0/version-v1.8.0-overview": {
+        "title": "Liftbridge Overview"
+      },
+      "version-v1.8.0/version-v1.8.0-quick-start": {
+        "title": "Quick Start"
+      },
+      "version-v1.8.0/version-v1.8.0-roadmap": {
+        "title": "Product Roadmap"
+      },
+      "version-v1.8.0/version-v1.8.0-scalability-configuration": {
+        "title": "Configuring for Scalability"
       }
     },
     "links": {
