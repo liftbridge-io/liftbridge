@@ -151,52 +151,69 @@ func (a *activityManager) handleRaftLog(l *raft.Log) error {
 	if err := log.Unmarshal(l.Data); err != nil {
 		panic(err)
 	}
-	var event *client.ActivityStreamEvent
+	event := new(client.ActivityStreamEvent)
 	switch log.Op {
 	case proto.Op_CREATE_STREAM:
 		partitions := make([]int32, len(log.CreateStreamOp.Stream.Partitions))
 		for i, partition := range log.CreateStreamOp.Stream.Partitions {
 			partitions[i] = partition.Id
 		}
-		event = &client.ActivityStreamEvent{
-			Op: client.ActivityStreamOp_CREATE_STREAM,
-			CreateStreamOp: &client.CreateStreamOp{
-				Stream:     log.CreateStreamOp.Stream.Name,
-				Partitions: partitions,
-			},
+		event.Op = client.ActivityStreamOp_CREATE_STREAM
+		event.CreateStreamOp = &client.CreateStreamOp{
+			Stream:     log.CreateStreamOp.Stream.Name,
+			Partitions: partitions,
 		}
 	case proto.Op_DELETE_STREAM:
-		event = &client.ActivityStreamEvent{
-			Op: client.ActivityStreamOp_DELETE_STREAM,
-			DeleteStreamOp: &client.DeleteStreamOp{
-				Stream: log.DeleteStreamOp.Stream,
-			},
+		event.Op = client.ActivityStreamOp_DELETE_STREAM
+		event.DeleteStreamOp = &client.DeleteStreamOp{
+			Stream: log.DeleteStreamOp.Stream,
 		}
 	case proto.Op_PAUSE_STREAM:
-		event = &client.ActivityStreamEvent{
-			Op: client.ActivityStreamOp_PAUSE_STREAM,
-			PauseStreamOp: &client.PauseStreamOp{
-				Stream:     log.PauseStreamOp.Stream,
-				Partitions: log.PauseStreamOp.Partitions,
-				ResumeAll:  log.PauseStreamOp.ResumeAll,
-			},
+		event.Op = client.ActivityStreamOp_PAUSE_STREAM
+		event.PauseStreamOp = &client.PauseStreamOp{
+			Stream:     log.PauseStreamOp.Stream,
+			Partitions: log.PauseStreamOp.Partitions,
+			ResumeAll:  log.PauseStreamOp.ResumeAll,
 		}
 	case proto.Op_RESUME_STREAM:
-		event = &client.ActivityStreamEvent{
-			Op: client.ActivityStreamOp_RESUME_STREAM,
-			ResumeStreamOp: &client.ResumeStreamOp{
-				Stream:     log.ResumeStreamOp.Stream,
-				Partitions: log.ResumeStreamOp.Partitions,
-			},
+		event.Op = client.ActivityStreamOp_RESUME_STREAM
+		event.ResumeStreamOp = &client.ResumeStreamOp{
+			Stream:     log.ResumeStreamOp.Stream,
+			Partitions: log.ResumeStreamOp.Partitions,
 		}
 	case proto.Op_SET_STREAM_READONLY:
-		event = &client.ActivityStreamEvent{
-			Op: client.ActivityStreamOp_SET_STREAM_READONLY,
-			SetStreamReadonlyOp: &client.SetStreamReadonlyOp{
-				Stream:     log.SetStreamReadonlyOp.Stream,
-				Partitions: log.SetStreamReadonlyOp.Partitions,
-				Readonly:   log.SetStreamReadonlyOp.Readonly,
-			},
+		event.Op = client.ActivityStreamOp_SET_STREAM_READONLY
+		event.SetStreamReadonlyOp = &client.SetStreamReadonlyOp{
+			Stream:     log.SetStreamReadonlyOp.Stream,
+			Partitions: log.SetStreamReadonlyOp.Partitions,
+			Readonly:   log.SetStreamReadonlyOp.Readonly,
+		}
+	case proto.Op_CREATE_CONSUMER_GROUP:
+		// Members on create should always contain a single consumer.
+		members := log.CreateConsumerGroupOp.ConsumerGroup.Members
+		if len(members) == 0 {
+			return nil
+		}
+		// Treat this as a join since it bootstraps the group.
+		event.Op = client.ActivityStreamOp_JOIN_CONSUMER_GROUP
+		event.JoinConsumerGroupOp = &client.JoinConsumerGroupOp{
+			GroupId:    log.CreateConsumerGroupOp.ConsumerGroup.Id,
+			ConsumerId: members[0].Id,
+			Streams:    members[0].Streams,
+		}
+	case proto.Op_JOIN_CONSUMER_GROUP:
+		event.Op = client.ActivityStreamOp_JOIN_CONSUMER_GROUP
+		event.JoinConsumerGroupOp = &client.JoinConsumerGroupOp{
+			GroupId:    log.JoinConsumerGroupOp.GroupId,
+			ConsumerId: log.JoinConsumerGroupOp.ConsumerId,
+			Streams:    log.JoinConsumerGroupOp.Streams,
+		}
+	case proto.Op_LEAVE_CONSUMER_GROUP:
+		event.Op = client.ActivityStreamOp_LEAVE_CONSUMER_GROUP
+		event.LeaveConsumerGroupOp = &client.LeaveConsumerGroupOp{
+			GroupId:    log.LeaveConsumerGroupOp.GroupId,
+			ConsumerId: log.LeaveConsumerGroupOp.ConsumerId,
+			Expired:    log.LeaveConsumerGroupOp.Expired,
 		}
 	default:
 		return nil

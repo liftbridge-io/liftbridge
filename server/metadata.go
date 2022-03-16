@@ -958,6 +958,7 @@ func (m *metadataAPI) removeConsumerGroupMember(groupID, consumerID string) erro
 	req := &proto.LeaveConsumerGroupOp{
 		GroupId:    groupID,
 		ConsumerId: consumerID,
+		Expired:    true,
 	}
 	if err := m.LeaveConsumerGroup(context.Background(), req); err != nil {
 		return err.Err()
