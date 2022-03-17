@@ -62,7 +62,7 @@ Liftbridge identifies clients thanks to TLS certificates. Thus, in order to use 
 
 See the [above section](#authentication) to properly enable authentication.
 
-In order to define permissions for clients on specific resources, a `model.conf` file and a `policy.csv` file is required. The `model.conf` file will define the ACL based authorization models. The `policy.csv` serves as a local file-based storage for authorization policies. Currently polices are not yet syncrhonized or persisted automatically accross Liftbridge cluster. Support for this may be provided in the future.
+In order to define permissions for clients on specific resources, a `model.conf` file and a `policy.csv` file is required. The `model.conf` file will define the ACL based authorization models. The `policy.csv` serves as a local file-based storage for authorization policies. Currently polices are not yet synchronized or persisted automatically acrosss Liftbridge cluster. Support for this may be provided in the future.
 
 Refer to the `tls` settings in
 [Configuration](./configuration.md#configuration-settings) for more details.
@@ -121,6 +121,6 @@ In this example, `client1` is authorized to perform a set of actions on stream `
 **NOTE**: 
 - In order to connect to a server, the client will systematically call `FetchMetadata` to fetch servers's connection metadata. Thus, a client must always have `FetchMetadata` permission on resource `*`. 
 - In order to use `cursor`, the client must also have permissions on stream `__cursors`.
-- `policy.csv` is the local file to store orization policy. A corrupted file may result in API fails to server requests (due to policy configuration errors), or API crashes ( if the `policy.csv` is totally corrupted).
+- `policy.csv` is the local file to store authorization policy. A corrupted file may result in API fails to server requests (due to policy configuration errors), or API crashes ( if the `policy.csv` is totally corrupted).
 
-As mentioned, currently Liftbridge does not sync policies accross server nodes in the cluster, so the permission is given local on the given server node. To add/remove a policy, the `policy.csv` file has to be modified manually. However, as Liftbridge does reload the file on the flight, the server does not have to be restarted after changes applied on `policy.csv` file.
+As mentioned, currently Liftbridge does not sync policies acrosss server nodes in the cluster, so the permission is given local on the given server node. To add/remove a policy, the `policy.csv` file has to be modified manually. However, as Liftbridge does reload the file on the flight, the server does not have to be restarted after changes applied on `policy.csv` file.

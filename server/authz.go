@@ -12,16 +12,19 @@ import (
 // addUserContext parses client ID from context and set client ID in context
 func addUserContext(ctx context.Context) context.Context {
 	p, ok := peer.FromContext(ctx)
-	if ok {
-		if p.AuthInfo == nil {
-			return ctx
-		}
-		tlsInfo := p.AuthInfo.(credentials.TLSInfo)
-		clientName := tlsInfo.State.VerifiedChains[0][0].Subject.CommonName
-		derivedCtx := context.WithValue(ctx, "clientID", clientName)
-		return derivedCtx
+
+	if !ok || p.AuthInfo == nil {
+		return ctx
 	}
-	return ctx
+
+	tlsInfo := p.AuthInfo.(credentials.TLSInfo)
+
+	if len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
+		return ctx
+	}
+
+	clientName := tlsInfo.State.VerifiedChains[0][0].Subject.CommonName
+	return context.WithValue(ctx, "clientID", clientName)
 
 }
 

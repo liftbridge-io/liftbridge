@@ -33,7 +33,7 @@ type apiServer struct {
 }
 
 // enforce authorization policy per action/subject/object
-func (a *apiServer) enforcePolicy(subject string, object string, action string) (bool, error) {
+func (a *apiServer) enforcePolicy(subject, object, action string) (bool, error) {
 	// Load policy data
 	// [NOTE] casbin raise a panic if it fails to load the policy, i.e: policy file is corrupted,
 	// Refer to issue: https://github.com/casbin/casbin/issues/640
@@ -533,6 +533,11 @@ func (a *apiServer) ensureAuthorizationPermission(ctx context.Context, stream st
 	// Verify authorization permissions
 	if a.config.TLSClientAuthz {
 		clientID, _ := ctx.Value("clientID").(string)
+
+		if clientID == "" {
+			return errors.New("api: Failed to retrieve client ID")
+		}
+
 		ok, err := a.enforcePolicy(clientID, stream, apiMethod)
 		if err != nil {
 			a.logger.Errorf("api: Failed to enforce policy")
