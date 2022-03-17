@@ -18,9 +18,15 @@ how the scalability of these two concerns interrelate.
 There are a few different ways streams can be scaled in Liftbridge. These
 different approaches are discussed [here](./concepts.md#scalability). To
 summarize, both stream data and consumption can be scaled horizontally by
-adding additional nodes to the cluster along with additional streams or stream
-partitioning. However, adding nodes to the cluster has implications with the
-metadata Raft cluster used by the control plane. This is discussed below.
+adding additional nodes to the cluster along with additional streams or
+[stream partitioning](./concepts.md#streams-and-partitions). However, adding
+nodes to the cluster has implications with the metadata Raft cluster used by
+the control plane. This is discussed below.
+
+Stream partitioning provides increased parallelism which allows for greater
+throughput of messages. [Consumer groups](./consumer_groups.md) provide a means
+for coordinating and balancing the consumption of partitions across a set of
+consumers.
 
 ## Scaling the Control Plane
 

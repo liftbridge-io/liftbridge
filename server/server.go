@@ -1,11 +1,9 @@
 package server
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -43,6 +41,9 @@ const (
 	cursorsStream       = "__cursors"
 )
 
+// reservedStreams contains reserved internal stream names.
+var reservedStreams = []string{activityStream, cursorsStream}
+
 // RaftLog represents an entry into the Raft log.
 type RaftLog struct {
 	*raft.Log
@@ -66,7 +67,6 @@ type Server struct {
 	ncAcks             *nats.Conn
 	ncPublishes        *nats.Conn
 	logger             logger.Logger
-	loggerOut          io.Writer
 	grpcServer         *grpc.Server
 	api                *apiServer
 	metadata           *metadataAPI
@@ -104,7 +104,7 @@ func New(config *Config) *Server {
 	}
 	logger := logger.NewLogger(config.LogLevel)
 	if config.LogSilent {
-		logger.SetWriter(ioutil.Discard)
+		logger.Silent(true)
 	}
 	s := &Server{
 		config:          config,
@@ -649,137 +649,6 @@ func (s *Server) leadershipLost(raft *raftNode) error {
 
 	raft.setLeader(false)
 	return nil
-}
-
-// getPropagateInbox returns the NATS subject used for handling propagated Raft
-// operations. The server subscribes to this when it is the metadata leader.
-// Followers can then forward operations for the leader to apply.
-func (s *Server) getPropagateInbox() string {
-	return fmt.Sprintf("%s.propagate", s.baseMetadataRaftSubject())
-}
-
-// handlePropagatedRequest is a NATS handler used to process propagated Raft
-// operations from followers in the Raft cluster. This is activated when the
-// server becomes the metadata leader. If, for some reason, the server receives
-// a forwarded operation and loses leadership at the same time, the operation
-// will fail when it's proposed to the Raft cluster.
-func (s *Server) handlePropagatedRequest(m *nats.Msg) {
-	var (
-		req, err = proto.UnmarshalPropagatedRequest(m.Data)
-		resp     *proto.PropagatedResponse
-	)
-	if err != nil {
-		s.logger.Warnf("Invalid propagated request: %v", err)
-		return
-	}
-	switch req.Op {
-	case proto.Op_CREATE_STREAM:
-		resp = s.handleCreateStream(req)
-	case proto.Op_SHRINK_ISR:
-		resp = s.handleShrinkISR(req)
-	case proto.Op_EXPAND_ISR:
-		resp = s.handleExpandISR(req)
-	case proto.Op_REPORT_LEADER:
-		resp = s.handleReportLeader(req)
-	case proto.Op_DELETE_STREAM:
-		resp = s.handleDeleteStream(req)
-	case proto.Op_PAUSE_STREAM:
-		resp = s.handlePauseStream(req)
-	case proto.Op_RESUME_STREAM:
-		resp = s.handleResumeStream(req)
-	case proto.Op_SET_STREAM_READONLY:
-		resp = s.handleSetStreamReadonly(req)
-	default:
-		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
-		return
-	}
-	data, err := proto.MarshalPropagatedResponse(resp)
-	if err != nil {
-		panic(err)
-	}
-	if err := m.Respond(data); err != nil {
-		s.logger.Errorf("Failed to respond to propagated request: %v", err)
-	}
-}
-
-func (s *Server) handleCreateStream(req *proto.PropagatedRequest) *proto.PropagatedResponse {
-	resp := &proto.PropagatedResponse{
-		Op: req.Op,
-	}
-	if err := s.metadata.CreateStream(context.Background(), req.CreateStreamOp); err != nil {
-		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-	}
-	return resp
-}
-
-func (s *Server) handleShrinkISR(req *proto.PropagatedRequest) *proto.PropagatedResponse {
-	resp := &proto.PropagatedResponse{
-		Op: req.Op,
-	}
-	if err := s.metadata.ShrinkISR(context.Background(), req.ShrinkISROp); err != nil {
-		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-	}
-	return resp
-}
-
-func (s *Server) handleExpandISR(req *proto.PropagatedRequest) *proto.PropagatedResponse {
-	resp := &proto.PropagatedResponse{
-		Op: req.Op,
-	}
-	if err := s.metadata.ExpandISR(context.Background(), req.ExpandISROp); err != nil {
-		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-	}
-	return resp
-}
-
-func (s *Server) handleReportLeader(req *proto.PropagatedRequest) *proto.PropagatedResponse {
-	resp := &proto.PropagatedResponse{
-		Op: req.Op,
-	}
-	if err := s.metadata.ReportLeader(context.Background(), req.ReportLeaderOp); err != nil {
-		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-	}
-	return resp
-}
-
-func (s *Server) handleDeleteStream(req *proto.PropagatedRequest) *proto.PropagatedResponse {
-	resp := &proto.PropagatedResponse{
-		Op: req.Op,
-	}
-	if err := s.metadata.DeleteStream(context.Background(), req.DeleteStreamOp); err != nil {
-		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-	}
-	return resp
-}
-
-func (s *Server) handlePauseStream(req *proto.PropagatedRequest) *proto.PropagatedResponse {
-	resp := &proto.PropagatedResponse{
-		Op: req.Op,
-	}
-	if err := s.metadata.PauseStream(context.Background(), req.PauseStreamOp); err != nil {
-		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-	}
-	return resp
-}
-
-func (s *Server) handleResumeStream(req *proto.PropagatedRequest) *proto.PropagatedResponse {
-	resp := &proto.PropagatedResponse{
-		Op: req.Op,
-	}
-	if err := s.metadata.ResumeStream(context.Background(), req.ResumeStreamOp); err != nil {
-		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-	}
-	return resp
-}
-
-func (s *Server) handleSetStreamReadonly(req *proto.PropagatedRequest) *proto.PropagatedResponse {
-	resp := &proto.PropagatedResponse{
-		Op: req.Op,
-	}
-	if err := s.metadata.SetStreamReadonly(context.Background(), req.SetStreamReadonlyOp); err != nil {
-		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
-	}
-	return resp
 }
 
 func (s *Server) isShutdown() bool {

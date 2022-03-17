@@ -39,7 +39,7 @@ func TestMetadataAddStreamNoPartitions(t *testing.T) {
 	metadata := newMetadataAPI(server)
 	defer metadata.Reset()
 
-	_, err := metadata.AddStream(new(proto.Stream), false)
+	_, err := metadata.AddStream(new(proto.Stream), false, 0)
 	require.Error(t, err)
 }
 
@@ -61,7 +61,7 @@ func TestMetadataAddStreamAlreadyExists(t *testing.T) {
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 0)
 	require.NoError(t, err)
 
 	_, err = metadata.AddStream(&proto.Stream{
@@ -74,7 +74,7 @@ func TestMetadataAddStreamAlreadyExists(t *testing.T) {
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 1)
 	require.Equal(t, ErrStreamExists, err)
 }
 
@@ -96,7 +96,7 @@ func TestMetadataAddPartitionAlreadyExists(t *testing.T) {
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 0)
 	require.NoError(t, err)
 
 	err = metadata.addPartition(stream, &proto.Partition{
@@ -139,7 +139,7 @@ func TestMetadataResumePartitionPartitionNotFound(t *testing.T) {
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 0)
 	require.NoError(t, err)
 
 	_, err = metadata.ResumePartition("foo", 1, false)
@@ -197,7 +197,7 @@ func TestMetadataCheckResumeStreamPreconditionsPartitionNotFound(t *testing.T) {
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 0)
 	require.NoError(t, err)
 
 	err = metadata.checkResumeStreamPreconditions(&proto.RaftLog{
@@ -226,7 +226,7 @@ func TestMetadataPartitionExistsPartitionNotFound(t *testing.T) {
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 0)
 	require.NoError(t, err)
 
 	err = metadata.partitionExists("foo", 1)
@@ -277,7 +277,7 @@ func TestMetadataCheckSetStreamReadonlyPreconditionsPartitionNotFound(t *testing
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 0)
 	require.NoError(t, err)
 
 	err = metadata.checkSetStreamReadonlyPreconditions(&proto.RaftLog{
@@ -306,7 +306,7 @@ func TestFetchPartitionMetadata(t *testing.T) {
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 0)
 	require.NoError(t, err)
 
 	// Monkey patch partition leader as FetchPartitionMetadata does not process
@@ -360,7 +360,7 @@ func TestFetchPartitionMetadataNotLeader(t *testing.T) {
 				Id:      0,
 			},
 		},
-	}, false)
+	}, false, 0)
 	require.NoError(t, err)
 
 	req := &client.FetchPartitionMetadataRequest{
@@ -433,7 +433,7 @@ func TestMetadataGetPartitionReplicas(t *testing.T) {
 				Leader:   "b",
 			},
 		},
-	}, true)
+	}, true, 0)
 	require.NoError(t, err)
 
 	_, err = metadata.AddStream(&proto.Stream{
@@ -462,7 +462,7 @@ func TestMetadataGetPartitionReplicas(t *testing.T) {
 				Leader:   "a",
 			},
 		},
-	}, true)
+	}, true, 1)
 	require.NoError(t, err)
 
 	_, err = metadata.AddStream(&proto.Stream{
@@ -477,7 +477,7 @@ func TestMetadataGetPartitionReplicas(t *testing.T) {
 				Leader:   "c",
 			},
 		},
-	}, true)
+	}, true, 2)
 	require.NoError(t, err)
 
 	// Partition load:
@@ -546,7 +546,7 @@ func TestMetadataSelectPartitionLeader(t *testing.T) {
 				Leader:   "b",
 			},
 		},
-	}, true)
+	}, true, 0)
 	require.NoError(t, err)
 
 	// Partition leader load:
@@ -584,7 +584,7 @@ func TestMetadataSelectPartitionLeader(t *testing.T) {
 				Leader:   "b",
 			},
 		},
-	}, true)
+	}, true, 1)
 	require.NoError(t, err)
 
 	// Partition leader load:

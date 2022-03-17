@@ -37,7 +37,7 @@ func assertMsg(t *testing.T, expected *message, msg *lift.Message) {
 }
 
 // Ensure creating a stream works, and it returns an error when creating the
-// same stream.
+// same stream or creating a stream that is reserved.
 func TestCreateStream(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -58,6 +58,10 @@ func TestCreateStream(t *testing.T) {
 	// Creating the same stream returns ErrStreamExists.
 	err = client.CreateStream(context.Background(), "foo", "bar")
 	require.Equal(t, lift.ErrStreamExists, err)
+
+	// Creating a reserved stream fails.
+	err = client.CreateStream(context.Background(), "foo", cursorsStream)
+	require.Error(t, err)
 }
 
 // Ensure creating a stream works when we send the request to the metadata
@@ -226,7 +230,8 @@ func TestSubscribeStreamNoSuchStream(t *testing.T) {
 	require.Contains(t, err.Error(), "No such partition")
 }
 
-// Ensure getting a deleted stream returns nil.
+// Ensure getting a deleted stream returns nil and deleting a reserved stream
+// returns an error.
 func TestDeleteStream(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -280,6 +285,10 @@ func TestDeleteStream(t *testing.T) {
 
 	err = client.CreateStream(context.Background(), "foo", "foo", lift.Partitions(3))
 	require.NoError(t, err)
+
+	// Deleting a reserved stream fails.
+	err = client.DeleteStream(context.Background(), cursorsStream)
+	require.Error(t, err)
 }
 
 // Ensure deleting a stream works when we send the request to the metadata
@@ -784,17 +793,17 @@ func TestSubscribePartitionDeleted(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
-	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	sub, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req)
 	require.Nil(t, status)
 
 	require.NoError(t, stream.Delete())
 
 	select {
-	case status := <-statusCh:
+	case status := <-sub.Errors():
 		require.Equal(t, codes.NotFound, status.Code())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected status")
@@ -818,18 +827,18 @@ func TestSubscribePartitionPaused(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
-	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	sub, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req)
 	require.Nil(t, status)
 
 	_, err = stream.Pause(nil, true)
 	require.NoError(t, err)
 
 	select {
-	case status := <-statusCh:
+	case status := <-sub.Errors():
 		require.Equal(t, codes.FailedPrecondition, status.Code())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected status")
@@ -852,17 +861,17 @@ func TestSubscribePartitionClosed(t *testing.T) {
 			},
 		},
 	}
-	stream, err := server.metadata.AddStream(streamProto, true)
+	stream, err := server.metadata.AddStream(streamProto, true, 0)
 	require.NoError(t, err)
 
 	req := &proto.SubscribeRequest{StartPosition: proto.StartPosition_NEW_ONLY}
-	_, statusCh, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req, make(chan struct{}))
+	sub, status := api.subscribe(context.Background(), stream.GetPartitions()[0], req)
 	require.Nil(t, status)
 
 	require.NoError(t, stream.Close())
 
 	select {
-	case status := <-statusCh:
+	case status := <-sub.Errors():
 		require.Equal(t, codes.Internal, status.Code())
 	case <-time.After(5 * time.Second):
 		t.Fatal("Did not receive expected status")

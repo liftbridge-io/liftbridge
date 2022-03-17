@@ -124,8 +124,10 @@ to the log.
 > Also, a paused or starved consumer, potentially a Pod in Kubernetes, like the
 > potential reporting consumer, could easily pick up where it left off when
 > things slow down. Consumers may use [cursors](./cursors.md) to track their
-> state, i.e. the offset. In the future, Liftbridge will support durable
-> consumer groups which will allow consumers to eschew cursor management.
+> state, i.e. the offset. However, the preferred pattern for tracking state is
+> to use [consumer groups](./consumer_groups.md). Consumer groups can be used
+> to implement [durable consumers](./consumer_groups.md#durable-consumer),
+> which transparently handle cursor management.
 
 ### Scalability
 
@@ -303,18 +305,18 @@ is no bookkeeping done by the server, aside from the in-memory objects tied to
 the lifecycle of the subscription. As a result, the server does not track the
 position of a client in the log beyond the scope of a subscription. Instead,
 Liftbridge provides a [cursors](./cursors.md) API which allows consumers to
-checkpoint their position in the log and pick up where they left off. Stateful
-consumer groups will be coming in the near future which will provide a more
-managed solution to fault-tolerant consumption of streams.
+checkpoint their position in the log and pick up where they left off. The
+cursors API is used by stateful [consumer groups](./consumer_groups.md) which
+provide a more managed solution to fault-tolerant consumption of streams.
 
 > **Architect's Note**
 >
 > This ties back to the previously described reporting worker starved but
 > clinging to an *offset* so as not to lose probable state. With _cursors_, the
 > reporting worker can be restarted without state but can resume from where it
-> left off due to state stored by the server via the cursors API. When stateful
-> consumer groups are implemented, this will be entirely transparent to the
-> consumer.
+> left off due to state stored by the server via the cursors API. With
+> _consumer groups_, which maintain state, this would be entirely transparent
+> to the consumer.
 
 ### Stream Retention and Compaction
 
@@ -332,6 +334,35 @@ for each unique key. Messages that do not have a key are always retained.
 > From an architectural point of view, the choice here is to compact as much as
 > possible without losing state (aggregation of events). Lineage is taken care
 > of by the stream log if stored, for example, in an S3 bucket.
+
+## Consumer Groups
+
+Consumer groups provide higher-level consumer functionality that can be used to
+solve several related problems:
+
+1. Provide a mechanism for clients to track their position in a stream
+   automatically, i.e. "durable" consumers. This builds on
+   [cursors](./cursors.md) such that cursor management is transparent to users.
+2. Provide a mechanism for distributed, fault-tolerant stream consumption.
+3. Provide a mechanism for coordinating and balancing stream consumption by
+   managing partition assignments for consumers.
+4. Provide a mechanism for consuming multiple streams (and/or partitions) in
+   aggregate.
+
+When a consumer in a consumer group fails, the group's coordinator will
+reassign the partitions the failed consumer was subscribed to to another member
+of the group. This allows for fault-tolerant consumption of streams. Consumers
+will automatically (or, if configured, explicitly), checkpoint their position
+in the partitions they are consuming such that if they fail, they or another
+consumer in the group can pick up where they left off.
+
+Group coordinators are also highly available. If a server acting as the group
+coordinator becomes unavailable, the consumers will report the coordinator as
+failed to the [controller](#controller), prompting a new coordinator to be
+selected.
+
+See the consumer groups [documentation](./consumer_groups.md) for more
+information.
 
 ## Activity Stream
 

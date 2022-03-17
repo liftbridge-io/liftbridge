@@ -1,0 +1,35 @@
+{
+  "version-v1.7.1-docs": {
+    "Overview": [
+      "version-v1.7.1-overview",
+      "version-v1.7.1-faq",
+      "version-v1.7.1-concepts",
+      "version-v1.7.1-quick-start",
+      "version-v1.7.1-feature-comparison",
+      "version-v1.7.1-roadmap"
+    ],
+    "Configuration": [
+      "version-v1.7.1-configuration",
+      "version-v1.7.1-ha-and-consistency-configuration",
+      "version-v1.7.1-scalability-configuration",
+      "version-v1.7.1-embedded-nats",
+      "version-v1.7.1-authentication-authorization"
+    ],
+    "Deployment": [
+      "version-v1.7.1-deployment"
+    ],
+    "Developing With Liftbridge": [
+      "version-v1.7.1-activity",
+      "version-v1.7.1-pausing-streams",
+      "version-v1.7.1-cursors"
+    ],
+    "Technical Deep Dive": [
+      "version-v1.7.1-replication-protocol",
+      "version-v1.7.1-envelope-protocol"
+    ],
+    "Client Libraries": [
+      "version-v1.7.1-clients",
+      "version-v1.7.1-client-implementation"
+    ]
+  }
+}

@@ -20,6 +20,10 @@ The activity stream is disabled by default. See
 > destroyed frequently. The activity stream allows us to be notified of newly
 > created streams as well as deleted streams. With this, we can manage the
 > process of consuming the streams as they come and go.
+>
+> Another use case might be using the activity stream for auditing purposes,
+> e.g. providing an audit history of when streams are created, deleted, or
+> modified or tracking consumer group activity.
 
 Events in the activity stream are totally ordered with respect to the order in
 which they were applied to the cluster. This also means the activity stream
@@ -35,12 +39,12 @@ events.
 
 The above delivery guarantees survive node failures in the cluster. This is
 possible by designating an _activity manager_ which is piggybacked off of the
-metadata leader elected by Raft. This means, at any given time, there is at
-most _one_ node responsible for publishing events. However, as indicated above,
-it's possible for an event to be published more than once. For example, if an
-event is published but the node acting as activity manager fails before
-recording this fact, the newly elected activity manager will re-publish the
-event.
+[controller](./concepts.md#controller) elected by Raft. This means, at any
+given time, there is at most _one_ node responsible for publishing events.
+However, as indicated above, it's possible for an event to be published more
+than once. For example, if an event is published but the node acting as
+activity manager fails before recording this fact, the newly elected activity
+manager will re-publish the event.
 
 To account for potential redeliveries, events include a unique and strictly
 increasing ID. This ID can be used by clients to deduplicate events in the
@@ -92,6 +96,40 @@ Fired when one or more stream partitions are resumed.
 | id | unsigned int | Unique and strictly increasing event ID. |
 | stream | string | The name of the stream that has partitions that were resumed. |
 | partitions | list of ints | The IDs of the partitions that were resumed. |
+
+### Set Stream Readonly
+
+Fired when the readonly flag is changed for one or more stream partitions.
+
+| Field | Type | Description |
+|:----|:----|:----|
+| id | unsigned int | Unique and strictly increasing event ID. |
+| stream | string | The name of the stream that has partitions which the readonly flag was modified for. |
+| partitions | list of ints | The IDs of the partitions that the readonly flag was modified for. |
+| readonly | bool | If the partitions were set to readonly or read-write. |
+
+### Join Consumer Group
+
+Fired when a consumer joins a [consumer group](./consumer_groups.md).
+
+| Field | Type | Description |
+|:----|:----|:----|
+| id | unsigned int | Unique and strictly increasing event ID. |
+| groupId | string | The ID of the consumer group being joined. |
+| consumerId | string | The ID of the consumer joining the group. |
+| streams | list of strings | The streams the consumer is subscribed to. |
+
+### Leave Consumer Group
+
+Fired when a consumer leaves a [consumer group](./consumer_groups.md) or is
+removed due to timing out.
+
+| Field | Type | Description |
+|:----|:----|:----|
+| id | unsigned int | Unique and strictly increasing event ID. |
+| groupId | string | The ID of the consumer group being left. |
+| consumerId | string | The ID of the consumer leaving the group. |
+| expired | bool | Indicates if the consumer was removed due to timing out. |
 
 ## Configuring the Activity Stream
 

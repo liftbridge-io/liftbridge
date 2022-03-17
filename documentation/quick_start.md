@@ -46,15 +46,15 @@ only be set on one server when bootstrapping a cluster.**
 
 ```shell
 $ liftbridge --raft-bootstrap-seed --embedded-nats
-INFO[2020-12-29 13:19:33] Liftbridge Version:        v1.7.0
-INFO[2020-12-29 13:19:33] Server ID:                 m6nxFIddI395AaQABIQqNL
-INFO[2020-12-29 13:19:33] Namespace:                 liftbridge-default
-INFO[2020-12-29 13:19:33] NATS Servers:              [nats://127.0.0.1:4222]
-INFO[2020-12-29 13:19:33] Default Retention Policy:  [Age: 1 week, Compact: false]
-INFO[2020-12-29 13:19:33] Default Partition Pausing: disabled
-INFO[2020-12-29 13:19:33] Starting embedded NATS server on 0.0.0.0:4222
-INFO[2020-12-29 13:19:33] Starting Liftbridge server on 0.0.0.0:9292...
-INFO[2020-12-29 13:19:34] Server became metadata leader, performing leader promotion actions
+INFO[2022-03-11 13:31:30] Liftbridge Version:        v1.8.0
+INFO[2022-03-11 13:31:30] Server ID:                 YymOUlm62FeQbn32I3OWSn
+INFO[2022-03-11 13:31:30] Namespace:                 liftbridge-default
+INFO[2022-03-11 13:31:30] NATS Servers:              [nats://127.0.0.1:4222]
+INFO[2022-03-11 13:31:30] Default Retention Policy:  [Age: 1 week, Compact: false]
+INFO[2022-03-11 13:31:30] Default Partition Pausing: disabled
+INFO[2022-03-11 13:31:30] Starting embedded NATS server on 0.0.0.0:4222
+INFO[2022-03-11 13:31:30] Starting Liftbridge server on 0.0.0.0:9292...
+INFO[2022-03-11 13:31:32] Server became metadata leader, performing leader promotion actions
 ```
 
 Once a leader has been elected, other servers will automatically join the cluster.
@@ -62,13 +62,13 @@ We set the `--data-dir` and `--port` flags to avoid clobbering the first server.
 
 ```shell
 $ liftbridge --data-dir /tmp/liftbridge/server-2 --port=9293
-INFO[2020-12-29 13:21:09] Liftbridge Version:        v1.7.0
-INFO[2020-12-29 13:21:09] Server ID:                 8mTiXh8VSFFBB8kIK0IOGU
-INFO[2020-12-29 13:21:09] Namespace:                 liftbridge-default
-INFO[2020-12-29 13:21:09] NATS Servers:              [nats://127.0.0.1:4222]
-INFO[2020-12-29 13:21:09] Default Retention Policy:  [Age: 1 week, Compact: false]
-INFO[2020-12-29 13:21:09] Default Partition Pausing: disabled
-INFO[2020-12-29 13:21:09] Starting Liftbridge server on 0.0.0.0:9293...
+INFO[2022-03-11 13:32:26] Liftbridge Version:        v1.8.0
+INFO[2022-03-11 13:32:26] Server ID:                 n9c07sbz0vaVH22HjAyhJw
+INFO[2022-03-11 13:32:26] Namespace:                 liftbridge-default
+INFO[2022-03-11 13:32:26] NATS Servers:              [nats://127.0.0.1:4222]
+INFO[2022-03-11 13:32:26] Default Retention Policy:  [Age: 1 week, Compact: false]
+INFO[2022-03-11 13:32:26] Default Partition Pausing: disabled
+INFO[2022-03-11 13:32:26] Starting Liftbridge server on 0.0.0.0:9293...
 ```
 
 We can also bootstrap a cluster by providing the explicit cluster configuration.

@@ -63,6 +63,13 @@ func TestNewConfigFromFile(t *testing.T) {
 	require.Equal(t, []string{"nats://localhost:4222"}, config.NATS.Servers)
 	require.Equal(t, "user", config.NATS.User)
 	require.Equal(t, "pass", config.NATS.Password)
+
+	require.Equal(t, int32(2), config.CursorsStream.Partitions)
+	require.Equal(t, int32(3), config.CursorsStream.ReplicationFactor)
+	require.Equal(t, time.Minute, config.CursorsStream.AutoPauseTime)
+
+	require.Equal(t, time.Minute, config.Groups.ConsumerTimeout)
+	require.Equal(t, 2*time.Minute, config.Groups.CoordinatorTimeout)
 }
 
 // Ensure that default config is loaded.

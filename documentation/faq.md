@@ -5,50 +5,32 @@ title: Frequently Asked Questions
 
 ## What is Liftbridge?
 
-Liftbridge is a server that implements a durable, replicated message log for
-[NATS](https://github.com/nats-io/gnatsd). Clients create a named *stream*
-which is attached to a NATS subject. The stream then records messages on that
-subject to a replicated write-ahead log. Multiple consumers can read back
-from the same stream, and multiple streams can be attached to the same
-subject. Liftbridge provides a Kafka-like API in front of NATS. See the
-Liftbridge [overview](overview.md) for more information.
+Liftbridge is a server that implements a durable, replicated, and scalable
+message log. Clients create streams which are partitioned for horizontal
+scalability and replicated for high availability. Streams record messages to a
+durable write-ahead log.
+
+Liftbridge is implemented on top of [NATS](https://nats.io), a lightweight,
+high-performance pub/sub messaging system. This means it can be added to an
+existing NATS deployment to provide message durability with no code changes. If
+you are not already using NATS or not familiar with it, Liftbridge can be
+deployed with NATS as an implementation detail.
 
 ## Why was it created?
+
+The vision for Liftbridge is to provide a "Kafka-lite" solution
+designed with the [Go](https://go.dev) community first in mind. Unlike Kafka,
+which is built on the JVM and whose canonical client library is Java (or the
+C-based librdkafka), Liftbridge and its canonical client,
+[go-liftbridge](https://github.com/liftbridge-io/go-liftbridge), are
+implemented in Go. The ultimate goal of Liftbridge is to provide a lightweight
+message-streaming solution with a focus on simplicity and usability.
 
 Liftbridge was designed to bridge the gap between sophisticated but complex
 log-based messaging systems like Apache Kafka and Apache Pulsar and simpler,
 cloud-native solutions. There is no ZooKeeper or other unwieldy dependencies,
-no JVM, no complicated API or configuration, and client libraries are just
-[gRPC](https://grpc.io/). More importantly, Liftbridge aims to extend NATS with
-a durable, at-least-once delivery mechanism that upholds the NATS tenets of
-simplicity, performance, and scalability. Unlike [NATS
-Streaming](https://github.com/nats-io/nats-streaming-server), it uses the core
-NATS protocol with optional extensions. This means it can be added to an
-existing NATS deployment to provide message durability with no code changes.
-The ultimate goal of Liftbridge is to provide a message-streaming solution with
-a focus on simplicity and usability. 
-
-## Why not NATS Streaming?
-
-[NATS Streaming](https://github.com/nats-io/nats-streaming-server) provides a
-similar log-based messaging solution. However, it is an entirely separate
-protocol built on top of NATS. NATS is simply the transport for NATS Streaming.
-This means there is no "cross-talk" between messages published to NATS and
-messages published to NATS Streaming.
-
-Liftbridge was built to *augment* NATS with durability rather than providing a
-completely separate system. NATS Streaming also provides a broader set of
-features such as durable subscriptions, queue groups, pluggable storage
-backends, and multiple fault-tolerance modes. Liftbridge aims to have a small
-API surface area.
-
-The key features that differentiate Liftbridge are the shared message namespace,
-wildcards, log compaction, and horizontal scalability. NATS Streaming replicates
-channels to the entire cluster through a single Raft group. Liftbridge allows
-replicating to a subset of the cluster, and each stream is replicated
-independently. This allows the cluster to scale horizontally. NATS Streaming
-also does not support channel partitioning, requiring it to be implemented at
-the application layer. Liftbridge has built-in support for stream partitioning.
+no JVM, no complicated API or configuration, and client libraries are
+implemented using [gRPC](https://grpc.io/). 
 
 ## How does it scale?
 
@@ -62,9 +44,13 @@ Streams can also join a load-balance group, which effectively load balances a
 NATS subject among the streams in the group without affecting delivery to
 other streams.
 
-Finally, streams can be partitioned, allowing messages to be divided up among
-the brokers in a cluster. In fact, all streams are partitioned with the default
-case being a single partition.
+Additionally, streams can be partitioned, allowing messages to be divided up
+among the brokers in a cluster. In fact, all streams are partitioned with the
+default case being a single partition.
+
+[Consumer groups](./consumer_groups.md) allow for load balancing of stream
+consumption. In combination with stream partitioning, this allows for increased
+parallelism and higher throughput.
 
 ## What about HA?
 

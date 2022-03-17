@@ -8,8 +8,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/tysonmote/gommap"
 	"github.com/pkg/errors"
+	"github.com/tysonmote/gommap"
 
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )

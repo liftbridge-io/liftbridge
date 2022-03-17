@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -57,7 +57,7 @@ func (c *cursorManager) Initialize() error {
 		partitions[i] = &proto.Partition{
 			Subject:           c.getCursorStreamSubject(),
 			Stream:            cursorsStream,
-			ReplicationFactor: maxReplicationFactor,
+			ReplicationFactor: c.config.CursorsStream.ReplicationFactor,
 			Id:                i,
 		}
 	}
@@ -79,6 +79,14 @@ func (c *cursorManager) Initialize() error {
 	return status.Err()
 }
 
+// BecomePartitionLeader should be called when this server becomes the leader
+// for any cursor partitions.
+func (c *cursorManager) BecomePartitionLeader() {
+	// Clear the cache when we become leader to avoid serving potentially stale
+	// cursors.
+	c.cache.Purge()
+}
+
 // SetCursor stores a cursor position for a particular stream partition
 // uniquely identified by an opaque string. This returns an error if persisting
 // the cursor failed.
@@ -89,6 +97,14 @@ func (c *cursorManager) SetCursor(ctx context.Context, streamName, cursorID stri
 	)
 	if st != nil {
 		return st
+	}
+
+	partition := c.metadata.GetPartition(cursorsStream, cursorsPartitionID)
+	if partition == nil {
+		return status.Newf(codes.Internal, "Cursors partition %d does not exist", cursorsPartitionID)
+	}
+	if leader, _ := partition.GetLeader(); leader != c.config.Clustering.ServerID {
+		return status.New(codes.FailedPrecondition, "Server not cursor partition leader")
 	}
 
 	var (
@@ -140,6 +156,14 @@ func (c *cursorManager) GetCursor(ctx context.Context, streamName, cursorID stri
 		return 0, st
 	}
 
+	partition := c.metadata.GetPartition(cursorsStream, cursorsPartitionID)
+	if partition == nil {
+		return 0, status.Newf(codes.Internal, "Cursors partition %d does not exist", cursorsPartitionID)
+	}
+	if leader, _ := partition.GetLeader(); leader != c.config.Clustering.ServerID {
+		return 0, status.New(codes.FailedPrecondition, "Server not cursor partition leader")
+	}
+
 	if !c.disableCache {
 		c.mu.RLock()
 		if offset, ok := c.cache.Get(string(cursorKey)); ok {
@@ -150,7 +174,7 @@ func (c *cursorManager) GetCursor(ctx context.Context, streamName, cursorID stri
 	}
 
 	// Find the latest offset for the cursor in the log.
-	offset, err := c.getLatestCursorOffset(ctx, cursorKey, cursorsPartitionID)
+	offset, err := c.getLatestCursorOffset(ctx, cursorKey, partition)
 	if err != nil {
 		return 0, status.New(codes.Internal, err.Error())
 	}
@@ -190,11 +214,9 @@ func (c *cursorManager) getCursorKey(cursorID, streamName string, partitionID in
 	return []byte(fmt.Sprintf("%s,%s,%d", cursorID, streamName, partitionID))
 }
 
-func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []byte, partitionID int32) (int64, error) {
-	partition := c.metadata.GetPartition(cursorsStream, partitionID)
-	if partition == nil {
-		return 0, fmt.Errorf("Cursors partition %d does not exist", partitionID)
-	}
+func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []byte, partition *partition) (
+	int64, error) {
+
 	hw := partition.log.HighWatermark()
 
 	// No cursors have been committed or the cursors partition is now empty so
@@ -206,19 +228,21 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 	// TODO: This can likely be made more efficient.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	msgC, errC, cancel, err := c.api.SubscribeInternal(ctx, &client.SubscribeRequest{
+	sub, err := c.api.SubscribeInternal(ctx, &client.SubscribeRequest{
 		Stream:        cursorsStream,
-		Partition:     partitionID,
+		Partition:     partition.Id,
 		StartPosition: client.StartPosition_EARLIEST,
 		Resume:        true,
 	})
 	if err != nil {
 		return 0, err
 	}
-	defer cancel()
+	defer sub.Close()
 	var (
 		latestOffset = int64(-1)
 		cursor       = new(proto.Cursor)
+		msgC         = sub.Messages()
+		errC         = sub.Errors()
 	)
 	for {
 		select {

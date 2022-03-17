@@ -31,11 +31,11 @@ a few of these systems.
 | Log Retention | ✓ | ✓ | ✓ | ✓ |
 | Log Compaction | ✓ |  | ✓ | ✓ |
 | Message Headers | ✓ |  | ✓ | ✓ |
-| Multiple Consumers | independent subscribers | queue subscriptions | consumer groups | subscriptions |
-| Consumer Position Tracking | cursors | durable subscriptions | consumer groups | cursors |
+| Multiple Consumers | consumer groups | queue subscriptions | consumer groups | subscriptions |
+| Consumer Position Tracking | consumer groups & cursors | durable subscriptions | consumer groups | cursors |
 | Event-enabled | activity stream | | | |
 | Multitenancy | namespaced clusters | namespaced clusters | topic-level ACLs | multitenant shared cluster |
 | Authentication | TLS | User authentication, TLS | TLS, Kerberos, SASL | TLS, Kerberos, JWT, Athenz |
 | Authorization | | | ACLs | ACLs |
 | Storage | filesystem | memory, filesystem, SQL| filesystem | filesystem (Apache BookKeeper), tiered storage (Amazon S3, Google Cloud Storage) |
-| Encryption of data-at-rest | ✓ | ✓| ✓ | ✓ |
+| Encryption of data-at-rest | ✓ | ✓ | ✓ | ✓ |
