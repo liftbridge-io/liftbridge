@@ -40,7 +40,7 @@ func (a *apiServer) enforcePolicy(subject, object, action string) (bool, error) 
 	err := a.authzEnforcer.LoadPolicy()
 
 	if err != nil {
-		a.logger.Errorf("api: Failure to load authorization policy")
+		a.logger.Errorf("api: Failed to load authorization policy")
 		return false, err
 	}
 
@@ -468,7 +468,7 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 		req.AckInbox = a.getAckInbox()
 	}
 
-	e := a.ensureAuthorizationPermission(ctx, req.Subject, "Publish")
+	e := a.ensureAuthorizationPermission(ctx, req.Subject, "PublishToSubject")
 	if e != nil {
 		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
 		return nil, e
@@ -714,7 +714,7 @@ func isValidSubject(subj string) bool {
 	return true
 }
 
-func (a *apiServer) ensureAuthorizationPermission(ctx context.Context, stream string, apiMethod string) error {
+func (a *apiServer) ensureAuthorizationPermission(ctx context.Context, stream, apiMethod string) error {
 	// Verify authorization permissions
 	if a.config.TLSClientAuthz {
 		clientID, _ := ctx.Value("clientID").(string)
@@ -728,7 +728,7 @@ func (a *apiServer) ensureAuthorizationPermission(ctx context.Context, stream st
 			a.logger.Errorf("api: Failed to enforce policy")
 			return err
 		}
-		if ok == false {
+		if !ok {
 			errorMessage := fmt.Sprintf("The client is not authorized to call %s on resource %s", apiMethod, stream)
 			return errors.New(errorMessage)
 
