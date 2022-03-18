@@ -5,9 +5,11 @@ tls:
   cert: ./configs/certs/server/server-cert.pem
   client.auth.enabled: true
   client.auth.ca: ./configs/certs/ca-cert.pem
+
   client.authz.enabled: true
   client.authz.model: ./configs/authz/model.conf
   client.authz.policy: ./configs/authz/policy.csv
+  
 logging.level: error
 clustering:
   server.id: a
