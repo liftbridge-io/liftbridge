@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	defaultPropagateTimeout       = 5 * time.Second
-	maxReplicationFactor    int32 = -1
+	defaultPropagateTimeout             = 5 * time.Second
+	defaultFetchBrokerInfoTimeout       = 3 * time.Second
+	maxReplicationFactor          int32 = -1
 )
 
 var (
@@ -216,7 +217,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 	}}
 
 	// Make sure there is a deadline on the request.
-	ctx, cancel := ensureTimeout(ctx, defaultPropagateTimeout)
+	ctx, cancel := ensureTimeout(ctx, defaultFetchBrokerInfoTimeout)
 	defer cancel()
 
 	// Create subscription to receive responses on.
