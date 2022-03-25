@@ -9,6 +9,8 @@ import (
 func (s *Server) handleSignals() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
+	// Use a naked goroutine instead of startGoroutine because this stops the
+	// server which would cause a deadlock.
 	go func() {
 		for sig := range c {
 			switch sig {
