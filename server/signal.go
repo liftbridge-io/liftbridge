@@ -9,21 +9,18 @@ import (
 func (s *Server) handleSignals() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
-	s.startGoroutine(func() {
-		for {
-			select {
-			case <-s.shutdownCh:
-				return
-			case sig := <-c:
-				switch sig {
-				case os.Interrupt:
-					if err := s.Stop(); err != nil {
-						s.logger.Errorf("Error occurred shutting down server while handling interrupt: %v", err)
-						os.Exit(1)
-					}
-					os.Exit(0)
+	// Use a naked goroutine instead of startGoroutine because this stops the
+	// server which would cause a deadlock.
+	go func() {
+		for sig := range c {
+			switch sig {
+			case os.Interrupt:
+				if err := s.Stop(); err != nil {
+					s.logger.Errorf("Error occurred shutting down server while handling interrupt: %v", err)
+					os.Exit(1)
 				}
+				os.Exit(0)
 			}
 		}
-	})
+	}()
 }
