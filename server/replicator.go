@@ -101,7 +101,8 @@ func (r *replicator) start(stop <-chan struct{}) {
 			continue
 		}
 
-		// Create a log reader starting at the requested offset.
+		// Create a log reader starting at the requested offset. Wrap this in
+		// an anonymous function to avoid leaking the deferred context cancel.
 		func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
