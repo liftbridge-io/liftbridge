@@ -815,10 +815,10 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	// Start message processing loop.
 	recvChan := make(chan *nats.Msg, recvChannelSize)
 	p.stopLeader = make(chan struct{})
-	p.srv.startGoroutine(func() {
-		p.messageProcessingLoop(recvChan, p.stopLeader, epoch)
-		p.shutdown.Done()
-	})
+	p.srv.startGoroutineWithArgsWG(func(args ...interface{}) {
+		stop := args[0].(chan struct{})
+		p.messageProcessingLoop(recvChan, stop, epoch)
+	}, p.shutdown, p.stopLeader)
 
 	// Start replicating to followers.
 	p.startReplicating(epoch, p.stopLeader)
@@ -891,11 +891,6 @@ func (p *partition) stopLeading() error {
 	}
 
 	// Stop processing messages and replicating.
-	p.shutdown.Add(1) // Message processing loop
-	p.shutdown.Add(1) // Commit loop
-	if replicas := len(p.replicas); replicas > 1 {
-		p.shutdown.Add(replicas - 1) // Replicator loops (minus one to exclude self)
-	}
 	close(p.stopLeader)
 
 	// Wait for loops to shutdown. Release mutex while we wait to avoid
@@ -1300,10 +1295,9 @@ func (p *partition) startReplicating(epoch uint64, stop chan struct{}) {
 		p.srv.logger.Debugf("Replicating partition %s to followers", p)
 	}
 	p.commitQueue = queue.New(100)
-	p.srv.startGoroutine(func() {
+	p.srv.startGoroutineWG(func() {
 		p.commitLoop(stop)
-		p.shutdown.Done()
-	})
+	}, p.shutdown)
 
 	p.replicators = make(map[string]*replicator, len(p.replicas)-1)
 	for replica := range p.replicas {
@@ -1313,10 +1307,9 @@ func (p *partition) startReplicating(epoch uint64, stop chan struct{}) {
 		}
 		r := newReplicator(epoch, replica, p)
 		p.replicators[replica] = r
-		p.srv.startGoroutine(func() {
-			r.start(stop)
-			p.shutdown.Done()
-		})
+		p.srv.api.startGoroutineWithArgsWG(func(args ...interface{}) {
+			args[0].(*replicator).start(stop)
+		}, p.shutdown, r)
 	}
 }
 
