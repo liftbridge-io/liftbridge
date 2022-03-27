@@ -16,7 +16,6 @@ import (
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/nats-io/nats.go"
-	pkgErrors "github.com/pkg/errors"
 
 	natslog "github.com/liftbridge-io/nats-on-a-log"
 
@@ -35,21 +34,68 @@ var (
 	bootstrapMisconfigInterval = defaultBootstrapMisconfigInterval
 )
 
-// errorFuture implements raft.ApplyFuture and is used to return a static
-// error.
-type errorFuture struct {
-	err error
+// timeoutFuture wraps a raft.Future with a timeout on the call to Error().
+// This is used as a workaround to an issue in the Hashicorp Raft library in
+// which Raft operations can deadlock if a quorum cannot be reached (which can
+// be indefinitely, e.g. in the case of shutting down the cluster). See this
+// issue: https://github.com/hashicorp/raft/issues/498.
+type timeoutFuture struct {
+	deadline  time.Time
+	wrapped   raft.Future
+	mu        sync.RWMutex
+	responded bool
+	err       error
 }
 
-func (e errorFuture) Error() error {
-	return e.err
+// newTimeoutFuture returns a raft.ApplyFuture wrapping the provided
+// raft.Future whose call to Error() will timeout at the given deadline.
+func newTimeoutFuture(deadline time.Time, wrapped raft.Future) raft.ApplyFuture {
+	return &timeoutFuture{
+		deadline: deadline,
+		wrapped:  wrapped,
+	}
 }
 
-func (e errorFuture) Response() interface{} {
+func (t *timeoutFuture) Error() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.responded {
+		return t.err
+	}
+
+	errC := make(chan error)
+	go func() {
+		err := t.wrapped.Error()
+		select {
+		case errC <- err:
+		default:
+		}
+	}()
+
+	var err error
+	select {
+	case e := <-errC:
+		err = e
+	case <-time.After(time.Until(t.deadline)):
+		err = errors.New("raft operation timed out")
+	}
+
+	t.responded = true
+	t.err = err
+	return err
+}
+
+func (t *timeoutFuture) Response() interface{} {
+	if applyFuture, ok := t.wrapped.(raft.ApplyFuture); ok {
+		return applyFuture.Response()
+	}
 	return nil
 }
 
-func (e errorFuture) Index() uint64 {
+func (t *timeoutFuture) Index() uint64 {
+	if applyFuture, ok := t.wrapped.(raft.ApplyFuture); ok {
+		return applyFuture.Index()
+	}
 	return 0
 }
 
@@ -100,10 +146,13 @@ func (r *raftNode) applyOperation(ctx context.Context, op *proto.RaftLog,
 	r.Lock()
 	defer r.Unlock()
 
+	deadline := computeDeadline(ctx)
+
 	if checkPreconditions != nil {
 		// Ensure the FSM is up to date by issuing a barrier.
-		if err := r.Barrier(computeTimeout(ctx)).Error(); err != nil {
-			return &errorFuture{pkgErrors.Wrap(err, "failed to perform Raft barrier")}, nil
+		barrierFuture := newTimeoutFuture(deadline, r.Barrier(time.Until(deadline)))
+		if err := barrierFuture.Error(); err != nil {
+			return barrierFuture, nil
 		}
 
 		// Check that the FSM preconditions are valid before performing the
@@ -114,7 +163,7 @@ func (r *raftNode) applyOperation(ctx context.Context, op *proto.RaftLog,
 	}
 
 	// Apply the Raft Operation.
-	return r.Apply(data, computeTimeout(ctx)), nil
+	return newTimeoutFuture(deadline, r.Apply(data, time.Until(deadline))), nil
 }
 
 // getCommitIndex returns the latest committed Raft index.
@@ -530,13 +579,10 @@ func (s *Server) baseMetadataRaftSubject() string {
 	return fmt.Sprintf("%s.raft.metadata", s.config.Clustering.Namespace)
 }
 
-func computeTimeout(ctx context.Context) time.Duration {
-	var (
-		timeout      = defaultRaftApplyTimeout
-		deadline, ok = ctx.Deadline()
-	)
+func computeDeadline(ctx context.Context) time.Time {
+	deadline, ok := ctx.Deadline()
 	if ok {
-		timeout = time.Until(deadline)
+		return deadline
 	}
-	return timeout
+	return time.Now().Add(defaultRaftApplyTimeout)
 }

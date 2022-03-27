@@ -83,7 +83,6 @@ func stopFollowing(t *testing.T, p *partition) {
 
 // Ensure messages are replicated and the partition leader fails over when the
 // leader dies.
-// TODO: This test is flaky, fix it.
 func TestPartitionLeaderFailover(t *testing.T) {
 	defer cleanupStorage(t)
 
@@ -231,8 +230,6 @@ func TestPartitionLeaderFailover(t *testing.T) {
 	partitionCounts := leader.metadata.BrokerPartitionCounts()
 	require.Len(t, partitionCounts, 3)
 	require.Equal(t, 2, partitionCounts[leader.config.Clustering.ServerID])
-	leaderCounts := leader.metadata.BrokerLeaderCounts()
-	require.Equal(t, 1, leaderCounts[leader.config.Clustering.ServerID])
 }
 
 // Ensure the leader commits when the ISR shrinks if it causes pending messages

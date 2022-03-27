@@ -120,6 +120,21 @@ func waitForNoMetadataLeader(t *testing.T, timeout time.Duration, servers ...*Se
 	stackFatalf(t, "Metadata leader found")
 }
 
+func waitForClusterSize(t *testing.T, timeout time.Duration, leader *Server, size int) []raft.Server {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		future := leader.getRaft().GetConfiguration()
+		require.NoError(t, future.Error())
+		servers := future.Configuration().Servers
+		if len(servers) == size {
+			return servers
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	stackFatalf(t, "Cluster did not reach size %d", size)
+	return nil
+}
+
 func checkPartitionPaused(t *testing.T, timeout time.Duration, stream string,
 	partitionID int32, paused bool, server *Server) {
 
@@ -451,7 +466,7 @@ func TestBootstrapManualConfigMaxQuorum(t *testing.T) {
 		defer server.Stop()
 	}
 
-	leader := getMetadataLeader(t, 10*time.Second, servers...)
+	leader := getMetadataLeader(t, 20*time.Second, servers...)
 
 	// Verify configuration.
 	future := leader.getRaft().GetConfiguration()
@@ -465,10 +480,10 @@ func TestBootstrapManualConfigMaxQuorum(t *testing.T) {
 		nonVoters = 0
 	)
 	for _, server := range configServers {
-		if server.Suffrage == raft.Staging || server.Suffrage == raft.Voter {
-			voters++
-		} else {
+		if server.Suffrage == raft.Nonvoter {
 			nonVoters++
+		} else {
+			voters++
 		}
 	}
 	require.Equal(t, 2, voters)
@@ -479,12 +494,7 @@ func TestBootstrapManualConfigMaxQuorum(t *testing.T) {
 	newServer := runServerWithConfig(t, config)
 	defer newServer.Stop()
 
-	future = leader.getRaft().GetConfiguration()
-	if err := future.Error(); err != nil {
-		t.Fatalf("Unexpected error on GetConfiguration: %v", err)
-	}
-	configServers = future.Configuration().Servers
-	require.Equal(t, 4, len(configServers))
+	configServers = waitForClusterSize(t, 10*time.Second, leader, 4)
 	for _, server := range configServers {
 		if server.ID == "d" {
 			require.Equal(t, raft.Nonvoter, server.Suffrage)

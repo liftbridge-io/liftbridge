@@ -542,6 +542,7 @@ func TestPartitionReplicationRequestLoopPreempt(t *testing.T) {
 		requests <- struct{}{}
 	})
 	require.NoError(t, err)
+	require.NoError(t, nc.Flush())
 
 	stop := make(chan struct{})
 	defer close(stop)

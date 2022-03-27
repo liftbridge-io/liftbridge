@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	defaultPropagateTimeout       = 5 * time.Second
-	maxReplicationFactor    int32 = -1
+	defaultPropagateTimeout             = 5 * time.Second
+	defaultFetchBrokerInfoTimeout       = 3 * time.Second
+	maxReplicationFactor          int32 = -1
 )
 
 var (
@@ -65,54 +66,58 @@ var (
 // stream access should go through the exported methods of the metadataAPI.
 type metadataAPI struct {
 	*Server
-	streams                    map[string]*stream
-	mu                         sync.RWMutex
-	partitionFailovers         map[*partition]*failoverStatus
-	cachedBrokers              []*client.Broker
-	cachedServerIDs            map[string]struct{}
-	lastCached                 time.Time
-	brokerPartitionLoad        map[string]int
-	brokerLeaderLoad           map[string]int
-	brokerGroupCoordinatorLoad map[string]int
-	consumerGroupsMu           sync.RWMutex
-	consumerGroups             map[string]*consumerGroup
-	groupFailovers             map[*consumerGroup]*failoverStatus
+	streams            map[string]*stream
+	mu                 sync.RWMutex
+	partitionFailovers map[*partition]*failoverStatus
+	cachedBrokers      []*client.Broker
+	cachedServerIDs    map[string]struct{}
+	lastCached         time.Time
+	consumerGroupsMu   sync.RWMutex
+	consumerGroups     map[string]*consumerGroup
+	groupFailovers     map[*consumerGroup]*failoverStatus
+	stats              struct {
+		sync.RWMutex
+		brokerLeaderLoad      map[string]int
+		brokerPartitionLoad   map[string]int
+		brokerCoordinatorLoad map[string]int
+	}
 }
 
 func newMetadataAPI(s *Server) *metadataAPI {
-	return &metadataAPI{
-		Server:                     s,
-		streams:                    make(map[string]*stream),
-		partitionFailovers:         make(map[*partition]*failoverStatus),
-		brokerPartitionLoad:        make(map[string]int),
-		brokerLeaderLoad:           make(map[string]int),
-		brokerGroupCoordinatorLoad: make(map[string]int),
-		consumerGroups:             make(map[string]*consumerGroup),
-		groupFailovers:             make(map[*consumerGroup]*failoverStatus),
+	m := &metadataAPI{
+		Server:             s,
+		streams:            make(map[string]*stream),
+		partitionFailovers: make(map[*partition]*failoverStatus),
+		consumerGroups:     make(map[string]*consumerGroup),
+		groupFailovers:     make(map[*consumerGroup]*failoverStatus),
 	}
+	m.stats.brokerLeaderLoad = make(map[string]int)
+	m.stats.brokerPartitionLoad = make(map[string]int)
+	m.stats.brokerCoordinatorLoad = make(map[string]int)
+	return m
 }
 
 // BrokerPartitionCounts returns a map of broker IDs to the number of
 // partitions they are hosting.
 func (m *metadataAPI) BrokerPartitionCounts() map[string]int {
-	m.mu.RLock()
-	counts := make(map[string]int, len(m.brokerPartitionLoad))
-	for broker, count := range m.brokerPartitionLoad {
+	m.stats.RLock()
+	counts := make(map[string]int, len(m.stats.brokerPartitionLoad))
+	for broker, count := range m.stats.brokerPartitionLoad {
 		counts[broker] = count
 	}
-	m.mu.RUnlock()
+	m.stats.RUnlock()
 	return counts
 }
 
 // BrokerLeaderCounts returns a map of broker IDs to the number of
 // partitions they are leading.
 func (m *metadataAPI) BrokerLeaderCounts() map[string]int {
-	m.mu.RLock()
-	counts := make(map[string]int, len(m.brokerLeaderLoad))
-	for broker, count := range m.brokerLeaderLoad {
+	m.stats.RLock()
+	counts := make(map[string]int, len(m.stats.brokerLeaderLoad))
+	for broker, count := range m.stats.brokerLeaderLoad {
 		counts[broker] = count
 	}
-	m.mu.RUnlock()
+	m.stats.RUnlock()
 	return counts
 }
 
@@ -216,7 +221,7 @@ func (m *metadataAPI) fetchBrokerInfo(ctx context.Context, numPeers int) ([]*cli
 	}}
 
 	// Make sure there is a deadline on the request.
-	ctx, cancel := ensureTimeout(ctx, defaultPropagateTimeout)
+	ctx, cancel := ensureTimeout(ctx, defaultFetchBrokerInfoTimeout)
 	defer cancel()
 
 	// Create subscription to receive responses on.
@@ -948,7 +953,12 @@ func (m *metadataAPI) AddConsumerGroup(protoGroup *proto.ConsumerGroup, recovere
 		protoGroup, recovered, m.logger, m.removeConsumerGroupMember, m.countStreamPartitions)
 	m.consumerGroups[protoGroup.Id] = group
 	coordinator, _ := group.GetCoordinator()
-	m.brokerGroupCoordinatorLoad[coordinator]++
+
+	// Update broker load counts.
+	m.stats.Lock()
+	m.stats.brokerCoordinatorLoad[coordinator]++
+	m.stats.Unlock()
+
 	return group, nil
 }
 
@@ -986,9 +996,13 @@ func (m *metadataAPI) removeConsumerGroup(groupID string) {
 	group.Close()
 	delete(m.consumerGroups, groupID)
 	coordinator, _ := group.GetCoordinator()
-	if m.brokerGroupCoordinatorLoad[coordinator] > 0 {
-		m.brokerGroupCoordinatorLoad[coordinator]--
+
+	// Update broker load counts.
+	m.stats.Lock()
+	if m.stats.brokerCoordinatorLoad[coordinator] > 0 {
+		m.stats.brokerCoordinatorLoad[coordinator]--
 	}
+	m.stats.Unlock()
 }
 
 // AddConsumerToGroup adds the given consumer to the consumer group. It returns
@@ -1096,12 +1110,14 @@ func (m *metadataAPI) AddStream(protoStream *proto.Stream, recovered bool, epoch
 	}
 
 	// Update broker load counts.
+	m.stats.Lock()
 	for _, partition := range stream.GetPartitions() {
 		for _, broker := range partition.Replicas {
-			m.brokerPartitionLoad[broker]++
+			m.stats.brokerPartitionLoad[broker]++
 		}
-		m.brokerLeaderLoad[partition.Leader]++
+		m.stats.brokerLeaderLoad[partition.Leader]++
 	}
+	m.stats.Unlock()
 
 	return stream, nil
 }
@@ -1169,10 +1185,12 @@ func (m *metadataAPI) ResumePartition(streamName string, id int32, recovered boo
 	err = partition.SetLeader(leader, epoch)
 
 	// Update broker load counts.
+	m.stats.Lock()
 	for _, broker := range partition.GetReplicas() {
-		m.brokerPartitionLoad[broker]++
+		m.stats.brokerPartitionLoad[broker]++
 	}
-	m.brokerLeaderLoad[leader]++
+	m.stats.brokerLeaderLoad[leader]++
+	m.stats.Unlock()
 
 	return partition, err
 }
@@ -1243,12 +1261,12 @@ func (m *metadataAPI) ChangeLeader(streamName, leader string, partitionID int32,
 	partition.SetEpoch(epoch)
 
 	// Update broker load counts.
-	m.mu.Lock()
-	if m.brokerLeaderLoad[oldLeader] > 0 {
-		m.brokerLeaderLoad[oldLeader]--
+	m.stats.Lock()
+	if m.stats.brokerLeaderLoad[oldLeader] > 0 {
+		m.stats.brokerLeaderLoad[oldLeader]--
 	}
-	m.brokerLeaderLoad[leader]++
-	m.mu.Unlock()
+	m.stats.brokerLeaderLoad[leader]++
+	m.stats.Unlock()
 
 	return nil
 }
@@ -1272,12 +1290,12 @@ func (m *metadataAPI) ChangeGroupCoordinator(groupID, coordinator string, newEpo
 	}
 
 	// Update broker load counts.
-	m.consumerGroupsMu.Lock()
-	if m.brokerGroupCoordinatorLoad[oldCoordinator] > 0 {
-		m.brokerGroupCoordinatorLoad[oldCoordinator]--
+	m.stats.Lock()
+	if m.stats.brokerCoordinatorLoad[oldCoordinator] > 0 {
+		m.stats.brokerCoordinatorLoad[oldCoordinator]--
 	}
-	m.brokerGroupCoordinatorLoad[coordinator]++
-	m.consumerGroupsMu.Unlock()
+	m.stats.brokerCoordinatorLoad[coordinator]++
+	m.stats.Unlock()
 
 	return nil
 }
@@ -1296,18 +1314,18 @@ func (m *metadataAPI) PausePartitions(streamName string, partitions []int32, res
 	}
 
 	// Update broker load counts.
-	m.mu.Lock()
+	m.stats.Lock()
 	for _, partition := range paused {
 		for _, broker := range partition.Replicas {
-			if m.brokerPartitionLoad[broker] > 0 {
-				m.brokerPartitionLoad[broker]--
+			if m.stats.brokerPartitionLoad[broker] > 0 {
+				m.stats.brokerPartitionLoad[broker]--
 			}
 		}
-		if m.brokerLeaderLoad[partition.Leader] > 0 {
-			m.brokerLeaderLoad[partition.Leader]--
+		if m.stats.brokerLeaderLoad[partition.Leader] > 0 {
+			m.stats.brokerLeaderLoad[partition.Leader]--
 		}
 	}
-	m.mu.Unlock()
+	m.stats.Unlock()
 
 	return nil
 }
@@ -1437,16 +1455,18 @@ func (m *metadataAPI) RemoveStream(stream *stream, recovered bool, epoch uint64)
 	}
 
 	// Update broker load counts.
+	m.stats.Lock()
 	for _, partition := range stream.GetPartitions() {
 		for _, broker := range partition.Replicas {
-			if m.brokerPartitionLoad[broker] > 0 {
-				m.brokerPartitionLoad[broker]--
+			if m.stats.brokerPartitionLoad[broker] > 0 {
+				m.stats.brokerPartitionLoad[broker]--
 			}
 		}
-		if m.brokerLeaderLoad[partition.Leader] > 0 {
-			m.brokerLeaderLoad[partition.Leader]--
+		if m.stats.brokerLeaderLoad[partition.Leader] > 0 {
+			m.stats.brokerLeaderLoad[partition.Leader]--
 		}
 	}
+	m.stats.Unlock()
 
 	return nil
 }
@@ -1540,11 +1560,11 @@ func (m *metadataAPI) getPartitionReplicas(replicationFactor int32) ([]string, *
 	}
 
 	// Order servers by partition load.
-	m.mu.RLock()
+	m.stats.RLock()
 	sort.SliceStable(ids, func(i, j int) bool {
-		return m.brokerPartitionLoad[ids[i]] < m.brokerPartitionLoad[ids[j]]
+		return m.stats.brokerPartitionLoad[ids[i]] < m.stats.brokerPartitionLoad[ids[j]]
 	})
-	m.mu.RUnlock()
+	m.stats.RUnlock()
 
 	return ids[:replicationFactor], nil
 }
@@ -2114,24 +2134,25 @@ func (m *metadataAPI) partitionExists(streamName string, partitionID int32) erro
 // leadership load.
 func (m *metadataAPI) selectPartitionLeader(replicas []string) string {
 	// Order servers by leader load.
-	m.mu.RLock()
+	m.stats.RLock()
 	sort.SliceStable(replicas, func(i, j int) bool {
-		return m.brokerLeaderLoad[replicas[i]] < m.brokerLeaderLoad[replicas[j]]
+		return m.stats.brokerLeaderLoad[replicas[i]] < m.stats.brokerLeaderLoad[replicas[j]]
 	})
-	m.mu.RUnlock()
+	m.stats.RUnlock()
 
 	return replicas[0]
 }
 
-// selectGroupCoordinator selects a random broker to act as the coordinator for
-// a consumer group.
+// selectGroupCoordinator selects a broker to act as a consumer group
+// coordinator by attempting to select the broker with the least coordinator
+// load.
 func (m *metadataAPI) selectGroupCoordinator(candidates []string) string {
 	// Order servers by coordinator load.
-	m.consumerGroupsMu.RLock()
+	m.stats.RLock()
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return m.brokerLeaderLoad[candidates[i]] < m.brokerLeaderLoad[candidates[j]]
+		return m.stats.brokerCoordinatorLoad[candidates[i]] < m.stats.brokerCoordinatorLoad[candidates[j]]
 	})
-	m.consumerGroupsMu.RUnlock()
+	m.stats.RUnlock()
 
 	return candidates[0]
 }
