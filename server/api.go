@@ -33,10 +33,10 @@ type apiServer struct {
 
 // enforce authorization policy per action/subject/object
 func (a *apiServer) enforcePolicy(subject, object, action string) (bool, error) {
-	// Load policy data
-	// [NOTE] casbin raise a panic if it fails to load the policy, i.e: policy file is corrupted,
-	// Refer to issue: https://github.com/casbin/casbin/issues/640
-	// [TODO] Policy storage and modification should be improved later
+
+	a.authzEnforcer.authzLock.RLock()
+
+	defer a.authzEnforcer.authzLock.RUnlock()
 
 	return a.authzEnforcer.enforcer.Enforce(subject, object, action)
 }
