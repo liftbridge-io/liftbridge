@@ -37,14 +37,8 @@ func (a *apiServer) enforcePolicy(subject, object, action string) (bool, error) 
 	// [NOTE] casbin raise a panic if it fails to load the policy, i.e: policy file is corrupted,
 	// Refer to issue: https://github.com/casbin/casbin/issues/640
 	// [TODO] Policy storage and modification should be improved later
-	err := a.authzEnforcer.LoadPolicy()
 
-	if err != nil {
-		a.logger.Errorf("api: Failed to load authorization policy")
-		return false, err
-	}
-
-	return a.authzEnforcer.Enforce(subject, object, action)
+	return a.authzEnforcer.enforcer.Enforce(subject, object, action)
 }
 
 // CreateStream creates a new stream attached to a NATS subject. It returns an

@@ -54,6 +54,12 @@ type RaftLogListener interface {
 	Receive(*RaftLog)
 }
 
+// AuthzEnforcer contains a casbin enforcer and a lock, which is used to reload permissions safely
+type AuthzEnforcer struct {
+	enforcer  *casbin.Enforcer
+	authzLock *sync.RWMutex
+}
+
 // Server is the main Liftbridge object. Create it by calling New or
 // RunServerWithConfig.
 type Server struct {
@@ -84,7 +90,7 @@ type Server struct {
 	cursors            *cursorManager
 	raftLogListenersMu sync.RWMutex
 	raftLogListeners   []RaftLogListener
-	authzEnforcer      *casbin.Enforcer
+	authzEnforcer      AuthzEnforcer
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -466,7 +472,13 @@ func (s *Server) startAPIServer() error {
 			if err != nil {
 				return errors.Wrap(err, "failed to initialize authorization policy enforcer")
 			}
-			s.authzEnforcer = policyEnforcer
+			err = policyEnforcer.LoadPolicy()
+
+			if err != nil {
+				return errors.Wrap(err, "failed to load authorization permissions")
+			}
+
+			s.authzEnforcer = AuthzEnforcer{enforcer: policyEnforcer, authzLock: new(sync.RWMutex)}
 		}
 
 		creds := credentials.NewTLS(&config)
