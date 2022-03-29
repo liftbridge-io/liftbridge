@@ -31,9 +31,10 @@ func (s *Server) handleSignals() {
 				if err := s.authzEnforcer.enforcer.LoadPolicy(); err != nil {
 					s.logger.Errorf("Error occurred while reloading authorization permissions from storage: %v", err)
 					s.authzEnforcer.authzLock.Unlock()
+					continue
 				}
 				s.authzEnforcer.authzLock.Unlock()
-				s.logger.Info("Reloaded authoriztion permissions successfully")
+				s.logger.Info("Reloaded authorization permissions successfully")
 
 			}
 		}
