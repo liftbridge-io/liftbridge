@@ -874,11 +874,16 @@ func TestReplicatorNotifyNewData(t *testing.T) {
 
 	// Configure first server.
 	s1Config := getTestConfig("a", true, 5050)
+	// Set this to 0 to avoid a race condition in the test where the follower
+	// makes the replication request before the leader is listening and results
+	// in the follower sleeping when the message is published.
+	s1Config.Clustering.ReplicaMaxIdleWait = 0
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 
 	// Configure second server.
 	s2Config := getTestConfig("b", false, 5051)
+	s2Config.Clustering.ReplicaMaxIdleWait = 0
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
@@ -912,22 +917,23 @@ func TestReplicatorNotifyNewData(t *testing.T) {
 	// aren't any messages. Set up a NATS subscription to intercept
 	// notifications.
 	var (
-		notifications = make(chan *proto.PartitionNotification)
+		notifications = make(chan *proto.PartitionNotification, 1)
 		inbox         = follower.getPartitionNotificationInbox(
 			follower.config.Clustering.ServerID)
 	)
 	_, err = nc.Subscribe(inbox, func(msg *nats.Msg) {
 		req, err := proto.UnmarshalPartitionNotification(msg.Data)
-		if err != nil {
-			t.Fatalf("Invalid partition notification: %v", err)
-		}
+		require.NoError(t, err)
 		notifications <- req
 	})
 	require.NoError(t, err)
+	require.NoError(t, nc.Flush())
 
 	// Publish a message. This will cause a notification to be sent to the
 	// follower.
-	_, err = client.Publish(context.Background(), name, []byte("hello"))
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = client.Publish(ctx, name, []byte("hello"), lift.AckPolicyAll())
 	require.NoError(t, err)
 
 	select {
