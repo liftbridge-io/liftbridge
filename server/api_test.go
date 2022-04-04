@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -2158,4 +2161,195 @@ func TestFetchMetadata(t *testing.T) {
 		require.Equal(t, "localhost", broker.Host())
 		require.Equal(t, int32(5050), broker.Port())
 	}
+}
+
+func TestAuthzWithGrantedResource(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure server with TLS.
+	s1Config, err := NewConfig("./configs/tls-authz.yaml")
+	require.NoError(t, err)
+
+	// Overwrite DataDir with a temporary test DataDir
+	testConfig := getTestConfig("a", true, 5050)
+
+	testConfig.TLSCert = s1Config.TLSCert
+	testConfig.TLSKey = s1Config.TLSKey
+	testConfig.TLSClientAuth = s1Config.TLSClientAuth
+	testConfig.TLSClientAuthCA = s1Config.TLSClientAuthCA
+	testConfig.TLSClientAuthz = s1Config.TLSClientAuthz
+	testConfig.TLSClientAuthzModel = s1Config.TLSClientAuthzModel
+	testConfig.TLSClientAuthzPolicy = s1Config.TLSClientAuthzPolicy
+
+	// Overwrite Cursor Stream Config. This is to test SetCursor and FetchCursor
+	testConfig.CursorsStream.Partitions = 1
+
+	s1 := runServerWithConfig(t, testConfig)
+	defer s1.Stop()
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Connect with TLS.
+	certPool := x509.NewCertPool()
+	ca, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
+	if err != nil {
+		panic(err)
+	}
+	certPool.AppendCertsFromPEM(ca)
+	certificate, err := tls.LoadX509KeyPair("./configs/certs/client/client-cert.pem", "./configs/certs/client/client-key.pem")
+	if err != nil {
+		panic(err)
+	}
+	config := &tls.Config{
+		ServerName:   "localhost",
+		Certificates: []tls.Certificate{certificate},
+		RootCAs:      certPool,
+	}
+	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(config))
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "foo"
+	// Create Stream Success
+	err = client.CreateStream(context.Background(), stream, stream)
+	require.NoError(t, err)
+
+	// Delete Stream Success
+	err = client.DeleteStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	// Re-create Stream Success
+	err = client.CreateStream(context.Background(), stream, stream)
+	require.NoError(t, err)
+
+	// Pause the stream.
+	err = client.PauseStream(context.Background(), stream)
+	require.NoError(t, err)
+
+	// Publish a message.
+	_, err = client.Publish(context.Background(), stream, []byte("hello"))
+	require.NoError(t, err)
+
+	// Publish a message using legacy method PublishToSubject
+	_, err = client.PublishToSubject(context.Background(), stream, []byte("hello"),
+		lift.Key([]byte("key")), lift.AckPolicyNone())
+	require.NoError(t, err)
+
+	// Subscribe for message
+	err = client.Subscribe(context.Background(), stream,
+		func(msg *lift.Message, err error) {
+			require.NoError(t, err)
+		})
+	require.NoError(t, err)
+
+	// Fetch Partion Metadata
+	_, err = client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.NoError(t, err)
+
+	// Set Cursor
+	cursorID := "abc"
+	err = client.SetCursor(context.Background(), cursorID, stream, 0, 0)
+	require.NoError(t, err)
+
+	// Fetch Cursor
+	_, err = client.FetchCursor(context.Background(), cursorID, stream, 0)
+	require.NoError(t, err)
+
+}
+
+func TestAuthzWithDeniedResource(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure server with TLS.
+	s1Config, err := NewConfig("./configs/tls-authz.yaml")
+	require.NoError(t, err)
+
+	// Overwrite DataDir with a temporary test DataDir
+	testConfig := getTestConfig("a", true, 5050)
+	s1Config.DataDir = testConfig.DataDir
+
+	// Overwrite Cursor Stream Config. This is to test SetCursor and FetchCursor
+	s1Config.CursorsStream.Partitions = 1
+
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Connect with TLS.
+	certPool := x509.NewCertPool()
+	ca, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
+	if err != nil {
+		panic(err)
+	}
+	certPool.AppendCertsFromPEM(ca)
+	certificate, err := tls.LoadX509KeyPair("./configs/certs/client/client-cert.pem", "./configs/certs/client/client-key.pem")
+	if err != nil {
+		panic(err)
+	}
+	config := &tls.Config{
+		ServerName:   "localhost",
+		Certificates: []tls.Certificate{certificate},
+		RootCAs:      certPool,
+	}
+	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(config))
+	require.NoError(t, err)
+	defer client.Close()
+
+	stream := "bar"
+	// Create Stream Success
+	err = client.CreateStream(context.Background(), stream, stream)
+	require.NoError(t, err)
+
+	// Pause the stream Failed
+	err = client.PauseStream(context.Background(), stream)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// UnPause stream by publishing a message failed
+	_, err = client.Publish(context.Background(), stream, []byte("hello"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// PublishToSubject (legacy) should fail
+	_, err = client.PublishToSubject(context.Background(), stream, []byte("hello"),
+		lift.Key([]byte("key")), lift.AckPolicyNone())
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// Subscribe failed
+	err = client.Subscribe(context.Background(), stream,
+		func(msg *lift.Message, err error) {
+			require.NoError(t, err)
+		})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// Set the stream as readonly failed
+	err = client.SetStreamReadonly(context.Background(), stream)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// Set the stream back to Read-Write failed
+	err = client.SetStreamReadonly(context.Background(), stream, lift.Readonly(false))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// Fetch Partion Metadata failed
+	_, err = client.FetchPartitionMetadata(context.Background(), stream, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// Set Cursor failed
+	cursorID := "abc"
+	err = client.SetCursor(context.Background(), cursorID, stream, 0, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// Fetch Cursor failed
+	_, err = client.FetchCursor(context.Background(), cursorID, stream, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
+
+	// Delete Stream failed
+	err = client.DeleteStream(context.Background(), stream)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call")
 }

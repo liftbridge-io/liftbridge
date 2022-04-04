@@ -7,8 +7,7 @@ Liftbridge currently supports authentication via mutual TLS. This allows both
 the client to authenticate the server and the server to authenticate clients
 using certificates.
 
-Liftbridge does not currently support authorization, but ACL-based
-authorization is planned for a future release.
+Liftbridge currently provides a simple ACL-based authorization mechanism. This feature is provided in experimental mode. Further improvements will be rolled out in future releases.
 
 ## Authentication
 
@@ -55,4 +54,82 @@ client, err := lift.Connect([]string{"localhost:9292"}, lift.TLSConfig(config))
 
 ## Authorization
 
-Support for authorization is not yet provided. It will be implemented in the future.
+*This feature is experimental. Further improvements will be provided in later releases.*
+
+A simple ACL-based authorization mechanism is supported. It is provided thanks to [Casbin ACL models](https://github.com/casbin/casbin#examples).
+
+Liftbridge identifies clients thanks to TLS certificates. Thus, in order to use ACL based authorization, TLS configurations for authentication must be enabled first.
+
+See the [above section](#authentication) to properly enable authentication.
+
+In order to define permissions for clients on specific resources, a `model.conf` file and a `policy.csv` file is required. The `model.conf` file will define the ACL based authorization models. The `policy.csv` serves as a local file-based storage for authorization policies. Currently polices are not yet synchronized or persisted automatically acrosss Liftbridge cluster. Support for this may be provided in the future.
+
+Refer to the `tls` settings in
+[Configuration](./configuration.md#configuration-settings) for more details.
+
+An example of configuration on server side for authorization
+
+```yaml
+tls:
+  key: ./configs/certs/server/server-key.pem
+  cert: ./configs/certs/server/server-cert.pem
+  client.auth.enabled: true
+  client.auth.ca: ./configs/certs/ca-cert.pem
+  client.authz.enabled: true
+  client.authz.model: ./configs/authz/model.conf
+  client.authz.policy: ./configs/authz/policy.csv
+
+```
+
+Inside `model.conf`, an ACL based models should be defined, as
+
+```conf
+[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = r.sub == p.sub && r.obj == p.obj && r.act == p.act
+
+```
+
+And `policy.csv` should declare authorization policies to be applied
+
+```csv
+p, client1, *, FetchMetadata
+p, client1, foo, CreateStream
+p, client1, foo, DeleteStream
+p, client1, foo, PauseStream
+p, client1, foo, Subscribe
+p, client1, foo, PublishToSubject
+p, client1, foo, Publish
+p, client1, __cursors, Publish
+p, client1, foo, SetStreamReadonly
+p, client1, foo, FetchPartitionMetadata
+p, client1, foo, SetCursor
+p, client1, foo, FetchCursor
+```
+
+Refer to [Casbin ACL models](https://github.com/casbin/casbin#examples) for details on ACL model and policy.
+
+In this example, `client1` is authorized to perform a set of actions on stream `foo`.
+
+**NOTE**: 
+- In order to connect to a server, the client will systematically call `FetchMetadata` to fetch servers's connection metadata. Thus, a client must always have `FetchMetadata` permission on resource `*`. 
+- In order to use `cursor`, the client must also have permissions on stream `__cursors`.
+- `policy.csv` is the local file to store authorization policy. A corrupted file may result in API fails to server requests (due to policy configuration errors), or API crashes ( if the `policy.csv` is totally corrupted).
+
+As mentioned, currently Liftbridge does not sync policies acrosss server nodes in the cluster, so the permission is given local on the given server node. To add/remove a policy, the `policy.csv` file has to be modified manually. Liftbridge currently does not reload the file on the flight.
+
+### Permission reload
+
+After a modification in `policy.csv` file, to signal Liftbridge to take into account the changes, it is required to perform one of the following actions:
+
+- Restart the server completely ( cold reload)
+
+- Send a `SIGHUP` signal to the server's running process to signal a reload of authorization policy (hot reload). Liftbridge handles `SIGHUP` signal to reload safely permissions without restarting.

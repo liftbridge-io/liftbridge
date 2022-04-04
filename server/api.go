@@ -31,6 +31,16 @@ type apiServer struct {
 	*Server
 }
 
+// enforce authorization policy per action/subject/object
+func (a *apiServer) enforcePolicy(subject, object, action string) (bool, error) {
+
+	a.authzEnforcer.authzLock.RLock()
+
+	defer a.authzEnforcer.authzLock.RUnlock()
+
+	return a.authzEnforcer.enforcer.Enforce(subject, object, action)
+}
+
 // CreateStream creates a new stream attached to a NATS subject. It returns an
 // AlreadyExists status code if a stream with the given subject and name
 // already exists.
@@ -78,6 +88,12 @@ func (a *apiServer) CreateStream(ctx context.Context, req *client.CreateStreamRe
 		Config:     getStreamConfig(req),
 	}
 
+	e := a.ensureAuthorizationPermission(ctx, req.Name, "CreateStream")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
+	}
+
 	err := a.ensureCreateStreamPrecondition(req)
 	if err != nil {
 		a.logger.Errorf("api: Failed to create stream %s: %v", req.Name, err)
@@ -101,6 +117,12 @@ func (a *apiServer) DeleteStream(ctx context.Context, req *client.DeleteStreamRe
 	resp := &client.DeleteStreamResponse{}
 	a.logger.Debugf("api: DeleteStream [name=%s]",
 		req.Name)
+
+	err := a.ensureAuthorizationPermission(ctx, req.Name, "DeleteStream")
+	if err != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", err)
+		return nil, err
+	}
 
 	if isReservedStream(req.Name) {
 		a.logger.Errorf("api: Failed to delete stream: stream is reserved")
@@ -126,6 +148,12 @@ func (a *apiServer) PauseStream(ctx context.Context, req *client.PauseStreamRequ
 	resp := &client.PauseStreamResponse{}
 	a.logger.Debugf("api: PauseStream [name=%s, partitions=%v, resumeAll=%v]",
 		req.Name, req.Partitions, req.ResumeAll)
+
+	err := a.ensureAuthorizationPermission(ctx, req.Name, "PauseStream")
+	if err != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", err)
+		return nil, err
+	}
 
 	if len(req.Partitions) == 0 {
 		stream := a.metadata.GetStream(req.Name)
@@ -158,6 +186,12 @@ func (a *apiServer) SetStreamReadonly(ctx context.Context, req *client.SetStream
 	resp := &client.SetStreamReadonlyResponse{}
 	a.logger.Debugf("api: SetStreamReadonly [name=%s, partitions=%v, readonly=%v]",
 		req.Name, req.Partitions, req.Readonly)
+
+	err := a.ensureAuthorizationPermission(ctx, req.Name, "SetStreamReadonly")
+	if err != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", err)
+		return nil, err
+	}
 
 	if len(req.Partitions) == 0 {
 		stream := a.metadata.GetStream(req.Name)
@@ -194,6 +228,11 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 	}
 	defer sub.Close()
 
+	e := a.ensureAuthorizationPermission(out.Context(), req.Stream, "Subscribe")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return e
+	}
 	// Send an empty message which signals the subscription was successfully
 	// created.
 	if err := out.Send(&client.Message{}); err != nil {
@@ -289,6 +328,12 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 	*client.FetchMetadataResponse, error) {
 	a.logger.Debugf("api: FetchMetadata [streams=%s, groups=%s]", req.Streams, req.Groups)
 
+	e := a.ensureAuthorizationPermission(ctx, "*", "FetchMetadata")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
+	}
+
 	resp, err := a.metadata.FetchMetadata(ctx, req)
 	if err != nil {
 		a.logger.Errorf("api: Failed to fetch metadata: %v", err.Err())
@@ -304,6 +349,12 @@ func (a *apiServer) FetchMetadata(ctx context.Context, req *client.FetchMetadata
 func (a *apiServer) FetchPartitionMetadata(ctx context.Context, req *client.FetchPartitionMetadataRequest) (
 	*client.FetchPartitionMetadataResponse, error) {
 	a.logger.Debugf("api: FetchPartitionMetadata [stream=%s, partition=%d]", req.Stream, req.Partition)
+
+	e := a.ensureAuthorizationPermission(ctx, req.Stream, "FetchPartitionMetadata")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
+	}
 
 	resp, err := a.metadata.FetchPartitionMetadata(ctx, req)
 	if err != nil {
@@ -325,9 +376,16 @@ func (a *apiServer) Publish(ctx context.Context, req *client.PublishRequest) (
 	a.logger.Debugf("api: Publish [stream=%s, partition=%d]", req.Stream, req.Partition)
 
 	subject, e := a.getPublishSubject(req)
+
 	if e != nil {
 		a.logger.Errorf("api: Failed to publish message: %v", e.Message)
 		return nil, convertPublishAsyncError(e)
+	}
+
+	err := a.ensureAuthorizationPermission(ctx, req.Stream, "Publish")
+	if err != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", err)
+		return nil, err
 	}
 
 	if e := a.ensurePublishPreconditions(req); e != nil {
@@ -404,6 +462,12 @@ func (a *apiServer) PublishToSubject(ctx context.Context, req *client.PublishToS
 		req.AckInbox = a.getAckInbox()
 	}
 
+	e := a.ensureAuthorizationPermission(ctx, req.Subject, "PublishToSubject")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
+	}
+
 	var (
 		msg = &client.Message{
 			Key:           req.Key,
@@ -444,6 +508,12 @@ func (a *apiServer) SetCursor(ctx context.Context, req *client.SetCursorRequest)
 		return nil, status.Error(codes.InvalidArgument, "No cursorId provided")
 	}
 
+	e := a.ensureAuthorizationPermission(ctx, req.Stream, "SetCursor")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
+	}
+
 	if status := a.cursors.SetCursor(ctx, req.Stream, req.CursorId, req.Partition, req.Offset); status != nil {
 		return nil, status.Err()
 	}
@@ -464,6 +534,12 @@ func (a *apiServer) FetchCursor(ctx context.Context, req *client.FetchCursorRequ
 	}
 	if req.CursorId == "" {
 		return nil, status.Error(codes.InvalidArgument, "No cursorId provided")
+	}
+
+	e := a.ensureAuthorizationPermission(ctx, req.Stream, "FetchCursor")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
 	}
 
 	offset, status := a.cursors.GetCursor(ctx, req.Stream, req.CursorId, req.Partition)
@@ -632,6 +708,30 @@ func isValidSubject(subj string) bool {
 	return true
 }
 
+func (a *apiServer) ensureAuthorizationPermission(ctx context.Context, stream, apiMethod string) error {
+	// Verify authorization permissions
+	if a.config.TLSClientAuthz {
+		clientID, _ := ctx.Value("clientID").(string)
+
+		if clientID == "" {
+			return errors.New("api: Failed to retrieve client ID")
+		}
+
+		ok, err := a.enforcePolicy(clientID, stream, apiMethod)
+		if err != nil {
+			a.logger.Errorf("api: Failed to enforce policy")
+			return err
+		}
+		if !ok {
+			errorMessage := fmt.Sprintf("The client is not authorized to call %s on resource %s", apiMethod, stream)
+			return errors.New(errorMessage)
+
+		}
+	}
+	return nil
+
+}
+
 func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamRequest) *status.Status {
 	// Verify if an encrypted stream is requested, the
 	// LIFTBRIDGE_ENCRYPTION_KEY is correctly set.
@@ -645,6 +745,7 @@ func (a *apiServer) ensureCreateStreamPrecondition(req *client.CreateStreamReque
 		}
 
 	}
+
 	return nil
 }
 
@@ -686,7 +787,6 @@ func (a *apiServer) ensurePublishPreconditions(req *client.PublishRequest) *clie
 			Message: fmt.Sprintf("stream with concurrency control must have AckPolicy set"),
 		}
 	}
-
 	return nil
 }
 
@@ -995,6 +1095,13 @@ func (p *publishAsyncSession) publishLoop() error {
 				return nil
 			}
 			return err
+		}
+
+		err = p.ensureAuthorizationPermission(p.stream.Context(), req.Stream, "Publish")
+		if err != nil {
+			p.logger.Errorf("api: Failed to authorize call on resource: %v", err)
+			permissionDeniedAsyncError := &client.PublishAsyncError{Code: client.PublishAsyncError_PERMISSION_DENIED, Message: err.Error()}
+			p.sendPublishAsyncError(req.CorrelationId, permissionDeniedAsyncError)
 		}
 
 		if e := p.ensurePublishPreconditions(req); e != nil {

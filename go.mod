@@ -4,9 +4,11 @@ go 1.17
 
 require (
 	github.com/Workiva/go-datastructures v1.0.52
+	github.com/casbin/casbin/v2 v2.40.6
 	github.com/dustin/go-humanize v1.0.0
 	github.com/golang/protobuf v1.5.2
 	github.com/google/tink/go v1.5.0
+	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/hako/durafmt v0.0.0-20200605151348-3a43fc422dd9
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/raft v1.1.2
@@ -28,6 +30,7 @@ require (
 )
 
 require (
+	github.com/Knetic/govaluate v3.0.1-0.20171022003610-9aa49832a739+incompatible // indirect
 	github.com/armon/go-metrics v0.3.4 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect

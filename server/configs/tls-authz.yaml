@@ -1,9 +1,18 @@
+host: 0.0.0.0
 port: 5050
 tls:
   key: ./configs/certs/server/server-key.pem
   cert: ./configs/certs/server/server-cert.pem
   client.auth.enabled: true
   client.auth.ca: ./configs/certs/ca-cert.pem
+
+  client.authz.enabled: true
+  client.authz.model: ./configs/authz/model.conf
+  client.authz.policy: ./configs/authz/policy.csv
+  
 logging.level: error
-clustering.raft.bootstrap.seed: true
+clustering:
+  server.id: a
+  namespace: a
+  raft.bootstrap.seed: true
 nats.embedded: true

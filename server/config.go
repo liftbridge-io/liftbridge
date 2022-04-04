@@ -75,10 +75,13 @@ const (
 	configBatchMaxMessages = "batch.max.messages"
 	configBatchMaxTime     = "batch.max.time"
 
-	configTLSKey               = "tls.key"
-	configTLSCert              = "tls.cert"
-	configTLSClientAuthEnabled = "tls.client.auth.enabled"
-	configTLSClientAuthCA      = "tls.client.auth.ca"
+	configTLSKey                = "tls.key"
+	configTLSCert               = "tls.cert"
+	configTLSClientAuthEnabled  = "tls.client.auth.enabled"
+	configTLSClientAuthCA       = "tls.client.auth.ca"
+	configTLSClientAuthzEnabled = "tls.client.authz.enabled"
+	configTLSClientAuthzModel   = "tls.client.authz.model"
+	configTLSClientAuthzPolicy  = "tls.client.authz.policy"
 
 	configNATSServers        = "nats.servers"
 	configNATSUser           = "nats.user"
@@ -145,6 +148,9 @@ var configKeys = map[string]struct{}{
 	configTLSCert:                              {},
 	configTLSClientAuthEnabled:                 {},
 	configTLSClientAuthCA:                      {},
+	configTLSClientAuthzEnabled:                {},
+	configTLSClientAuthzModel:                  {},
+	configTLSClientAuthzPolicy:                 {},
 	configNATSServers:                          {},
 	configNATSUser:                             {},
 	configNATSPassword:                         {},
@@ -345,30 +351,33 @@ type GroupsConfig struct {
 
 // Config contains all settings for a Liftbridge Server.
 type Config struct {
-	Listen              HostPort
-	Host                string
-	Port                int
-	LogLevel            uint32
-	LogRecovery         bool
-	LogRaft             bool
-	LogNATS             bool
-	LogSilent           bool
-	DataDir             string
-	BatchMaxMessages    int
-	BatchMaxTime        time.Duration
-	MetadataCacheMaxAge time.Duration
-	TLSKey              string
-	TLSCert             string
-	TLSClientAuth       bool
-	TLSClientAuthCA     string
-	NATS                nats.Options
-	EmbeddedNATS        bool
-	EmbeddedNATSConfig  string
-	Streams             StreamsConfig
-	Clustering          ClusteringConfig
-	ActivityStream      ActivityStreamConfig
-	CursorsStream       CursorsStreamConfig
-	Groups              GroupsConfig
+	Listen               HostPort
+	Host                 string
+	Port                 int
+	LogLevel             uint32
+	LogRecovery          bool
+	LogRaft              bool
+	LogNATS              bool
+	LogSilent            bool
+	DataDir              string
+	BatchMaxMessages     int
+	BatchMaxTime         time.Duration
+	MetadataCacheMaxAge  time.Duration
+	TLSKey               string
+	TLSCert              string
+	TLSClientAuth        bool
+	TLSClientAuthCA      string
+	TLSClientAuthz       bool
+	TLSClientAuthzModel  string
+	TLSClientAuthzPolicy string
+	NATS                 nats.Options
+	EmbeddedNATS         bool
+	EmbeddedNATSConfig   string
+	Streams              StreamsConfig
+	Clustering           ClusteringConfig
+	ActivityStream       ActivityStreamConfig
+	CursorsStream        CursorsStreamConfig
+	Groups               GroupsConfig
 }
 
 // NewDefaultConfig creates a new Config with default settings.
@@ -577,6 +586,17 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 		config.TLSClientAuthCA = v.GetString(configTLSClientAuthCA)
 	}
 
+	if v.IsSet(configTLSClientAuthzEnabled) {
+		config.TLSClientAuthz = v.GetBool(configTLSClientAuthEnabled)
+	}
+
+	if v.IsSet(configTLSClientAuthzModel) {
+		config.TLSClientAuthzModel = v.GetString(configTLSClientAuthzModel)
+	}
+
+	if v.IsSet(configTLSClientAuthzPolicy) {
+		config.TLSClientAuthzPolicy = v.GetString(configTLSClientAuthzPolicy)
+	}
 	if err := parseNATSConfig(config, v); err != nil {
 		return nil, err
 	}

@@ -118,8 +118,8 @@ func TestNewConfigTLS(t *testing.T) {
 	config, err := NewConfig("configs/tls.yaml")
 	require.NoError(t, err)
 	// Liftbridge TLS
-	require.Equal(t, "./configs/certs/server.key", config.TLSKey)
-	require.Equal(t, "./configs/certs/server.crt", config.TLSCert)
+	require.Equal(t, "./configs/certs/server/server-key.pem", config.TLSKey)
+	require.Equal(t, "./configs/certs/server/server-cert.pem", config.TLSCert)
 }
 
 func TestNewConfigNATSTLS(t *testing.T) {
@@ -127,11 +127,11 @@ func TestNewConfigNATSTLS(t *testing.T) {
 	require.NoError(t, err)
 	// NATS TLS
 	// Parse test TLS
-	cert, err := tls.LoadX509KeyPair("./configs/certs/server.crt", "./configs/certs/server.key")
+	cert, err := tls.LoadX509KeyPair("./configs/certs/server/server-cert.pem", "./configs/certs/server/server-key.pem")
 	require.NoError(t, err)
 	// CARoot parsing
 	// Load CA cert
-	caCert, err := ioutil.ReadFile("./configs/certs/caroot.pem")
+	caCert, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
 	require.NoError(t, err)
 
 	caCertPool := x509.NewCertPool()
