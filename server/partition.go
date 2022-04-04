@@ -1283,8 +1283,9 @@ func (p *partition) processPendingMessage(offset int64, msg *commitlog.Message) 
 		p.sendAck(ack)
 	}
 	if err := p.commitQueue.Put(ack); err != nil {
-		// This is very bad and should not happen.
-		panic(fmt.Sprintf("Failed to add message to commit queue: %v", err))
+		// An error here indicates the queue was disposed as a result of the
+		// leader stepping down.
+		p.srv.logger.Errorf("Failed to add message to commit queue for partition %s: %v", p, err)
 	}
 }
 
