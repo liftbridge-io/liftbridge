@@ -26,13 +26,7 @@ this will be providing support for single-member consumer groups, which will
 effectively provide a durable subscription, then generalizing to multi-member
 groups. The latter will require a mechanism for group coordination.
 
-### Monitoring API ([#222](https://github.com/liftbridge-io/liftbridge/issues/222))
-
-Provide an API that exposes monitoring information and metrics about the server
-to better support Liftbridge operations. This paves the way for future
-monitoring and observability integrations.
-
-### Authentication and Authorization ([#36](https://github.com/liftbridge-io/liftbridge/issues/36))
+### ~~Authentication and Authorization ([#36](https://github.com/liftbridge-io/liftbridge/issues/36))~~
 
 Provide mechanisms for client identity and authentication as well as granular
 access control. These will likely be delivered as separate units of work with
@@ -40,6 +34,27 @@ authentication providing the groundwork for fine-grained authorization. As a
 result, these may be broken out into separate roadmap items in the near future.
 
 ## H2 2022
+
+### Monitoring API ([#222](https://github.com/liftbridge-io/liftbridge/issues/222))
+
+Provide an API that exposes monitoring information and metrics about the server
+to better support Liftbridge operations. This paves the way for future
+monitoring and observability integrations.
+
+### Authorization Enhancements ([#409](https://github.com/liftbridge-io/liftbridge/issues/409)
+
+Implement syncing of authorization policies across cluster nodes. This improves
+operator experience by not requiring policy files to be modified across all
+nodes in a cluster. It also prevents permissions drift across cluster nodes.
+
+## H1 2023
+
+### Optional NATS API ([#221](https://github.com/liftbridge-io/liftbridge/issues/221))
+
+With the introduction of [Embedded NATS Server](#embedded-nats-server-19httpsgithubcomliftbridge-ioliftbridgeissues19),
+allow the NATS API to be exposed optionally. This, in effect, turns NATS into
+an implementation detail and allows users to just interact with the Liftbridge
+API as a standalone service.
 
 ### Tiered Storage ([#110](https://github.com/liftbridge-io/liftbridge/issues/110))
 
@@ -56,14 +71,7 @@ This may involve implementing a system similar to Kafka MirrorMaker for
 replicating data between clusters and/or leveraging NATS superclustering and
 geo-aware subscribers.
 
-### Optional NATS API ([#221](https://github.com/liftbridge-io/liftbridge/issues/221))
-
-With the introduction of [Embedded NATS Server](#embedded-nats-server-19httpsgithubcomliftbridge-ioliftbridgeissues19),
-allow the NATS API to be exposed optionally. This, in effect, turns NATS into
-an implementation detail and allows users to just interact with the Liftbridge
-API as a standalone service.
-
-## H1 2023
+## H2 2023
 
 ### Kafka Bridge Connector ([#220](https://github.com/liftbridge-io/liftbridge/issues/220))
 
