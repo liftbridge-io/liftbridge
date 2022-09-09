@@ -346,6 +346,24 @@
       },
       "version-v1.8.0/version-v1.8.0-scalability-configuration": {
         "title": "Configuring for Scalability"
+      },
+      "version-v1.9.0/version-v1.9.0-activity": {
+        "title": "Activity Stream"
+      },
+      "version-v1.9.0/version-v1.9.0-authentication-authorization": {
+        "title": "Authentication and Authorization"
+      },
+      "version-v1.9.0/version-v1.9.0-configuration": {
+        "title": "Configuration"
+      },
+      "version-v1.9.0/version-v1.9.0-consumer-groups": {
+        "title": "Consumer Groups"
+      },
+      "version-v1.9.0/version-v1.9.0-quick-start": {
+        "title": "Quick Start"
+      },
+      "version-v1.9.0/version-v1.9.0-roadmap": {
+        "title": "Product Roadmap"
       }
     },
     "links": {
