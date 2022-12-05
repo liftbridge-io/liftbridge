@@ -1970,7 +1970,7 @@ func TestTLSAuth(t *testing.T) {
 		panic(err)
 	}
 	certPool.AppendCertsFromPEM(ca)
-	certificate, err := tls.LoadX509KeyPair("./configs/certs/client/client-cert.pem", "./configs/certs/client/client-key.pem")
+	certificate, err := tls.LoadX509KeyPair("./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
 	if err != nil {
 		panic(err)
 	}

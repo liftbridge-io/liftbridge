@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/casbin/casbin/v2"
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -118,4 +119,86 @@ func TestTombstoneStreamsOnRestart(t *testing.T) {
 	// Ensure foo stream doesn't exist.
 	_, err = os.Stat(filepath.Join(s1Config.DataDir, "streams", "foo"))
 	require.True(t, os.IsNotExist(err))
+}
+
+// TestApplyAddPolicy ensures a policy can be added via FSM.
+// FSM, upon receiving a Raft log related to policy, would attempt to apply
+// the Raft opertation.
+func TestApplyAddPolicy(t *testing.T) {
+	// Configure the server as a seed.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait to elect self as leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Monkey-patch authorization instance for metadata server
+	policyEnforcer, err := casbin.NewEnforcer("./configs/authz/model.conf")
+	require.NoError(t, err)
+	s1.authzEnforcer = &authzEnforcer{enforcer: policyEnforcer}
+
+	// Add policies via fsm
+	s1.applyAddPolicy("a", "b", "read")
+
+	// Expect policy is added
+	policy := s1.authzEnforcer.enforcer.GetPolicy()
+	require.Equal(t, [][]string{{"a", "b", "read"}}, policy)
+}
+
+// TestApplyAddPolicy ensures a policy can be revoked via FSM.
+// FSM, upon receiving a Raft log related to policy, would attempt to apply
+// the Raft opertation.
+func TestApplyRevokePolicy(t *testing.T) {
+	// Configure the server as a seed.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait to elect self as leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Monkey-patch authorization instance for metadata server
+	policyEnforcer, err := casbin.NewEnforcer("./configs/authz/model.conf")
+	require.NoError(t, err)
+
+	_, err = policyEnforcer.AddPolicies([][]string{{"a", "b", "read"}, {"c", "d", "write"}})
+	require.NoError(t, err)
+
+	s1.authzEnforcer = &authzEnforcer{enforcer: policyEnforcer}
+
+	// Revoke policy via fsm
+	s1.applyRevokePolicy("a", "b", "read")
+
+	// Expect policy is revoked
+	policy := s1.authzEnforcer.enforcer.GetPolicy()
+	require.Equal(t, [][]string{{"c", "d", "write"}}, policy)
+}
+
+// TestAddRevokePolicyNoFailure ensures that FSM will not throw panic or error
+// when processing AddPolicy or RevokePolicy Raft log, even when the server
+// does not have  authorization enabled. Note: Normally, the server should be configured
+// to have Authorization enabled to use this feature. However, in case it does not, it should
+// not block the Raft replication protocol.
+func TestAddRevokePolicyNoFailure(t *testing.T) {
+	// Configure the server as a seed.
+	s1Config := getTestConfig("a", true, 5050)
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Wait to elect self as leader.
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Monkey-patch authzEnforcer to be nil
+	s1.authzEnforcer = nil
+
+	// Apply Raft log to AddPolicy
+	err := s1.applyAddPolicy("a", "b", "read")
+	// Expect no failure
+	require.NoError(t, err)
+
+	// Apply Raft log to RevokePolicy
+	err = s1.applyRevokePolicy("a", "b", "read")
+	// Expect no failure
+	require.NoError(t, err)
 }

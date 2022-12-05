@@ -72,3 +72,8 @@ require (
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
+
+replace (
+	github.com/liftbridge-io/go-liftbridge/v2 v2.2.1-0.20220311002120-3d391a19ff0e => /Users/tunghoang/Documents/Code/go-liftbridge/v2
+	github.com/liftbridge-io/liftbridge-api v1.9.0 => /Users/tunghoang/Documents/Code/liftbridge-api
+)

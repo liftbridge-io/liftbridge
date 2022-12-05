@@ -240,6 +240,25 @@ func (s *Server) apply(log *proto.RaftLog, index uint64, recovered bool) (interf
 		}
 	case proto.Op_PUBLISH_ACTIVITY:
 		s.activity.SetLastPublishedRaftIndex(log.PublishActivityOp.RaftIndex)
+	case proto.Op_ADD_POLICY:
+		var (
+			userID     = log.AddPolicyOp.Policy.UserId
+			resourceID = log.AddPolicyOp.Policy.ResourceId
+			action     = log.AddPolicyOp.Policy.Action
+		)
+
+		if err := s.applyAddPolicy(userID, resourceID, action); err != nil {
+			return nil, err
+		}
+	case proto.Op_REVOKE_POLICY:
+		var (
+			userID     = log.RevokePolicyOp.Policy.UserId
+			resourceID = log.RevokePolicyOp.Policy.ResourceId
+			action     = log.RevokePolicyOp.Policy.Action
+		)
+		if err := s.applyRevokePolicy(userID, resourceID, action); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("Unknown Raft operation: %s", log.Op)
 	}
@@ -605,5 +624,51 @@ func (s *Server) applyChangeConsumerGroupCoordinator(groupID, coordinator string
 	}
 
 	s.logger.Debugf("fsm: Changed coordinator for consumer group %s to %s", groupID, coordinator)
+	return nil
+}
+
+// applyAddPolicy add an ACL-style authorization policy to the existing authzEnforcer
+// on the server
+func (s *Server) applyAddPolicy(userID, resourceID, action string) error {
+
+	// If authorization is not activated somehow, Raft replication must continue
+	// without throwing error or panic. Error thrown will block Raft replication process.
+	if s.authzEnforcer == nil {
+		s.logger.Warn("fsm: no authorization instance is initiated on this server")
+		return nil
+	}
+
+	s.authzEnforcer.authzLock.Lock()
+	defer s.authzEnforcer.authzLock.Unlock()
+
+	_, err := s.authzEnforcer.enforcer.AddPolicy(userID, resourceID, action)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// applyRevokePolicy removes an existing ACL-style authorization policy from authzEnforcer
+// on the server
+func (s *Server) applyRevokePolicy(userID, resourceID, action string) error {
+
+	// If authorization is not activated somehow, Raft replication must continue
+	// without throwing error or panic. Error thrown will block Raft replication process.
+	if s.authzEnforcer == nil {
+		s.logger.Warn("fsm: no authorization instance is initiated on this server")
+		return nil
+	}
+
+	s.authzEnforcer.authzLock.Lock()
+	defer s.authzEnforcer.authzLock.Unlock()
+
+	_, err := s.authzEnforcer.enforcer.RemovePolicy(userID, resourceID, action)
+
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
