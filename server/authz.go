@@ -9,6 +9,22 @@ import (
 	peer "google.golang.org/grpc/peer"
 )
 
+// Default ACL with superuser model for Casbin authorization.
+// Ref: https://github.com/casbin/casbin/blob/master/examples/basic_with_root_model.conf
+var DefaultACLAuthzModel string = `
+[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = r.sub == p.sub && r.obj == p.obj && r.act == p.act || r.sub == "root"
+`
+
 // addUserContext parses client ID from context and set client ID in context
 func addUserContext(ctx context.Context) context.Context {
 	p, ok := peer.FromContext(ctx)

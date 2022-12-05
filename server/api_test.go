@@ -92,6 +92,7 @@ func TestCreateStreamPropagate(t *testing.T) {
 	// Creating the same stream returns ErrStreamExists.
 	err = client.CreateStream(context.Background(), "foo", "foo")
 	require.Equal(t, lift.ErrStreamExists, err)
+
 }
 
 // Ensure creating a stream fails when there is no known metadata leader.
@@ -2188,22 +2189,7 @@ func TestAuthzWithGrantedResource(t *testing.T) {
 	defer s1.Stop()
 	getMetadataLeader(t, 10*time.Second, s1)
 
-	// Connect with TLS.
-	certPool := x509.NewCertPool()
-	ca, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
-	if err != nil {
-		panic(err)
-	}
-	certPool.AppendCertsFromPEM(ca)
-	certificate, err := tls.LoadX509KeyPair("./configs/certs/client/client-cert.pem", "./configs/certs/client/client-key.pem")
-	if err != nil {
-		panic(err)
-	}
-	config := &tls.Config{
-		ServerName:   "localhost",
-		Certificates: []tls.Certificate{certificate},
-		RootCAs:      certPool,
-	}
+	config := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
 	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(config))
 	require.NoError(t, err)
 	defer client.Close()
@@ -2273,23 +2259,7 @@ func TestAuthzWithDeniedResource(t *testing.T) {
 	s1 := runServerWithConfig(t, s1Config)
 	defer s1.Stop()
 	getMetadataLeader(t, 10*time.Second, s1)
-
-	// Connect with TLS.
-	certPool := x509.NewCertPool()
-	ca, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
-	if err != nil {
-		panic(err)
-	}
-	certPool.AppendCertsFromPEM(ca)
-	certificate, err := tls.LoadX509KeyPair("./configs/certs/client/client-cert.pem", "./configs/certs/client/client-key.pem")
-	if err != nil {
-		panic(err)
-	}
-	config := &tls.Config{
-		ServerName:   "localhost",
-		Certificates: []tls.Certificate{certificate},
-		RootCAs:      certPool,
-	}
+	config := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
 	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(config))
 	require.NoError(t, err)
 	defer client.Close()
@@ -2352,4 +2322,410 @@ func TestAuthzWithDeniedResource(t *testing.T) {
 	err = client.DeleteStream(context.Background(), stream)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "The client is not authorized to call")
+}
+
+// TestAuthzOnIncompatibleServer ensures that a server which is configured to use file-based
+// authorization will not support AddPolicy, RevokePolicy, ListPolicy api calls
+func TestAuthzOnIncompatibleServer(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure server with TLS.
+	s1Config, err := NewConfig("./configs/tls-authz.yaml")
+	require.NoError(t, err)
+
+	// Overwrite DataDir with a temporary test DataDir
+	testConfig := getTestConfig("a", true, 5050)
+	s1Config.DataDir = testConfig.DataDir
+
+	// Overwrite Cursor Stream Config. This is to test SetCursor and FetchCursor
+	s1Config.CursorsStream.Partitions = 1
+
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	config := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
+
+	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(config))
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Add a policy using AddPolicy
+	err = client.AddPolicy(context.Background(), "a", "b", "read")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Server is not configured to use this endpoint")
+
+	// Revoke a policy using RevokePolicy
+	err = client.RevokePolicy(context.Background(), "a", "b", "read")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Server is not configured to use this endpoint")
+
+	// List policies using ListPolicy
+	_, err = client.ListPolicy(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Server is not configured to use this endpoint")
+}
+
+// TestAddPolicyWithRootUser ensures that root client can add ACL policies to the cluster
+func TestAddPolicyWithRootUser(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure server with TLS.
+	s1Config, err := NewConfig("./configs/tls-authz-on-raft.yaml")
+	require.NoError(t, err)
+
+	// Overwrite DataDir with a temporary test DataDir
+	testConfig := getTestConfig("a", true, 5050)
+	s1Config.DataDir = testConfig.DataDir
+
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	configNormalClient := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
+
+	// Connect with normal client
+	_, err = lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configNormalClient))
+
+	// Expect error when fetching metadata for connection
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call FetchMetadata on resource *")
+
+	// Add necessary policies using AddPolicy using root user
+	configRoot := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client-root/client-root-cert.pem", "./configs/certs/client/client-root/client-root-key.pem")
+	clientRoot, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configRoot))
+	require.NoError(t, err)
+	defer clientRoot.Close()
+	err = clientRoot.AddPolicy(context.Background(), "client1", "*", "FetchMetadata")
+	require.NoError(t, err)
+
+	// Connect again to cluster using normal client
+	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configNormalClient))
+	// Expect no error
+	require.NoError(t, err)
+	defer client.Close()
+}
+
+// TestRevokePolicyWithRootUser ensures that root client can revoke ACL policies from cluster
+func TestRevokePolicyWithRootUser(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure server with TLS.
+	s1Config, err := NewConfig("./configs/tls-authz-on-raft.yaml")
+	require.NoError(t, err)
+
+	// Overwrite DataDir with a temporary test DataDir
+	testConfig := getTestConfig("a", true, 5050)
+	s1Config.DataDir = testConfig.DataDir
+
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Add necessary policies using AddPolicy using root user
+	configRoot := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client-root/client-root-cert.pem", "./configs/certs/client/client-root/client-root-key.pem")
+	clientRoot, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configRoot))
+	require.NoError(t, err)
+	defer clientRoot.Close()
+	err = clientRoot.AddPolicy(context.Background(), "client1", "*", "FetchMetadata")
+	require.NoError(t, err)
+
+	// Connect to the cluster using normal client
+	configNormalClient := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
+	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configNormalClient))
+	// Expect no error
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Revoke the given policy
+	err = clientRoot.RevokePolicy(context.Background(), "client1", "*", "FetchMetadata")
+	require.NoError(t, err)
+
+	// Connect with normal client
+	_, err = lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configNormalClient))
+	// Expect error when fetching metadata for connection
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call FetchMetadata on resource *")
+}
+
+// TestListPolicies ensures that client can retrieve all ACL policies from cluster
+func TestListPolicies(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Configure server with TLS.
+	s1Config, err := NewConfig("./configs/tls-authz-on-raft.yaml")
+	require.NoError(t, err)
+
+	// Overwrite DataDir with a temporary test DataDir
+	testConfig := getTestConfig("a", true, 5050)
+	s1Config.DataDir = testConfig.DataDir
+
+	// Overwrite Cursor Stream Config. This is to test SetCursor and FetchCursor
+	s1Config.CursorsStream.Partitions = 1
+
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	configRoot := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client-root/client-root-cert.pem", "./configs/certs/client/client-root/client-root-key.pem")
+	clientRoot, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configRoot))
+	require.NoError(t, err)
+	defer clientRoot.Close()
+
+	// Add necessary policies using AddPolicy using root user
+	err = clientRoot.AddPolicy(context.Background(), "client1", "*", "FetchMetadata")
+	require.NoError(t, err)
+
+	// ListPolicies using root user
+	policies, err := clientRoot.ListPolicy(context.Background())
+
+	expectedPolicies := make(map[int32]*lift.ACLPolicy)
+	expectedPolicies[int32(0)] = &lift.ACLPolicy{
+		UserId: "client1", ResourceId: "*", Action: "FetchMetadata"}
+
+	// Expect the policy is present
+	require.NoError(t, err)
+	require.Equal(t, expectedPolicies, policies)
+}
+
+// TestAddPolicyPropagate ensures that once an AddPolicy operation is successfully propagated all over the cluster,
+// a client which connects to a random server can be authorized correctly
+func TestAddPolicyPropagate(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Run a server as bootstrap
+	s1Config, _ := NewConfig("./configs/tls-authz-on-raft.yaml")
+	// Overwrite configs with default test config
+	testConfig1 := getTestConfig("a", true, 0)
+	s1Config.DataDir = testConfig1.DataDir
+	s1Config.Host = testConfig1.Host
+	s1Config.Port = testConfig1.Port
+	s1Config.Clustering = testConfig1.Clustering
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Run a second server
+	s2Config, _ := NewConfig("./configs/tls-authz-on-raft.yaml")
+	// Overwrite configs with default test config
+	testConfig2 := getTestConfig("b", false, 5051)
+	s2Config.DataDir = testConfig2.DataDir
+	s2Config.Host = testConfig2.Host
+	s2Config.Port = testConfig2.Port
+	s2Config.Clustering = testConfig2.Clustering
+	s2Config.EmbeddedNATS = testConfig2.EmbeddedNATS
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// select leader
+	getMetadataLeader(t, 10*time.Second, s1, s2)
+
+	// Given a normal client tries to FetchMetadata
+	configNormalClient := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
+	_, err := lift.Connect([]string{"localhost:5051"}, lift.TLSConfig(configNormalClient))
+	// Expect permission denied error
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call FetchMetadata on resource *")
+
+	config := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client-root/client-root-cert.pem", "./configs/certs/client/client-root/client-root-key.pem")
+	client, err := lift.Connect([]string{"localhost:5051"}, lift.TLSConfig(config))
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Add necessary policies using AddPolicy using root user
+	err = client.AddPolicy(context.Background(), "client1", "*", "FetchMetadata")
+	require.NoError(t, err)
+
+	// Wait for a while until the cluster fully replicates the data
+	err = waitUntilAuthorizationLogAppliedOnFSM(t, 5*time.Second, 1, s1)
+	require.NoError(t, err)
+	err = waitUntilAuthorizationLogAppliedOnFSM(t, 5*time.Second, 1, s2)
+	require.NoError(t, err)
+
+	// Client1 tries to FetchMetadata again
+	client1, err := lift.Connect([]string{"localhost:5051"}, lift.TLSConfig(configNormalClient))
+
+	// Expect FetchMetadata policy is correct propagated to the cluster
+	require.NoError(t, err)
+	defer client1.Close()
+
+}
+
+// TestRevokePolicyPropagate ensures that once an RevokePolicy operation is successfully propagated all over the cluster,
+// a client which connects to a random server can be authorized correctly
+func TestRevokePolicyPropagate(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Run a server as bootstrap
+	s1Config, _ := NewConfig("./configs/tls-authz-on-raft.yaml")
+	// Overwrite configs with default test config
+	testConfig1 := getTestConfig("a", true, 0)
+	s1Config.DataDir = testConfig1.DataDir
+	s1Config.Host = testConfig1.Host
+	s1Config.Port = testConfig1.Port
+	s1Config.Clustering = testConfig1.Clustering
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	// Run a second server
+	s2Config, _ := NewConfig("./configs/tls-authz-on-raft.yaml")
+	// Overwrite configs with default test config
+	testConfig2 := getTestConfig("b", false, 5051)
+	s2Config.DataDir = testConfig2.DataDir
+	s2Config.Host = testConfig2.Host
+	s2Config.Port = testConfig2.Port
+	s2Config.Clustering = testConfig2.Clustering
+	s2Config.EmbeddedNATS = testConfig2.EmbeddedNATS
+	s2 := runServerWithConfig(t, s2Config)
+	defer s2.Stop()
+
+	// select leader
+	getMetadataLeader(t, 10*time.Second, s1, s2)
+
+	// Given a normal client tries to FetchMetadata
+	configNormalClient := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
+	_, err := lift.Connect([]string{"localhost:5051"}, lift.TLSConfig(configNormalClient))
+	// Expect permission denied error
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call FetchMetadata on resource *")
+
+	configRoot := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client-root/client-root-cert.pem", "./configs/certs/client/client-root/client-root-key.pem")
+	clientRoot, err := lift.Connect([]string{"localhost:5051"}, lift.TLSConfig(configRoot))
+	require.NoError(t, err)
+	defer clientRoot.Close()
+
+	// Add necessary policies using AddPolicy using root user
+	err = clientRoot.AddPolicy(context.Background(), "client1", "*", "FetchMetadata")
+	require.NoError(t, err)
+
+	// Wait for a while until the cluster fully replicates the data
+	err = waitUntilAuthorizationLogAppliedOnFSM(t, 5*time.Second, 1, s1)
+	require.NoError(t, err)
+	err = waitUntilAuthorizationLogAppliedOnFSM(t, 5*time.Second, 1, s2)
+	require.NoError(t, err)
+
+	// Client1 tries to FetchMetadata again
+	client1, err := lift.Connect([]string{"localhost:5051"}, lift.TLSConfig(configNormalClient))
+
+	// Expect FetchMetadata policy is correct propagated to the cluster
+	require.NoError(t, err)
+	defer client1.Close()
+
+	// Revoke the policy
+	// Add necessary policies using AddPolicy using root user
+	err = clientRoot.RevokePolicy(context.Background(), "client1", "*", "FetchMetadata")
+	require.NoError(t, err)
+
+	// Wait for a while until the cluster fully replicates the data
+	waitUntilAuthorizationLogAppliedOnFSM(t, 5*time.Second, 0, s1)
+	waitUntilAuthorizationLogAppliedOnFSM(t, 5*time.Second, 0, s2)
+
+	// Given a normal client tries to FetchMetadata
+	_, err = lift.Connect([]string{"localhost:5051"}, lift.TLSConfig(configNormalClient))
+	// Expect permission denied error
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "The client is not authorized to call FetchMetadata on resource *")
+
+}
+
+// TestRevokeSubscribeOnStream ensures that when a Subscribe policy is revoked, even an opening stream will
+// throws an error. This is to test a scenario when: client 1 subscribes for messages -> pass, then Subscribe
+// policy is revoked for client 1, when a new message is available, client 1 should receive an error
+func TestRevokeSubscribeOnStream(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Run a server as bootstrap
+	s1Config, _ := NewConfig("./configs/tls-authz-on-raft.yaml")
+	// Overwrite configs with default test config
+	testConfig1 := getTestConfig("a", true, 5050)
+	s1Config.DataDir = testConfig1.DataDir
+	s1Config.Host = testConfig1.Host
+	s1Config.Port = testConfig1.Port
+	s1Config.Clustering = testConfig1.Clustering
+	s1 := runServerWithConfig(t, s1Config)
+	defer s1.Stop()
+
+	getMetadataLeader(t, 10*time.Second, s1)
+
+	// Set up permission for client 1
+	configRoot := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client-root/client-root-cert.pem", "./configs/certs/client/client-root/client-root-key.pem")
+	clientRoot, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configRoot))
+	require.NoError(t, err)
+	defer clientRoot.Close()
+	err = clientRoot.AddPolicy(context.Background(), "client1", "foo", "CreateStream")
+	require.NoError(t, err)
+	err = clientRoot.AddPolicy(context.Background(), "client1", "*", "FetchMetadata")
+	require.NoError(t, err)
+	err = clientRoot.AddPolicy(context.Background(), "client1", "foo", "Publish")
+	require.NoError(t, err)
+	err = clientRoot.AddPolicy(context.Background(), "client1", "foo", "Subscribe")
+	require.NoError(t, err)
+
+	configNormalClient := setupTLSConfig("./configs/certs/ca-cert.pem", "./configs/certs/client/client1/client1-cert.pem", "./configs/certs/client/client1/client1-key.pem")
+	client, err := lift.Connect([]string{"localhost:5050"}, lift.TLSConfig(configNormalClient))
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Set up Pub/Sub for client1
+	name := "foo"
+	subject := "foo"
+	err = client.CreateStream(context.Background(), subject, name)
+	require.NoError(t, err)
+
+	ch1 := make(chan struct{})
+	ch2 := make(chan struct{})
+	err = client.Subscribe(context.Background(), name, func(msg *lift.Message, err error) {
+		if err != nil {
+			close(ch2)
+		} else {
+			close(ch1)
+		}
+
+	})
+	require.NoError(t, err)
+
+	// Publish a message
+	_, err = client.Publish(context.Background(), name, []byte("hello"))
+	require.NoError(t, err)
+
+	// Wait to receive initial messages.
+	select {
+	case <-ch1:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive all expected messages")
+	}
+
+	// Revoke Subscribe policy for client 1
+	err = clientRoot.RevokePolicy(context.Background(), "client1", "foo", "Subscribe")
+	require.NoError(t, err)
+
+	// Publish one more message.
+	_, err = client.Publish(context.Background(), name, []byte("hello"))
+	require.NoError(t, err)
+
+	// Wait to receive an error.
+	select {
+	case <-ch2:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Did not receive the expected error")
+	}
+
+}
+
+func setupTLSConfig(caCert, clientCert, clientKey string) *tls.Config {
+	certPool := x509.NewCertPool()
+	ca, err := ioutil.ReadFile(caCert)
+	if err != nil {
+		panic(err)
+	}
+	certPool.AppendCertsFromPEM(ca)
+	certificate, err := tls.LoadX509KeyPair(clientCert, clientKey)
+	if err != nil {
+		panic(err)
+	}
+	config := &tls.Config{
+		ServerName:   "localhost",
+		Certificates: []tls.Certificate{certificate},
+		RootCAs:      certPool,
+	}
+	return config
 }

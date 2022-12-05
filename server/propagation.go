@@ -53,6 +53,10 @@ func (s *Server) handlePropagatedRequest(m *nats.Msg) {
 		resp = s.handleLeaveConsumerGroup(req)
 	case proto.Op_REPORT_CONSUMER_GROUP_COORDINATOR:
 		resp = s.handleReportConsumerGroupCoordinator(req)
+	case proto.Op_ADD_POLICY:
+		resp = s.handleAddPolicy(req)
+	case proto.Op_REVOKE_POLICY:
+		resp = s.handleRevokePolicy(req)
 	default:
 		s.logger.Warnf("Unknown propagated request operation: %s", req.Op)
 		return
@@ -177,6 +181,26 @@ func (s *Server) handleReportConsumerGroupCoordinator(req *proto.PropagatedReque
 		Op: req.Op,
 	}
 	if err := s.metadata.ReportGroupCoordinator(context.Background(), req.ReportConsumerGroupCoordinatorOp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	return resp
+}
+
+func (s *Server) handleAddPolicy(req *proto.PropagatedRequest) *proto.PropagatedResponse {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.AddPolicy(context.Background(), req.AddPolicyOp); err != nil {
+		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
+	}
+	return resp
+}
+
+func (s *Server) handleRevokePolicy(req *proto.PropagatedRequest) *proto.PropagatedResponse {
+	resp := &proto.PropagatedResponse{
+		Op: req.Op,
+	}
+	if err := s.metadata.RevokePolicy(context.Background(), req.RevokePolicyOp); err != nil {
 		resp.Error = &proto.Error{Code: uint32(err.Code()), Msg: err.Message()}
 	}
 	return resp

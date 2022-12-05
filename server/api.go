@@ -252,6 +252,12 @@ func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_Subsc
 		case <-closedC:
 			return nil
 		case m := <-msgC:
+			// Enforce authorization on stream of message
+			e := a.ensureAuthorizationPermission(out.Context(), req.Stream, "Subscribe")
+			if e != nil {
+				a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+				return e
+			}
 			if err := out.Send(m); err != nil {
 				return err
 			}
@@ -692,6 +698,107 @@ func (a *apiServer) ReportConsumerGroupCoordinator(ctx context.Context, req *cli
 		return nil, status.Err()
 	}
 	return new(client.ReportConsumerGroupCoordinatorResponse), nil
+}
+
+// AddPolicy adds an ACL authorization policy to the cluster. The policy is stored durably and replicated
+// to all servers particpating in the cluster.
+// As the operation is async in nature, it is recommended to veriy the result of the action with ListPolicy endpoint.
+func (a *apiServer) AddPolicy(ctx context.Context, req *client.AddPolicyRequest) (*client.AddPolicyResponse, error) {
+	if req.Policy == nil {
+		return nil, status.Error(codes.InvalidArgument, "Invalid ACL policy")
+	}
+
+	a.logger.Debugf("api: AddPolicy [userId=%s, resourceId=%s, action=%s]",
+		req.Policy.UserId, req.Policy.ResourceId, req.Policy.Action)
+
+	// If the server to configured to use file-based authorization policies, this endpoint
+	// is not supported
+	if a.config.TLSClientAuthzModel != "" && a.config.TLSClientAuthzPolicy != "" {
+		return nil, status.Error(codes.FailedPrecondition, "Server is not configured to use this endpoint")
+	}
+
+	// [NOTE]: AddPolicy call is an 'admin' level call, on all resources.
+	// To perform AddPolicy call, user must be either 'root' or have AddPolicy
+	// permission on all resources.
+	e := a.ensureAuthorizationPermission(ctx, "*", "AddPolicy")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
+	}
+
+	if e := a.metadata.AddPolicy(ctx, &proto.AddPolicyOp{Policy: &proto.Policy{
+		UserId:     req.Policy.UserId,
+		ResourceId: req.Policy.ResourceId,
+		Action:     req.Policy.Action}}); e != nil {
+		return nil, e.Err()
+	}
+	return &client.AddPolicyResponse{}, nil
+}
+
+// RevokePolicy removes an existing ACL authorization policy to the cluster. As the operation is async in nature,
+// it is recommended to veriy the result of the action with ListPolicy endpoint.
+func (a *apiServer) RevokePolicy(ctx context.Context, req *client.RevokePolicyRequest) (*client.RevokePolicyResponse, error) {
+	if req.Policy == nil {
+		return nil, status.Error(codes.InvalidArgument, "Invalid ACL policy")
+	}
+
+	a.logger.Debugf("api: AddPolicy [userId=%s, resourceId=%s, action=%s]",
+		req.Policy.UserId, req.Policy.ResourceId, req.Policy.Action)
+
+	// If the server to configured to use file-based authorization policies, this endpoint
+	// is not supported
+	if a.config.TLSClientAuthzModel != "" && a.config.TLSClientAuthzPolicy != "" {
+		return nil, status.Error(codes.FailedPrecondition, "Server is not configured to use this endpoint")
+	}
+
+	// [NOTE]: RevokePolicy call is an 'admin' level call, on all resources.
+	// To perform RevokePolicy call, user must be either 'root' or have RevokePolicy
+	// permission on all resources.
+	e := a.ensureAuthorizationPermission(ctx, "*", "RevokePolicy")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
+	}
+
+	err := a.metadata.RevokePolicy(ctx,
+		&proto.RevokePolicyOp{Policy: &proto.Policy{
+			UserId:     req.Policy.UserId,
+			ResourceId: req.Policy.ResourceId,
+			Action:     req.Policy.Action}})
+
+	if err != nil {
+		return nil, err.Err()
+	}
+	return &client.RevokePolicyResponse{}, nil
+}
+
+// ListPolicy retrieves all existing ACL authorization policies from the cluster.
+func (a *apiServer) ListPolicy(ctx context.Context, req *client.ListPolicyRequest) (*client.ListPolicyResponse, error) {
+
+	a.logger.Debug("api: ListPolicy")
+
+	// If the server to configured to use file-based authorization policies, this endpoint
+	// is not supported
+	if a.config.TLSClientAuthzModel != "" && a.config.TLSClientAuthzPolicy != "" {
+		return nil, status.Error(codes.FailedPrecondition, "Server is not configured to use this endpoint")
+	}
+
+	// [NOTE]: ListPolicy call is an 'admin' level call, on all resources.
+	// To perform ListPolicy call, user must be either 'root' or have ListPolicy
+	// permission on all resources.
+	e := a.ensureAuthorizationPermission(ctx, "*", "ListPolicy")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return nil, e
+	}
+
+	policies, err := a.metadata.ListPolicy(ctx, req)
+
+	if err != nil {
+		return nil, err.Err()
+	}
+
+	return policies, nil
 }
 
 // isValidSubject indicates if the string is a valid NATS subject.

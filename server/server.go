@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v2/model"
+	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	"github.com/hashicorp/raft"
 	client "github.com/liftbridge-io/liftbridge-api/go"
 	gnatsd "github.com/nats-io/nats-server/v2/server"
@@ -466,19 +468,12 @@ func (s *Server) startAPIServer() error {
 			}
 		}
 		// Configure authorization
-		if s.config.TLSClientAuthz && s.config.TLSClientAuthzModel != "" && s.config.TLSClientAuthzPolicy != "" {
+		if s.config.TLSClientAuthz {
 			opts = append(opts, grpc.UnaryInterceptor(AuthzUnaryInterceptor), grpc.StreamInterceptor(AuthzStreamInterceptor))
-			policyEnforcer, err := casbin.NewEnforcer(s.config.TLSClientAuthzModel, s.config.TLSClientAuthzPolicy)
+			err = s.initAuthzEnforcer()
 			if err != nil {
-				return errors.Wrap(err, "failed to initialize authorization policy enforcer")
+				return errors.Wrap(err, "failed to initialize authorization")
 			}
-			err = policyEnforcer.LoadPolicy()
-
-			if err != nil {
-				return errors.Wrap(err, "failed to load authorization permissions")
-			}
-
-			s.authzEnforcer = &authzEnforcer{enforcer: policyEnforcer}
 		}
 
 		creds := credentials.NewTLS(&config)
@@ -511,6 +506,41 @@ func (s *Server) startAPIServer() error {
 		}
 	})
 
+	return nil
+}
+
+// initAuthzEnforcer initializes authorization enforcer based on configuration
+func (s *Server) initAuthzEnforcer() error {
+	if s.config.TLSClientAuthzModel != "" && s.config.TLSClientAuthzPolicy != "" {
+		s.logger.Warn("DeprecationWarning: Using file-based configuration to persist authorization is no longer supported")
+
+		policyEnforcer, err := casbin.NewEnforcer(s.config.TLSClientAuthzModel, s.config.TLSClientAuthzPolicy)
+		if err != nil {
+			return err
+		}
+		err = policyEnforcer.LoadPolicy()
+
+		if err != nil {
+			return errors.Wrap(err, "failed to load authorization permissions")
+		}
+		s.authzEnforcer = &authzEnforcer{enforcer: policyEnforcer}
+
+	} else {
+		// Default ACL-with-superuser model
+		authzModel, err := model.NewModelFromString(DefaultACLAuthzModel)
+		if err != nil {
+			return err
+		}
+
+		// Initialize casbin object without a storage file
+		// as policies are stored directly on Raft
+		authzStorage := fileadapter.NewAdapter("")
+		policyEnforcer, err := casbin.NewEnforcer(authzModel, authzStorage)
+		if err != nil {
+			return err
+		}
+		s.authzEnforcer = &authzEnforcer{enforcer: policyEnforcer}
+	}
 	return nil
 }
 

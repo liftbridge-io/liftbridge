@@ -939,6 +939,103 @@ func (m *metadataAPI) createConsumerGroup(ctx context.Context, req *proto.JoinCo
 	return coordinator, nil
 }
 
+// AddPolicy adds an ACL style authorization policy to the cluster.
+// If the server is not the leader, the request will be propagated to the metadata leader
+func (m *metadataAPI) AddPolicy(ctx context.Context, req *proto.AddPolicyOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagateAddPolicy(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Add policy request
+	op := &proto.RaftLog{
+		Op:          proto.Op_ADD_POLICY,
+		AddPolicyOp: req,
+	}
+
+	// Wait on result of replication.
+	future, err := m.getRaft().applyOperation(ctx, op, func(op *proto.RaftLog) error { return nil })
+	if err != nil {
+		code := codes.FailedPrecondition
+		return status.New(code, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to add policy to cluster: %v", err.Error())
+	}
+
+	return nil
+}
+
+// RevokePolicy removes an ACL style authorization policy to the cluster.
+// If the server is not the leader, the request will be propagated to the metadata leader
+func (m *metadataAPI) RevokePolicy(ctx context.Context, req *proto.RevokePolicyOp) *status.Status {
+	// Forward the request if we're not the leader.
+	if !m.IsLeader() {
+		isLeader, st := m.propagateRevokePolicy(ctx, req)
+		if st != nil {
+			return st
+		}
+		// If we have since become leader, continue on with the request.
+		if !isLeader {
+			return nil
+		}
+	}
+
+	// Revoke policy request
+	op := &proto.RaftLog{
+		Op:             proto.Op_REVOKE_POLICY,
+		RevokePolicyOp: req,
+	}
+
+	// Wait on result of replication.
+	future, err := m.getRaft().applyOperation(ctx, op, func(op *proto.RaftLog) error { return nil })
+	if err != nil {
+		code := codes.FailedPrecondition
+		return status.New(code, err.Error())
+	}
+	if err := future.Error(); err != nil {
+		return status.Newf(codes.Internal, "Failed to remove policy from cluster: %v", err.Error())
+	}
+
+	return nil
+}
+
+// ListPolicy returns all existing ACL policies from the cluster.
+func (m *metadataAPI) ListPolicy(ctx context.Context, req *client.ListPolicyRequest) (*client.ListPolicyResponse, *status.Status) {
+	resp := &client.ListPolicyResponse{Policies: make(map[int32]*client.ACLPolicy)}
+
+	if m.Server.authzEnforcer == nil {
+		m.logger.Debug("metadata: no authorization instance is initiated on this server")
+		return resp, status.New(codes.FailedPrecondition, "no authorization instance is initiated on this server")
+	}
+
+	m.Server.authzEnforcer.authzLock.RLock()
+	defer m.Server.authzEnforcer.authzLock.RUnlock()
+
+	policies := m.Server.authzEnforcer.enforcer.GetPolicy()
+
+	for i, policy := range policies {
+
+		// A correctly formatted policy should be an array of 3 element, in a strict order: User, Resource, Action.
+		// Normally, if the policy is added or revoked via metadata's api, this should not happen.
+		if len(policy) != 3 {
+			m.logger.Warn("Policy is not correctly formatted", policy)
+			continue
+		}
+
+		resp.Policies[int32(i)] = &client.ACLPolicy{
+			UserId: policy[0], ResourceId: policy[1], Action: policy[2]}
+	}
+	return resp, nil
+}
+
 // AddConsumerGroup adds the given consumer group to the metadata store. It
 // returns an error if a consumer group with the same ID already exists.
 func (m *metadataAPI) AddConsumerGroup(protoGroup *proto.ConsumerGroup, recovered bool) (*consumerGroup, error) {
@@ -1825,6 +1922,36 @@ func (m *metadataAPI) propagateReportGroupCoordinator(ctx context.Context, req *
 	propagate := &proto.PropagatedRequest{
 		Op:                               proto.Op_REPORT_CONSUMER_GROUP_COORDINATOR,
 		ReportConsumerGroupCoordinatorOp: req,
+	}
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
+}
+
+// propagateAddPolicy forwards a AddPolicyOp request to
+// the metadata leader. The bool indicates if this server has since become
+// leader and the request should be performed locally. A Status is returned if
+// the propagated request failed.
+func (m *metadataAPI) propagateAddPolicy(ctx context.Context, req *proto.AddPolicyOp) (
+	bool, *status.Status) {
+
+	propagate := &proto.PropagatedRequest{
+		Op:          proto.Op_ADD_POLICY,
+		AddPolicyOp: req,
+	}
+	_, isLeader, status := m.propagateRequest(ctx, propagate)
+	return isLeader, status
+}
+
+// propagateRevokePolicy forwards a RevokePolicyOp request to
+// the metadata leader. The bool indicates if this server has since become
+// leader and the request should be performed locally. A Status is returned if
+// the propagated request failed.
+func (m *metadataAPI) propagateRevokePolicy(ctx context.Context, req *proto.RevokePolicyOp) (
+	bool, *status.Status) {
+
+	propagate := &proto.PropagatedRequest{
+		Op:             proto.Op_REVOKE_POLICY,
+		RevokePolicyOp: req,
 	}
 	_, isLeader, status := m.propagateRequest(ctx, propagate)
 	return isLeader, status

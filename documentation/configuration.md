@@ -133,8 +133,8 @@ the setting in the configuration file and the CLI flag if it exists.
 | tls.client.auth.enabled |  | Enforce client-side authentication via certificate. | bool | false |
 | tls.client.auth.ca |  | The CA certificate file to use when authenticating clients. | string | |
 | tls.client.authz.enabled |  | Enable ACL authorization on streams. | bool | false |
-| tls.client.authz.model | | ACL authorization configuration model. See [Casbin ACL example](https://github.com/casbin/casbin#examples) | string | |
-| tls.client.authz.policy | | ACL authorization policy defenition file. See [Casbin ACL example](https://github.com/casbin/casbin#examples) | string | |
+| tls.client.authz.model | | (Deprecated) See [authorization docs.](./authentication_authorization.md#deprecated-use-a-file-to-store-acl-policies) ACL authorization configuration model. See [Casbin ACL example](https://github.com/casbin/casbin#examples) | string | |
+| tls.client.authz.policy | | (Deprecated) See [authorization docs.](./authentication_authorization.md#deprecated-use-a-file-to-store-acl-policies) ACL authorization policy defenition file. See [Casbin ACL example](https://github.com/casbin/casbin#examples) | string | |
 | logging.level | level, l | The logging level. | string | info | [debug, info, warn, error] |
 | logging.recovery | | Log messages resulting from the replay of the Raft log on server recovery. | bool | false | |
 | logging.raft | | Enables logging in the Raft subsystem. | bool | false | |

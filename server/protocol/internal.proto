@@ -22,6 +22,8 @@ enum Op {
     LEAVE_CONSUMER_GROUP              = 12;
     REPORT_CONSUMER_GROUP_COORDINATOR = 13;
     CHANGE_CONSUMER_GROUP_COORDINATOR = 14;
+    ADD_POLICY                        = 15;
+    REVOKE_POLICY                     = 16;
 }
 
 message RaftLog {
@@ -39,6 +41,8 @@ message RaftLog {
     JoinConsumerGroupOp              joinConsumerGroupOp              = 12;
     LeaveConsumerGroupOp             leaveConsumerGroupOp             = 13;
     ChangeConsumerGroupCoordinatorOp changeConsumerGroupCoordinatorOp = 14;
+    AddPolicyOp                      addPolicyOp                      = 15;
+    RevokePolicyOp                   revokePolicyOp                   = 16;
 }
 
 message CreateStreamOp {
@@ -126,6 +130,23 @@ message LeaveConsumerGroupOp {
     string groupId    = 1;
     string consumerId = 2;
     bool   expired    = 3; // If consumer was removed because they timed out.
+}
+
+// Policy represents an ACL-style policy
+message Policy {
+    string userId     = 1;
+    string resourceId = 2;
+    string action     = 3;
+}
+
+// AddPolicyOp adds an ACL-style policy
+message AddPolicyOp {
+    Policy policy = 1;
+}
+
+// RevokePolicyOp removes an ACL-style policy
+message RevokePolicyOp {
+    Policy policy = 1;
 }
 
 message NullableInt64 {
@@ -234,6 +255,8 @@ message PropagatedRequest {
     JoinConsumerGroupOp              joinConsumerGroupOp              = 10;
     LeaveConsumerGroupOp             leaveConsumerGroupOp             = 11;
     ReportConsumerGroupCoordinatorOp reportConsumerGroupCoordinatorOp = 12;
+    AddPolicyOp                      addPolicyOp                      = 13;
+    RevokePolicyOp                   revokePolicyOp                   = 14;
 }
 
 message Error {
