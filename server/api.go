@@ -784,7 +784,7 @@ func (a *apiServer) ensurePublishPreconditions(req *client.PublishRequest) *clie
 	if partition.log.IsConcurrencyControlEnabled() && req.AckPolicy == client.AckPolicy_NONE {
 		return &client.PublishAsyncError{
 			Code:    client.PublishAsyncError_BAD_REQUEST,
-			Message: fmt.Sprintf("stream with concurrency control must have AckPolicy set"),
+			Message: "stream with concurrency control must have AckPolicy set",
 		}
 	}
 	return nil
