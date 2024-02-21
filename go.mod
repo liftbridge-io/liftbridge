@@ -6,7 +6,7 @@ require (
 	github.com/Workiva/go-datastructures v1.0.52
 	github.com/casbin/casbin/v2 v2.40.6
 	github.com/dustin/go-humanize v1.0.0
-	github.com/golang/protobuf v1.5.2
+	github.com/golang/protobuf v1.5.3
 	github.com/google/tink/go v1.5.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/hako/durafmt v0.0.0-20200605151348-3a43fc422dd9
@@ -26,7 +26,7 @@ require (
 	github.com/stretchr/testify v1.7.1
 	github.com/tysonmote/gommap v0.0.2-0.20220314171410-078b7adc9d18
 	github.com/urfave/cli v1.22.4
-	google.golang.org/grpc v1.49.0
+	google.golang.org/grpc v1.56.3
 )
 
 require (
@@ -66,8 +66,8 @@ require (
 	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
-	google.golang.org/genproto v0.0.0-20220909194730-69f6226f97e5 // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
+	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
+	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/ini.v1 v1.57.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
