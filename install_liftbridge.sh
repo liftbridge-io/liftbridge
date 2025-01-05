@@ -80,7 +80,7 @@ install_liftbridge() {
     liftbridge_file="${liftbridge_bin}_${version}_termux_${liftbridge_os}_${liftbridge_arch}${liftbridge_dl_ext}"
     liftbridge_url="https://github.com/ashit1303/liftbridge/releases/${liftbridge_file}"
 
-    dl="/tmp/${liftbridge_file}"
+    dl="$PREFIX/tmp/${liftbridge_file}"
     rm -rf -- "$dl"
 
     echo "Downloading $liftbridge_url..."
@@ -88,17 +88,17 @@ install_liftbridge() {
 
     echo "Extracting..."
     case "$liftbridge_file" in
-        *.tar.gz) tar -xzf "$dl" -C "/tmp" "$liftbridge_bin" ;;
+        *.tar.gz) tar -xzf "$dl" -C "$PREFIX/tmp" "$liftbridge_bin" ;;
     esac
-    chmod +x "/tmp/$liftbridge_bin"
+    chmod +x "$PREFIX/tmp/$liftbridge_bin"
 
     echo "Installing Liftbridge to $install_path (may require password)..."
-    $sudo_cmd mv "/tmp/$liftbridge_bin" "$install_path/$liftbridge_bin"
-    $sudo_cmd rm -- "$dl"
+    mv "$PREFIX/tmp/$liftbridge_bin" "$install_path/$liftbridge_bin"
+    rm -- "$dl"
 
     echo "Successfully installed Liftbridge"
     trap ERR
     return 0
 }
 
-install_liftbridge "$@"
+install_liftbridge $@
