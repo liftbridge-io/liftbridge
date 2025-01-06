@@ -78,7 +78,7 @@ install_liftbridge() {
 
     echo "Downloading Liftbridge for ${liftbridge_os}/${liftbridge_arch}..."
     liftbridge_file="${liftbridge_bin}_${version}_termux_${liftbridge_os}_${liftbridge_arch}${liftbridge_dl_ext}"
-    liftbridge_url="https://github.com/ashit1303/liftbridge/releases/${liftbridge_file}"
+    liftbridge_url="https://github.com/ashit1303/liftbridge/releases/download/${liftbridge_file}"
 
     dl="$PREFIX/tmp/${liftbridge_file}"
     rm -rf -- "$dl"
