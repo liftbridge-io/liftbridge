@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.10.0 (Unreleased)
+## v26.01.1 (Unreleased)
 
 ### Breaking Changes
 - Go version requirement: 1.21 -> 1.25.3
