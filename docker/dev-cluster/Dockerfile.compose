@@ -1,6 +1,5 @@
-FROM golang:1.17 as build-base
+FROM golang:1.25-alpine as build-base
 WORKDIR /workspace
-ENV GO111MODULE on
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
@@ -14,9 +13,9 @@ COPY main.go main.go
 COPY server/ server/
 
 # Build
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -mod=readonly -o liftbridge
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -o liftbridge
 
-FROM debian:stretch-slim
+FROM debian:bookworm-slim
 COPY --from=build-base /workspace/liftbridge /liftbridge
-RUN apt-get update && apt-get install -y netcat
+RUN apt-get update && apt-get install -y netcat-openbsd
 COPY docker/dev-cluster/wait-for.sh /wait-for.sh

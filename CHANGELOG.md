@@ -17,6 +17,12 @@
   a voter to support raft v1.7.3's pre-vote protocol requirement
 - Migrated CI from CircleCI to GitHub Actions
 
+### Docker Updates
+- Updated all Dockerfiles to Go 1.25-alpine
+- Updated dev-cluster NATS image from 2.6.4 to 2.12.3
+- Updated dev-cluster base image from debian:stretch-slim to debian:bookworm-slim
+- Removed obsolete docker/circleci/ folder
+
 ### Raft v1.7.3 Compatibility
 This release enables compatibility with hashicorp/raft v1.7.3, which includes:
 - Pre-vote protocol (enabled by default)
