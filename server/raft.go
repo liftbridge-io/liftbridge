@@ -340,15 +340,39 @@ func (s *Server) bootstrapCluster(node *raft.Raft) error {
 	}
 
 	// Enforce quorum size limit. Any servers beyond the limit are non-voters.
+	// However, the local server must always be a voter to bootstrap successfully
+	// (required by raft v1.7.3+).
 	maxQuorum := s.config.Clustering.RaftMaxQuorumSize
 	if maxQuorum == 0 || maxQuorum > uint(len(servers)) {
 		maxQuorum = uint(len(servers))
 	}
+	localID := raft.ServerID(s.config.Clustering.ServerID)
+
+	// Sort servers but ensure local server is placed in the voter range.
+	// First, sort all servers by ID.
 	sort.SliceStable(servers, func(i, j int) bool { return servers[i].ID < servers[j].ID })
-	for i, server := range servers[maxQuorum:] {
-		servers[i+int(maxQuorum)] = raft.Server{
-			ID:       server.ID,
-			Address:  server.Address,
+
+	// Find where local server is in the sorted list.
+	localIdx := -1
+	for i, server := range servers {
+		if server.ID == localID {
+			localIdx = i
+			break
+		}
+	}
+
+	// If local server would be a non-voter (beyond maxQuorum), swap it with the
+	// last voter to ensure it can bootstrap.
+	if localIdx >= int(maxQuorum) && maxQuorum > 0 {
+		lastVoterIdx := int(maxQuorum) - 1
+		servers[localIdx], servers[lastVoterIdx] = servers[lastVoterIdx], servers[localIdx]
+	}
+
+	// Mark servers beyond maxQuorum as non-voters.
+	for i := int(maxQuorum); i < len(servers); i++ {
+		servers[i] = raft.Server{
+			ID:       servers[i].ID,
+			Address:  servers[i].Address,
 			Suffrage: raft.Nonvoter,
 		}
 	}

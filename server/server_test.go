@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,7 +27,7 @@ import (
 var storagePath string
 
 func init() {
-	tmpDir, err := ioutil.TempDir("", "liftbridge_test_")
+	tmpDir, err := os.MkdirTemp("", "liftbridge_test_")
 	if err != nil {
 		panic(fmt.Errorf("Error creating temp dir: %v", err))
 	}
@@ -1965,7 +1964,7 @@ func TestTLSAuth(t *testing.T) {
 	// Connect with TLS.
 
 	certPool := x509.NewCertPool()
-	ca, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
+	ca, err := os.ReadFile("./configs/certs/ca-cert.pem")
 	if err != nil {
 		panic(err)
 	}
