@@ -90,6 +90,16 @@ Fixed a startup panic when index files become corrupted.
 - Modified `setupIndex()` to catch `errIndexCorrupt` and attempt automatic recovery
 - Added tests for corrupt index detection and recovery scenarios
 
+#### Snapshot Restore Panic ([#414](https://github.com/liftbridge-io/liftbridge/issues/414))
+Fixed a startup panic when restoring from a Raft snapshot.
+
+**Problem**: When a node started and restored state from a Raft snapshot, it would panic with a nil pointer dereference at `partition.go:1311`. This occurred because partitions were trying to start leader/follower loops before the API server was initialized.
+
+**Solution**: Mark streams and consumer groups as "recovered" during snapshot restore, deferring their startup until `finishedRecovery()` is called after log replay completes. This ensures `s.api` is initialized before partitions attempt to start.
+
+**Changes**:
+- Modified `Restore()` in fsm.go to pass `recovered=true` to `applyCreateStream()` and `applyCreateConsumerGroup()`
+
 ### Raft v1.7.3 Compatibility
 This release enables compatibility with hashicorp/raft v1.7.3, which includes:
 - Pre-vote protocol (enabled by default)
