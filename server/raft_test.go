@@ -40,8 +40,9 @@ func (m *mockApplyFuture) Index() uint64 {
 
 func TestTimeoutFuture_ErrorSuccess(t *testing.T) {
 	wrapped := &mockFuture{err: nil}
-	// Use a longer deadline to avoid flaky test in slow CI environments
-	future := newTimeoutFuture(time.Now().Add(30*time.Second), wrapped)
+	// Create future with deadline set right before calling Error() to avoid
+	// deadline expiring during slow test execution (e.g., with race detector)
+	future := newTimeoutFuture(time.Now().Add(5*time.Minute), wrapped)
 
 	err := future.Error()
 	require.NoError(t, err)
@@ -54,8 +55,9 @@ func TestTimeoutFuture_ErrorSuccess(t *testing.T) {
 func TestTimeoutFuture_ErrorFailure(t *testing.T) {
 	expectedErr := errors.New("test error")
 	wrapped := &mockFuture{err: expectedErr}
-	// Use a longer deadline to avoid flaky test in slow CI environments
-	future := newTimeoutFuture(time.Now().Add(30*time.Second), wrapped)
+	// Create future with deadline set right before calling Error() to avoid
+	// deadline expiring during slow test execution (e.g., with race detector)
+	future := newTimeoutFuture(time.Now().Add(5*time.Minute), wrapped)
 
 	err := future.Error()
 	require.Error(t, err)

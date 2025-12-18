@@ -1,4 +1,7 @@
 package server
 
 // Version of the Liftbridge server.
-const Version = "v1.9.0"
+// This variable can be overridden at build time using:
+//
+//	go build -ldflags "-X github.com/liftbridge-io/liftbridge/server.Version=v1.0.0"
+var Version = "dev"

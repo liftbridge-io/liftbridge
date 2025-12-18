@@ -1,0 +1,766 @@
+name: Release Build
+
+on:
+  push:
+    branches:
+      - 'release/*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 26.01.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: liftbridge-io/liftbridge
+
+jobs:
+  # Extract version from branch name or input
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short_version: ${{ steps.version.outputs.short_version }}
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # Extract from branch name: release/26.01.1 -> 26.01.1
+            VERSION="${GITHUB_REF#refs/heads/release/}"
+          fi
+
+          # Validate version format (YY.MM.PATCH)
+          if ! [[ "$VERSION" =~ ^[0-9]{2}\.[0-9]{1,2}\.[0-9]+$ ]]; then
+            echo "::error::Invalid version format: $VERSION (expected: YY.MM.PATCH)"
+            exit 1
+          fi
+
+          # Extract short version (26.01)
+          SHORT_VERSION="${VERSION%.*}"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "short_version=$SHORT_VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Building version: $VERSION" >> $GITHUB_STEP_SUMMARY
+
+  # Run tests before building
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Run tests
+        run: go test -race -v ./...
+
+  # Build Go binaries for all platforms
+  build-binaries:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    needs: [prepare, test]
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          BINARY_NAME="liftbridge"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME="liftbridge.exe"
+          fi
+
+          go build -ldflags "-s -w -X github.com/liftbridge-io/liftbridge/server.Version=${VERSION}" \
+            -o ${BINARY_NAME}
+
+          # Create tarball
+          TARBALL="liftbridge_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
+          tar -czvf ${TARBALL} ${BINARY_NAME} README.md LICENSE
+
+          # Create checksum
+          sha256sum ${TARBALL} > ${TARBALL}.sha256
+
+          echo "Built: ${TARBALL}"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: liftbridge-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            liftbridge_*.tar.gz
+            liftbridge_*.tar.gz.sha256
+          retention-days: 7
+
+  # Test binary execution
+  test-binary:
+    name: Test Binary
+    runs-on: ubuntu-latest
+    needs: [prepare, build-binaries]
+    steps:
+      - name: Download linux/amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: liftbridge-linux-amd64
+
+      - name: Test binary
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          tar -xzf liftbridge_${VERSION}_linux_amd64.tar.gz
+          chmod +x liftbridge
+
+          # Test --version output
+          OUTPUT=$(./liftbridge --version)
+          echo "Version output: $OUTPUT"
+
+          if echo "$OUTPUT" | grep -q "${VERSION}"; then
+            echo "✅ Version check passed!"
+          else
+            echo "❌ Version mismatch. Expected: ${VERSION}"
+            exit 1
+          fi
+
+  # Build Docker multi-arch images
+  docker-build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [prepare, test]
+    strategy:
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=${{ needs.prepare.outputs.short_version }}
+            type=raw,value=latest
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Merge multi-arch Docker manifests
+  docker-merge:
+    name: Merge Docker Manifests
+    runs-on: ubuntu-latest
+    needs: [prepare, docker-build]
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-*
+          merge-multiple: true
+          path: /tmp/digests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.short_version }} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+          echo "✅ Multi-arch manifest created and pushed" >> $GITHUB_STEP_SUMMARY
+
+  # Test Docker image
+  test-docker:
+    name: Test Docker Image
+    runs-on: ubuntu-latest
+    needs: [prepare, docker-merge]
+    steps:
+      - name: Test Docker image
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
+
+          echo "Pulling image: ${IMAGE}"
+          docker pull ${IMAGE}
+
+          echo "Testing --version..."
+          OUTPUT=$(docker run --rm ${IMAGE} --version)
+          echo "Version output: $OUTPUT"
+
+          if echo "$OUTPUT" | grep -q "${VERSION}"; then
+            echo "✅ Docker image version check passed!"
+          else
+            echo "❌ Docker image version mismatch"
+            exit 1
+          fi
+
+  # Build Debian packages
+  debian-build:
+    name: Build Debian Package
+    runs-on: ubuntu-latest
+    needs: [prepare, build-binaries]
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            binary_goos: linux
+            binary_goarch: amd64
+          - arch: arm64
+            binary_goos: linux
+            binary_goarch: arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: liftbridge-${{ matrix.binary_goos }}-${{ matrix.binary_goarch }}
+
+      - name: Build Debian package
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          ARCH=${{ matrix.arch }}
+
+          # Extract binary from tarball
+          tar -xzf liftbridge_${VERSION}_${{ matrix.binary_goos }}_${{ matrix.binary_goarch }}.tar.gz
+
+          # Create package directory structure
+          PKG_DIR="liftbridge_${VERSION}_${ARCH}"
+          mkdir -p ${PKG_DIR}/DEBIAN
+          mkdir -p ${PKG_DIR}/usr/bin
+          mkdir -p ${PKG_DIR}/etc/liftbridge
+          mkdir -p ${PKG_DIR}/lib/systemd/system
+          mkdir -p ${PKG_DIR}/var/lib/liftbridge/data
+
+          # Copy binary
+          cp liftbridge ${PKG_DIR}/usr/bin/liftbridge
+          chmod +x ${PKG_DIR}/usr/bin/liftbridge
+
+          # Create default config
+          cat > ${PKG_DIR}/etc/liftbridge/liftbridge.yaml << 'CONFIG'
+          # Liftbridge Configuration
+          # See: https://liftbridge.io/docs/configuration.html
+
+          # Server listen address
+          host: "0.0.0.0"
+          port: 9292
+
+          # Data directory for logs and state
+          data.dir: "/var/lib/liftbridge/data"
+
+          # Logging
+          logging:
+            level: info
+
+          # NATS connection (adjust for your setup)
+          nats:
+            servers:
+              - "nats://localhost:4222"
+
+          # Clustering configuration
+          clustering:
+            # Unique server ID (auto-generated if not set)
+            # server.id: "server-1"
+            namespace: "liftbridge-default"
+            raft:
+              # Set to true for first node to bootstrap cluster
+              bootstrap.seed: false
+          CONFIG
+
+          # Create systemd service
+          cat > ${PKG_DIR}/lib/systemd/system/liftbridge.service << 'SERVICE'
+          [Unit]
+          Description=Liftbridge Message Streaming Server
+          Documentation=https://liftbridge.io
+          After=network.target nats.service
+
+          [Service]
+          Type=simple
+          User=liftbridge
+          Group=liftbridge
+          ExecStart=/usr/bin/liftbridge --config /etc/liftbridge/liftbridge.yaml
+          WorkingDirectory=/var/lib/liftbridge
+          Restart=on-failure
+          RestartSec=5
+          LimitNOFILE=65535
+
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE
+
+          # Create control file
+          cat > ${PKG_DIR}/DEBIAN/control << EOF
+          Package: liftbridge
+          Version: ${VERSION}
+          Section: net
+          Priority: optional
+          Architecture: ${ARCH}
+          Depends: libc6
+          Maintainer: Basekick Labs <contact@basekick.net>
+          Description: Lightweight, fault-tolerant message streams
+           Liftbridge provides lightweight, fault-tolerant message streams by
+           implementing a durable, replicated, and scalable message log.
+           It is designed as a Kafka-lite solution for the Go community.
+          Homepage: https://liftbridge.io
+          EOF
+
+          # Create postinst script
+          cat > ${PKG_DIR}/DEBIAN/postinst << 'POSTINST'
+          #!/bin/bash
+          set -e
+
+          # Create liftbridge user if not exists
+          if ! id -u liftbridge > /dev/null 2>&1; then
+            useradd --system --home-dir /var/lib/liftbridge --no-create-home --shell /bin/false liftbridge
+          fi
+
+          # Set ownership
+          chown -R liftbridge:liftbridge /var/lib/liftbridge
+          chown liftbridge:liftbridge /etc/liftbridge/liftbridge.yaml
+
+          # Reload systemd
+          if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload
+            echo ""
+            echo "Liftbridge installed successfully!"
+            echo "  Configure: /etc/liftbridge/liftbridge.yaml"
+            echo "  Start:     sudo systemctl start liftbridge"
+            echo "  Enable:    sudo systemctl enable liftbridge"
+            echo "  Logs:      sudo journalctl -u liftbridge -f"
+          fi
+          POSTINST
+          chmod +x ${PKG_DIR}/DEBIAN/postinst
+
+          # Create prerm script
+          cat > ${PKG_DIR}/DEBIAN/prerm << 'PRERM'
+          #!/bin/bash
+          set -e
+          if command -v systemctl >/dev/null 2>&1; then
+            systemctl stop liftbridge.service || true
+            systemctl disable liftbridge.service || true
+          fi
+          PRERM
+          chmod +x ${PKG_DIR}/DEBIAN/prerm
+
+          # Build package
+          dpkg-deb --build ${PKG_DIR}
+
+          # Create checksum
+          sha256sum ${PKG_DIR}.deb > ${PKG_DIR}.deb.sha256
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: liftbridge-debian-${{ matrix.arch }}
+          path: |
+            *.deb
+            *.deb.sha256
+          retention-days: 7
+
+  # Build RPM packages
+  rpm-build:
+    name: Build RPM Package
+    runs-on: ubuntu-latest
+    needs: [prepare, build-binaries]
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            binary_goos: linux
+            binary_goarch: amd64
+          - arch: aarch64
+            binary_goos: linux
+            binary_goarch: arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install RPM tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: liftbridge-${{ matrix.binary_goos }}-${{ matrix.binary_goarch }}
+
+      - name: Build RPM package
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          ARCH=${{ matrix.arch }}
+
+          # Extract binary from tarball
+          tar -xzf liftbridge_${VERSION}_${{ matrix.binary_goos }}_${{ matrix.binary_goarch }}.tar.gz
+
+          # Create RPM build structure
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+          # Create source tarball
+          mkdir -p liftbridge-${VERSION}
+          cp liftbridge liftbridge-${VERSION}/
+          chmod +x liftbridge-${VERSION}/liftbridge
+
+          # Create default config
+          cat > liftbridge-${VERSION}/liftbridge.yaml << 'CONFIG'
+          # Liftbridge Configuration
+          # See: https://liftbridge.io/docs/configuration.html
+
+          host: "0.0.0.0"
+          port: 9292
+          data.dir: "/var/lib/liftbridge/data"
+
+          logging:
+            level: info
+
+          nats:
+            servers:
+              - "nats://localhost:4222"
+
+          clustering:
+            namespace: "liftbridge-default"
+            raft:
+              bootstrap.seed: false
+          CONFIG
+
+          tar -czf ~/rpmbuild/SOURCES/liftbridge-${VERSION}.tar.gz liftbridge-${VERSION}
+
+          # Create systemd service in SOURCES
+          cat > ~/rpmbuild/SOURCES/liftbridge.service << 'SERVICE'
+          [Unit]
+          Description=Liftbridge Message Streaming Server
+          Documentation=https://liftbridge.io
+          After=network.target nats.service
+
+          [Service]
+          Type=simple
+          User=liftbridge
+          Group=liftbridge
+          ExecStart=/usr/bin/liftbridge --config /etc/liftbridge/liftbridge.yaml
+          WorkingDirectory=/var/lib/liftbridge
+          Restart=on-failure
+          RestartSec=5
+          LimitNOFILE=65535
+
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE
+
+          # Create spec file
+          cat > ~/rpmbuild/SPECS/liftbridge.spec << EOF
+          Name:           liftbridge
+          Version:        ${VERSION}
+          Release:        1%{?dist}
+          Summary:        Lightweight, fault-tolerant message streams
+          License:        Apache-2.0
+          URL:            https://liftbridge.io
+          Source0:        liftbridge-${VERSION}.tar.gz
+          Source1:        liftbridge.service
+
+          %description
+          Liftbridge provides lightweight, fault-tolerant message streams by
+          implementing a durable, replicated, and scalable message log.
+          It is designed as a Kafka-lite solution for the Go community.
+
+          %prep
+          %setup -q
+
+          %install
+          rm -rf %{buildroot}
+          mkdir -p %{buildroot}/usr/bin
+          mkdir -p %{buildroot}/etc/liftbridge
+          mkdir -p %{buildroot}/lib/systemd/system
+          mkdir -p %{buildroot}/var/lib/liftbridge/data
+
+          install -m 755 liftbridge %{buildroot}/usr/bin/liftbridge
+          install -m 644 liftbridge.yaml %{buildroot}/etc/liftbridge/liftbridge.yaml
+          install -m 644 %{SOURCE1} %{buildroot}/lib/systemd/system/liftbridge.service
+
+          %files
+          %attr(755, root, root) /usr/bin/liftbridge
+          %config(noreplace) /etc/liftbridge/liftbridge.yaml
+          /lib/systemd/system/liftbridge.service
+          %dir %attr(755, liftbridge, liftbridge) /var/lib/liftbridge
+          %dir %attr(755, liftbridge, liftbridge) /var/lib/liftbridge/data
+
+          %pre
+          # Create liftbridge user
+          if ! id -u liftbridge > /dev/null 2>&1; then
+            useradd --system --home-dir /var/lib/liftbridge --no-create-home --shell /sbin/nologin liftbridge
+          fi
+
+          %post
+          systemctl daemon-reload
+          echo ""
+          echo "Liftbridge installed successfully!"
+          echo "  Configure: /etc/liftbridge/liftbridge.yaml"
+          echo "  Start:     sudo systemctl start liftbridge"
+          echo "  Enable:    sudo systemctl enable liftbridge"
+          echo "  Logs:      sudo journalctl -u liftbridge -f"
+
+          %preun
+          systemctl stop liftbridge.service || true
+          systemctl disable liftbridge.service || true
+
+          %changelog
+          * $(date "+%a %b %d %Y") Basekick Labs <contact@basekick.net> - ${VERSION}-1
+          - Release ${VERSION}
+          EOF
+
+          # Build RPM
+          rpmbuild -ba --target ${ARCH} ~/rpmbuild/SPECS/liftbridge.spec
+
+          # Copy to current directory
+          cp ~/rpmbuild/RPMS/${ARCH}/liftbridge-${VERSION}-1.*.rpm .
+
+          # Create checksum
+          sha256sum liftbridge-${VERSION}-1.*.rpm > liftbridge-${VERSION}-1.${ARCH}.rpm.sha256
+
+      - name: Upload RPM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: liftbridge-rpm-${{ matrix.arch }}
+          path: |
+            *.rpm
+            *.rpm.sha256
+          retention-days: 7
+
+  # Create draft release
+  create-release:
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+    needs: [prepare, test-binary, test-docker, debian-build, rpm-build]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: liftbridge-*
+          merge-multiple: true
+          path: ./release-artifacts
+
+      - name: List artifacts
+        run: |
+          echo "Release artifacts:"
+          ls -la ./release-artifacts/
+
+      - name: Generate release notes
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+
+          cat > release-notes.md << EOF
+          # Liftbridge v${VERSION}
+
+          Lightweight, fault-tolerant message streams.
+
+          ## Quick Start
+
+          ### Docker
+
+          \`\`\`bash
+          docker run -d \\
+            --name liftbridge \\
+            -p 9292:9292 \\
+            -v liftbridge-data:/tmp/liftbridge/liftbridge-default \\
+            ghcr.io/liftbridge-io/liftbridge:${VERSION} \\
+            --raft-bootstrap-seed
+          \`\`\`
+
+          ### Debian/Ubuntu
+
+          \`\`\`bash
+          wget https://github.com/liftbridge-io/liftbridge/releases/download/v${VERSION}/liftbridge_${VERSION}_amd64.deb
+          sudo dpkg -i liftbridge_${VERSION}_amd64.deb
+          sudo systemctl enable liftbridge
+          sudo systemctl start liftbridge
+          \`\`\`
+
+          ### RHEL/Fedora/Rocky
+
+          \`\`\`bash
+          wget https://github.com/liftbridge-io/liftbridge/releases/download/v${VERSION}/liftbridge-${VERSION}-1.x86_64.rpm
+          sudo rpm -i liftbridge-${VERSION}-1.x86_64.rpm
+          sudo systemctl enable liftbridge
+          sudo systemctl start liftbridge
+          \`\`\`
+
+          ### Binary
+
+          \`\`\`bash
+          # macOS (Apple Silicon)
+          curl -LO https://github.com/liftbridge-io/liftbridge/releases/download/v${VERSION}/liftbridge_${VERSION}_darwin_arm64.tar.gz
+          tar -xzf liftbridge_${VERSION}_darwin_arm64.tar.gz
+          ./liftbridge --raft-bootstrap-seed
+          \`\`\`
+
+          ## Downloads
+
+          | Platform | Architecture | Package |
+          |----------|--------------|---------|
+          | Docker | amd64, arm64 | \`ghcr.io/liftbridge-io/liftbridge:${VERSION}\` |
+          | macOS | amd64 | \`liftbridge_${VERSION}_darwin_amd64.tar.gz\` |
+          | macOS | arm64 | \`liftbridge_${VERSION}_darwin_arm64.tar.gz\` |
+          | Linux | amd64 | \`liftbridge_${VERSION}_linux_amd64.tar.gz\` |
+          | Linux | arm64 | \`liftbridge_${VERSION}_linux_arm64.tar.gz\` |
+          | Windows | amd64 | \`liftbridge_${VERSION}_windows_amd64.tar.gz\` |
+          | Windows | arm64 | \`liftbridge_${VERSION}_windows_arm64.tar.gz\` |
+          | Debian/Ubuntu | amd64 | \`liftbridge_${VERSION}_amd64.deb\` |
+          | Debian/Ubuntu | arm64 | \`liftbridge_${VERSION}_arm64.deb\` |
+          | RHEL/Fedora | x86_64 | \`liftbridge-${VERSION}-1.x86_64.rpm\` |
+          | RHEL/Fedora | aarch64 | \`liftbridge-${VERSION}-1.aarch64.rpm\` |
+
+          ## Maintainers
+
+          This project is maintained by [Basekick Labs](https://github.com/basekick-labs), creators of [Arc](https://github.com/basekick-labs/arc).
+
+          ---
+
+          🤖 Generated with [Claude Code](https://claude.com/claude-code)
+          EOF
+
+          cat release-notes.md
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: false
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: Liftbridge ${{ needs.prepare.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            release-artifacts/*.tar.gz
+            release-artifacts/*.tar.gz.sha256
+            release-artifacts/*.deb
+            release-artifacts/*.deb.sha256
+            release-artifacts/*.rpm
+            release-artifacts/*.rpm.sha256
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          echo "## 🎉 Draft Release Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Version: **${VERSION}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Type | Package |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker | \`ghcr.io/liftbridge-io/liftbridge:${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS amd64 | \`liftbridge_${VERSION}_darwin_amd64.tar.gz\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS arm64 | \`liftbridge_${VERSION}_darwin_arm64.tar.gz\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux amd64 | \`liftbridge_${VERSION}_linux_amd64.tar.gz\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux arm64 | \`liftbridge_${VERSION}_linux_arm64.tar.gz\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows amd64 | \`liftbridge_${VERSION}_windows_amd64.tar.gz\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows arm64 | \`liftbridge_${VERSION}_windows_arm64.tar.gz\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Debian amd64 | \`liftbridge_${VERSION}_amd64.deb\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Debian arm64 | \`liftbridge_${VERSION}_arm64.deb\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| RPM x86_64 | \`liftbridge-${VERSION}-1.x86_64.rpm\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| RPM aarch64 | \`liftbridge-${VERSION}-1.aarch64.rpm\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tests Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Unit tests" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Binary version check" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Docker image version check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Review release notes" >> $GITHUB_STEP_SUMMARY
+          echo "2. Publish when ready" >> $GITHUB_STEP_SUMMARY
