@@ -74,6 +74,22 @@ Fixed a bug where partial deletion failure could leave the system in an inconsis
 - Added `deleteSegments()` helper to `deleteCleaner` implementing the two-phase approach
 - Refactored `applyMessagesLimit`, `applyBytesLimit`, and `applyAgeLimit` to use the new helper
 
+#### Corrupt Index File Recovery ([#411](https://github.com/liftbridge-io/liftbridge/issues/411))
+Fixed a startup panic when index files become corrupted.
+
+**Problem**: If an index file became corrupted (e.g., due to unclean shutdown, disk errors), Liftbridge would panic on startup with "corrupt index file" error and fail to start. This left users unable to recover without manual intervention.
+
+**Solution**: Implemented automatic index rebuild from the log file:
+1. When corruption is detected during index initialization, the corrupt index is deleted
+2. A new index is created and rebuilt by scanning the log file
+3. All valid message entries are re-indexed from the log data
+4. Server startup proceeds normally with the rebuilt index
+
+**Changes**:
+- Added `rebuildIndex()` method to segment that scans log file and recreates index entries
+- Modified `setupIndex()` to catch `errIndexCorrupt` and attempt automatic recovery
+- Added tests for corrupt index detection and recovery scenarios
+
 ### Raft v1.7.3 Compatibility
 This release enables compatibility with hashicorp/raft v1.7.3, which includes:
 - Pre-vote protocol (enabled by default)
