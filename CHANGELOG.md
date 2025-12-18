@@ -1,9 +1,39 @@
 # Changelog
 
+## Versioning Convention
+
+Starting with this release, Liftbridge uses **CalVer** (Calendar Versioning) in the format `YY.MM.PATCH`:
+- `YY` - Two-digit year (e.g., 26 for 2026)
+- `MM` - Month (1-12)
+- `PATCH` - Patch number within the month
+
+This replaces the previous semantic versioning (v1.x.x) to better reflect the project's release cadence.
+
+---
+
 ## v26.01.1 (Unreleased)
 
 ### Breaking Changes
-- Go version requirement: 1.21 -> 1.25.3
+- **Versioning**: Changed from semantic versioning (v1.x.x) to CalVer (YY.MM.PATCH)
+- **Go version**: Minimum requirement changed from 1.21 to 1.25.3
+- **Version variable**: `server.Version` changed from `const` to `var` for build-time injection
+
+### New Features
+
+#### GitHub Actions Release Workflow
+Added automated release workflow triggered by `release/*` branches:
+- **Multi-platform binaries**: darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64, windows/arm64
+- **Linux packages**: Debian (.deb) and RPM (.rpm) for amd64/arm64
+- **Docker images**: Multi-arch images pushed to `ghcr.io/liftbridge-io/liftbridge`
+- **Automated testing**: Runs full test suite, binary verification, and Docker image tests before release
+- **Draft releases**: Creates GitHub draft release with all artifacts and checksums
+
+#### Package Installation
+Linux packages now include:
+- Systemd service file (`/lib/systemd/system/liftbridge.service`)
+- Default configuration (`/etc/liftbridge/liftbridge.yaml`)
+- Data directory (`/var/lib/liftbridge/data`)
+- Dedicated `liftbridge` user/group
 
 ### Dependencies Updated
 | Package | Before | After |
@@ -16,11 +46,14 @@
 - Fixed raft bootstrap with `RaftMaxQuorumSize`: ensure local server is always
   a voter to support raft v1.7.3's pre-vote protocol requirement
 - Migrated CI from CircleCI to GitHub Actions
+- Updated `server/version.go` to support build-time version injection via ldflags
 
 ### Docker Updates
 - Updated all Dockerfiles to Go 1.25-alpine
 - Updated dev-cluster NATS image from 2.6.4 to 2.12.3
 - Updated dev-cluster base image from debian:stretch-slim to debian:bookworm-slim
+- Added VERSION build argument for proper version tagging
+- Optimized Dockerfile layer caching
 - Removed obsolete docker/circleci/ folder
 
 ### Raft v1.7.3 Compatibility
@@ -33,3 +66,9 @@ This release enables compatibility with hashicorp/raft v1.7.3, which includes:
 ### Maintainers
 Project is now maintained by [Basekick Labs](https://github.com/basekick-labs),
 creators of [Arc](https://github.com/basekick-labs/arc).
+
+---
+
+## Previous Releases
+
+For releases prior to v26.01.1, see the [GitHub Releases](https://github.com/liftbridge-io/liftbridge/releases) page.
