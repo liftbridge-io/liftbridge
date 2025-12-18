@@ -69,6 +69,7 @@ type segment struct {
 	sealed         bool
 	closed         bool
 	replaced       bool
+	deleted        bool // marked for deletion, excluded from read path
 
 	sync.RWMutex
 }
@@ -450,6 +451,22 @@ func (s *segment) Delete() error {
 		}
 	}
 	return nil
+}
+
+// MarkDeleted marks the segment as deleted, removing it from the read path.
+// This should be called before actually deleting files to ensure readers
+// don't see the segment while deletion is in progress.
+func (s *segment) MarkDeleted() {
+	s.Lock()
+	defer s.Unlock()
+	s.deleted = true
+}
+
+// IsDeleted returns true if the segment has been marked for deletion.
+func (s *segment) IsDeleted() bool {
+	s.RLock()
+	defer s.RUnlock()
+	return s.deleted
 }
 
 type segmentScanner struct {

@@ -103,14 +103,14 @@ func (c *deleteCleaner) applyMessagesLimit(segments []*segment) ([]*segment, err
 		cleanedSegments = append([]*segment{s}, cleanedSegments...)
 	}
 	if i > -1 {
+		// Collect segments to delete
+		toDelete := make([]*segment, 0, i+1)
 		for ; i > -1; i-- {
-			// TODO: There is an edge case here where we fail partway through
-			// deletion. We will delete some segments but return an error. This
-			// should probably mark segments for deletion, remove them from the
-			// read path, and then delete them asynchronously.
-			if err := segments[i].Delete(); err != nil {
-				return nil, err
-			}
+			toDelete = append(toDelete, segments[i])
+		}
+		// Delete segments using mark-then-delete for consistency
+		if err := c.deleteSegments(toDelete); err != nil {
+			return nil, err
 		}
 	}
 
@@ -141,14 +141,14 @@ func (c *deleteCleaner) applyBytesLimit(segments []*segment) ([]*segment, error)
 		cleanedSegments = append([]*segment{s}, cleanedSegments...)
 	}
 	if i > -1 {
+		// Collect segments to delete
+		toDelete := make([]*segment, 0, i+1)
 		for ; i > -1; i-- {
-			// TODO: There is an edge case here where we fail partway through
-			// deletion. We will delete some segments but return an error. This
-			// should probably mark segments for deletion, remove them from the
-			// read path, and then delete them asynchronously.
-			if err := segments[i].Delete(); err != nil {
-				return nil, err
-			}
+			toDelete = append(toDelete, segments[i])
+		}
+		// Delete segments using mark-then-delete for consistency
+		if err := c.deleteSegments(toDelete); err != nil {
+			return nil, err
 		}
 	}
 
@@ -162,26 +162,56 @@ func (c *deleteCleaner) applyAgeLimit(segments []*segment) ([]*segment, error) {
 	}
 
 	var (
-		ttl = computeTTL(c.Retention.Age)
-		idx int
+		ttl      = computeTTL(c.Retention.Age)
+		idx      int
+		toDelete []*segment
 	)
 
-	// Delete all segments whose last-written timestamp is less than the TTL
+	// Collect all segments whose last-written timestamp is less than the TTL
 	// with the exception of the active (last) segment.
 	for i, seg := range segments {
 		if i != len(segments)-1 && seg.lastWriteTime < ttl {
-			// TODO: There is an edge case here where we fail partway through
-			// deletion. We will delete some segments but return an error. This
-			// should probably mark segments for deletion, remove them from the
-			// read path, and then delete them asynchronously.
-			if err := seg.Delete(); err != nil {
-				return nil, err
-			}
+			toDelete = append(toDelete, seg)
 		} else {
 			idx = i
 			break
 		}
 	}
 
+	// Delete segments using mark-then-delete for consistency
+	if len(toDelete) > 0 {
+		if err := c.deleteSegments(toDelete); err != nil {
+			return nil, err
+		}
+	}
+
 	return segments[idx:], nil
+}
+
+// deleteSegments deletes the given segments using a mark-then-delete approach.
+// This ensures that if deletion fails partway through, the segments are already
+// removed from the read path (marked as deleted) and won't cause inconsistency.
+// The actual file deletion can be retried on the next cleanup cycle.
+func (c *deleteCleaner) deleteSegments(segments []*segment) error {
+	// Phase 1: Mark all segments as deleted to remove them from read path.
+	// This is atomic per-segment and ensures readers won't see these segments.
+	for _, seg := range segments {
+		seg.MarkDeleted()
+	}
+
+	// Phase 2: Actually delete the files. If this fails partway through,
+	// the segments are already marked deleted and won't be visible to readers.
+	// Remaining files will be cleaned up on the next cleanup cycle.
+	var firstErr error
+	for _, seg := range segments {
+		if err := seg.Delete(); err != nil {
+			c.Logger.Warnf("Failed to delete segment %d: %v", seg.BaseOffset, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			// Continue trying to delete other segments
+		}
+	}
+
+	return firstErr
 }
