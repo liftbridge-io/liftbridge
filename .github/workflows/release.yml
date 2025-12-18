@@ -709,7 +709,6 @@ jobs:
 
           ---
 
-          🤖 Generated with [Claude Code](https://claude.com/claude-code)
           EOF
 
           cat release-notes.md
