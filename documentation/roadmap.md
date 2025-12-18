@@ -16,70 +16,339 @@ Please [create an issue](https://github.com/liftbridge-io/liftbridge/issues/new)
 to provide input on the roadmap or refer to [existing issues](https://github.com/liftbridge-io/liftbridge/issues)
 to comment on particular roadmap items.
 
-## H1 2022
+---
 
-### ~~Consumer Groups ([#46](https://github.com/liftbridge-io/liftbridge/issues/46))~~
+## Completed Features
 
-Provide high-level consumer functionality to allow for durable subscriptions,
-balanced stream consumption, and fault-tolerant consumers. The first step to
-this will be providing support for single-member consumer groups, which will
-effectively provide a durable subscription, then generalizing to multi-member
-groups. The latter will require a mechanism for group coordination.
+The following features have been implemented and released:
 
-### ~~Authentication and Authorization ([#36](https://github.com/liftbridge-io/liftbridge/issues/36))~~
+### Consumer Groups ([#46](https://github.com/liftbridge-io/liftbridge/issues/46))
 
-Provide mechanisms for client identity and authentication as well as granular
-access control. These will likely be delivered as separate units of work with
-authentication providing the groundwork for fine-grained authorization. As a
-result, these may be broken out into separate roadmap items in the near future.
+High-level consumer functionality with durable subscriptions, balanced stream
+consumption, and fault-tolerant consumers with automatic rebalancing.
 
-## H2 2022
+### Authentication and Authorization ([#36](https://github.com/liftbridge-io/liftbridge/issues/36))
 
-### Monitoring API ([#222](https://github.com/liftbridge-io/liftbridge/issues/222))
+mTLS client authentication and Casbin-based ACL authorization with granular
+access control for streams and partitions.
 
-Provide an API that exposes monitoring information and metrics about the server
-to better support Liftbridge operations. This paves the way for future
-monitoring and observability integrations.
+### Encryption at Rest
 
-### Authorization Enhancements ([#409](https://github.com/liftbridge-io/liftbridge/issues/409)
+AES-256-GCM encryption for log segments with key management support.
 
-Implement syncing of authorization policies across cluster nodes. This improves
-operator experience by not requiring policy files to be modified across all
-nodes in a cluster. It also prevents permissions drift across cluster nodes.
+### Log Compaction
 
-## H1 2023
+Key-based log compaction for changelog/table-style streams.
 
-### Optional NATS API ([#221](https://github.com/liftbridge-io/liftbridge/issues/221))
+---
 
-With the introduction of [Embedded NATS Server](#embedded-nats-server-19httpsgithubcomliftbridge-ioliftbridgeissues19),
-allow the NATS API to be exposed optionally. This, in effect, turns NATS into
-an implementation detail and allows users to just interact with the Liftbridge
-API as a standalone service.
+## Phase 1: Foundation (v26.02)
+
+### Message Compression
+
+**Status**: Planned
+
+Reduce storage costs and network bandwidth by 60-80% with support for multiple
+compression codecs.
+
+**Implementation**:
+- Compression codec field in message header (gzip, snappy, lz4, zstd)
+- Compress on write, decompress on read
+- Per-stream configuration option
+- Batch compression for efficiency
+
+### Monitoring API / Prometheus Metrics ([#222](https://github.com/liftbridge-io/liftbridge/issues/222))
+
+**Status**: Planned
+
+Expose monitoring information and metrics via Prometheus endpoint for
+production monitoring and alerting.
+
+**Metrics to expose**:
+- `liftbridge_messages_in_total` (counter, per stream/partition)
+- `liftbridge_messages_out_total` (counter)
+- `liftbridge_bytes_in_total`, `liftbridge_bytes_out_total`
+- `liftbridge_partition_lag` (gauge)
+- `liftbridge_isr_count` (gauge)
+- `liftbridge_replication_lag_ms` (histogram)
+- `liftbridge_consumer_group_members` (gauge)
+- `liftbridge_request_latency_ms` (histogram, per API)
+
+### Admin CLI Tool
+
+**Status**: Planned
+
+Command-line interface for easier cluster management without writing code.
+
+**Commands**:
+```bash
+liftbridge admin streams list
+liftbridge admin streams create --name foo --partitions 3
+liftbridge admin streams delete --name foo
+liftbridge admin groups list
+liftbridge admin cluster status
+```
+
+### Bug Fixes: Deletion Edge Case
+
+**Status**: Planned
+
+Fix partial deletion failure that can leave system in inconsistent state.
+Mark segments for deletion first, remove from read path, then async delete.
+
+---
+
+## Phase 2: Enterprise Features (v26.03)
+
+### Multi-Format Ingestion (HTTP API)
+
+**Status**: Planned
+
+HTTP API with support for multiple data formats beyond gRPC/Protobuf.
+
+**Supported Formats**:
+- CSV (`text/csv`, `application/csv`)
+- InfluxDB Line Protocol (`application/x-influxdb-line-protocol`)
+- MessagePack Row (`application/msgpack`)
+- MessagePack Columnar (`application/x-msgpack-columnar`)
+
+**Endpoints**:
+```
+POST /v1/streams/{stream}/publish              # Auto-detect format
+POST /v1/streams/{stream}/publish/csv          # Explicit CSV
+POST /v1/streams/{stream}/publish/lineprotocol # Line Protocol
+POST /v1/streams/{stream}/publish/msgpack      # MessagePack row
+POST /v1/streams/{stream}/publish/msgpack-columnar
+GET /health, GET /ready                        # Health checks
+```
+
+**Request Headers**:
+- `Content-Type` - Format detection
+- `X-Liftbridge-Key-Field` - Field to use as message key
+- `X-Liftbridge-Ack-Policy` - none|leader|all
+
+**Architecture**:
+- New `server/ingest/` package for format parsers
+- New `server/httpapi/` package for HTTP server
+- HTTP runs on separate port (default 9293)
+- All formats converted to Key/Value/Headers for storage
+- Original format preserved in `X-Liftbridge-Format` header
+
+**Format Mappings**:
+
+CSV → Liftbridge:
+```
+timestamp,sensor_id,temp     →  Key: "sensor-1"
+2024-01-15,sensor-1,23.5         Value: {"timestamp":"2024-01-15","sensor_id":"sensor-1","temp":23.5}
+```
+
+Line Protocol → Liftbridge:
+```
+weather,loc=us temp=82 1465839830  →  Key: "weather"
+                                       Value: {"measurement":"weather","tags":{"loc":"us"},"fields":{"temp":82}}
+```
+
+MessagePack Columnar → Liftbridge (expanded to rows):
+```
+{"columns":{"id":[1,2],"name":["A","B"]}}  →  2 messages: {id:1,name:"A"}, {id:2,name:"B"}
+```
+
+### SASL Authentication
+
+**Status**: Planned
+
+Username/password authentication to complement mTLS for simpler deployments.
+
+**Support**:
+- SASL/PLAIN (username/password)
+- SASL/SCRAM-SHA-256/512
+- Pluggable user store (file-based, LDAP, DB)
+
+### Authorization Enhancements ([#409](https://github.com/liftbridge-io/liftbridge/issues/409))
+
+**Status**: Planned
+
+Implement syncing of authorization policies across cluster nodes via Raft FSM.
+This improves operator experience by not requiring policy files to be modified
+across all nodes in a cluster and prevents permissions drift.
+
+### Audit Logging
+
+**Status**: Planned
+
+Comprehensive audit logging for compliance and security investigation.
+
+**Log events**:
+- All authorization decisions
+- Stream create/delete operations
+- Authentication failures
+- Admin actions
+
+---
+
+## Phase 3: Scale & Performance (v26.04+)
 
 ### Tiered Storage ([#110](https://github.com/liftbridge-io/liftbridge/issues/110))
 
-Provide support for transparent offloading of log segments to object storage,
-such as Amazon S3, so that brokers only need to keep open (or some configurable
-tail of) segments locally on disk. When a consumer needs to read older
-segments, the broker or, potentially, the client transparently reads from
-object storage.
+**Status**: Planned
+
+Transparent offloading of log segments to object storage (S3, GCS) for
+cost-effective long-term retention and virtually infinite storage.
+
+**Implementation**:
+- Keep recent segments locally (hot tier)
+- Upload sealed segments to S3/GCS (cold tier)
+- Lazy fetch on read for cold segments
+- Configurable retention per tier
+
+```yaml
+storage:
+  tiered:
+    enabled: true
+    local.retention.hours: 24
+    remote:
+      type: s3
+      bucket: liftbridge-archive
+      region: us-east-1
+```
+
+### Idempotent Producer
+
+**Status**: Planned
+
+Prevent duplicates on retries, foundation for exactly-once semantics.
+
+**Implementation**:
+- Producer ID + sequence number per partition
+- Server-side deduplication window
+- Reject duplicates with specific error code
+
+### Rate Limiting / Quotas
+
+**Status**: Planned
+
+Protect cluster from misbehaving clients with configurable limits.
+
+**Quotas**:
+- Produce bytes/sec per client
+- Fetch bytes/sec per client
+- Request rate per client
+- Connection limits
+
+### Distributed Tracing (OpenTelemetry)
+
+**Status**: Planned
+
+End-to-end visibility in microservices architectures.
+
+**Features**:
+- Trace context propagation via message headers
+- Span creation for publish/subscribe operations
+- Integration with Jaeger, Zipkin, etc.
+
+---
+
+## Phase 4: Advanced Features (Future)
+
+### Transactions (Atomic Multi-Partition Writes)
+
+**Status**: Future
+**Depends on**: Idempotent Producer
+
+Exactly-once semantics across partitions with two-phase commit protocol.
+
+**Implementation**:
+- Transaction coordinator
+- Transaction log for recovery
+- Isolation levels (read_committed, read_uncommitted)
 
 ### Federated Clustering ([#219](https://github.com/liftbridge-io/liftbridge/issues/219))
 
-Implement federated Liftbridge clustering to better support geo-replication.
-This may involve implementing a system similar to Kafka MirrorMaker for
-replicating data between clusters and/or leveraging NATS superclustering and
-geo-aware subscribers.
+**Status**: Future
 
-## H2 2023
+Federated Liftbridge clustering for geo-replication with async replication
+between clusters, conflict resolution strategies, and active-passive/active-active modes.
+
+### Optional NATS API ([#221](https://github.com/liftbridge-io/liftbridge/issues/221))
+
+**Status**: Future
+
+Allow the NATS API to be exposed optionally, turning NATS into an
+implementation detail for users who only want the Liftbridge API.
 
 ### Kafka Bridge Connector ([#220](https://github.com/liftbridge-io/liftbridge/issues/220))
 
-Implement a bridge process that maps Kafka topics to Liftbridge streams to
-better support the migration from Kafka to Liftbridge or to support hybrid
-scenarios.
+**Status**: Future
+
+Bridge process that maps Kafka topics to Liftbridge streams to support
+migration from Kafka or hybrid scenarios.
+
+### Schema Registry Integration
+
+**Status**: Future
+
+Optional schema validation on publish with Avro/Protobuf/JSON Schema support.
+Integration with Confluent Schema Registry or standalone registry.
 
 ### Flatbuffers and Zero-Copy Support ([#87](https://github.com/liftbridge-io/liftbridge/issues/87), [#185](https://github.com/liftbridge-io/liftbridge/issues/185))
 
-Provide opt-in support for Flatbuffers and a zero-copy API for high-performance
-use cases.
+**Status**: Future
+
+Opt-in support for Flatbuffers and a zero-copy API for high-performance use cases.
+
+### WebSocket API
+
+**Status**: Future
+
+Real-time subscriptions from browsers with JSON message format option.
+
+### Dead Letter Queues
+
+**Status**: Future
+
+Automatic routing of failed messages with configurable retry policies.
+
+---
+
+## Known Issues / TODOs
+
+| File | Issue | Priority |
+|------|-------|----------|
+| `delete_cleaner.go` | Partial deletion failure can leave inconsistent state | High |
+| `compact_cleaner.go` | No configurable compaction lag | Medium |
+| `compact_cleaner.go` | Small segments not merged after compaction | Medium |
+| `commitlog.go` | HW flush to disk optimization needed | Medium |
+| `groups.go` | Rebalancing optimization needed | Low |
+
+---
+
+## Comparison with Kafka
+
+| Feature | Kafka | Liftbridge | Status |
+|---------|-------|------------|--------|
+| Compression | gzip, snappy, lz4, zstd | - | Phase 1 |
+| Transactions | Yes | - | Phase 4 |
+| Exactly-once | Yes | At-least-once | Phase 3+ |
+| Tiered Storage | Yes | - | Phase 3 |
+| Prometheus Metrics | Yes | - | Phase 1 |
+| HTTP/REST API | Via REST Proxy | - | Phase 2 |
+| Multi-Format Ingestion | Via Connect | - | Phase 2 |
+| Schema Registry | Yes | - | Phase 4 |
+| SASL Auth | Yes | mTLS only | Phase 2 |
+| Quotas/Rate Limiting | Yes | - | Phase 3 |
+| Consumer Groups | Yes | Yes | Done |
+| Log Compaction | Yes | Yes | Done |
+| Encryption at Rest | Yes | Yes | Done |
+
+---
+
+## Contributing
+
+Contributions are welcome! If you're interested in working on any of these
+features, please:
+
+1. Check for existing issues or create a new one
+2. Comment on the issue to express interest
+3. Submit a PR with your implementation
+
+For questions or discussion, open an issue or reach out to the maintainers.
