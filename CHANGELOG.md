@@ -110,6 +110,18 @@ Fixed a race condition when using embedded NATS that could prevent graceful shut
 **Changes**:
 - Modified `startEmbeddedNATS()` in server.go to set `opts.NoSigs = true`
 
+#### Leader Not In ISR Panic ([#354](https://github.com/liftbridge-io/liftbridge/issues/354))
+Fixed a nil pointer dereference when a partition leader is not in the ISR.
+
+**Problem**: When restoring from a Raft snapshot, if the snapshot contained inconsistent state where a partition's leader was not in its ISR (In-Sync Replicas), the server would panic with a nil pointer dereference at `partition.go:812`. This could happen if a node was removed from the ISR via ShrinkISR but a snapshot was taken before a new leader election occurred.
+
+**Solution**: Added a defensive nil check in `becomeLeader()`. If the leader is not found in the ISR, it logs a warning and adds itself to the ISR with the current offset, allowing the server to recover from the corrupt state.
+
+**Changes**:
+- Modified `becomeLeader()` in partition.go to check if the server is in the ISR before accessing it
+- Added auto-recovery logic to add self to ISR if missing
+- Added test case `TestPartitionBecomeLeaderNotInISR` to verify the fix
+
 ### Raft v1.7.3 Compatibility
 This release enables compatibility with hashicorp/raft v1.7.3, which includes:
 - Pre-vote protocol (enabled by default)

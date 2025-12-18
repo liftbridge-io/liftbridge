@@ -117,6 +117,14 @@ starting leader/follower loops until after recovery completes.
 Fixed race condition when using embedded NATS that could prevent graceful shutdown.
 Set `opts.NoSigs = true` to disable NATS's signal handling.
 
+### Bug Fixes: Leader Not In ISR Panic ([#354](https://github.com/liftbridge-io/liftbridge/issues/354))
+
+**Status**: Done (v26.01.1)
+
+Fixed nil pointer dereference when partition leader is not in ISR during snapshot restore.
+Added defensive check in `becomeLeader()` to add self to ISR if missing, allowing recovery
+from corrupt snapshots.
+
 ---
 
 ## Phase 2: Enterprise Features (v26.03)
