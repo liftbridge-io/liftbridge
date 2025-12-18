@@ -82,7 +82,7 @@ func newIndex(opts options) (idx *index, err error) {
 	idx = &index{
 		options: opts,
 	}
-	idx.file, err = os.OpenFile(opts.path, os.O_RDWR|os.O_CREATE, 0666)
+	idx.file, err = os.OpenFile(opts.path, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, errors.Wrap(err, "open file failed")
 	}

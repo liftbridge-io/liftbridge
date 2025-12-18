@@ -87,7 +87,7 @@ func newSegment(path string, baseOffset, maxBytes int64, isNew bool, suffix stri
 	if isNew && exists(s.logPath()) {
 		return nil, ErrSegmentExists
 	}
-	log, err := os.OpenFile(s.logPath(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	log, err := os.OpenFile(s.logPath(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, errors.Wrap(err, "open file failed")
 	}
@@ -366,7 +366,7 @@ func (s *segment) Replace(old *segment) error {
 		return err
 	}
 	s.suffix = ""
-	log, err := os.OpenFile(s.logPath(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	log, err := os.OpenFile(s.logPath(), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return errors.Wrap(err, "open file failed")
 	}

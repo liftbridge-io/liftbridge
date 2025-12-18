@@ -380,7 +380,7 @@ func (m *metadataAPI) CreateStream(ctx context.Context, req *proto.CreateStreamO
 		if err == ErrStreamExists {
 			code = codes.AlreadyExists
 		}
-		return status.Newf(code, err.Error())
+		return status.Newf(code, "%s", err.Error())
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to replicate partition: %v", err.Error())
@@ -430,7 +430,7 @@ func (m *metadataAPI) DeleteStream(ctx context.Context, req *proto.DeleteStreamO
 		if err == ErrStreamNotFound {
 			code = codes.NotFound
 		}
-		return status.Newf(code, err.Error())
+		return status.Newf(code, "%s", err.Error())
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to delete stream: %v", err.Error())
@@ -469,7 +469,7 @@ func (m *metadataAPI) PauseStream(ctx context.Context, req *proto.PauseStreamOp)
 		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
 			code = codes.NotFound
 		}
-		return status.Newf(code, err.Error())
+		return status.Newf(code, "%s", err.Error())
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to pause stream: %v", err.Error())
@@ -510,7 +510,7 @@ func (m *metadataAPI) ResumeStream(ctx context.Context, req *proto.ResumeStreamO
 		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
 			code = codes.NotFound
 		}
-		return status.Newf(code, err.Error())
+		return status.Newf(code, "%s", err.Error())
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to resume stream: %v", err.Error())
@@ -573,7 +573,7 @@ func (m *metadataAPI) ShrinkISR(ctx context.Context, req *proto.ShrinkISROp) *st
 	// Wait on result of replication.
 	future, err := m.getRaft().applyOperation(ctx, op, m.checkShrinkISRPreconditions)
 	if err != nil {
-		return status.Newf(codes.FailedPrecondition, err.Error())
+		return status.Newf(codes.FailedPrecondition, "%s", err.Error())
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to shrink ISR: %v", err.Error())
@@ -624,7 +624,7 @@ func (m *metadataAPI) ExpandISR(ctx context.Context, req *proto.ExpandISROp) *st
 	// Wait on result of replication.
 	future, err := m.getRaft().applyOperation(ctx, op, m.checkExpandISRPreconditions)
 	if err != nil {
-		return status.Newf(codes.FailedPrecondition, err.Error())
+		return status.Newf(codes.FailedPrecondition, "%s", err.Error())
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to expand ISR: %v", err.Error())
@@ -727,7 +727,7 @@ func (m *metadataAPI) SetStreamReadonly(ctx context.Context, req *proto.SetStrea
 		if err == ErrStreamNotFound || err == ErrPartitionNotFound {
 			code = codes.NotFound
 		}
-		return status.Newf(code, err.Error())
+		return status.Newf(code, "%s", err.Error())
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to set stream readonly flag: %v", err.Error())
@@ -1625,7 +1625,7 @@ func (m *metadataAPI) electNewPartitionLeader(ctx context.Context, partition *pa
 	// Wait on result of replication.
 	future, err := m.getRaft().applyOperation(ctx, op, m.checkChangeLeaderPreconditions)
 	if err != nil {
-		return status.Newf(codes.FailedPrecondition, err.Error())
+		return status.Newf(codes.FailedPrecondition, "%s", err.Error())
 	}
 	if err := future.Error(); err != nil {
 		return status.Newf(codes.Internal, "Failed to replicate leader change: %v", err.Error())

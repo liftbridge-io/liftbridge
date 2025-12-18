@@ -2,7 +2,6 @@ package commitlog
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"testing"
@@ -786,7 +785,7 @@ func setupWithOptions(t require.TestingT, opts Options) (*commitLog, func()) {
 }
 
 func tempDir(t require.TestingT) string {
-	p, err := ioutil.TempDir("", "lift_")
+	p, err := os.MkdirTemp("", "lift_")
 	require.NoError(t, err)
 	return p
 }

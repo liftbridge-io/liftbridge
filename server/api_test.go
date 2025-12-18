@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -2190,7 +2189,7 @@ func TestAuthzWithGrantedResource(t *testing.T) {
 
 	// Connect with TLS.
 	certPool := x509.NewCertPool()
-	ca, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
+	ca, err := os.ReadFile("./configs/certs/ca-cert.pem")
 	if err != nil {
 		panic(err)
 	}
@@ -2276,7 +2275,7 @@ func TestAuthzWithDeniedResource(t *testing.T) {
 
 	// Connect with TLS.
 	certPool := x509.NewCertPool()
-	ca, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
+	ca, err := os.ReadFile("./configs/certs/ca-cert.pem")
 	if err != nil {
 		panic(err)
 	}

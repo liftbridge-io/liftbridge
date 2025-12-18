@@ -1,7 +1,7 @@
 version: '3'
 services:
   nats:
-    image: nats:2.6.4
+    image: nats:2.12.3
     ports:
       - "4222:4222"
     networks:

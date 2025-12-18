@@ -3,7 +3,7 @@ package server
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -131,7 +131,7 @@ func TestNewConfigNATSTLS(t *testing.T) {
 	require.NoError(t, err)
 	// CARoot parsing
 	// Load CA cert
-	caCert, err := ioutil.ReadFile("./configs/certs/ca-cert.pem")
+	caCert, err := os.ReadFile("./configs/certs/ca-cert.pem")
 	require.NoError(t, err)
 
 	caCertPool := x509.NewCertPool()

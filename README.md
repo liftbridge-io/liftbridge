@@ -1,6 +1,6 @@
 ![Liftbridge Logo](./website/static/img/liftbridge_full.png)
 ---
-[![Build][Build-Status-Image]][Build-Status-Url] [![License][License-Image]][License-Url] [![ReportCard][ReportCard-Image]][ReportCard-Url] [![Coverage][Coverage-Image]][Coverage-Url]
+[![Build][Build-Status-Image]][Build-Status-Url] [![License][License-Image]][License-Url] [![ReportCard][ReportCard-Image]][ReportCard-Url] [![Go Version](https://img.shields.io/badge/go-1.25.3-blue)](https://go.dev/)
 
 Liftbridge provides lightweight, fault-tolerant message streams by implementing
 a durable, replicated, and scalable message log. The vision for Liftbridge is
@@ -17,6 +17,15 @@ See the [introduction](https://bravenewgeek.com/introducing-liftbridge-lightweig
 post on Liftbridge and [this post](https://bravenewgeek.com/building-a-distributed-log-from-scratch-part-5-sketching-a-new-system/)
 for more context and some of the inspiration behind it.
 
+## Maintainers
+
+This project is maintained by [Basekick Labs](https://github.com/basekick-labs), creators of [Arc](https://github.com/basekick-labs/arc).
+
+## Requirements
+
+- Go 1.25.3+
+- NATS Server v2.10.0+
+
 ## Documentation
 
 - [Official documentation](https://liftbridge.io/docs/overview.html)
@@ -32,9 +41,7 @@ for more context and some of the inspiration behind it.
 
 [License-Url]: https://www.apache.org/licenses/LICENSE-2.0
 [License-Image]: https://img.shields.io/badge/License-Apache2-blue.svg
-[Build-Status-Url]: https://circleci.com/gh/liftbridge-io/liftbridge
-[Build-Status-Image]: https://circleci.com/gh/liftbridge-io/liftbridge.svg?style=svg
+[Build-Status-Url]: https://github.com/liftbridge-io/liftbridge/actions/workflows/test.yml
+[Build-Status-Image]: https://github.com/liftbridge-io/liftbridge/actions/workflows/test.yml/badge.svg
 [ReportCard-Url]: https://goreportcard.com/report/github.com/liftbridge-io/liftbridge
 [ReportCard-Image]: https://goreportcard.com/badge/github.com/liftbridge-io/liftbridge
-[Coverage-Url]: https://coveralls.io/github/liftbridge-io/liftbridge?branch=master
-[Coverage-image]: https://coveralls.io/repos/github/liftbridge-io/liftbridge/badge.svg?branch=master

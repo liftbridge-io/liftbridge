@@ -2,7 +2,6 @@ package logger
 
 import (
 	"io"
-	"io/ioutil"
 	"sync"
 
 	gnatsd "github.com/nats-io/nats-server/v2/server"
@@ -93,7 +92,7 @@ func (l *logger) Fatal(v ...interface{}) {
 func (l *logger) Silent(enable bool) {
 	if enable {
 		l.oldOut = l.Out
-		l.Out = ioutil.Discard
+		l.Out = io.Discard
 	} else {
 		oldOut := l.oldOut
 		if oldOut == nil {

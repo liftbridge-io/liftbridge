@@ -22,3 +22,10 @@ website/build/
 website/deploy/build/
 
 dev/data
+
+# Built binary
+liftbridge
+
+# Modernization documentation (internal)
+MODERNIZATION.md
+RAFT_UPGRADE_PLAN.md

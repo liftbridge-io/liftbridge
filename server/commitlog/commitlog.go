@@ -3,7 +3,6 @@ package commitlog
 
 import (
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -162,7 +161,7 @@ func (l *commitLog) init() error {
 }
 
 func (l *commitLog) open() error {
-	files, err := ioutil.ReadDir(l.Path)
+	files, err := os.ReadDir(l.Path)
 	if err != nil {
 		return errors.Wrap(err, "read dir failed")
 	}
@@ -192,7 +191,7 @@ func (l *commitLog) open() error {
 			l.segments = append(l.segments, segment)
 		} else if file.Name() == hwFileName {
 			// Recover high watermark.
-			b, err := ioutil.ReadFile(filepath.Join(l.Path, file.Name()))
+			b, err := os.ReadFile(filepath.Join(l.Path, file.Name()))
 			if err != nil {
 				return errors.Wrap(err, "read high watermark file failed")
 			}

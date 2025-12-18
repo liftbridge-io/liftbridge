@@ -4,8 +4,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -672,7 +672,7 @@ func parseNATSConfig(config *Config, v *viper.Viper) error {
 		if v.IsSet(configNATSCA) {
 			caFile := v.GetString(configNATSCA)
 			// Load CA cert
-			caCert, err := ioutil.ReadFile(caFile)
+			caCert, err := os.ReadFile(caFile)
 
 			if err != nil {
 				return err
