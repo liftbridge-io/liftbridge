@@ -348,6 +348,12 @@ func (s *Server) startEmbeddedNATS() error {
 	if err != nil {
 		return err
 	}
+	// Disable NATS signal handling to prevent race with Liftbridge's signal
+	// handler. Without this, both servers register handlers for SIGINT/SIGTERM
+	// and whichever runs first wins - if NATS wins, it calls os.Exit()
+	// immediately, preventing Liftbridge from performing graceful shutdown.
+	// See: https://github.com/liftbridge-io/liftbridge/issues/373
+	opts.NoSigs = true
 	s.embeddedNATS, err = gnatsd.NewServer(opts)
 	if err != nil {
 		return err

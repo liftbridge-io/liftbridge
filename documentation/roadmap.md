@@ -110,6 +110,13 @@ rebuilds corrupt indexes from the log file.
 Fixed startup panic when restoring from a Raft snapshot. Partitions now defer
 starting leader/follower loops until after recovery completes.
 
+### Bug Fixes: Signal Handling Race ([#373](https://github.com/liftbridge-io/liftbridge/issues/373))
+
+**Status**: Done (v26.01.1)
+
+Fixed race condition when using embedded NATS that could prevent graceful shutdown.
+Set `opts.NoSigs = true` to disable NATS's signal handling.
+
 ---
 
 ## Phase 2: Enterprise Features (v26.03)

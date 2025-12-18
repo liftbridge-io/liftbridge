@@ -100,6 +100,16 @@ Fixed a startup panic when restoring from a Raft snapshot.
 **Changes**:
 - Modified `Restore()` in fsm.go to pass `recovered=true` to `applyCreateStream()` and `applyCreateConsumerGroup()`
 
+#### Signal Handling Race with Embedded NATS ([#373](https://github.com/liftbridge-io/liftbridge/issues/373))
+Fixed a race condition when using embedded NATS that could prevent graceful shutdown.
+
+**Problem**: When Liftbridge runs with embedded NATS (`EmbeddedNATS: true`), both servers registered their own signal handlers for SIGINT/SIGTERM. Whichever handler ran first would win - if NATS won, it would call `os.Exit()` immediately, preventing Liftbridge from performing graceful shutdown (closing partitions, draining NATS connections, stopping Raft).
+
+**Solution**: Set `opts.NoSigs = true` when creating the embedded NATS server, disabling NATS's signal handling and allowing Liftbridge to handle all signals for proper graceful shutdown.
+
+**Changes**:
+- Modified `startEmbeddedNATS()` in server.go to set `opts.NoSigs = true`
+
 ### Raft v1.7.3 Compatibility
 This release enables compatibility with hashicorp/raft v1.7.3, which includes:
 - Pre-vote protocol (enabled by default)
