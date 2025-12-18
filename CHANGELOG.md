@@ -56,6 +56,24 @@ Linux packages now include:
 - Optimized Dockerfile layer caching
 - Removed obsolete docker/circleci/ folder
 
+### Bug Fixes
+
+#### Segment Deletion Edge Case
+Fixed a bug where partial deletion failure could leave the system in an inconsistent state.
+
+**Problem**: If segment file deletion failed partway through (e.g., due to permissions or I/O error), some segments would be deleted while others remained, but an error was returned. This could cause data inconsistency.
+
+**Solution**: Implemented a mark-then-delete approach:
+1. All segments are first marked as deleted (atomic per-segment), removing them from the read path
+2. File deletion is then attempted for each segment
+3. If file deletion fails, segments are already marked deleted and won't be visible to readers
+4. Remaining files will be cleaned up on the next cleanup cycle
+
+**Changes**:
+- Added `deleted` flag to segment struct with `MarkDeleted()` and `IsDeleted()` methods
+- Added `deleteSegments()` helper to `deleteCleaner` implementing the two-phase approach
+- Refactored `applyMessagesLimit`, `applyBytesLimit`, and `applyAgeLimit` to use the new helper
+
 ### Raft v1.7.3 Compatibility
 This release enables compatibility with hashicorp/raft v1.7.3, which includes:
 - Pre-vote protocol (enabled by default)
