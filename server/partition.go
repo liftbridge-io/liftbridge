@@ -809,7 +809,17 @@ func (p *partition) becomeLeader(epoch uint64) error {
 	}
 
 	// Update this replica's latest offset to ensure it's up to date.
-	rep := p.isr[p.srv.config.Clustering.ServerID]
+	rep, ok := p.isr[p.srv.config.Clustering.ServerID]
+	if !ok {
+		// This shouldn't happen - a leader should always be in the ISR.
+		// Handle gracefully for corrupt snapshots (see #354).
+		p.srv.logger.Warnf("Leader %s not found in ISR for partition %s, adding self to ISR",
+			p.srv.config.Clustering.ServerID, p)
+		rep = &replica{offset: -1}
+		p.isr[p.srv.config.Clustering.ServerID] = rep
+		// Also update the protobuf ISR list for persistence.
+		p.Isr = append(p.Isr, p.srv.config.Clustering.ServerID)
+	}
 	rep.updateLatestOffset(p.log.NewestOffset())
 
 	// Start message processing loop.

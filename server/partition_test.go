@@ -711,3 +711,37 @@ func TestComputeTick(t *testing.T) {
 
 	require.Equal(t, maxSleep, computeTick(0, maxSleep))
 }
+
+// Ensure becomeLeader handles the case where the leader is not in the ISR
+// gracefully by adding self to ISR instead of panicking. This can happen
+// when restoring from a corrupt Raft snapshot. See issue #354.
+func TestPartitionBecomeLeaderNotInISR(t *testing.T) {
+	defer cleanupStorage(t)
+
+	// Start Liftbridge server.
+	server := createServer()
+	require.NoError(t, server.Start())
+	defer server.Stop()
+
+	// Create partition where leader "a" is NOT in the ISR (simulating corrupt state).
+	p, err := server.newPartition(&proto.Partition{
+		Subject:  "foo",
+		Stream:   "foo",
+		Replicas: []string{"a", "b"},
+		Leader:   "a",
+		Isr:      []string{"b"}, // Leader "a" intentionally excluded
+	}, false, nil)
+	require.NoError(t, err)
+	defer p.Close()
+
+	// Verify leader is not in ISR initially.
+	require.NotContains(t, p.GetISR(), "a")
+
+	// Call becomeLeader - this should NOT panic and should add self to ISR.
+	err = p.becomeLeader(1)
+	require.NoError(t, err)
+
+	// Verify leader was added to ISR.
+	require.Contains(t, p.GetISR(), "a")
+	require.Contains(t, p.GetISR(), "b")
+}
