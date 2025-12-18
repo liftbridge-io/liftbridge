@@ -423,13 +423,16 @@ func (s *Server) Restore(snapshot io.ReadCloser) error {
 	if err := s.metadata.Reset(); err != nil {
 		return err
 	}
+	// Mark streams and groups as recovered so they don't start leader/follower
+	// loops until finishedRecovery() is called after log replay completes.
+	// This is critical because s.api is not yet initialized during Restore().
 	for _, stream := range snap.Streams {
-		if err := s.applyCreateStream(stream, false, 0); err != nil {
+		if err := s.applyCreateStream(stream, true, 0); err != nil {
 			return err
 		}
 	}
 	for _, group := range snap.Groups {
-		if err := s.applyCreateConsumerGroup(group, false); err != nil {
+		if err := s.applyCreateConsumerGroup(group, true); err != nil {
 			return err
 		}
 	}

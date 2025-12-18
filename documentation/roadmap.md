@@ -91,10 +91,24 @@ liftbridge admin cluster status
 
 ### Bug Fixes: Deletion Edge Case
 
-**Status**: Planned
+**Status**: Done (v26.01.1)
 
-Fix partial deletion failure that can leave system in inconsistent state.
-Mark segments for deletion first, remove from read path, then async delete.
+Fixed partial deletion failure that could leave system in inconsistent state.
+Implemented mark-then-delete approach: segments are marked deleted first, then files are removed.
+
+### Bug Fixes: Corrupt Index Recovery ([#411](https://github.com/liftbridge-io/liftbridge/issues/411))
+
+**Status**: Done (v26.01.1)
+
+Fixed startup panic when index files become corrupted. Server now automatically
+rebuilds corrupt indexes from the log file.
+
+### Bug Fixes: Snapshot Restore Panic ([#414](https://github.com/liftbridge-io/liftbridge/issues/414))
+
+**Status**: Done (v26.01.1)
+
+Fixed startup panic when restoring from a Raft snapshot. Partitions now defer
+starting leader/follower loops until after recovery completes.
 
 ---
 
@@ -245,6 +259,35 @@ End-to-end visibility in microservices architectures.
 - Trace context propagation via message headers
 - Span creation for publish/subscribe operations
 - Integration with Jaeger, Zipkin, etc.
+
+### Progressive Shutdown / Graceful Shedding ([#317](https://github.com/liftbridge-io/liftbridge/issues/317))
+
+**Status**: Planned
+
+Progressive shutdown for rolling upgrades and cluster maintenance without service
+disruption.
+
+**Implementation**:
+- Transfer partition leadership gradually via ChangeLeaderOp
+- Remove self from ISR for follower partitions via ShrinkISROp
+- Reject new client requests during shutdown phase
+- Transfer metadata leadership if current node is metadata leader
+- Configurable shutdown timeout and batch sizes
+
+**Configuration**:
+```yaml
+shutdown:
+  graceful: true
+  timeout: 30s
+  leadership.transfer.batch: 10
+  leadership.transfer.delay: 100ms
+```
+
+**Complexity Notes**:
+- Requires changes across server.go, api.go, partition.go, metadata.go
+- Timing/coordination between leadership transfers to avoid Raft flood
+- Must handle partial failures gracefully
+- Extensive multi-node cluster testing required
 
 ---
 
