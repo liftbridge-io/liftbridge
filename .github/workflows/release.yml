@@ -17,7 +17,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: liftbridge-io/liftbridge
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   # Extract version from branch name or input
