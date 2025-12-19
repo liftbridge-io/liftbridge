@@ -35,7 +35,7 @@ This project is maintained by [Basekick Labs](https://github.com/basekick-labs),
 
 ## Community
 
-- [Discord](discord.gg/nxnWfUxsdm)
+- [Discord](https://discord.gg/nxnWfUxsdm)
 
 
 [License-Url]: https://www.apache.org/licenses/LICENSE-2.0
