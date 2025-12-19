@@ -124,7 +124,7 @@ jobs:
           echo "Built: ${TARBALL}"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: liftbridge-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -217,7 +217,7 @@ jobs:
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: digests-${{ strategy.job-index }}
           path: /tmp/digests/*
@@ -439,7 +439,7 @@ jobs:
           sha256sum ${PKG_DIR}.deb > ${PKG_DIR}.deb.sha256
 
       - name: Upload Debian package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: liftbridge-debian-${{ matrix.arch }}
           path: |
@@ -607,7 +607,7 @@ jobs:
           sha256sum liftbridge-${VERSION}-1.*.rpm > liftbridge-${VERSION}-1.${ARCH}.rpm.sha256
 
       - name: Upload RPM package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: liftbridge-rpm-${{ matrix.arch }}
           path: |
