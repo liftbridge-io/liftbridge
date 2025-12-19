@@ -125,6 +125,14 @@ Fixed nil pointer dereference when partition leader is not in ISR during snapsho
 Added defensive check in `becomeLeader()` to add self to ISR if missing, allowing recovery
 from corrupt snapshots.
 
+### Bug Fixes: Slice Bounds Panic During Compaction ([#321](https://github.com/liftbridge-io/liftbridge/issues/321))
+
+**Status**: Planned
+
+Fix slice bounds out of range panic when compaction encounters corrupted messages.
+Add bounds validation to `SerializedMessage.Key()`, `Value()`, and `Headers()` methods
+in `server/commitlog/message.go` to gracefully handle corrupt data instead of panicking.
+
 ---
 
 ## Phase 2: Enterprise Features (v26.03)

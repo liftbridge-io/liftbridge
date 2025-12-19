@@ -35,8 +35,7 @@ This project is maintained by [Basekick Labs](https://github.com/basekick-labs),
 
 ## Community
 
-- [Slack](https://liftbridge.slack.com) - click [here](https://liftbridge.io/help.html) to request an invite
-- [Twitter](https://twitter.com/liftbridge_io)
+- [Discord](discord.gg/nxnWfUxsdm)
 
 
 [License-Url]: https://www.apache.org/licenses/LICENSE-2.0
