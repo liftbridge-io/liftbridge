@@ -6,8 +6,9 @@ import (
 	"time"
 
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
-	liftApi "github.com/liftbridge-io/liftbridge-api/go"
+	liftApi "github.com/liftbridge-io/liftbridge-api/v2/go"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // Ensure activity stream creation event occurs.
@@ -44,7 +45,7 @@ func TestActivityStreamCreateStream(t *testing.T) {
 	select {
 	case msg := <-msgs:
 		var se liftApi.ActivityStreamEvent
-		err = se.Unmarshal(msg.Value())
+		err = proto.Unmarshal(msg.Value(), &se)
 		require.NoError(t, err)
 		require.Equal(t, liftApi.ActivityStreamOp_CREATE_STREAM, se.GetOp())
 		require.Equal(t, activityStream, se.CreateStreamOp.GetStream())
@@ -104,7 +105,7 @@ func TestActivityStreamDeleteStream(t *testing.T) {
 		case msg := <-msgs:
 			if i == 2 {
 				var se liftApi.ActivityStreamEvent
-				err = se.Unmarshal(msg.Value())
+				err = proto.Unmarshal(msg.Value(), &se)
 				require.NoError(t, err)
 				require.Equal(t, liftApi.ActivityStreamOp_DELETE_STREAM, se.GetOp())
 				require.Equal(t, stream, se.DeleteStreamOp.GetStream())
@@ -164,7 +165,7 @@ func TestActivityStreamPauseStream(t *testing.T) {
 		case msg := <-msgs:
 			if i == 2 {
 				var se liftApi.ActivityStreamEvent
-				err = se.Unmarshal(msg.Value())
+				err = proto.Unmarshal(msg.Value(), &se)
 				require.NoError(t, err)
 				require.Equal(t, liftApi.ActivityStreamOp_PAUSE_STREAM, se.GetOp())
 				require.Equal(t, stream, se.PauseStreamOp.GetStream())
@@ -231,7 +232,7 @@ func TestActivityStreamResumeStream(t *testing.T) {
 		case msg := <-msgs:
 			if i == 3 {
 				var se liftApi.ActivityStreamEvent
-				err = se.Unmarshal(msg.Value())
+				err = proto.Unmarshal(msg.Value(), &se)
 				require.NoError(t, err)
 				require.Equal(t, liftApi.ActivityStreamOp_RESUME_STREAM, se.GetOp())
 				require.Equal(t, stream, se.ResumeStreamOp.GetStream())
@@ -292,7 +293,7 @@ func TestActivityStreamSetStreamReadonly(t *testing.T) {
 		case msg := <-msgs:
 			if i == 2 {
 				var se liftApi.ActivityStreamEvent
-				err = se.Unmarshal(msg.Value())
+				err = proto.Unmarshal(msg.Value(), &se)
 				require.NoError(t, err)
 				require.Equal(t, liftApi.ActivityStreamOp_SET_STREAM_READONLY, se.GetOp())
 				require.Equal(t, stream, se.SetStreamReadonlyOp.GetStream())
@@ -358,7 +359,7 @@ func TestActivityStreamSetStreamReadwrite(t *testing.T) {
 		case msg := <-msgs:
 			if i == 3 {
 				var se liftApi.ActivityStreamEvent
-				err = se.Unmarshal(msg.Value())
+				err = proto.Unmarshal(msg.Value(), &se)
 				require.NoError(t, err)
 				require.Equal(t, liftApi.ActivityStreamOp_SET_STREAM_READONLY, se.GetOp())
 				require.Equal(t, stream, se.SetStreamReadonlyOp.GetStream())
@@ -430,7 +431,7 @@ func TestActivityStreamJoinLeaveConsumerGroup(t *testing.T) {
 		case msg := <-msgs:
 			if i == 2 {
 				var se liftApi.ActivityStreamEvent
-				err = se.Unmarshal(msg.Value())
+				err = proto.Unmarshal(msg.Value(), &se)
 				require.NoError(t, err)
 				require.Equal(t, liftApi.ActivityStreamOp_JOIN_CONSUMER_GROUP, se.GetOp())
 				require.Equal(t, group, se.JoinConsumerGroupOp.GetGroupId())
@@ -452,7 +453,7 @@ func TestActivityStreamJoinLeaveConsumerGroup(t *testing.T) {
 	select {
 	case msg := <-msgs:
 		var se liftApi.ActivityStreamEvent
-		err = se.Unmarshal(msg.Value())
+		err = proto.Unmarshal(msg.Value(), &se)
 		require.NoError(t, err)
 		require.Equal(t, liftApi.ActivityStreamOp_JOIN_CONSUMER_GROUP, se.GetOp())
 		require.Equal(t, group, se.JoinConsumerGroupOp.GetGroupId())
@@ -469,7 +470,7 @@ func TestActivityStreamJoinLeaveConsumerGroup(t *testing.T) {
 	select {
 	case msg := <-msgs:
 		var se liftApi.ActivityStreamEvent
-		err = se.Unmarshal(msg.Value())
+		err = proto.Unmarshal(msg.Value(), &se)
 		require.NoError(t, err)
 		require.Equal(t, liftApi.ActivityStreamOp_LEAVE_CONSUMER_GROUP, se.GetOp())
 		require.Equal(t, group, se.LeaveConsumerGroupOp.GetGroupId())

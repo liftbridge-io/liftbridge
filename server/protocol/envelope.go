@@ -8,7 +8,7 @@ import (
 	"hash/crc32"
 
 	pb "github.com/golang/protobuf/proto"
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 )
 
 // msgType indicates the type of message contained by an envelope.

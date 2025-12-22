@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	"github.com/liftbridge-io/liftbridge/server/encryption"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -28,6 +28,7 @@ var hasher = crc32.ChecksumIEEE
 
 // apiServer implements the gRPC server interface clients interact with.
 type apiServer struct {
+	client.UnimplementedAPIServer
 	*Server
 }
 

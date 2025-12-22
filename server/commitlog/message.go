@@ -4,7 +4,7 @@ import (
 	"errors"
 	"hash/crc32"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 )
 
 var crc32cTable = crc32.MakeTable(crc32.Castagnoli)

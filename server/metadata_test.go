@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 
