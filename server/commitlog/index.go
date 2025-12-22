@@ -328,3 +328,51 @@ func (s *indexScanner) Scan() (*entry, error) {
 	s.offset++
 	return s.entry, err
 }
+
+// reverseIndexScanner is used to iterate over entries in reverse order
+// (newest to oldest).
+type reverseIndexScanner struct {
+	idx    *index
+	entry  *entry
+	offset int64 // Current entry index (starts at last entry)
+}
+
+// newReverseIndexScanner creates a scanner that iterates from the given
+// starting offset backwards to the beginning of the index.
+func newReverseIndexScanner(idx *index, startOffset int64) *reverseIndexScanner {
+	return &reverseIndexScanner{
+		idx:    idx,
+		entry:  &entry{},
+		offset: startOffset,
+	}
+}
+
+// newReverseIndexScannerFromEnd creates a scanner that starts at the last
+// entry in the index and iterates backwards.
+func newReverseIndexScannerFromEnd(idx *index) *reverseIndexScanner {
+	// Get the number of entries in the index
+	numEntries := idx.CountEntries()
+	startOffset := numEntries - 1
+	if startOffset < 0 {
+		startOffset = -1 // Will return EOF on first Scan()
+	}
+	return &reverseIndexScanner{
+		idx:    idx,
+		entry:  &entry{},
+		offset: startOffset,
+	}
+}
+
+// Scan reads the current entry and moves to the previous one.
+// Returns io.EOF when there are no more entries.
+func (s *reverseIndexScanner) Scan() (*entry, error) {
+	if s.offset < 0 {
+		return nil, io.EOF
+	}
+	err := s.idx.ReadEntryAtLogOffset(s.entry, s.offset)
+	if err != nil {
+		return nil, err
+	}
+	s.offset-- // Move to previous entry
+	return s.entry, nil
+}

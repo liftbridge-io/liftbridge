@@ -609,6 +609,54 @@ func (s *segmentScanner) Scan() (messageSet, *entry, error) {
 	return msgSet, entry, nil
 }
 
+// reverseSegmentScanner is used to iterate over messages in a segment in
+// reverse order (newest to oldest).
+type reverseSegmentScanner struct {
+	s   *segment
+	ris *reverseIndexScanner
+}
+
+// newReverseSegmentScanner creates a scanner that iterates from the given
+// offset backwards.
+func newReverseSegmentScanner(segment *segment, startOffset int64) *reverseSegmentScanner {
+	// Convert log offset to index entry offset
+	entryOffset := startOffset - segment.BaseOffset
+	return &reverseSegmentScanner{
+		s:   segment,
+		ris: newReverseIndexScanner(segment.Index, entryOffset),
+	}
+}
+
+// newReverseSegmentScannerFromEnd creates a scanner that starts at the last
+// message in the segment and iterates backwards.
+func newReverseSegmentScannerFromEnd(segment *segment) *reverseSegmentScanner {
+	return &reverseSegmentScanner{
+		s:   segment,
+		ris: newReverseIndexScannerFromEnd(segment.Index),
+	}
+}
+
+// Scan reads the current message and moves to the previous one.
+// Returns io.EOF when there are no more messages.
+func (s *reverseSegmentScanner) Scan() (messageSet, *entry, error) {
+	entry, err := s.ris.Scan()
+	if err != nil {
+		return nil, nil, err
+	}
+	header := make(messageSet, msgSetHeaderLen)
+	_, err = s.s.ReadAt(header, entry.Position)
+	if err != nil {
+		return nil, nil, err
+	}
+	payload := make([]byte, header.Size())
+	_, err = s.s.ReadAt(payload, entry.Position+msgSetHeaderLen)
+	if err != nil {
+		return nil, nil, err
+	}
+	msgSet := append(header, payload...)
+	return msgSet, entry, nil
+}
+
 func (s *segment) logPath() string {
 	return filepath.Join(s.path, fmt.Sprintf(fileFormat, s.BaseOffset, logSuffix+s.suffix))
 }

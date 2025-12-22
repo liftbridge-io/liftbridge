@@ -13,6 +13,12 @@ import (
 // been reached.
 var ErrCommitLogReadonly = errors.New("end of readonly log")
 
+// MessageReader is the interface implemented by both Reader and ReverseReader.
+// It allows reading messages from a CommitLog either forwards or backwards.
+type MessageReader interface {
+	ReadMessage(ctx context.Context, headersBuf []byte) (SerializedMessage, int64, int64, uint64, error)
+}
+
 type contextReader interface {
 	Read(context.Context, []byte) (int, error)
 }
@@ -402,4 +408,133 @@ func min(x, y int64) int64 {
 		return x
 	}
 	return y
+}
+
+// ReverseReader reads messages in reverse order (newest to oldest) from a
+// CommitLog. ReverseReaders should not be used concurrently.
+type ReverseReader struct {
+	log         *commitLog
+	segments    []*segment
+	segIdx      int // Current segment index (starts at last segment)
+	scanner     *reverseSegmentScanner
+	stopOffset  int64 // Stop reading at this offset (inclusive)
+	uncommitted bool
+}
+
+// NewReverseReader creates a new ReverseReader starting at the given offset
+// and reading backwards. If uncommitted is true, the Reader will read
+// uncommitted messages from the log. Otherwise, it will only return committed
+// messages (starting from HW).
+func (l *commitLog) NewReverseReader(startOffset int64, uncommitted bool) (*ReverseReader, error) {
+	segments := l.Segments()
+	if len(segments) == 0 {
+		return nil, ErrSegmentNotFound
+	}
+
+	var effectiveStart int64
+	if uncommitted {
+		effectiveStart = startOffset
+	} else {
+		// For committed reads, start from HW if startOffset exceeds it
+		hw := l.HighWatermark()
+		if hw == -1 {
+			// Log is empty
+			return nil, ErrSegmentNotFound
+		}
+		if startOffset > hw || startOffset == -1 {
+			effectiveStart = hw
+		} else {
+			effectiveStart = startOffset
+		}
+	}
+
+	// Find the segment containing the start offset
+	seg, segIdx := findSegment(segments, effectiveStart)
+	if seg == nil {
+		return nil, ErrSegmentNotFound
+	}
+
+	return &ReverseReader{
+		log:         l,
+		segments:    segments,
+		segIdx:      segIdx,
+		scanner:     newReverseSegmentScanner(seg, effectiveStart),
+		stopOffset:  -1, // Read all the way to the beginning by default
+		uncommitted: uncommitted,
+	}, nil
+}
+
+// NewReverseReaderFromEnd creates a new ReverseReader starting at the end of
+// the log (either LEO for uncommitted or HW for committed).
+func (l *commitLog) NewReverseReaderFromEnd(uncommitted bool) (*ReverseReader, error) {
+	segments := l.Segments()
+	if len(segments) == 0 {
+		return nil, ErrSegmentNotFound
+	}
+
+	var startOffset int64
+	if uncommitted {
+		startOffset = l.NewestOffset()
+	} else {
+		startOffset = l.HighWatermark()
+	}
+
+	if startOffset == -1 {
+		return nil, ErrSegmentNotFound
+	}
+
+	return l.NewReverseReader(startOffset, uncommitted)
+}
+
+// SetStopOffset sets the offset at which to stop reading (inclusive).
+// Messages with offsets less than stopOffset will not be returned.
+func (r *ReverseReader) SetStopOffset(offset int64) {
+	r.stopOffset = offset
+}
+
+// ReadMessage reads the next message in reverse order (from newest to oldest).
+// Returns io.EOF when there are no more messages or the stop offset is reached.
+func (r *ReverseReader) ReadMessage(ctx context.Context, headersBuf []byte) (
+	SerializedMessage, int64, int64, uint64, error) {
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, 0, 0, 0, io.EOF
+		default:
+		}
+
+		if r.log.IsDeleted() {
+			return nil, 0, 0, 0, ErrCommitLogDeleted
+		}
+		if r.log.IsClosed() {
+			return nil, 0, 0, 0, ErrCommitLogClosed
+		}
+
+		// Try to read from current segment
+		msgSet, _, err := r.scanner.Scan()
+		if err == io.EOF {
+			// Move to previous segment
+			if r.segIdx <= 0 {
+				// No more segments
+				return nil, 0, 0, 0, io.EOF
+			}
+			r.segIdx--
+			r.scanner = newReverseSegmentScannerFromEnd(r.segments[r.segIdx])
+			continue
+		}
+		if err != nil {
+			return nil, 0, 0, 0, err
+		}
+
+		// Check stop offset
+		offset := msgSet.Offset()
+		if r.stopOffset >= 0 && offset < r.stopOffset {
+			return nil, 0, 0, 0, io.EOF
+		}
+
+		// Extract message from message set
+		msg := msgSet.Message()
+		return msg, offset, msgSet.Timestamp(), msgSet.LeaderEpoch(), nil
+	}
 }

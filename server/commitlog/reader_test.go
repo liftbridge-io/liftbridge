@@ -565,3 +565,282 @@ func compareMessages(t *testing.T, exp *Message, act SerializedMessage) {
 		require.Equal(t, exp.Headers, act.Headers())
 	}
 }
+
+// TestReverseReaderUncommitted tests that the ReverseReader reads messages
+// in reverse order (newest to oldest) from an uncommitted log.
+func TestReverseReaderUncommitted(t *testing.T) {
+	for _, test := range segmentSizeTests {
+		t.Run(test.name, func(t *testing.T) {
+			var err error
+			l, cleanup := setupWithOptions(t, Options{
+				Path:            tempDir(t),
+				MaxSegmentBytes: test.segmentSize,
+			})
+			defer l.Close()
+			defer cleanup()
+
+			numMsgs := 10
+			msgs := make([]*Message, numMsgs)
+			for i := 0; i < numMsgs; i++ {
+				msgs[i] = &Message{
+					Value:       []byte(strconv.Itoa(i)),
+					Timestamp:   int64(i),
+					LeaderEpoch: 42,
+				}
+			}
+			_, err = l.Append(msgs)
+			require.NoError(t, err)
+
+			// Create reverse reader starting at offset 9 (last message)
+			r, err := l.NewReverseReader(9, true)
+			require.NoError(t, err)
+
+			headers := make([]byte, 28)
+			// Read all messages in reverse order
+			for i := numMsgs - 1; i >= 0; i-- {
+				msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(context.Background(), headers)
+				require.NoError(t, err)
+				require.Equal(t, int64(i), offset)
+				require.Equal(t, int64(i), timestamp)
+				require.Equal(t, uint64(42), leaderEpoch)
+				compareMessages(t, msgs[i], msg)
+			}
+
+			// Next read should return EOF
+			_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+			require.Equal(t, io.EOF, err)
+		})
+	}
+}
+
+// TestReverseReaderCommitted tests that the ReverseReader reads only committed
+// messages in reverse order.
+func TestReverseReaderCommitted(t *testing.T) {
+	for _, test := range segmentSizeTests {
+		t.Run(test.name, func(t *testing.T) {
+			var err error
+			l, cleanup := setupWithOptions(t, Options{
+				Path:            tempDir(t),
+				MaxSegmentBytes: test.segmentSize,
+			})
+			defer l.Close()
+			defer cleanup()
+
+			numMsgs := 10
+			msgs := make([]*Message, numMsgs)
+			for i := 0; i < numMsgs; i++ {
+				msgs[i] = &Message{
+					Value:       []byte(strconv.Itoa(i)),
+					Timestamp:   int64(i),
+					LeaderEpoch: 42,
+				}
+			}
+			_, err = l.Append(msgs)
+			require.NoError(t, err)
+			l.SetHighWatermark(7)
+
+			// Create reverse reader starting at offset 9 (should cap to HW=7)
+			r, err := l.NewReverseReader(9, false)
+			require.NoError(t, err)
+
+			headers := make([]byte, 28)
+			// Read messages in reverse order from HW (7) down to 0
+			for i := 7; i >= 0; i-- {
+				msg, offset, timestamp, leaderEpoch, err := r.ReadMessage(context.Background(), headers)
+				require.NoError(t, err)
+				require.Equal(t, int64(i), offset)
+				require.Equal(t, int64(i), timestamp)
+				require.Equal(t, uint64(42), leaderEpoch)
+				compareMessages(t, msgs[i], msg)
+			}
+
+			// Next read should return EOF
+			_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+			require.Equal(t, io.EOF, err)
+		})
+	}
+}
+
+// TestReverseReaderWithStopOffset tests that the ReverseReader stops at the
+// specified stop offset.
+func TestReverseReaderWithStopOffset(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	numMsgs := 10
+	msgs := make([]*Message, numMsgs)
+	for i := 0; i < numMsgs; i++ {
+		msgs[i] = &Message{
+			Value:       []byte(strconv.Itoa(i)),
+			Timestamp:   int64(i),
+			LeaderEpoch: 42,
+		}
+	}
+	_, err := l.Append(msgs)
+	require.NoError(t, err)
+
+	r, err := l.NewReverseReader(9, true)
+	require.NoError(t, err)
+	r.SetStopOffset(5)
+
+	headers := make([]byte, 28)
+	// Read messages from 9 down to 5 (inclusive)
+	for i := 9; i >= 5; i-- {
+		msg, offset, _, _, err := r.ReadMessage(context.Background(), headers)
+		require.NoError(t, err)
+		require.Equal(t, int64(i), offset)
+		compareMessages(t, msgs[i], msg)
+	}
+
+	// Next read should return EOF because we've reached stop offset
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.Equal(t, io.EOF, err)
+}
+
+// TestReverseReaderFromEnd tests creating a ReverseReader from the end of log.
+func TestReverseReaderFromEnd(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	numMsgs := 5
+	msgs := make([]*Message, numMsgs)
+	for i := 0; i < numMsgs; i++ {
+		msgs[i] = &Message{
+			Value:       []byte(strconv.Itoa(i)),
+			Timestamp:   int64(i),
+			LeaderEpoch: 42,
+		}
+	}
+	_, err := l.Append(msgs)
+	require.NoError(t, err)
+
+	r, err := l.NewReverseReaderFromEnd(true)
+	require.NoError(t, err)
+
+	headers := make([]byte, 28)
+	// Read all messages in reverse order starting from end
+	for i := numMsgs - 1; i >= 0; i-- {
+		msg, offset, _, _, err := r.ReadMessage(context.Background(), headers)
+		require.NoError(t, err)
+		require.Equal(t, int64(i), offset)
+		compareMessages(t, msgs[i], msg)
+	}
+}
+
+// TestReverseReaderEmptyLog tests that NewReverseReader returns error for
+// empty log.
+func TestReverseReaderEmptyLog(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	_, err := l.NewReverseReader(0, true)
+	require.Equal(t, ErrSegmentNotFound, err)
+
+	_, err = l.NewReverseReaderFromEnd(true)
+	require.Equal(t, ErrSegmentNotFound, err)
+}
+
+// TestReverseReaderContextCancel tests that ReverseReader respects context
+// cancellation.
+func TestReverseReaderContextCancel(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	})
+	defer l.Close()
+	defer cleanup()
+
+	msg := &Message{Value: []byte("hi")}
+	_, err := l.Append([]*Message{msg})
+	require.NoError(t, err)
+
+	r, err := l.NewReverseReader(0, true)
+	require.NoError(t, err)
+
+	headers := make([]byte, 28)
+	// First read should succeed
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.NoError(t, err)
+
+	// Subsequent read with cancelled context should return EOF
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, _, _, err = r.ReadMessage(ctx, headers)
+	require.Equal(t, io.EOF, err)
+}
+
+// TestReverseReaderLogDeleted tests that ReverseReader returns error when log
+// is deleted.
+func TestReverseReaderLogDeleted(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	})
+	defer cleanup()
+
+	msgs := make([]*Message, 5)
+	for i := 0; i < 5; i++ {
+		msgs[i] = &Message{Value: []byte(strconv.Itoa(i))}
+	}
+	_, err := l.Append(msgs)
+	require.NoError(t, err)
+
+	r, err := l.NewReverseReader(4, true)
+	require.NoError(t, err)
+
+	// Read first message
+	headers := make([]byte, 28)
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.NoError(t, err)
+
+	// Delete the log
+	require.NoError(t, l.Delete())
+
+	// Next read should return ErrCommitLogDeleted
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.Equal(t, ErrCommitLogDeleted, err)
+}
+
+// TestReverseReaderLogClosed tests that ReverseReader returns error when log
+// is closed.
+func TestReverseReaderLogClosed(t *testing.T) {
+	l, cleanup := setupWithOptions(t, Options{
+		Path:            tempDir(t),
+		MaxSegmentBytes: 100,
+	})
+	defer cleanup()
+
+	msgs := make([]*Message, 5)
+	for i := 0; i < 5; i++ {
+		msgs[i] = &Message{Value: []byte(strconv.Itoa(i))}
+	}
+	_, err := l.Append(msgs)
+	require.NoError(t, err)
+
+	r, err := l.NewReverseReader(4, true)
+	require.NoError(t, err)
+
+	// Read first message
+	headers := make([]byte, 28)
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.NoError(t, err)
+
+	// Close the log
+	require.NoError(t, l.Close())
+
+	// Next read should return ErrCommitLogClosed
+	_, _, _, _, err = r.ReadMessage(context.Background(), headers)
+	require.Equal(t, ErrCommitLogClosed, err)
+}

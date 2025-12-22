@@ -11,6 +11,12 @@ type CommitLog interface {
 	// log. Otherwise, it will only return committed messages.
 	NewReader(offset int64, uncommitted bool) (*Reader, error)
 
+	// NewReverseReader creates a new ReverseReader starting at the given
+	// offset and reading backwards. If uncommitted is true, it will read
+	// uncommitted messages. Otherwise, it will only return committed messages
+	// (starting from HW if startOffset exceeds it).
+	NewReverseReader(startOffset int64, uncommitted bool) (*ReverseReader, error)
+
 	// Truncate removes all messages from the log starting at the given offset.
 	Truncate(offset int64) error
 

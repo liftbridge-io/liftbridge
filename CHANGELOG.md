@@ -20,6 +20,35 @@ This replaces the previous semantic versioning (v1.x.x) to better reflect the pr
 
 ### New Features
 
+#### Reverse Subscription Support ([#290](https://github.com/liftbridge-io/liftbridge/issues/290))
+Added the ability to subscribe to streams in reverse order (newest to oldest messages).
+
+**Use Cases**:
+- **Consumer cursor optimization**: Finding the latest cursor position is now O(k) instead of O(n), where k is the number of updates per cursor vs n total messages
+- **Recent events display**: UIs can show the most recent messages first without scanning the entire stream
+- **Debugging**: Quickly examine recent messages when troubleshooting issues
+- **Event search**: Find recent occurrences of specific events by reading backwards
+
+**API Changes**:
+- Added `Reverse` boolean field to `SubscribeRequest` protobuf message
+- When `Reverse=true`, messages are delivered from newest to oldest
+- Works with all start positions (`LATEST`, `EARLIEST`, `OFFSET`, `TIMESTAMP`)
+- Compatible with both committed and uncommitted reads
+
+**Implementation**:
+- Added `ReverseReader` and `MessageReader` interface in commitlog package
+- Added `reverseIndexScanner` for backward index traversal
+- Added `reverseSegmentScanner` for backward segment reading
+- Optimized `getLatestCursorOffset()` to use reverse subscription internally
+
+**Example** (using go-liftbridge):
+```go
+// Subscribe in reverse order starting from the latest message
+client.Subscribe(ctx, "my-stream", func(msg *lift.Message, err error) {
+    fmt.Println(msg.Offset(), string(msg.Value()))
+}, lift.StartAtLatestReceived(), lift.Reverse())
+```
+
 #### GitHub Actions Release Workflow
 Added automated release workflow triggered by `release/*` branches:
 - **Multi-platform binaries**: darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64, windows/arm64
