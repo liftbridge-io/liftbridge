@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 
@@ -218,46 +218,56 @@ func (c *cursorManager) getLatestCursorOffset(ctx context.Context, cursorKey []b
 	int64, error) {
 
 	hw := partition.log.HighWatermark()
+	oldest := partition.log.OldestOffset()
 
 	// No cursors have been committed or the cursors partition is now empty so
 	// return -1.
-	if hw == -1 || partition.log.OldestOffset() == -1 {
+	if hw == -1 || oldest == -1 {
 		return -1, nil
 	}
 
-	// TODO: This can likely be made more efficient.
+	// Use reverse subscription to find the latest cursor value efficiently.
+	// By reading from newest to oldest, the first matching key is the latest
+	// cursor value, allowing early exit instead of scanning all messages.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	sub, err := c.api.SubscribeInternal(ctx, &client.SubscribeRequest{
 		Stream:        cursorsStream,
 		Partition:     partition.Id,
-		StartPosition: client.StartPosition_EARLIEST,
+		StartPosition: client.StartPosition_LATEST,
 		Resume:        true,
+		Reverse:       true,
 	})
 	if err != nil {
 		return 0, err
 	}
 	defer sub.Close()
 	var (
-		latestOffset = int64(-1)
-		cursor       = new(proto.Cursor)
-		msgC         = sub.Messages()
-		errC         = sub.Errors()
+		cursor = new(proto.Cursor)
+		msgC   = sub.Messages()
+		errC   = sub.Errors()
 	)
 	for {
 		select {
 		case msg := <-msgC:
 			if bytes.Equal(msg.Key, cursorKey) {
+				// When reading in reverse, the first match is the latest value.
 				if err := cursor.Unmarshal(msg.Value); err != nil {
 					c.logger.Errorf("Invalid cursor message in cursors stream: %v", err)
-				} else if cursor.Offset > latestOffset {
-					latestOffset = cursor.Offset
+				} else {
+					return cursor.Offset, nil
 				}
 			}
-			if msg.Offset == hw {
-				return latestOffset, nil
+			// Reached the oldest message without finding the cursor key.
+			if msg.Offset == oldest {
+				return -1, nil
 			}
 		case err := <-errC:
+			// ResourceExhausted means we've read all messages (reached end of
+			// reverse iteration).
+			if err.Code() == codes.ResourceExhausted {
+				return -1, nil
+			}
 			return 0, err.Err()
 		case <-ctx.Done():
 			return 0, ctx.Err()

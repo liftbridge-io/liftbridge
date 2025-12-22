@@ -14,7 +14,7 @@ import (
 
 	"github.com/casbin/casbin/v2"
 	"github.com/hashicorp/raft"
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	gnatsd "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
@@ -489,7 +489,7 @@ func (s *Server) startAPIServer() error {
 
 	grpcServer := grpc.NewServer(opts...)
 	s.grpcServer = grpcServer
-	s.api = &apiServer{s}
+	s.api = &apiServer{Server: s}
 	client.RegisterAPIServer(grpcServer, s.api)
 
 	health.Register(grpcServer)

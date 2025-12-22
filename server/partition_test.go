@@ -10,7 +10,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
 

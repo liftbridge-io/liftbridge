@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	"github.com/liftbridge-io/liftbridge/server/encryption"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -28,6 +28,7 @@ var hasher = crc32.ChecksumIEEE
 
 // apiServer implements the gRPC server interface clients interact with.
 type apiServer struct {
+	client.UnimplementedAPIServer
 	*Server
 }
 
@@ -279,8 +280,8 @@ func (a *apiServer) SubscribeInternal(ctx context.Context, req *client.Subscribe
 		consumer = req.Consumer.ConsumerId
 	}
 	a.logger.Debugf("api: Subscribe "+
-		"[stream=%s, partition=%d, start=%s, offset=%d, timestamp=%d, group=%s, consumer=%s]",
-		req.Stream, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp, group, consumer)
+		"[stream=%s, partition=%d, start=%s, offset=%d, timestamp=%d, group=%s, consumer=%s, reverse=%v]",
+		req.Stream, req.Partition, req.StartPosition, req.StartOffset, req.StartTimestamp, group, consumer, req.Reverse)
 
 	if group != "" && consumer == "" {
 		a.logger.Errorf("api: Failed to subscribe to partition: no consumer id provided")

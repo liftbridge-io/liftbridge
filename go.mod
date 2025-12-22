@@ -13,8 +13,8 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb/v2 v2.2.0
-	github.com/liftbridge-io/go-liftbridge/v2 v2.2.1-0.20220311002120-3d391a19ff0e
-	github.com/liftbridge-io/liftbridge-api v1.9.0
+	github.com/liftbridge-io/go-liftbridge/v2 v2.4.0
+	github.com/liftbridge-io/liftbridge-api/v2 v2.0.0
 	github.com/liftbridge-io/nats-on-a-log v0.0.0-20251217012616-0e8aa238b3d9
 	github.com/natefinch/atomic v1.0.1
 	github.com/nats-io/nats-server/v2 v2.12.2
@@ -27,6 +27,7 @@ require (
 	github.com/tysonmote/gommap v0.0.2-0.20220314171410-078b7adc9d18
 	github.com/urfave/cli v1.22.4
 	google.golang.org/grpc v1.77.0
+	google.golang.org/protobuf v1.36.10
 )
 
 require (
@@ -72,6 +73,5 @@ require (
 	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -12,7 +12,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/hako/durafmt"
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 	"github.com/pkg/errors"

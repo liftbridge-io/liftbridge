@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
+	pb "google.golang.org/protobuf/proto"
 
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
 )
@@ -251,7 +252,7 @@ func (a *activityManager) createActivityStream() error {
 
 // publishActivityEvent publishes an event on the activity stream.
 func (a *activityManager) publishActivityEvent(event *client.ActivityStreamEvent) error {
-	data, err := event.Marshal()
+	data, err := pb.Marshal(event)
 	if err != nil {
 		panic(err)
 	}

@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // Ensure we can marshal a message and then unmarshal it.
@@ -34,7 +35,7 @@ func TestMarshalUnmarshalPublish(t *testing.T) {
 	unmarshaled, err := UnmarshalPublish(envelope)
 	require.NoError(t, err)
 
-	require.Equal(t, msg, unmarshaled)
+	require.True(t, proto.Equal(msg, unmarshaled))
 }
 
 // Ensure we can marshal an ack and then unmarshal it.
@@ -56,7 +57,7 @@ func TestMarshalUnmarshalAck(t *testing.T) {
 	unmarshaled, err := UnmarshalAck(envelope)
 	require.NoError(t, err)
 
-	require.Equal(t, ack, unmarshaled)
+	require.True(t, proto.Equal(ack, unmarshaled))
 }
 
 // Ensure we can marshal a ServerInfoRequest and then unmarshal it.

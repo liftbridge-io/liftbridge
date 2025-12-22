@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Workiva/go-datastructures/queue"
-	client "github.com/liftbridge-io/liftbridge-api/go"
+	client "github.com/liftbridge-io/liftbridge-api/v2/go"
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
@@ -423,10 +423,17 @@ func (p *partition) Subscribe(ctx context.Context, req *client.SubscribeRequest)
 	}
 
 	var (
-		ch          = make(chan *client.Message)
-		errCh       = make(chan *status.Status)
-		reader, err = p.log.NewReader(startOffset, false)
+		ch     = make(chan *client.Message)
+		errCh  = make(chan *status.Status)
+		reader commitlog.MessageReader
+		err    error
 	)
+
+	if req.Reverse {
+		reader, err = p.log.NewReverseReader(startOffset, false)
+	} else {
+		reader, err = p.log.NewReader(startOffset, false)
+	}
 	if err != nil {
 		return nil, status.New(
 			codes.Internal, fmt.Sprintf("Failed to create stream reader: %v", err))
@@ -434,7 +441,7 @@ func (p *partition) Subscribe(ctx context.Context, req *client.SubscribeRequest)
 
 	cancel := make(chan struct{})
 	p.srv.startGoroutine(p.newSubscribeLoop(ctx, groupID, consumerID, reader,
-		stopOffset, ch, errCh, cancel))
+		stopOffset, ch, errCh, cancel, req.Reverse))
 
 	sub := &subscription{
 		closed: cancel,
@@ -456,8 +463,8 @@ func (p *partition) Subscribe(ctx context.Context, req *client.SubscribeRequest)
 // newSubscribeLoop returns a function to be called in a goroutine which starts
 // the subscription loop.
 func (p *partition) newSubscribeLoop(ctx context.Context, groupID, consumerID string,
-	reader *commitlog.Reader, stopOffset int64, ch chan<- *client.Message, errCh chan<- *status.Status,
-	cancel <-chan struct{}) func() {
+	reader commitlog.MessageReader, stopOffset int64, ch chan<- *client.Message, errCh chan<- *status.Status,
+	cancel <-chan struct{}, reverse bool) func() {
 
 	return func() {
 		// Update the active subscriber count.

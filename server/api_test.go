@@ -12,7 +12,7 @@ import (
 	"time"
 
 	lift "github.com/liftbridge-io/go-liftbridge/v2"
-	proto "github.com/liftbridge-io/liftbridge-api/go"
+	proto "github.com/liftbridge-io/liftbridge-api/v2/go"
 	natsdTest "github.com/nats-io/nats-server/v2/test"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
@@ -781,7 +781,7 @@ func TestSubscribePartitionDeleted(t *testing.T) {
 	defer cleanupStorage(t)
 
 	server := New(getTestConfig("a", true, 0))
-	api := &apiServer{server}
+	api := &apiServer{Server: server}
 	streamProto := &protocol.Stream{
 		Name:    "foo",
 		Subject: "foo",
@@ -815,7 +815,7 @@ func TestSubscribePartitionPaused(t *testing.T) {
 	defer cleanupStorage(t)
 
 	server := New(getTestConfig("a", true, 0))
-	api := &apiServer{server}
+	api := &apiServer{Server: server}
 	streamProto := &protocol.Stream{
 		Name:    "foo",
 		Subject: "foo",
@@ -849,7 +849,7 @@ func TestSubscribePartitionClosed(t *testing.T) {
 	defer cleanupStorage(t)
 
 	server := New(getTestConfig("a", true, 0))
-	api := &apiServer{server}
+	api := &apiServer{Server: server}
 	streamProto := &protocol.Stream{
 		Name:    "foo",
 		Subject: "foo",
