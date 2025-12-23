@@ -328,3 +328,76 @@ func setBit(n byte, pos uint8) byte {
 	n |= (1 << pos)
 	return n
 }
+
+// Ensure UnmarshalReplicationResponse returns an error if the payload is too
+// small (less than 16 bytes for leader epoch and HW).
+func TestUnmarshalReplicationResponseNotEnoughData(t *testing.T) {
+	buf := new(bytes.Buffer)
+	WriteReplicationResponseHeader(buf)
+
+	// Only write 8 bytes (leader epoch) but not the HW
+	binary.Write(buf, Encoding, uint64(1))
+
+	_, _, _, err := UnmarshalReplicationResponse(buf.Bytes())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not enough data")
+}
+
+// Ensure UnmarshalReplicationResponse returns an error if envelope check fails.
+func TestUnmarshalReplicationResponseInvalidEnvelope(t *testing.T) {
+	// Empty data
+	_, _, _, err := UnmarshalReplicationResponse([]byte{})
+	require.Error(t, err)
+
+	// Invalid magic number
+	_, _, _, err = UnmarshalReplicationResponse([]byte("invalid_data"))
+	require.Error(t, err)
+}
+
+// Ensure UnmarshalReplicationResponse works with empty message data.
+func TestUnmarshalReplicationResponseEmptyData(t *testing.T) {
+	buf := new(bytes.Buffer)
+	n := WriteReplicationResponseHeader(buf)
+	require.Equal(t, 8, n)
+
+	var (
+		epoch = uint64(5)
+		hw    = int64(200)
+	)
+
+	// Write the leader epoch.
+	binary.Write(buf, Encoding, epoch)
+	// Write the HW.
+	binary.Write(buf, Encoding, hw)
+	// No message data
+
+	unmarshaledEpoch, unmarshaledHW, unmarshaledData, err := UnmarshalReplicationResponse(buf.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, epoch, unmarshaledEpoch)
+	require.Equal(t, hw, unmarshaledHW)
+	require.Empty(t, unmarshaledData)
+}
+
+// Ensure WriteReplicationResponseHeader writes the correct header bytes.
+func TestWriteReplicationResponseHeader(t *testing.T) {
+	buf := new(bytes.Buffer)
+	n := WriteReplicationResponseHeader(buf)
+
+	require.Equal(t, 8, n)
+	require.Equal(t, 8, buf.Len())
+
+	data := buf.Bytes()
+	// Check magic number (first 4 bytes)
+	require.Equal(t, byte(0xB9), data[0])
+	require.Equal(t, byte(0x0E), data[1])
+	require.Equal(t, byte(0x43), data[2])
+	require.Equal(t, byte(0xB4), data[3])
+	// Check version
+	require.Equal(t, byte(0x00), data[4])
+	// Check header length
+	require.Equal(t, byte(8), data[5])
+	// Check flags
+	require.Equal(t, byte(0x00), data[6])
+	// Check message type (msgTypeReplicationResponse = 3)
+	require.Equal(t, byte(3), data[7])
+}
