@@ -64,6 +64,37 @@ Linux packages now include:
 - Data directory (`/var/lib/liftbridge/data`)
 - Dedicated `liftbridge` user/group
 
+#### Anonymous Telemetry
+Added opt-out telemetry to help improve Liftbridge by collecting anonymous usage statistics.
+
+**What's Collected**:
+- Instance ID (random UUID, persistent per installation)
+- Liftbridge version
+- OS information (name, version, architecture)
+- CPU cores (physical/logical)
+- Total system memory
+
+**Privacy**:
+- No message data, stream names, or personally identifiable information
+- No network addresses, credentials, or performance metrics
+- Data sent to `telemetry.basekick.net` every 24 hours
+- Easy opt-out via configuration or environment variable
+
+**Configuration**:
+```yaml
+telemetry:
+  enabled: false  # Set to false to disable
+  interval:
+    seconds: 86400  # Default: 24 hours
+```
+
+Or via environment variables:
+```bash
+export LIFTBRIDGE_TELEMETRY_ENABLED=false
+```
+
+See the [Telemetry Documentation](https://docs.basekick.net/liftbridge/operations/telemetry) for full details.
+
 ### Dependencies Updated
 | Package | Before | After |
 |---------|--------|-------|
