@@ -53,6 +53,7 @@ func getTestConfig(id string, bootstrap bool, port int) *Config {
 	config.EmbeddedNATS = bootstrap
 	config.LogSilent = true
 	config.Port = port
+	config.Telemetry.Enabled = false
 	return config
 }
 
