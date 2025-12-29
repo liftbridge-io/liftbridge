@@ -25,6 +25,7 @@ import (
 	"github.com/liftbridge-io/liftbridge/server/health"
 	"github.com/liftbridge-io/liftbridge/server/logger"
 	proto "github.com/liftbridge-io/liftbridge/server/protocol"
+	"github.com/liftbridge-io/liftbridge/server/telemetry"
 )
 
 const stateFile = "liftbridge"
@@ -89,6 +90,7 @@ type Server struct {
 	raftLogListenersMu sync.RWMutex
 	raftLogListeners   []RaftLogListener
 	authzEnforcer      *authzEnforcer
+	telemetry          *telemetry.Collector
 }
 
 // RunServerWithConfig creates and starts a new Server with the given
@@ -139,6 +141,20 @@ func (s *Server) Start() (err error) {
 	// Recover and persist metadata state.
 	if err := s.recoverAndPersistState(); err != nil {
 		return errors.Wrap(err, "failed to recover or persist metadata state")
+	}
+
+	// Initialize telemetry collector.
+	if s.config.Telemetry.Enabled {
+		telemetryCfg := &telemetry.Config{
+			Enabled:  true,
+			Interval: time.Duration(s.config.Telemetry.IntervalSeconds) * time.Second,
+			DataDir:  s.config.DataDir,
+		}
+		var telemetryErr error
+		s.telemetry, telemetryErr = telemetry.New(telemetryCfg, Version, s.logger)
+		if telemetryErr != nil {
+			s.logger.Warnf("Failed to initialize telemetry: %v", telemetryErr)
+		}
 	}
 
 	s.logger.Infof("Liftbridge Version:        %s", Version)
@@ -206,6 +222,12 @@ func (s *Server) Start() (err error) {
 	}
 
 	s.startRaftLeadershipLoop(raftNode)
+
+	// Start telemetry collector.
+	if s.telemetry != nil {
+		s.telemetry.Start()
+	}
+
 	return nil
 }
 
@@ -213,6 +235,12 @@ func (s *Server) Start() (err error) {
 // and waiting for all goroutines to return.
 func (s *Server) Stop() error {
 	health.SetNotServing()
+
+	// Stop telemetry collector.
+	if s.telemetry != nil {
+		s.telemetry.Stop()
+	}
+
 	s.mu.Lock()
 	if s.shutdown {
 		s.mu.Unlock()
