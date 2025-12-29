@@ -57,6 +57,8 @@ const (
 	defaultEncryption                     = false
 	defaultGroupsConsumerTimeout          = 15 * time.Second
 	defaultGroupsCoordinatorTimeout       = 15 * time.Second
+	defaultTelemetryEnabled               = true
+	defaultTelemetryIntervalSeconds       = 86400 // 24 hours
 )
 
 // Config setting key names.
@@ -130,6 +132,9 @@ const (
 
 	configGroupsConsumerTimeout    = "groups.consumer.timeout"
 	configGroupsCoordinatorTimeout = "groups.coordinator.timeout"
+
+	configTelemetryEnabled         = "telemetry.enabled"
+	configTelemetryIntervalSeconds = "telemetry.interval.seconds"
 )
 
 var configKeys = map[string]struct{}{
@@ -193,6 +198,8 @@ var configKeys = map[string]struct{}{
 	configCursorsStreamAutoPauseTime:           {},
 	configGroupsConsumerTimeout:                {},
 	configGroupsCoordinatorTimeout:             {},
+	configTelemetryEnabled:                     {},
+	configTelemetryIntervalSeconds:             {},
 }
 
 // StreamsConfig contains settings for controlling the message log for streams.
@@ -349,6 +356,12 @@ type GroupsConfig struct {
 	CoordinatorTimeout time.Duration
 }
 
+// TelemetryConfig contains settings for controlling telemetry behavior.
+type TelemetryConfig struct {
+	Enabled         bool
+	IntervalSeconds int
+}
+
 // Config contains all settings for a Liftbridge Server.
 type Config struct {
 	Listen               HostPort
@@ -378,6 +391,7 @@ type Config struct {
 	ActivityStream       ActivityStreamConfig
 	CursorsStream        CursorsStreamConfig
 	Groups               GroupsConfig
+	Telemetry            TelemetryConfig
 }
 
 // NewDefaultConfig creates a new Config with default settings.
@@ -412,6 +426,8 @@ func NewDefaultConfig() *Config {
 	config.CursorsStream.AutoPauseTime = defaultCursorsStreamAutoPauseTime
 	config.Groups.ConsumerTimeout = defaultGroupsConsumerTimeout
 	config.Groups.CoordinatorTimeout = defaultGroupsCoordinatorTimeout
+	config.Telemetry.Enabled = defaultTelemetryEnabled
+	config.Telemetry.IntervalSeconds = defaultTelemetryIntervalSeconds
 	return config
 }
 
@@ -615,6 +631,7 @@ func NewConfig(configFile string) (*Config, error) { // nolint: gocyclo
 	if err := parseGroupsConfig(config, v); err != nil {
 		return nil, err
 	}
+	parseTelemetryConfig(config, v)
 
 	// If SegmentMaxAge is not set, default it to the retention time.
 	if config.Streams.SegmentMaxAge == 0 {
@@ -854,6 +871,18 @@ func parseGroupsConfig(config *Config, v *viper.Viper) error { // nolint: gocycl
 	}
 
 	return nil
+}
+
+// parseTelemetryConfig parses the `telemetry` section of a config file and
+// populates the given Config.
+func parseTelemetryConfig(config *Config, v *viper.Viper) {
+	if v.IsSet(configTelemetryEnabled) {
+		config.Telemetry.Enabled = v.GetBool(configTelemetryEnabled)
+	}
+
+	if v.IsSet(configTelemetryIntervalSeconds) {
+		config.Telemetry.IntervalSeconds = v.GetInt(configTelemetryIntervalSeconds)
+	}
 }
 
 // HostPort is simple struct to hold parsed listen/addr strings.
