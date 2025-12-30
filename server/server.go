@@ -106,7 +106,11 @@ func RunServerWithConfig(config *Config) (*Server, error) {
 func New(config *Config) *Server {
 	// Default data path to /tmp/liftbridge/<namespace> if not set.
 	if config.DataDir == "" {
-		config.DataDir = filepath.Join("/tmp", "liftbridge", config.Clustering.Namespace)
+		prefix := os.Getenv("PREFIX")
+		if prefix == "" {
+			prefix = "/"
+		}
+		config.DataDir = filepath.Join(prefix, "tmp", "liftbridge", config.Clustering.Namespace)
 	}
 	logger := logger.NewLogger(config.LogLevel)
 	if config.LogSilent {
