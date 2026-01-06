@@ -33,6 +33,39 @@ This project is maintained by [Basekick Labs](https://github.com/basekick-labs),
 - [FAQ](https://liftbridge.io/docs/faq.html)
 - [Website](https://liftbridge.io)
 
+## Performance
+
+Liftbridge delivers high-throughput message ingestion with durable storage. The following benchmarks were run on a single node with replication factor 1:
+
+| Configuration | Throughput | Latency (P99) |
+|--------------|------------|---------------|
+| 1 publisher, synchronous | ~30K msgs/sec | 306µs |
+| 1 publisher, pub-batch=100 | ~139K msgs/sec | 1.0ms |
+| 4 publishers, pub-batch=100 | ~241K msgs/sec | 2.0ms |
+| 256 publishers, synchronous | ~200K msgs/sec | 1.4ms |
+
+For comparison, NATS JetStream achieves ~220K msgs/sec with similar settings (pubbatch=100, file storage, RF=1).
+
+### Running Benchmarks
+
+```bash
+# Producer benchmark with async batching (recommended for high throughput)
+go run ./bench/producer \
+  --servers localhost:9292 \
+  --messages 100000 \
+  --message-size 256 \
+  --concurrent 4 \
+  --pub-batch 100 \
+  --ack-policy leader \
+  --create-stream
+
+# Consumer benchmark
+go run ./bench/consumer \
+  --servers localhost:9292 \
+  --stream bench-stream \
+  --expected 100000
+```
+
 ## Community
 
 - [Discord](https://discord.gg/nxnWfUxsdm)

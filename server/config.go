@@ -43,6 +43,7 @@ const (
 	defaultRaftCacheSize                  = 512
 	defaultMetadataCacheMaxAge            = 2 * time.Minute
 	defaultBatchMaxMessages               = 1024
+	defaultBatchMaxTime                   = 0 // Disabled by default; set to enable waiting for batches
 	defaultReplicaFetchTimeout            = 3 * time.Second
 	defaultMinInsyncReplicas              = 1
 	defaultRetentionMaxAge                = 7 * 24 * time.Hour
@@ -402,6 +403,7 @@ func NewDefaultConfig() *Config {
 	}
 	config.LogLevel = uint32(log.InfoLevel)
 	config.BatchMaxMessages = defaultBatchMaxMessages
+	// BatchMaxTime defaults to 0 (no wait)
 	config.MetadataCacheMaxAge = defaultMetadataCacheMaxAge
 	config.NATS.Servers = []string{nats.DefaultURL}
 	config.Clustering.ServerID = nuid.Next()
