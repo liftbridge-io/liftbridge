@@ -1186,35 +1186,24 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 		msgBatch = append(msgBatch, m)
 		remaining := batchSize - 1
 
-		// Fill the batch up to the max batch size or until the channel is
-		// empty.
+		// Fill the batch up to the max batch size or until timeout.
+		// Use a timer-based approach for efficient batching.
+		var batchTimer *time.Timer
+		var batchTimerC <-chan time.Time
+		if batchWait > 0 {
+			batchTimer = time.NewTimer(batchWait)
+			batchTimerC = batchTimer.C
+		}
+
+	batchLoop:
 		for remaining > 0 {
-			chanLen := len(recvChan)
-			if chanLen == 0 {
-				if batchWait > 0 {
-					time.Sleep(batchWait)
-					chanLen = len(recvChan)
-					if chanLen == 0 {
-						break
-					}
-				} else {
-					break
-				}
-			}
-
-			if chanLen > remaining {
-				chanLen = remaining
-			}
-
-			added := 0
-			for i := 0; i < chanLen; i++ {
-				msg = <-recvChan
+			// First, drain any immediately available messages without blocking
+			select {
+			case msg = <-recvChan:
 				m := natsToProtoMessage(msg, leaderEpoch)
 
 				if p.encryptionHandler != nil {
-					// Encrypt value
 					encryptedValue, err := p.encryptionHandler.Seal(m.Value)
-
 					if err != nil {
 						ack := &client.Ack{
 							Stream:             p.Stream,
@@ -1226,22 +1215,69 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 							ReceptionTimestamp: m.Timestamp,
 							AckError:           client.Ack_ENCRYPTION,
 						}
-
 						p.sendAck(ack)
 						p.srv.logger.Errorf("Failed to encrypt message %s: %v", p, err)
-						continue
+						continue batchLoop
 					}
-					// Set encrypted value
 					m.Value = encryptedValue
 				}
 				if int64(len(msg.Data)) > p.srv.config.Clustering.ReplicationMaxBytes {
 					p.sendTooLargeNack(m)
-					continue
+					continue batchLoop
 				}
 				msgBatch = append(msgBatch, m)
-				added++
+				remaining--
+			default:
+				// No more immediately available messages
+				if batchWait == 0 {
+					// No batch wait configured, dispatch now
+					break batchLoop
+				}
+				// Wait for more messages or timeout
+				select {
+				case msg = <-recvChan:
+					m := natsToProtoMessage(msg, leaderEpoch)
+
+					if p.encryptionHandler != nil {
+						encryptedValue, err := p.encryptionHandler.Seal(m.Value)
+						if err != nil {
+							ack := &client.Ack{
+								Stream:             p.Stream,
+								PartitionSubject:   p.Subject,
+								MsgSubject:         string(m.Headers["subject"]),
+								AckInbox:           m.AckInbox,
+								CorrelationId:      m.CorrelationID,
+								AckPolicy:          m.AckPolicy,
+								ReceptionTimestamp: m.Timestamp,
+								AckError:           client.Ack_ENCRYPTION,
+							}
+							p.sendAck(ack)
+							p.srv.logger.Errorf("Failed to encrypt message %s: %v", p, err)
+							continue batchLoop
+						}
+						m.Value = encryptedValue
+					}
+					if int64(len(msg.Data)) > p.srv.config.Clustering.ReplicationMaxBytes {
+						p.sendTooLargeNack(m)
+						continue batchLoop
+					}
+					msgBatch = append(msgBatch, m)
+					remaining--
+				case <-batchTimerC:
+					// Batch timeout reached, dispatch what we have
+					break batchLoop
+				case <-stop:
+					if batchTimer != nil {
+						batchTimer.Stop()
+					}
+					return
+				}
 			}
-			remaining -= added
+		}
+
+		// Stop the timer if it was created
+		if batchTimer != nil {
+			batchTimer.Stop()
 		}
 
 		// Write uncommitted messages to log.
@@ -1268,8 +1304,20 @@ func (p *partition) messageProcessingLoop(recvChan <-chan *nats.Msg, stop <-chan
 			continue
 		}
 
+		// Track if we can use the fast path (RF=1 with no AckPolicy_ALL messages).
+		useFastPath := p.ReplicationFactor == 1
 		for i, msg := range msgBatch {
+			if msg.AckPolicy == client.AckPolicy_ALL {
+				useFastPath = false
+			}
 			p.processPendingMessage(offsets[i], msg)
+		}
+
+		// Fast path for RF=1: update high watermark once per batch instead of
+		// going through the commit queue. This avoids queue overhead when there's
+		// no replication to coordinate.
+		if useFastPath {
+			p.log.SetHighWatermark(offsets[len(offsets)-1])
 		}
 
 		// Update this replica's latest offset.
@@ -1299,6 +1347,17 @@ func (p *partition) processPendingMessage(offset int64, msg *commitlog.Message) 
 		// leader has written the message to its WAL.
 		p.sendAck(ack)
 	}
+
+	// Fast path: skip commit queue for RF=1 when ack policy doesn't require
+	// waiting for replication (LEADER or NONE). The ack is already sent above
+	// for LEADER, and NONE doesn't need any ack. The commit queue is only
+	// needed for AckPolicy_ALL which requires waiting for ISR replication.
+	// Note: High watermark is updated once per batch in messageProcessingLoop,
+	// not per message, to avoid contention.
+	if p.ReplicationFactor == 1 && msg.AckPolicy != client.AckPolicy_ALL {
+		return
+	}
+
 	if err := p.commitQueue.Put(ack); err != nil {
 		// An error here indicates the queue was disposed as a result of the
 		// leader stepping down.

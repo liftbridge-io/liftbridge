@@ -1365,8 +1365,8 @@ func TestPropagatedShrinkExpandISR(t *testing.T) {
 	s2 := runServerWithConfig(t, s2Config)
 	defer s2.Stop()
 
-	// Wait for server to elect itself leader.
-	controller := getMetadataLeader(t, 10*time.Second, s1)
+	// Wait for servers to elect a leader and agree on it.
+	controller := getMetadataLeader(t, 10*time.Second, s1, s2)
 
 	client, err := lift.Connect([]string{"localhost:5050"})
 	require.NoError(t, err)

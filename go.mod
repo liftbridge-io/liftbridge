@@ -3,6 +3,7 @@ module github.com/liftbridge-io/liftbridge
 go 1.25.3
 
 require (
+	github.com/HdrHistogram/hdrhistogram-go v1.1.2
 	github.com/Workiva/go-datastructures v1.0.52
 	github.com/casbin/casbin/v2 v2.135.0
 	github.com/dustin/go-humanize v1.0.0
