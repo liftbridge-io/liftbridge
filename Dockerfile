@@ -20,6 +20,7 @@ RUN go build -mod=readonly \
 
 FROM alpine:latest
 RUN addgroup -g 1001 -S liftbridge && adduser -u 1001 -S liftbridge -G liftbridge
+RUN mkdir -p /tmp/liftbridge && chown liftbridge:liftbridge /tmp/liftbridge
 COPY --chown=liftbridge:liftbridge --from=build-base /workspace/liftbridge /usr/local/bin/liftbridge
 EXPOSE 9292
 VOLUME "/tmp/liftbridge/liftbridge-default"
