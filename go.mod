@@ -27,8 +27,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/tysonmote/gommap v0.0.2-0.20220314171410-078b7adc9d18
 	github.com/urfave/cli v1.22.4
-	google.golang.org/grpc v1.79.3
-	google.golang.org/protobuf v1.36.10
+	google.golang.org/grpc v1.82.1
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
