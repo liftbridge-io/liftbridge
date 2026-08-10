@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -436,7 +437,12 @@ func NewDefaultConfig() *Config {
 // NATSServersString returns a human-readable string representation of the
 // list of NATS servers.
 func (c Config) NATSServersString() string {
-	return "[" + strings.Join(c.NATS.Servers, ", ") + "]"
+	servers := make([]string, len(c.NATS.Servers))
+	for i, server := range c.NATS.Servers {
+		u, _ := url.Parse(server)
+		servers[i] = u.Redacted()
+	}
+	return "[" + strings.Join(servers, ", ") + "]"
 }
 
 // GetListenAddress returns the address and port to listen to.
