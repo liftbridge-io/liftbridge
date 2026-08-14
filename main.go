@@ -94,6 +94,10 @@ func overrideFromFlags(c *cli.Context, config *server.Config) error {
 }
 
 func getFlags() []cli.Flag {
+	prefix := os.Getenv("PREFIX")
+	if prefix == "" {
+		prefix = "/"
+	}
 	return []cli.Flag{
 		cli.StringFlag{
 			Name:  "config, c",
@@ -125,7 +129,7 @@ func getFlags() []cli.Flag {
 		},
 		cli.StringFlag{
 			Name:  "data-dir, d",
-			Usage: "store data in `DIR` (default: \"/tmp/liftbridge/<namespace>\")",
+			Usage: fmt.Sprintf("store data in `DIR` (default: \"%stmp/liftbridge/<namespace>\")", prefix),
 		},
 		cli.IntFlag{
 			Name:  "port, p",
