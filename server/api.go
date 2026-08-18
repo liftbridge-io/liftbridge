@@ -223,17 +223,18 @@ func (a *apiServer) SetStreamReadonly(ctx context.Context, req *client.SetStream
 // subscribed to a given partition at a time. Use the request context to close
 // the subscription.
 func (a *apiServer) Subscribe(req *client.SubscribeRequest, out client.API_SubscribeServer) error {
+	e := a.ensureAuthorizationPermission(out.Context(), req.Stream, "Subscribe")
+	if e != nil {
+		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
+		return e
+	}
+	
 	sub, err := a.SubscribeInternal(out.Context(), req)
 	if err != nil {
 		return err
 	}
 	defer sub.Close()
 
-	e := a.ensureAuthorizationPermission(out.Context(), req.Stream, "Subscribe")
-	if e != nil {
-		a.logger.Errorf("api: Failed to authorize call on resource: %v", e)
-		return e
-	}
 	// Send an empty message which signals the subscription was successfully
 	// created.
 	if err := out.Send(&client.Message{}); err != nil {
